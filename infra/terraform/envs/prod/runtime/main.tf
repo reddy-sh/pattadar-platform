@@ -54,8 +54,10 @@ module "runtime" {
   api_base_url    = var.api_base_url
 
   gateway_image_tag = var.gateway_image_tag
-  api_image_tag     = var.api_image_tag
-  desired_count     = var.desired_count
+
+  assistant_image_tag = var.assistant_image_tag
+  api_image_tag       = var.api_image_tag
+  desired_count       = var.desired_count
 
   deletion_protection         = var.deletion_protection
   final_snapshot_suffix       = var.final_snapshot_suffix

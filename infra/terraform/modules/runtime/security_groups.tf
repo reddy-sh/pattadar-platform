@@ -130,7 +130,7 @@ resource "aws_security_group" "assistant" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description     = "gateway -> assistant"
+    description     = "gateway to assistant"
     from_port       = 8080
     to_port         = 8080
     protocol        = "tcp"
