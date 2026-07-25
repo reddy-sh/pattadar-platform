@@ -8,9 +8,11 @@
 resource "aws_route53_record" "apex_a" {
   count = var.enable_cdn ? 1 : 0
 
-  zone_id = local.zone_id
-  name    = var.web_domain
-  type    = "A"
+  # Overwrite the out-of-band records that kept the Azure site live pre-cutover.
+  allow_overwrite = true
+  zone_id         = local.zone_id
+  name            = var.web_domain
+  type            = "A"
 
   alias {
     name                   = aws_cloudfront_distribution.web[0].domain_name
@@ -22,9 +24,11 @@ resource "aws_route53_record" "apex_a" {
 resource "aws_route53_record" "apex_aaaa" {
   count = var.enable_cdn ? 1 : 0
 
-  zone_id = local.zone_id
-  name    = var.web_domain
-  type    = "AAAA"
+  # Overwrite the out-of-band records that kept the Azure site live pre-cutover.
+  allow_overwrite = true
+  zone_id         = local.zone_id
+  name            = var.web_domain
+  type            = "AAAA"
 
   alias {
     name                   = aws_cloudfront_distribution.web[0].domain_name
@@ -36,9 +40,10 @@ resource "aws_route53_record" "apex_aaaa" {
 resource "aws_route53_record" "www_a" {
   count = var.enable_cdn ? 1 : 0
 
-  zone_id = local.zone_id
-  name    = local.www_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = local.zone_id
+  name            = local.www_domain
+  type            = "A"
 
   alias {
     name                   = aws_cloudfront_distribution.web[0].domain_name
@@ -50,9 +55,10 @@ resource "aws_route53_record" "www_a" {
 resource "aws_route53_record" "www_aaaa" {
   count = var.enable_cdn ? 1 : 0
 
-  zone_id = local.zone_id
-  name    = local.www_domain
-  type    = "AAAA"
+  allow_overwrite = true
+  zone_id         = local.zone_id
+  name            = local.www_domain
+  type            = "AAAA"
 
   alias {
     name                   = aws_cloudfront_distribution.web[0].domain_name

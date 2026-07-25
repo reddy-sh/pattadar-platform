@@ -203,6 +203,39 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
+# Viewer-request function on the DEFAULT behavior only: (a) 301 www -> apex
+# (keeps Cognito callbacks single-origin), (b) SPA fallback — extension-less
+# URIs rewrite to /index.html BEFORE the origin fetch. Scoped to the default
+# behavior, so /api/* status codes and WAF blocks pass through untouched
+# (review finding: custom_error_response was distribution-wide and rewrote
+# API 403/404s to 200 + index.html).
+resource "aws_cloudfront_function" "spa_router" {
+  count = var.enable_cdn ? 1 : 0
+
+  name    = "${local.prefix}-spa-router"
+  runtime = "cloudfront-js-2.0"
+  comment = "www->apex redirect + SPA index.html rewrite"
+  publish = true
+
+  code = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      var host = request.headers.host ? request.headers.host.value : '';
+      if (host === 'www.${var.web_domain}') {
+        return {
+          statusCode: 301,
+          statusDescription: 'Moved Permanently',
+          headers: { location: { value: 'https://${var.web_domain}' + request.uri } }
+        };
+      }
+      if (!request.uri.includes('.')) {
+        request.uri = '/index.html';
+      }
+      return request;
+    }
+  EOT
+}
+
 resource "aws_cloudfront_distribution" "web" {
   count = var.enable_cdn ? 1 : 0
 
@@ -243,6 +276,11 @@ resource "aws_cloudfront_distribution" "web" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_router[0].arn
+    }
   }
 
   # Same-origin API: browser calls https://pattadar.com/api/* — no CORS.
@@ -259,9 +297,9 @@ resource "aws_cloudfront_distribution" "web" {
   }
 
   # Serve /.well-known/* files verbatim from the bucket (e.g.
-  # assetlinks.json / apple-app-site-association). NOTE: the 403/404 ->
-  # index.html SPA fallback below is distribution-wide, so these files MUST
-  # actually exist in the bucket — a missing one returns index.html, not 404.
+  # assetlinks.json / apple-app-site-association). The SPA rewrite lives in a
+  # viewer-request function on the DEFAULT behavior only, so a missing file
+  # here is a genuine 404.
   ordered_cache_behavior {
     path_pattern           = "/.well-known/*"
     target_origin_id       = "spa"
@@ -270,22 +308,6 @@ resource "aws_cloudfront_distribution" "web" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     cache_policy_id        = data.aws_cloudfront_cache_policy.caching_disabled.id
-  }
-
-  # SPA fallback: client-side routes are unknown to S3 — rewrite S3's
-  # AccessDenied(403)/404 to index.html with a 200.
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
   }
 
   restrictions {
