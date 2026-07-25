@@ -37,6 +37,7 @@ module "persistent" {
   app_name           = "pattadar"
   environment        = "prod"
   custom_auth_domain = "auth.pattadar.com"
+  enable_google_idp  = true
 
   noncurrent_version_expiration_days = var.noncurrent_version_expiration_days
   parking_storage_class              = var.parking_storage_class
