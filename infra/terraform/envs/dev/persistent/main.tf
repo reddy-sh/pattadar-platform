@@ -40,4 +40,5 @@ module "persistent" {
   manage_dns          = var.manage_dns
   manage_github_oidc  = var.manage_github_oidc
   manage_org_security = var.manage_org_security
+  manage_ecr          = var.manage_ecr
 }

@@ -4,7 +4,7 @@
 # reuse prod's repositories (see README).
 
 resource "aws_ecr_repository" "service" {
-  for_each = local.services
+  for_each = var.manage_ecr ? local.services : toset([])
 
   name = "${var.app_name}/${each.key}"
 

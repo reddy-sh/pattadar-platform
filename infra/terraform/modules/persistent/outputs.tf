@@ -40,7 +40,7 @@ output "parking_storage_class" {
 
 output "ecr_repository_urls" {
   description = "Map of service name -> ECR repository URL."
-  value       = { for k, r in aws_ecr_repository.service : k => r.repository_url }
+  value       = var.manage_ecr ? { for k, r in aws_ecr_repository.service : k => r.repository_url } : { for k in local.services : k => "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${var.app_name}/${k}" }
 }
 
 # --- Secrets ---

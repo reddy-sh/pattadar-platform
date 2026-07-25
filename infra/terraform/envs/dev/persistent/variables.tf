@@ -30,3 +30,9 @@ variable "manage_org_security" {
   type        = bool
   default     = true
 }
+
+variable "manage_ecr" {
+  description = "Create the shared ECR repositories. False when dev shares prod's account."
+  type        = bool
+  default     = true
+}
