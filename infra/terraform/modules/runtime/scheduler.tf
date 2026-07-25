@@ -1,6 +1,9 @@
 # Daily inactivity-check (family dead-man's-switch escalation engine).
-# EventBridge Scheduler -> EventBridge API destination -> POST
+# EventBridge RULE (cron) -> EventBridge API destination -> POST
 # ${api_base_url}/cron/inactivity-check with the x-cron-secret header.
+# NOTE: EventBridge *Scheduler* does not support API destinations as targets
+# (ValidationException: Arn not in correct format — verified empirically);
+# scheduled rules do.
 #
 # The header value is read from the persistent cron-secret secret, so the
 # founder must have filled it (`aws secretsmanager put-secret-value`) BEFORE
@@ -39,7 +42,7 @@ data "aws_iam_policy_document" "scheduler_assume" {
 
     principals {
       type        = "Service"
-      identifiers = ["scheduler.amazonaws.com"]
+      identifiers = ["events.amazonaws.com"]
     }
   }
 }
@@ -63,27 +66,24 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
   policy = data.aws_iam_policy_document.scheduler_invoke.json
 }
 
-resource "aws_scheduler_schedule" "inactivity_check" {
-  name        = "${local.prefix}-inactivity-check"
-  description = "Daily inactivity check at 06:00 UTC (11:30 IST)"
+resource "aws_cloudwatch_event_rule" "inactivity_check" {
+  name                = "${local.prefix}-inactivity-check"
+  description         = "Daily inactivity check at 06:00 UTC (11:30 IST)"
+  schedule_expression = "cron(0 6 * * ? *)"
+  tags                = local.tags
+}
 
-  schedule_expression          = "cron(0 6 * * ? *)"
-  schedule_expression_timezone = "UTC"
+resource "aws_cloudwatch_event_target" "inactivity_check" {
+  rule      = aws_cloudwatch_event_rule.inactivity_check.name
+  target_id = "api-destination"
+  arn       = aws_cloudwatch_event_api_destination.inactivity_check.arn
+  role_arn  = aws_iam_role.scheduler.arn
 
-  flexible_time_window {
-    mode = "OFF"
-  }
-
-  target {
-    arn      = aws_cloudwatch_event_api_destination.inactivity_check.arn
-    role_arn = aws_iam_role.scheduler.arn
-
-    # NO retries: a re-fired run could double-send the dead-man's-switch
-    # escalation notifications to family members. A missed day is recoverable;
-    # duplicate "is Sankara ok?" alerts are not.
-    retry_policy {
-      maximum_retry_attempts       = 0
-      maximum_event_age_in_seconds = 60
-    }
+  # NO retries: a re-fired run could double-send the dead-man's-switch
+  # escalation notifications to family members. A missed day is recoverable;
+  # duplicate "is Sankara ok?" alerts are not.
+  retry_policy {
+    maximum_retry_attempts       = 0
+    maximum_event_age_in_seconds = 60
   }
 }
