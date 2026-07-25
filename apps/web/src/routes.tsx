@@ -1,9 +1,11 @@
 /**
  * Route table.
  *
- * Public: "/" landing, "/privacy", "/terms", "/auth/callback", and
- * "/verify/:token" (beneficiary verification must work WITHOUT login —
- * invitees follow this link before they have accounts).
+ * Public: "/" landing, "/login", "/signup", "/forgot-password" (native
+ * in-app auth pages — customers never leave pattadar.com), "/privacy",
+ * "/terms", "/auth/callback" (social-login return), and "/verify/:token"
+ * (beneficiary verification must work WITHOUT login — invitees follow this
+ * link before they have accounts).
  *
  * App: everything under "/app/*", gated by RequireAuth.
  *
@@ -28,6 +30,13 @@ const PrivacyPage = lazy(() =>
 const TermsPage = lazy(() => import('./pages/legal/TermsPage').then((m) => ({ default: m.TermsPage })));
 const AuthCallbackPage = lazy(() =>
   import('./auth/AuthCallbackPage').then((m) => ({ default: m.AuthCallbackPage })),
+);
+const LoginPage = lazy(() => import('./pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
+const SignupPage = lazy(() =>
+  import('./pages/auth/SignupPage').then((m) => ({ default: m.SignupPage })),
+);
+const ForgotPasswordPage = lazy(() =>
+  import('./pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })),
 );
 const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ default: m.VerifyPage })));
 
@@ -86,6 +95,9 @@ function suspended(Component: LazyExoticComponent<ComponentType>) {
 
 export const router = createBrowserRouter([
   { path: '/', element: suspended(LandingPage) },
+  { path: '/login', element: suspended(LoginPage) },
+  { path: '/signup', element: suspended(SignupPage) },
+  { path: '/forgot-password', element: suspended(ForgotPasswordPage) },
   { path: '/privacy', element: suspended(PrivacyPage) },
   { path: '/terms', element: suspended(TermsPage) },
   { path: '/auth/callback', element: suspended(AuthCallbackPage) },

@@ -1,10 +1,19 @@
 /**
- * Cognito authentication (OIDC authorization-code + PKCE) via oidc-client-ts.
+ * Auth facade over TWO token sources:
  *
- * Real mode: configured entirely from VITE_COGNITO_* env vars (see
- * .env.example). Tokens live in localStorage; silent renew uses the refresh
- * token Cognito issues to public clients. The ACCESS token is injected into
- * the API client seam so every gateway call carries a Bearer header.
+ * 1. NATIVE Cognito session (src/auth/cognitoNative.ts, SRP) — primary path
+ *    for email/password. Sign-in/up/confirm/reset all happen on OUR pages
+ *    (/login, /signup, /forgot-password) with zero redirects, so customers
+ *    never see a non-pattadar.com URL (founder rule).
+ * 2. oidc-client-ts redirect flow — kept ONLY for social logins
+ *    (Google/Facebook/Apple), because OAuth requires leaving the page. The
+ *    redirect goes to the custom domain in VITE_COGNITO_DOMAIN
+ *    (auth.pattadar.com) and returns to /auth/callback. signInSocial passes
+ *    identity_provider so Cognito skips its own chooser page.
+ *
+ * getAccessToken (the API-client seam) checks the native session first —
+ * the library refreshes an expired access token automatically via the stored
+ * refresh token — then falls back to the oidc user.
  *
  * MOCK MODE: when VITE_COGNITO_AUTHORITY is unset (or empty), auth becomes a
  * local stub — a dev user is "signed in" automatically so `bun run dev`
@@ -16,6 +25,12 @@ import type { ReactNode } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import type { User } from 'oidc-client-ts';
 import { setAccessTokenProvider } from '../api/client';
+import {
+  getNativeSession,
+  hasNativeUser,
+  signIn as nativeSignIn,
+  signOutNative,
+} from './cognitoNative';
 
 const authority = import.meta.env.VITE_COGNITO_AUTHORITY as string | undefined;
 
@@ -27,7 +42,37 @@ export interface AuthUser {
   email: string;
 }
 
+/** Cognito identity_provider values for the supported social logins. */
+export type SocialProvider = 'Google' | 'Facebook' | 'SignInWithApple';
+
 const MOCK_USER: AuthUser = { email: 'dev@pattadar.local' };
+
+/**
+ * Social providers enabled via VITE_SOCIAL_PROVIDERS (comma-separated, e.g.
+ * "Google,Facebook,Apple"). Unset/empty = no social section on /login.
+ */
+export function enabledSocialProviders(): Array<{ provider: SocialProvider; label: string }> {
+  const raw = import.meta.env.VITE_SOCIAL_PROVIDERS as string | undefined;
+  if (!raw) return [];
+  const out: Array<{ provider: SocialProvider; label: string }> = [];
+  for (const entry of raw.split(',')) {
+    switch (entry.trim().toLowerCase()) {
+      case 'google':
+        out.push({ provider: 'Google', label: 'Google' });
+        break;
+      case 'facebook':
+        out.push({ provider: 'Facebook', label: 'Facebook' });
+        break;
+      case 'apple':
+      case 'signinwithapple':
+        out.push({ provider: 'SignInWithApple', label: 'Apple' });
+        break;
+      default:
+        break; // Ignore unknown entries.
+    }
+  }
+  return out;
+}
 
 function buildUserManager(): UserManager {
   return new UserManager({
@@ -46,12 +91,18 @@ function buildUserManager(): UserManager {
 /** Singleton shared by the provider, the callback page, and the API seam. */
 const userManager: UserManager | null = isAuthMocked ? null : buildUserManager();
 
-// Wire the ACCESS token into the API client. In mock mode the provider stays
-// the default (null) — local dev talks to the gateway unauthenticated.
-if (userManager) {
+// Wire the ACCESS token into the API client: native session first (the lib
+// auto-refreshes it), then the oidc (social) user. In mock mode the provider
+// stays the default (null) — local dev talks to the gateway unauthenticated.
+if (!isAuthMocked) {
   setAccessTokenProvider(async () => {
-    const u = await userManager.getUser();
-    return u && !u.expired ? u.access_token : null;
+    const session = await getNativeSession();
+    if (session) return session.getAccessToken().getJwtToken();
+    if (userManager) {
+      const u = await userManager.getUser();
+      if (u && !u.expired) return u.access_token;
+    }
+    return null;
   });
 }
 
@@ -60,9 +111,10 @@ function toAuthUser(user: User): AuthUser {
 }
 
 /**
- * Cognito hosted-UI logout URL. Clearing the local session is not enough:
- * the hosted UI keeps its own cookie, so /logout must be visited or the next
- * signIn() silently signs the same user back in.
+ * Cognito hosted-UI logout URL — SOCIAL sessions only. The hosted UI keeps
+ * its own cookie for OAuth sign-ins, so /logout must be visited or the next
+ * social sign-in silently signs the same user back in. Native (email/
+ * password) sessions never touch the hosted UI and need no redirect.
  */
 function hostedUiLogoutUrl(): string {
   const domain = import.meta.env.VITE_COGNITO_DOMAIN as string | undefined;
@@ -75,7 +127,7 @@ function hostedUiLogoutUrl(): string {
 }
 
 /**
- * Complete the redirect from the Cognito hosted UI (called by the
+ * Complete the redirect back from a social login (called by the
  * /auth/callback route). Returns the in-app path to continue to.
  */
 export async function completeSignIn(): Promise<string> {
@@ -89,9 +141,11 @@ interface AuthContextValue {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  /** Redirect to the hosted UI; `returnTo` is the in-app path to resume at. */
-  signIn: (returnTo?: string) => Promise<void>;
-  /** Clear the local session, then sign out of the hosted UI back to "/". */
+  /** Email/password sign-in on OUR page via SRP — no redirect. Throws AuthError. */
+  signInWithPassword: (email: string, password: string) => Promise<void>;
+  /** Social login — redirects to auth.pattadar.com straight to the provider. */
+  signInSocial: (provider: SocialProvider, returnTo?: string) => Promise<void>;
+  /** Clear whichever session is active (native: local only; social: hosted-UI /logout). */
   signOut: () => Promise<void>;
 }
 
@@ -102,24 +156,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(!isAuthMocked);
 
   useEffect(() => {
-    if (!userManager) return;
+    if (isAuthMocked) return;
     let cancelled = false;
-    userManager
-      .getUser()
-      .then((u) => {
+    (async () => {
+      // Native (email/password) session wins; fall back to the social user.
+      const session = await getNativeSession();
+      if (session) {
+        const email = session.getIdToken().payload['email'] as string | undefined;
+        if (!cancelled) setUser({ email: email ?? '' });
+        return;
+      }
+      if (userManager) {
+        const u = await userManager.getUser();
         if (!cancelled) setUser(u && !u.expired ? toAuthUser(u) : null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+      }
+    })().finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
     const onLoaded = (u: User) => setUser(toAuthUser(u));
     const onUnloaded = () => setUser(null);
-    userManager.events.addUserLoaded(onLoaded);
-    userManager.events.addUserUnloaded(onUnloaded);
+    userManager?.events.addUserLoaded(onLoaded);
+    userManager?.events.addUserUnloaded(onUnloaded);
     return () => {
       cancelled = true;
-      userManager.events.removeUserLoaded(onLoaded);
-      userManager.events.removeUserUnloaded(onUnloaded);
+      userManager?.events.removeUserLoaded(onLoaded);
+      userManager?.events.removeUserUnloaded(onUnloaded);
     };
   }, []);
 
@@ -128,21 +189,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isAuthenticated: user !== null,
       isLoading,
-      signIn: async (returnTo?: string) => {
+      signInWithPassword: async (email: string, password: string) => {
+        if (isAuthMocked) return; // Mock mode: dev user is already signed in.
+        const session = await nativeSignIn(email, password);
+        const claim = session.getIdToken().payload['email'] as string | undefined;
+        setUser({ email: claim ?? email });
+      },
+      signInSocial: async (provider: SocialProvider, returnTo?: string) => {
         if (!userManager) {
-          // Mock mode: no hosted UI — go straight into the app.
+          // Mock mode: no provider — go straight into the app.
           window.location.assign(returnTo ?? '/app');
           return;
         }
-        await userManager.signinRedirect({ state: { returnTo: returnTo ?? '/app' } });
+        await userManager.signinRedirect({
+          state: { returnTo: returnTo ?? '/app' },
+          extraQueryParams: { identity_provider: provider },
+        });
       },
       signOut: async () => {
-        if (!userManager) {
+        if (isAuthMocked) {
           window.location.assign('/');
           return;
         }
-        await userManager.removeUser();
-        window.location.assign(hostedUiLogoutUrl());
+        if (hasNativeUser()) {
+          // Native session: clearing local tokens is a full sign-out — the
+          // hosted UI was never involved, so no redirect is needed.
+          signOutNative();
+          setUser(null);
+          window.location.assign('/');
+          return;
+        }
+        if (userManager) {
+          await userManager.removeUser();
+          window.location.assign(hostedUiLogoutUrl());
+        }
       },
     }),
     [user, isLoading],

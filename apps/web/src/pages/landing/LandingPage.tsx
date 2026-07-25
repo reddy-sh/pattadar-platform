@@ -67,14 +67,11 @@ const TRUST_ITEMS: TrustItem[] = [
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, signIn } = useAuth();
-  // In mock mode (or when already signed in) the button goes straight to /app.
+  const { isAuthenticated } = useAuth();
+  // In mock mode (or when already signed in) the button goes straight to
+  // /app; otherwise to OUR native /login page — never an external URL.
   const startSignIn = () => {
-    if (isAuthMocked || isAuthenticated) {
-      navigate('/app');
-    } else {
-      void signIn('/app');
-    }
+    navigate(isAuthMocked || isAuthenticated ? '/app' : '/login');
   };
 
   return (
