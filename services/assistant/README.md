@@ -1,10 +1,12 @@
 # Assistant (services/assistant)
 
-In-app AI assistant. **Phase 3** — nothing is ported yet; this README records the porting
-contract.
+In-app AI assistant. **Ported** — FastAPI service in `src/` (port 8080), image
+`pattadar/assistant` in ECR. See `.env.example` for the env contract.
 
 Ported from rhub `api/assistant` (`agent.py`, `main.py`, `config.py`, `model_registry.py`,
-`telemetry.py`) plus `api/common/prompt_service.py`.
+`telemetry.py`, `conversations.py`, `attachments.py`, `models.py`) plus
+`api/common/prompt_service.py` (now `src/prompt_service.py`, with a built-in default
+pattadar prompt when the `agent_prompts` table/row is absent).
 
 ## Key facts to preserve
 
@@ -19,9 +21,8 @@ Ported from rhub `api/assistant` (`agent.py`, `main.py`, `config.py`, `model_reg
 - **Model catalog**: read from `platform_models` with a 30s cache, so super-admin model
   toggles propagate without a restart.
 
-## TODO(Phase 3)
+## TODO(Phase 3 remainder)
 
-- Port the service into this directory.
-- Wire the assistant panel into the web shell.
-- Page-awareness context (assistant knows which screen the user is on).
+- Page-awareness context (assistant knows which screen the user is on) — the
+  service accepts `application_context` already; the web panel doesn't send it yet.
 - Super-admin Models screen in the web app.

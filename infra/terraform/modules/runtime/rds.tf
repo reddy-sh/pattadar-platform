@@ -86,6 +86,15 @@ resource "aws_secretsmanager_secret" "db_dsn" {
   tags = local.tags
 }
 
+# Static app-user password (review finding: the RDS-managed MASTER password
+# auto-rotates ~7d — services use the pattadar_app role instead; value seeded
+# by the migration runbook).
+resource "aws_secretsmanager_secret" "db_app_password" {
+  name       = "${var.app_name}/${var.environment}/db-app-password"
+  kms_key_id = local.persistent.kms_key_arn
+  tags       = local.tags
+}
+
 resource "aws_secretsmanager_secret_version" "db_dsn" {
   secret_id = aws_secretsmanager_secret.db_dsn.id
   secret_string = format(

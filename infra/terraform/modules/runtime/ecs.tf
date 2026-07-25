@@ -60,6 +60,7 @@ data "aws_iam_policy_document" "execution_secrets" {
       local.persistent.secret_arns["anthropic-api-key"],
       local.persistent.secret_arns["cron-secret"],
       aws_secretsmanager_secret.db_dsn.arn,
+      aws_secretsmanager_secret.db_app_password.arn,
     ]
   }
 
@@ -174,18 +175,23 @@ resource "aws_ecs_task_definition" "gateway" {
       environment = [
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = data.aws_region.current.region },
-        { name = "DOCUMENTS_BUCKET", value = local.persistent.documents_bucket_name },
+        { name = "STORAGE_BUCKET", value = local.persistent.documents_bucket_name },
+        { name = "STORAGE_MAX_UPLOAD_BYTES", value = "104857600" },
         { name = "PG_HOST", value = aws_db_instance.main.address },
         { name = "PG_PORT", value = "5432" },
-        { name = "PG_DATABASE", value = var.db_name },
+        { name = "PG_USER", value = "pattadar_app" },
+        { name = "PG_DATABASE", value = "hub" },
         { name = "COGNITO_USER_POOL_ID", value = local.persistent.cognito_user_pool_id },
         { name = "COGNITO_CLIENT_ID", value = local.persistent.cognito_spa_client_id },
-        { name = "COGNITO_ISSUER", value = local.persistent.cognito_issuer },
-        { name = "API_UPSTREAM_URL", value = "http://api:8080" },
+        { name = "COGNITO_REGION", value = data.aws_region.current.region },
+        { name = "API_BASE_URL", value = "http://api:8080" },
+        { name = "ASSISTANT_BASE_URL", value = "http://assistant:8080" },
+        { name = "ADMIN_USER_IDS", value = "sankara.telukutla" },
       ]
 
       secrets = [
-        { name = "APP_PG_DSN", valueFrom = aws_secretsmanager_secret.db_dsn.arn },
+        { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
+        { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
       ]
 
       logConfiguration = {
@@ -233,6 +239,7 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = data.aws_region.current.region },
+        { name = "APP_PUBLIC_URL", value = "https://${var.web_domain}" },
       ]
 
       # CRON_SECRET is ALWAYS set (invariant): /cron/inactivity-check rejects
@@ -331,10 +338,97 @@ resource "aws_ecs_service" "api" {
   tags = local.tags
 }
 
-# TODO(Phase 3): assistant service — third ECR repo already exists in
-# persistent (ecr_repository_urls["assistant"]). Mirror the api service:
-# ARM64 Fargate behind gateway only (no ALB target group), ANTHROPIC_API_KEY
-# + APP_PG_DSN secrets, Service Connect alias "assistant".
-#
-# resource "aws_ecs_task_definition" "assistant" { ... }
-# resource "aws_ecs_service" "assistant" { ... }
+# --- Assistant (ported service; MCP_URL empty = built-in tools only) ---------
+
+resource "aws_iam_role" "assistant_task" {
+  name               = "${local.prefix}-assistant-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  tags               = local.tags
+}
+
+resource "aws_ecs_task_definition" "assistant" {
+  family                   = "${local.prefix}-assistant"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = tostring(var.task_cpu)
+  memory                   = tostring(var.task_memory)
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.assistant_task.arn
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64"
+  }
+
+  container_definitions = jsonencode([
+    {
+      name      = "assistant"
+      image     = "${local.persistent.ecr_repository_urls["assistant"]}:${var.assistant_image_tag}"
+      essential = true
+
+      portMappings = [
+        {
+          name          = "assistant"
+          containerPort = 8080
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        { name = "PORT", value = "8080" },
+        { name = "AWS_REGION", value = data.aws_region.current.region },
+        { name = "PG_HOST", value = aws_db_instance.main.address },
+        { name = "PG_PORT", value = "5432" },
+        { name = "PG_USER", value = "pattadar_app" },
+        { name = "PG_DATABASE", value = "hub" },
+        { name = "MCP_URL", value = "" },
+      ]
+
+      secrets = [
+        { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
+        { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.service["assistant"].name
+          awslogs-region        = data.aws_region.current.region
+          awslogs-stream-prefix = "assistant"
+        }
+      }
+    }
+  ])
+
+  tags = local.tags
+}
+
+resource "aws_ecs_service" "assistant" {
+  name            = "assistant"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.assistant.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.assistant.id]
+    assign_public_ip = true # no NAT: required to pull from ECR (see header note)
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.main.arn
+
+    service {
+      port_name = "assistant"
+
+      client_alias {
+        port     = 8080
+        dns_name = "assistant"
+      }
+    }
+  }
+
+  tags = local.tags
+}

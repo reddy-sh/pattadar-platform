@@ -49,6 +49,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { gold, green } from '@pattadar/tokens';
+import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 
 const DRAWER_WIDTH = 252;
@@ -195,6 +196,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 export function AppShell() {
   const { user, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [avatarAnchor, setAvatarAnchor] = useState<HTMLElement | null>(null);
 
   const drawerContent = (
@@ -255,12 +257,14 @@ export function AppShell() {
             <Chip size="small" color="warning" label="Auth mocked — dev only" sx={{ mr: 1 }} />
           )}
           <ThemeToggle />
-          <Tooltip title="Assistant arrives in Phase 3">
-            <span>
-              <IconButton color="inherit" disabled>
-                <SmartToyOutlinedIcon />
-              </IconButton>
-            </span>
+          <Tooltip title="Assistant">
+            <IconButton
+              color="inherit"
+              aria-label="Open assistant"
+              onClick={() => setAssistantOpen(true)}
+            >
+              <SmartToyOutlinedIcon />
+            </IconButton>
           </Tooltip>
           <IconButton
             onClick={(e) => setAvatarAnchor(e.currentTarget)}
@@ -334,13 +338,8 @@ export function AppShell() {
         </Box>
       </Box>
 
-      {/* TODO(Phase 3): assistant panel — services/assistant chat surface.
-          Stub kept closed so the layout seam is already in place. */}
-      <Drawer anchor="right" variant="temporary" open={false}>
-        <Box sx={{ width: 320, p: 2 }}>
-          <Typography variant="h4">Assistant</Typography>
-        </Box>
-      </Drawer>
+      {/* Assistant panel — services/assistant chat surface (SSE streaming). */}
+      <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
     </Box>
   );
 }

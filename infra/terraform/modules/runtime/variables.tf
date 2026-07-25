@@ -191,3 +191,9 @@ variable "cloudfront_origin_read_timeout" {
   type        = number
   default     = 60
 }
+
+variable "assistant_image_tag" {
+  description = "Image tag for the assistant service."
+  type        = string
+  default     = "v1"
+}

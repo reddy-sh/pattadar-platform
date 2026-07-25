@@ -122,3 +122,31 @@ resource "aws_security_group" "rds" {
 
   tags = merge(local.tags, { Name = "${local.prefix}-rds" })
 }
+
+# assistant: reachable ONLY from the gateway (SSE proxy path).
+resource "aws_security_group" "assistant" {
+  name_prefix = "${local.prefix}-assistant-"
+  description = "assistant tasks - ingress from gateway only"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "gateway -> assistant"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.gateway.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = local.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}

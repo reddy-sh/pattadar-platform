@@ -37,7 +37,7 @@ data "terraform_remote_state" "persistent" {
 locals {
   prefix = "${var.app_name}-${var.environment}"
 
-  services = toset(["gateway", "api"])
+  services = toset(["gateway", "api", "assistant"])
 
   persistent = data.terraform_remote_state.persistent.outputs
 

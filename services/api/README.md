@@ -4,7 +4,8 @@ The existing Pattadar backend, ported **unchanged** from rhub
 (`api/services/apps/pattadar`): FastAPI + Strawberry GraphQL, ~4200-line `src/main.py`,
 `src/notify.py`, `data/*.csv` reference data, and the service `Dockerfile`.
 
-TODO(Phase 1): copy the service from rhub into this directory.
+Ported 25/07/2026 from rhub `api/services/apps/pattadar` (source unchanged except the
+two review fixes below: verify-link path + required-env fail-fast at startup).
 
 ## Operational contract
 
@@ -53,8 +54,8 @@ Beneficiary/member invite links are built as `{APP_PUBLIC_URL}/verify/{token}` w
 `APP_PUBLIC_URL=https://pattadar.com` — note the path fix vs rhub's
 `/app/pattadar/verify/...`. The `/verify/:token` route works **without login**.
 
-TODO(Phase 1): make `APP_PUBLIC_URL` and `CRON_SECRET` **required at startup** — fail fast
-if either is unset.
+`APP_PUBLIC_URL` and `CRON_SECRET` are **required at startup** — the service raises
+`RuntimeError` if either is unset, unless `ALLOW_INSECURE_LOCAL=1` (local dev only).
 
 ### 6. Notifications
 

@@ -1,0 +1,116 @@
+TMAJ_CODE,TMIN_CODE,REGISTRATION_TYPE,NATURE_OF_DOCUMENT,SAMPLE_CONSIDERATION,STAMP_DUTY,TRANSFER_DUTY,REGISTRATION_FEE,USER_CHARGES
+01,01,Sale [విక్రయం],Sale Deed [విక్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,02,Sale [విక్రయం],Sale Agreement With Possession [విక్రయ స్వాధీన ఒప్పందము],1000000,40000,0,5000,500
+01,03,Sale [విక్రయం],Sale Agreement Without Possession [విక్రయ ఆస్వాధీన ఒప్పందము],1000000,5000,0,5000,500
+01,04,Sale [విక్రయం],Sale Deed Executed By A.P.Housing Board [ఎ.పి హౌసింగ్ బోర్డు క్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,05,Sale [విక్రయం],Sale Deed Executed By Or Infavour Of Constituted By Govt. [ప్రభుత్వముచే / ప్రభుత్వము పేరిట కాబడిన విక్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,06,Sale [విక్రయం],Sale Deed Executed By Society In f/o Member [సొసైటిలు వారి సభ్యులకు చేసే క్రయ దస్తావేజు],1000000,0,0,10000,500
+01,07,Sale [విక్రయం],"Instruments Between Co-Ops,Govt. & Other Financial Institute [కోఆపరేటివ్ సొసైటిలు/ప్రభుత్వము వారికి ఆర్ధిక సంస్థలకు మధ్య జరిగే లావాదేవీలు]",1000000,0,0,10000,500
+01,08,Sale [విక్రయం],"Sale Deed In Favour Of State Or Central Govt. [కేంద్ర, రాష్ట్ర ప్రభుత్వములకు క్రయం]",1000000,0,0,10000,500
+01,09,Sale [విక్రయం],Development Agreement Or Construction Agreement [అభివృద్ధి /లేదా నిర్మాణ ఒప్పందము దస్తావేజు],1000000,5000,0,5000,500
+01,10,Sale [విక్రయం],Development Agreement Cum GPA [జనరల్ పవర్ తో కూడిన అభివృద్ది ఒప్పంద దస్తావేజు],1000000,10000,0,5000,500
+01,11,Sale [విక్రయం],Agreement Of Sale Cum GPA [జనరల్ పవర్ తో కూడిన క్రయ ఒప్పందం],1000000,50000,0,2000,500
+01,12,Sale [విక్రయం],Conveyance Deed(Without Consideration) [కన్వేయన్స్ పత్రం(విలువ లేదు)],1000000,40000,0,5000,500
+01,13,Sale [విక్రయం],Conveyance For Consideration [ప్రతిఫలముతో కూడిన కన్వేయన్స్ దస్తావేజు],1000000,40000,0,5000,500
+01,14,Sale [విక్రయం],Sale Deed in Favour of Mortgagee [తనఖా గ్రహీత కు చేసే విక్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,15,Sale [విక్రయం],Sale with Indemnity [పూచీతో కూడిన క్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,16,Sale [విక్రయం],Sale Deeds in f/o agrl Labrs (SC/ST) Funded by SC Fin. Corpn [SC/ST ఫైనాన్స్ కార్పొరేషన్ వారు దాఖలు చేసే క్రయ పత్రాలు],1000000,0,0,10000,500
+01,17,Sale [విక్రయం],Sale of life interest [జీవిత కాలపు హక్కులు కలిగిన క్రయ దస్తావేజు],1000000,50000,0,10000,500
+01,18,Sale [విక్రయం],Sale of Terrace Rights [టెర్రస్ హక్కుల క్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,19,Sale [విక్రయం],Sale Deeds executed by Courts [కోర్టుల ద్వారా అమలు కాబడిన క్రయ దస్తావేజు],1000000,50000,15000,10000,500
+01,20,Sale [విక్రయం],Court Sale Certificate [కోర్టు క్రయ దృవీకరణ దస్తావేజు],1000000,40000,0,5000,500
+01,21,Sale [విక్రయం],Court Decree [కోర్టు డిక్రీ],1000000,40000,0,5000,500
+01,22,Sale [విక్రయం],Sale(others) [క్రయము(ఇతరులు)],1000000,50000,15000,10000,500
+01,23,Sale [విక్రయం],GPA [జనరల్ పవర్ ఆఫ్ అటార్నీ],1000000,0,0,0,500
+01,24,Sale [విక్రయం],SadaBainama (Sale) [సాదా బైనామా దస్తావేజు],1000000,0,0,0,500
+01,25,Sale [విక్రయం],Development Agreement/GPA/Supplemental Deed By CRDA,1000000,5000,0,5000,500
+01,26,Sale [విక్రయం],"Conveyance (Merger, Demerger, Amalgamation of Companies)",1000000,20000,15000,5000,500
+02,01,Mortgage [అస్వాదీన తనఖా],Mortgage with Possession [స్వాధీన తనఖా],1000000,20000,15000,1000,500
+02,02,Mortgage [అస్వాదీన తనఖా],Mortgage without Possession [అస్వాధీన తనఖా],1000000,5000,0,1000,500
+02,03,Mortgage [అస్వాదీన తనఖా],Mort. Deed in f/o Governer/President of India by Gt.Servants [ప్రభుత్వ ఉద్యోగులు గవర్నరు/రాష్ట్రపతి కి చేసే తనఖా దస్తావేజు],1000000,0,0,1000,500
+02,04,Mortgage [అస్వాదీన తనఖా],Assignment Deed [అసైన్ మెంట్ దస్తావేజు],1000000,0,0,5000,500
+02,05,Mortgage [అస్వాదీన తనఖా],Mortgage Deed By Co-Operative Society in f/o Govt. [సహకార సంస్థలు ప్రభుత్వముకు చేసే తనఖా దస్తావేజు],1000000,0,0,1000,500
+02,06,Mortgage [అస్వాదీన తనఖా],Mortgage Deed by Small Farmer for Agrl.Loans in f/o PAC/Bank [సన్నకారు రైతులు పి.ఎ.సి.ఎస్. బ్యాంకు నందు పెట్టె అస్వాధీన తనఖా],1000000,0,0,1000,500
+02,07,Mortgage [అస్వాదీన తనఖా],Mortgagee Deed Between Socity to Socity Or Banks [సొసైటి నుండి సొసైటి మరియు బ్యాంకులకు మధ్య జరిగే తనఖా],1000000,0,0,1000,500
+02,08,Mortgage [అస్వాదీన తనఖా],Deposit of Title Deeds [టైటిల్ డీడ్స్ డిపాజిట్ చేయుట ద్వారా తనఖా],1000000,5000,0,1000,500
+02,09,Mortgage [అస్వాదీన తనఖా],Security Bond [భద్రతా దస్తావేజు],1000000,30000,0,500,500
+02,10,Mortgage [అస్వాదీన తనఖా],Mortgages in f/o Grameena or Scheduled Bank for Agricultural Credit [గ్రామీణ బ్యాంకు లకు చేసే అస్వాధీన తనఖా],1000000,30000,0,500,500
+02,11,Mortgage [అస్వాదీన తనఖా],Mortgages in f/o Coop Credit Societies of Weaker Section of Non-Agricultural Class Loan <=10000 [కోఆపరేటివ్ క్రెడిట్ సొసైటి లకు పదివేల సంభందిత ఆస్వాధీన తనఖా],1000000,0,0,1000,500
+02,12,Mortgage [అస్వాదీన తనఖా],"Instruments Between Co-Op and Other Co-Op,Banks,Financial Inst or Govt. [కోఆపరేటివ్ ఇతర కోఆపరేటివ్ బ్యాంకుల మధ్య ఆరువేల లోపు చేసే దస్తావేజు]",1000000,0,0,1000,500
+02,13,Mortgage [అస్వాదీన తనఖా],Instruments in f/o House Bldg Co-Op Societies for Loan Upto Rs.30000 Under L.I.G.H Scheme [L.I.G.H స్కీమ్ కింద రూ.30000 వరకు రుణం కోసం f/o హౌస్ Bldg కో-ఆప్ సొసైటీలలోని సాధనాలు],1000000,0,0,1000,500
+02,14,Mortgage [అస్వాదీన తనఖా],Mortgages Executed by Members of Co-Op Urban and Town Banks in f/o Such Banks for Loan Upto Rs.15000 [కో-ఆప్ అర్బన్ మరియు టౌన్ బ్యాంకుల సభ్యులు రూ.15000 వరకు రుణం కోసం అటువంటి బ్యాంకులలో తనఖా అమలు చేస్తారు.],1000000,0,0,1000,500
+02,15,Mortgage [అస్వాదీన తనఖా],Instruments In f/o SBI And Nationalised Banks For Loan Upto Rs.6500 Under Diff Rates of Int. Adv. /,1000000,0,0,1000,500
+02,16,Mortgage [అస్వాదీన తనఖా],Further Charge - When the Original Mortgage is With Possession [స్వాధీన తనఖా దస్తావేజు పై తదుపరి చార్జ్],1000000,20000,15000,5000,500
+02,17,Mortgage [అస్వాదీన తనఖా],Further Charge-Orig. Mortg is Without Possession And Possession Is Agreed to Be Given At Execution [ఆస్వాధీనతో కూడిన తనఖా దస్తావేజు పై మరింత రుణము పొందు దస్తావేజు],1000000,20000,15000,5000,500
+02,18,Mortgage [అస్వాదీన తనఖా],Further Charge - Without Possession on a Simple Mortgage [తనఖా దస్తావేజు పై మీరు చేసే దస్తావేజు],1000000,5000,0,5000,500
+02,19,Mortgage [అస్వాదీన తనఖా],Mortgage by Conditional Sale [విక్రయ షరతుతో కూడిన అస్వాధీన తనఖా],1000000,50000,15000,10000,500
+02,20,Mortgage [అస్వాదీన తనఖా],Agreement Varying the Terms Of Previously Registered Mortgage Deed [పూర్వపు అస్వాధీన తనఖాలు ఏమైనా ఒప్పోంద మార్పులు ఉంటే చేసే దస్తావేజు],1000000,5000,0,1000,500
+02,21,Mortgage [అస్వాదీన తనఖా],Additional Security [అదనపు భద్రతతో చేసే దస్తావేజు],1000000,5000,0,1000,500
+02,22,Mortgage [అస్వాదీన తనఖా],Substituted Security [ప్రత్యాన్మయ భద్రతా దస్తావేజు],1000000,5000,0,1000,500
+02,23,Mortgage [అస్వాదీన తనఖా],Mortgage(Others) [తనఖా (ఇతరులు)],1000000,5000,0,1000,500
+03,01,Gift [దాన పత్రము],Gift [దాన పత్రము].,1000000,50000,15000,5000,500
+03,02,Gift [దాన పత్రము],Gift Settlement In f/o Family Member [కుటుంబ సభ్యులకు దఖలు],1000000,20000,0,5000,500
+03,03,Gift [దాన పత్రము],Gift Settlement In f/o Others [ఇతరులకు దఖలు],1000000,30000,0,5000,500
+03,04,Gift [దాన పత్రము],Gift Settlement For Charitable/Religious Purposes [మతధార్మిక సంస్థకు దఖలు],1000000,30000,0,5000,500
+03,05,Gift [దాన పత్రము],Gift Settlement In f/o Local Bodies [స్థానిక సంస్థలకు దఖలు],1000000,20000,0,5000,500
+03,06,Gift [దాన పత్రము],Gift In f/o Local Bodies (G.O 137) [స్థానిక సంస్థలకు దఖలు],1000000,20000,0,5000,500
+03,07,Gift [దాన పత్రము],"Gift For Charitable Religious Purposes/God [మత, ధార్మిక సంస్థలకు దఖలు]",1000000,50000,15000,5000,500
+03,08,Gift [దాన పత్రము],Gift In Favour Of Government [ప్రభుత్వమునకు దాన పత్రము],1000000,20000,0,5000,500
+03,09,Gift [దాన పత్రము],Gift Settlement Deeds In Favour Of Government [ప్రభుత్వమునకు దఖలు దస్తావేజు],1000000,20000,0,5000,500
+03,10,Gift [దాన పత్రము],Gift Of Terrace Rights [టెర్రేస్ హక్కుల దానపత్రము],1000000,0,0,0,500
+03,11,Gift [దాన పత్రము],Gift Settlement Of Terrace Rights [టెర్రేస్ హక్కుల దఖలు దస్తావేజు],1000000,0,0,0,500
+03,12,Gift [దాన పత్రము],Gift Reserving Life Interest [జీవితకాలపు హక్కు ఉంచుకొని చేసే దాన దస్తావేజు],1000000,20000,0,5000,500
+03,13,Gift [దాన పత్రము],Gift Settlement Reserving Life Interest [జీవితకాలపు హక్కు ఉంచుకొని చేసే దఖలు],1000000,0,0,0,500
+04,01,Partition [భాగపంపిణి],Partition [భాగపంపిణి],1000000,20000,0,1000,500
+04,02,Partition [భాగపంపిణి],Partition Among Family Members [కుటుంబ సభ్యుల మధ్య జరుగు భాగ పంపిణీ దస్తావేజు],1000000,10000,0,1000,500
+04,03,Partition [భాగపంపిణి],Partition executed by Court,1000000,20000,0,1000,500
+05,01,Release [హక్కు విడుదల],Release (Co-Parceners) [హక్కు విడుదల],1000000,30000,0,5000,500
+05,02,Release [హక్కు విడుదల],Release (Others) [హక్కు విడుదల(ఇతరులకు)],1000000,30000,0,5000,500
+05,03,Release [హక్కు విడుదల],Reconveyance Deed Executed By Govt In Fovour Of Employees [ఉద్యోగుల పేరిట ప్రభుత్వము చేయు రికన్వేయన్స్ దస్తావేజు],1000000,0,0,500,500
+05,04,Release [హక్కు విడుదల],Reconveyance Deed(Others) [రికన్వేయన్స్ పత్రం(ఇతరులు)],1000000,50,0,1000,500
+05,05,Release [హక్కు విడుదల],Receipt (R.T.D.M) [చెల్లు రశీదు],1000000,1,0,1000,500
+05,06,Release [హక్కు విడుదల],Release (Federation OR Society To Society) [ఫెడరేషన్ లేదా సొసైటి వారికి మధ్య జరిగే హక్కు విడుదల],1000000,0,0,5000,500
+05,07,Release [హక్కు విడుదల],Release Of Life Interest [జీవిత కాలపు హక్కు విడుదల దస్తావేజు],1000000,30000,0,5000,500
+05,08,Release [హక్కు విడుదల],Release Of Disputed Right [వివాదాస్పద హక్కు విడుదల దస్తావేజు],1000000,30000,0,5000,500
+05,09,Release [హక్కు విడుదల],Release Of Mortgage Right,1000000,30000,0,5000,500
+05,10,Release [హక్కు విడుదల],Release Of Maintenance Right By Way Of Relinquishing Right For Immovable Property [మనోవర్తి హక్కు విడుదల దస్తావేజు],1000000,30000,0,5000,500
+05,11,Release [హక్కు విడుదల],Release(Others) [హక్కు విడుదల (ఇతరములు)],1000000,0,0,0,500
+05,12,Release [హక్కు విడుదల],Release Among Family Members [కుటుంబ సభ్యుల మధ్య జరుగు హక్కు విడుదల దస్తావేజు],1000000,30000,0,5000,500
+06,01,"Exchange [పరటా, మార్పిడి దస్తావేజు]","Exchange [పరటా, మార్పిడి దస్తావేజు]",1000000,40000,15000,5000,500
+06,02,"Exchange [పరటా, మార్పిడి దస్తావేజు]",Exchange by CRDA,1000000,40000,15000,5000,500
+07,01,Lease [కౌలు],"Lease Deed [కౌలు దస్తావేజు, అద్దె ఒప్పొంద దస్తావేజు]",1000000,0,0,0,500
+07,02,Lease [కౌలు],"Lease In Favour Of State/Central Govt. [కేంద్ర, రాష్ట్ర ప్రభుత్వములకు కౌలు]",1000000,0,0,0,500
+07,03,Lease [కౌలు],Mining Lease [గనుల అద్దె],1000000,0,0,0,500
+07,04,Lease [కౌలు],Salt Leases With Ground Rent [భూమి అద్దె తో కూడిన ఉప్పు ఒప్పొందము],1000000,0,0,0,500
+07,05,Lease [కౌలు],Transfer Of Lease [అద్దె ఒప్పంద బదిలీ దస్తావేజు],1000000,0,0,0,500
+07,06,Lease [కౌలు],Surrender Of Lease [అద్దె ఒప్పంద రద్దు దస్తావేజు],1000000,30,0,1000,500
+07,07,Lease [కౌలు],Lease(Others) [అద్దె ఖరారు (ఇతరములు)],1000000,0,0,0,500
+08,01,Rectification/Ratification/Cancellation Deed [సవరణ/ఒప్పుదల/రద్దు పత్రము],Rectification Deed [సవరణ పత్రము],1000000,0,0,1000,500
+08,02,Rectification/Ratification/Cancellation Deed [సవరణ/ఒప్పుదల/రద్దు పత్రము],"Supplemental Deed, Ratification Deed U/S 4 Of I.S.Act [అనుబంధ ఒప్పుదల దస్తావేజు]",1000000,5,0,1000,500
+08,03,Rectification/Ratification/Cancellation Deed [సవరణ/ఒప్పుదల/రద్దు పత్రము],Cancellation Deed [రద్దు పత్రము],1000000,30,0,1000,500
+08,04,Rectification/Ratification/Cancellation Deed [సవరణ/ఒప్పుదల/రద్దు పత్రము],Revocation Of Gift Settlement [దాఖలు పత్రము ఉప సంహరణ],1000000,90,0,1000,500
+09,04,Power Of Attorney [పవర్ ఆఫ్ అటార్నీ].,Power To Sell Immovable Property (No Value Mentioned)[పవర్ ఆఫ్ అటార్నీ],1000000,10000,0,5000,500
+09,05,Power Of Attorney [పవర్ ఆఫ్ అటార్నీ].,GPA In Favour Of Family Members[పవర్ ఆఫ్ అటార్నీ],1000000,1000,0,5000,500
+20,01,Will [వీలునామా],Will [వీలునామా],1000000,0,0,1000,500
+20,02,Will [వీలునామా],Cancellation Of Will [వీలునామా రద్దు],1000000,0,0,1000,500
+20,03,Will [వీలునామా],Codicil [వీలునామా అనుబంధ దస్తావేజు],1000000,0,0,1000,500
+20,04,Will [వీలునామా],Will in Sealed Cover,1000000,0,0,1000,500
+30,01,Adoption Deed [దత్త స్వీకరణ],Adoption Deed [దత్త స్వీకరణ],1000000,35,0,1000,500
+31,01,Affidavit [ప్రమాణ పత్రము],Affidavit [ప్రమాణ పత్రము],1000000,10,0,1000,500
+32,01,Agreement (Others) [ఒప్పందం(ఇతరులు)],Agreement (Others) [ఒప్పందం (ఇతరులు)],1000000,0,0,0,500
+33,01,Award (Not Directing Partition) [భాగపంపిణి చేసుకోవద్దని చెప్పే తీర్పు పత్రము],Award (Not Directing Partition) [భాగపంపిణి చేసుకోవద్దని చెప్పే తీర్పు పత్రము],1000000,200,0,5000,500
+34,01,Bond [పూచీ పత్రము],Bond [పూచీ పత్రము],1000000,100,0,500,500
+35,01,Cancellation GPA [జనరల్ పవర్ ఆఫ్ అటార్నీ రద్దు పత్రం],Cancellation GPA [జనరల్ పవర్ ఆఫ్ అటార్నీ రద్దు పత్రం],1000000,30,0,1000,500
+36,01,Cancellation (Others) [రద్దు పత్రము(ఇతరులు)],Cancellation (Others) [రద్దు పత్రము(ఇతరులు)],1000000,30,0,1000,500
+37,01,Divorce [విడాకుల పత్రము],Divorce [విడాకుల పత్రము],1000000,50000,0,1000,500
+38,01,Indemnity Bond [నష్ట పరిహార పూచీ పత్రం],Indemnity Bond [నష్ట పరిహార పూచీ పత్రం],1000000,100,0,500,500
+39,01,Partnership [భాగస్వామ్యము],Partnership [భాగస్వామ్యము],1000000,0,0,0,500
+40,01,Dissolution Of Partnership [భాగస్వామ్య రద్దు],Dissolution Of Partnership [భాగస్వామ్య రద్దు],1000000,0,0,0,500
+41,01,Power Of Attorney [పవర్ ఆఫ్ అటార్నీ],Special Power,1000000,20,0,1000,500
+41,02,Power Of Attorney [పవర్ ఆఫ్ అటార్నీ],General Power,1000000,50,0,1000,500
+41,03,Power Of Attorney [పవర్ ఆఫ్ అటార్నీ],Power for Consideration,1000000,50000,0,5000,500
+42,01,Security Bond [భద్రతా పూచీ పత్రం],Security Bond [భద్రతా పూచీ పత్రం],1000000,0,0,0,500
+43,01,Trust [ట్రస్టు],Declaration [ప్రకటన],1000000,200,0,500,500
+43,02,Trust [ట్రస్టు],Others (Settlement) [సెటిల్మెంట్(ఇతరములు)],1000000,0,0,0,500
+43,03,Trust [ట్రస్టు],Revocation [ఉపసంహరణ/రద్దు పత్రము],1000000,100,0,1000,500
+44,01,Book 4 (Others) [బుక్ 4 దస్తావేజు (ఇతరములు)],Book 4 (Others) [బుక్ 4 దస్తావేజు (ఇతరములు)],1000000,0,0,0,500
