@@ -112,7 +112,7 @@ data "aws_iam_policy_document" "gateway_task" {
   # env's persistent layer does not manage the SES identity (shared-account
   # dev, ses_identity_arn = null) — dev then cannot send email, by design.
   dynamic "statement" {
-    for_each = local.persistent.ses_identity_arn != null ? [1] : []
+    for_each = local.ses_identity_arn != null ? [1] : []
 
     content {
       sid = "SesSendScopedToIdentity"
@@ -120,7 +120,7 @@ data "aws_iam_policy_document" "gateway_task" {
         "ses:SendEmail",
         "ses:SendRawEmail",
       ]
-      resources = [local.persistent.ses_identity_arn]
+      resources = [local.ses_identity_arn]
     }
   }
 }

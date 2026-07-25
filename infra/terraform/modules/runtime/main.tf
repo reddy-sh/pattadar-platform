@@ -44,7 +44,11 @@ locals {
   # The persistent zone id is null when this env's persistent layer runs with
   # manage_dns = false (shared-account dev). In that case pass the owning
   # env's zone id explicitly via var.route53_zone_id.
-  zone_id = var.route53_zone_id != "" ? var.route53_zone_id : local.persistent.route53_zone_id
+  # Terraform drops null-valued root outputs from state, so these may be
+  # ABSENT (not just null) in shared-account dev — read with try().
+  zone_id = var.route53_zone_id != "" ? var.route53_zone_id : try(local.persistent.route53_zone_id, null)
+
+  ses_identity_arn = try(local.persistent.ses_identity_arn, null)
 
   www_domain = "www.${var.web_domain}"
 
