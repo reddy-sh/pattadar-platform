@@ -16,8 +16,3 @@ variable "parking_storage_class" {
   default     = "DEEP_ARCHIVE"
 }
 
-variable "manage_ecr" {
-  description = "Create the shared ECR repositories. Prod owns them; leave true."
-  type        = bool
-  default     = true
-}
