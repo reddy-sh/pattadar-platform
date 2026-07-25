@@ -11,12 +11,13 @@ TODO(Phase 1): copy the service from rhub into this directory.
 ### 1. Auth — trusts the gateway, validates nothing
 
 The service does **no** token validation. It trusts the `x-user-id` header injected by
-`services/gateway` after Auth0 JWT validation.
+`services/gateway` after Cognito JWT validation.
 
 - **Never expose this service directly** — anyone who can reach it can impersonate any user
   by setting `x-user-id`.
-- User id format: Auth0 email local-part, lowercased (e.g. `sankara.telukutla`). This format
-  is load-bearing — it is the owner key across all rows in the database.
+- User id format: email local-part, lowercased (from the Cognito `email` claim — e.g.
+  `sankara.telukutla`). This format is load-bearing — it is the owner key across all rows in
+  the database.
 
 ### 2. Database — self-bootstrapping schema
 
@@ -46,7 +47,16 @@ time and must **never retry** these POSTs (retries duplicate expensive extractio
 `x-cron-secret` header. **`CRON_SECRET` must always be set** — the endpoint is open without
 it.
 
-### 5. Notifications
+### 5. Verification links
+
+Beneficiary/member invite links are built as `{APP_PUBLIC_URL}/verify/{token}` with
+`APP_PUBLIC_URL=https://pattadar.com` — note the path fix vs rhub's
+`/app/pattadar/verify/...`. The `/verify/:token` route works **without login**.
+
+TODO(Phase 1): make `APP_PUBLIC_URL` and `CRON_SECRET` **required at startup** — fail fast
+if either is unset.
+
+### 6. Notifications
 
 `notify.py` is the email/SMS/WhatsApp provider seam. Stub providers by default (records to
 `notification_log` only); real providers are env-gated: Resend (email), MSG91 (SMS),

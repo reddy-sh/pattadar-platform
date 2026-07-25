@@ -11,7 +11,9 @@ Concrete work items tied to this codebase. Phase tags match the platform build p
 
 ## Gateway / trust boundary
 
-- [ ] [phase-1] **Strip inbound `x-user-id` at the gateway.** The api trusts this header unconditionally — the gateway must delete any client-supplied value before injecting the Auth0-derived one, and the api must never be exposed directly (security-group: ALB→gateway only, gateway→api only)
+- [ ] [phase-1] **Strip inbound `x-user-id` at the gateway.** The api trusts this header unconditionally — the gateway must delete any client-supplied value before injecting the Cognito-derived one, and the api must never be exposed directly (security-group: ALB→gateway only, gateway→api only)
+- [ ] [phase-1] Cognito access-token validation contract: issuer check, `token_use == "access"`, `client_id` allowlist (NOT `aud`), `email` claim required (added by the pre-token-generation trigger)
+- [ ] [pre-pilot] Pre-signup **email local-part collision guard** — reject/flag a signup whose local-part already maps to an existing user id; NEW users move to sub-based ids via a mapping table
 - [ ] [phase-1] Fail-closed super-admin checks on AI/model admin routes — deny on missing/unknown role, never default-allow
 - [ ] [phase-2] Rate limiting at the gateway (per-user + per-IP), tightest on auth-adjacent and extraction endpoints
 - [ ] [phase-2] Review share-token routes (`verify/:token` and any document-share links) — unauthenticated **by design**; confirm tokens are single-purpose, unguessable, expiring, and leak nothing beyond their purpose
@@ -28,8 +30,10 @@ Concrete work items tied to this codebase. Phase tags match the platform build p
 
 - [ ] [phase-1] Port the rhub audit-trail writer into services/api (`audit_events` table; who/what/when on data mutations)
 - [ ] [phase-2] DSR export endpoint — me-scoped GraphQL export of all user rows + S3 document manifest
-- [ ] [phase-2] Erasure cascade — pattadar DB rows + storage metadata + S3 objects **including all versions and delete markers** + Auth0 user deletion; retention carve-outs for audit_events (see gdpr-dpdp.md)
-- [ ] [phase-2] DPDP consent capture — signup notice consent, explicit consent at ID-document upload, and **verifiable parental consent** recorded when a guardian adds a minor member
+- [ ] [phase-2] Erasure cascade — pattadar DB rows + storage metadata + S3 objects **including all versions and delete markers** + Cognito user deletion (`AdminDeleteUser`); retention carve-outs for audit_events (see gdpr-dpdp.md)
+- [ ] [pre-pilot] Consent capture at signup — itemised DPDP notice + recorded consent
+- [ ] [phase-2] DPDP consent capture — explicit consent at ID-document upload, and **verifiable parental consent** recorded when a guardian adds a minor member
+- [ ] Landing `/privacy` and `/terms` pages exist as stubs [done once the web agent lands]
 
 ## Operations
 

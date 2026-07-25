@@ -9,6 +9,7 @@ import { NavLink, Outlet, useLocation } from 'react-router';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
@@ -42,6 +43,7 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
+import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 
 const DRAWER_WIDTH = 248;
 
@@ -53,22 +55,22 @@ interface NavItem {
 
 /** Navigation order mirrors the rhub pattadar menu. */
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', path: '/', icon: <DashboardOutlinedIcon /> },
-  { label: 'Passbooks', path: '/passbooks', icon: <MenuBookOutlinedIcon /> },
-  { label: 'Parcels', path: '/parcels', icon: <MapOutlinedIcon /> },
-  { label: 'Properties', path: '/properties', icon: <HomeWorkOutlinedIcon /> },
-  { label: 'Documents', path: '/documents', icon: <DescriptionOutlinedIcon /> },
-  { label: 'Deeds', path: '/deeds', icon: <HistoryEduOutlinedIcon /> },
-  { label: 'Groups', path: '/groups', icon: <GroupsOutlinedIcon /> },
-  { label: 'Invitations', path: '/invitations', icon: <MailOutlinedIcon /> },
-  { label: 'Notifications', path: '/notifications', icon: <NotificationsOutlinedIcon /> },
-  { label: 'SRO Offices', path: '/sro', icon: <AccountBalanceOutlinedIcon /> },
-  { label: 'Stamp Duty', path: '/stamp-duty', icon: <ReceiptLongOutlinedIcon /> },
-  { label: 'Market Value', path: '/market-value', icon: <TrendingUpOutlinedIcon /> },
-  { label: 'Calculator', path: '/calculator', icon: <CalculateOutlinedIcon /> },
-  { label: 'Audit', path: '/audit', icon: <FactCheckOutlinedIcon /> },
-  { label: 'Admin', path: '/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
-  { label: 'Profile', path: '/profile', icon: <PersonOutlinedIcon /> },
+  { label: 'Dashboard', path: '/app', icon: <DashboardOutlinedIcon /> },
+  { label: 'Passbooks', path: '/app/passbooks', icon: <MenuBookOutlinedIcon /> },
+  { label: 'Parcels', path: '/app/parcels', icon: <MapOutlinedIcon /> },
+  { label: 'Properties', path: '/app/properties', icon: <HomeWorkOutlinedIcon /> },
+  { label: 'Documents', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
+  { label: 'Deeds', path: '/app/deeds', icon: <HistoryEduOutlinedIcon /> },
+  { label: 'Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
+  { label: 'Invitations', path: '/app/invitations', icon: <MailOutlinedIcon /> },
+  { label: 'Notifications', path: '/app/notifications', icon: <NotificationsOutlinedIcon /> },
+  { label: 'SRO Offices', path: '/app/sro', icon: <AccountBalanceOutlinedIcon /> },
+  { label: 'Stamp Duty', path: '/app/stamp-duty', icon: <ReceiptLongOutlinedIcon /> },
+  { label: 'Market Value', path: '/app/market-value', icon: <TrendingUpOutlinedIcon /> },
+  { label: 'Calculator', path: '/app/calculator', icon: <CalculateOutlinedIcon /> },
+  { label: 'Audit', path: '/app/audit', icon: <FactCheckOutlinedIcon /> },
+  { label: 'Admin', path: '/app/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
+  { label: 'Profile', path: '/app/profile', icon: <PersonOutlinedIcon /> },
 ];
 
 function ThemeToggle() {
@@ -94,7 +96,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
           component={NavLink}
           to={item.path}
           onClick={onNavigate}
-          selected={item.path === '/' ? pathname === '/' : pathname.startsWith(item.path)}
+          selected={item.path === '/app' ? pathname === '/app' : pathname.startsWith(item.path)}
         >
           <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
           <ListItemText primary={item.label} />
@@ -105,6 +107,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function AppShell() {
+  const { user, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [avatarAnchor, setAvatarAnchor] = useState<HTMLElement | null>(null);
 
@@ -131,6 +134,9 @@ export function AppShell() {
           <Typography variant="h6" component="h1" sx={{ flexGrow: 1 }}>
             Pattadar
           </Typography>
+          {isAuthMocked && (
+            <Chip size="small" color="warning" label="Auth mocked — dev only" sx={{ mr: 1 }} />
+          )}
           <ThemeToggle />
           <Tooltip title="Assistant arrives in Phase 3">
             <span>
@@ -139,18 +145,30 @@ export function AppShell() {
               </IconButton>
             </span>
           </Tooltip>
-          {/* Avatar placeholder — wired to Auth0 profile in Phase 2. */}
-          <IconButton onClick={(e) => setAvatarAnchor(e.currentTarget)} sx={{ ml: 1 }}>
-            <Avatar sx={{ width: 32, height: 32 }}>P</Avatar>
+          <IconButton
+            onClick={(e) => setAvatarAnchor(e.currentTarget)}
+            aria-label="Account menu"
+            sx={{ ml: 1 }}
+          >
+            <Avatar sx={{ width: 32, height: 32 }}>
+              {(user?.email?.[0] ?? 'P').toUpperCase()}
+            </Avatar>
           </IconButton>
           <Menu
             anchorEl={avatarAnchor}
             open={Boolean(avatarAnchor)}
             onClose={() => setAvatarAnchor(null)}
           >
-            <MenuItem disabled>Signed-in user (Phase 2)</MenuItem>
+            <MenuItem disabled>{user?.email ?? 'Signed in'}</MenuItem>
             <Divider />
-            <MenuItem disabled>Sign out</MenuItem>
+            <MenuItem
+              onClick={() => {
+                setAvatarAnchor(null);
+                void signOut();
+              }}
+            >
+              Sign out
+            </MenuItem>
           </Menu>
         </Toolbar>
       </AppBar>

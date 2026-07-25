@@ -1,0 +1,181 @@
+# Cognito user pool — the platform identity store (replaces Auth0).
+# Persistent by definition: user accounts must survive platform-down.
+#
+# ESSENTIALS tier is required for V2_0 pre-token-generation (access-token
+# claim customization). Hosted UI runs on the prefix domain
+# pattadar-auth-<env>; TODO(Track B): custom domain auth.pattadar.com after
+# the NS cutover + ACM cert.
+
+# --- Pre-token-generation Lambda -------------------------------------------
+# Mirrors the email claim (lowercased) into both tokens; see lambda/pre_token_gen.py.
+
+data "archive_file" "pre_token_gen" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/pre_token_gen.py"
+  output_path = "${path.module}/lambda/pre_token_gen.zip"
+}
+
+data "aws_iam_policy_document" "pre_token_gen_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "pre_token_gen" {
+  name               = "${local.prefix}-pre-token-gen"
+  assume_role_policy = data.aws_iam_policy_document.pre_token_gen_assume.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "pre_token_gen_logs" {
+  role       = aws_iam_role.pre_token_gen.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_lambda_function" "pre_token_gen" {
+  function_name    = "${local.prefix}-pre-token-gen"
+  description      = "Cognito pre-token-generation V2: mirror lowercased email into access + id tokens"
+  role             = aws_iam_role.pre_token_gen.arn
+  runtime          = "python3.12"
+  handler          = "pre_token_gen.handler"
+  filename         = data.archive_file.pre_token_gen.output_path
+  source_code_hash = data.archive_file.pre_token_gen.output_base64sha256
+  timeout          = 5
+  memory_size      = 128
+  tags             = local.tags
+}
+
+resource "aws_lambda_permission" "cognito_invoke" {
+  statement_id  = "AllowCognitoInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.pre_token_gen.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = aws_cognito_user_pool.pattadar.arn
+}
+
+# --- User pool --------------------------------------------------------------
+
+resource "aws_cognito_user_pool" "pattadar" {
+  name = local.prefix
+
+  user_pool_tier      = "ESSENTIALS"
+  deletion_protection = "ACTIVE"
+
+  # Sign in with email, case-insensitive.
+  username_attributes      = ["email"]
+  auto_verified_attributes = ["email"]
+
+  username_configuration {
+    case_sensitive = false
+  }
+
+  # Pilot: open self-signup.
+  admin_create_user_config {
+    allow_admin_create_user_only = false
+  }
+
+  mfa_configuration = "OPTIONAL"
+
+  software_token_mfa_configuration {
+    enabled = true
+  }
+
+  account_recovery_setting {
+    recovery_mechanism {
+      name     = "verified_email"
+      priority = 1
+    }
+  }
+
+  password_policy {
+    minimum_length                   = 12
+    require_lowercase                = true
+    require_uppercase                = true
+    require_numbers                  = true
+    require_symbols                  = false
+    temporary_password_validity_days = 7
+  }
+
+  schema {
+    name                     = "email"
+    attribute_data_type      = "String"
+    required                 = true
+    mutable                  = true
+    developer_only_attribute = false
+
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 2048
+    }
+  }
+
+  # Changing the email requires re-verifying it before it takes effect.
+  user_attribute_update_settings {
+    attributes_require_verification_before_update = ["email"]
+  }
+
+  email_configuration {
+    email_sending_account = "COGNITO_DEFAULT"
+    # TODO(Track B): flip to SES once the pattadar.com identity is verified
+    # (post NS cutover) and the account is out of the SES sandbox:
+    #   email_sending_account = "DEVELOPER"
+    #   source_arn            = aws_ses_domain_identity.main[0].arn
+    #   from_email_address    = "Pattadar <no-reply@pattadar.com>"
+  }
+
+  lambda_config {
+    pre_token_generation_config {
+      lambda_arn     = aws_lambda_function.pre_token_gen.arn
+      lambda_version = "V2_0"
+    }
+  }
+
+  tags = local.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# --- SPA app client (public, code flow, no secret) --------------------------
+
+resource "aws_cognito_user_pool_client" "spa" {
+  name         = "${local.prefix}-spa"
+  user_pool_id = aws_cognito_user_pool.pattadar.id
+
+  generate_secret = false
+
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+
+  callback_urls = var.spa_callback_urls
+  logout_urls   = var.spa_logout_urls
+
+  supported_identity_providers = ["COGNITO"]
+
+  access_token_validity  = 60
+  id_token_validity      = 60
+  refresh_token_validity = 30
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "days"
+  }
+
+  enable_token_revocation       = true
+  prevent_user_existence_errors = "ENABLED"
+}
+
+# --- Hosted UI domain -------------------------------------------------------
+
+resource "aws_cognito_user_pool_domain" "main" {
+  domain       = "pattadar-auth-${var.environment}"
+  user_pool_id = aws_cognito_user_pool.pattadar.id
+}

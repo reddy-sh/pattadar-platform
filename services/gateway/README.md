@@ -11,10 +11,24 @@ TODO(Phase 1): port the modules below from rhub
 
 | Concern | rhub source | Notes |
 | --- | --- | --- |
-| Auth | `api/gateway/auth.py`, `api/common/auth0_jwt.py` | Auth0 JWKS JWT validation + opaque-token fallback. `extract_user_id` normalization (email local-part, lowercased) MUST stay byte-identical — it is the owner key for every row in every database. |
+| Auth | `api/gateway/auth.py`, `api/common/auth0_jwt.py` | Port the JWKS-validation skeleton, rewired to **Amazon Cognito** (see claims contract below). Cognito issues only JWTs — DELETE rhub's opaque-token `/userinfo` fallback, do not port it. `extract_user_id` normalization (email local-part, lowercased) MUST stay byte-identical — it is the owner key for every row in every database. |
 | Document storage | `api/gateway/routes_storage.py`, `api/gateway/storage_service.py` | PG tables `storage_nodes` / `storage_versions` / `storage_shares` / tags + object bytes in S3. Object keys are `{owner_id}/{node_id}/{version_id}` — migrate MinIO objects verbatim so metadata rows need zero changes. minio-py IS S3-compatible: endpoint swap + `MINIO_SECURE=true` + static keys works day one; rewriting the ~6 call sites to boto3 is a later cleanup. Keep the proxied-streaming model — no presigned URLs exist. |
 | Model admin | `api/gateway/routes_admin_models.py`, `api/gateway/model_providers/{base,anthropic}.py` | Super-admin model catalog. Gate is the `platform.manage` permission and MUST fail closed. |
 | RBAC | minimal port | `platform_admin` as the super-admin role; block deactivated users. |
+
+## Cognito claims contract
+
+The gateway validates the Cognito **access** token:
+
+- Issuer: `https://cognito-idp.ap-south-1.amazonaws.com/<user-pool-id>` (JWKS at
+  `<issuer>/.well-known/jwks.json`).
+- Check `token_use == "access"` and that `client_id` is in the allowlist — Cognito access
+  tokens have **no `aud` claim**; do NOT validate `aud`.
+- The `email` claim must be present — it is added to the access token by a
+  **pre-token-generation Lambda trigger** (access tokens lack it by default). Reject tokens
+  without it.
+- `extract_user_id` then normalizes `email` → local-part, lowercased — byte-identical to the
+  rhub behavior.
 
 ## Behaviors
 

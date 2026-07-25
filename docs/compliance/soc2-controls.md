@@ -8,12 +8,13 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 
 | Criteria area | Mechanism in this stack | Status |
 |---|---|---|
-| User authentication | Auth0 with MFA enforced for all users; gateway validates JWT and injects `x-user-id`; api is never internet-reachable | [template] |
+| User authentication | Amazon Cognito (ap-south-1); gateway validates the access token and injects `x-user-id`; api is never internet-reachable | [template] |
+| MFA | Cognito TOTP MFA: optional at launch, enforced for super-admin pre-pilot, enforced for all users post-pilot | [phase-2] + [organizational] |
 | Super-admin functions | Fail-closed super-admin checks in gateway (AI/model admin routes) | [phase-1] |
 | AWS access | IAM least-privilege roles per ECS service; no shared accounts | [template] |
 | No long-lived credentials | GitHub Actions → AWS via OIDC federation; no static access keys in CI or repo | [template] |
 | Human AWS access | SSO/short-lived sessions only; break-glass documented | [organizational] |
-| Access reviews | Quarterly review of Auth0 admins, AWS IAM, GitHub collaborators | [organizational] |
+| Access reviews | Quarterly review of Cognito super-admins, AWS IAM, GitHub collaborators | [organizational] |
 
 ## Change management (CC8)
 
@@ -31,13 +32,14 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 |---|---|---|
 | At rest | Customer-managed KMS CMK for RDS PostgreSQL and the S3 documents bucket (SSE-KMS); key rotation enabled | [template] |
 | In transit | TLS 1.2+ everywhere: CloudFront (viewer + origin), CloudFront→ALB HTTPS, ALB→ECS in-VPC | [template] |
-| Secrets | AWS Secrets Manager for DB/Anthropic/Auth0 credentials; injected into ECS task definitions, never baked into images | [template] |
+| Secrets | AWS Secrets Manager for DB/Anthropic/notification credentials; injected into ECS task definitions, never baked into images | [template] |
 
 ## Logging & monitoring (CC7)
 
 | Criteria area | Mechanism in this stack | Status |
 |---|---|---|
-| API/audit evidence | CloudTrail (all regions, management events) → S3, immutable | [template] |
+| API/audit evidence | CloudTrail (all regions, management events) → S3, immutable — `aws_cloudtrail` in the Terraform persistent layer | [template] |
+| Config drift | AWS Config recording resource configuration changes — `aws_config` in the Terraform persistent layer | [template] |
 | Application logs | ECS → CloudWatch Logs, 365-day retention | [template] |
 | Access logs | ALB access logs + S3 server access logs to a logging bucket | [template] |
 | Application audit trail | Port rhub audit-trail writer into services/api (`audit_events`) | [phase-1] |
@@ -58,7 +60,7 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 | Vendor | Purpose | Action |
 |---|---|---|
 | AWS | Infrastructure | DPA via AWS Service Terms; SOC reports via AWS Artifact | [organizational] |
-| Auth0 (Okta) | Authentication | DPA + subprocessor list; SOC 2 report on file | [organizational] |
+| AWS (Amazon Cognito) | Authentication | Covered by the AWS DPA/Service Terms and AWS Artifact SOC reports above | [organizational] |
 | Anthropic | Document extraction (Claude API) | DPA; zero-retention/commercial terms review | [organizational] |
 | Resend / MSG91 / Meta WhatsApp | Notifications (Phase 2, env-gated) | DPA before enabling with real user data | [organizational] |
 

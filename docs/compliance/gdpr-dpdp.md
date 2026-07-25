@@ -1,6 +1,6 @@
 # GDPR / DPDP Act Privacy Regime
 
-DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR applies to any EU data subjects. Pattadar is the **Data Fiduciary** (DPDP) / **Controller** (GDPR); AWS, Auth0, Anthropic and notification providers are **Data Processors**.
+DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR applies to any EU data subjects. Pattadar is the **Data Fiduciary** (DPDP) / **Controller** (GDPR); AWS (including Amazon Cognito), Anthropic and notification providers are **Data Processors**.
 
 ## Records of Processing (ROPA)
 
@@ -14,7 +14,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | notification_log | Channel, recipient, message, delivery status | RDS | Medium | AWS, Resend/MSG91/Meta WhatsApp |
 | audit_events | Who did what, when | RDS | Medium | AWS |
 | Inactivity heartbeats | last_active timestamps, dead-man's-switch escalation state | RDS | Medium | AWS |
-| Auth data | Credentials, MFA, login history | Auth0 (US) | High | Auth0 (processor) |
+| Auth data | Credentials, MFA, login history | Amazon Cognito (ap-south-1 — in-India) | High | AWS (Cognito, processor) |
 
 ## Purpose and lawful basis
 
@@ -31,7 +31,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | Right | Implementation | Status |
 |---|---|---|
 | Access / portability | Me-scoped GraphQL export endpoint returning all of the user's rows + S3 document manifest as JSON | TODO(Phase 2) |
-| Erasure | Cascade: pattadar DB rows (parcels, members, documents metadata, notification_log) → storage nodes → S3 objects **including all versions and delete markers** → Auth0 user deletion (Management API). Retention carve-outs: audit_events and legally required records retained, disassociated from live identity where possible. | TODO(Phase 2) |
+| Erasure | Cascade: pattadar DB rows (parcels, members, documents metadata, notification_log) → storage nodes → S3 objects **including all versions and delete markers** → Cognito user deletion (`AdminDeleteUser`). Retention carve-outs: audit_events and legally required records retained, disassociated from live identity where possible. | TODO(Phase 2) |
 | Rectification | Exists — users edit their own records via the UI | Done |
 | Consent withdrawal | Notification opt-out exists per channel; full processing-consent withdrawal ties into erasure flow | TODO(Phase 2) |
 | Grievance (DPDP) | Grievance-officer contact + response SLA in app/notice | [organizational] |
@@ -45,17 +45,18 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | audit_events | ≥ 1 year (target 3) | SOC 2 evidence, dispute resolution; survives erasure (carve-out) |
 | RDS backups | 7-day PITR window; erased data ages out of backups within the window | Recovery |
 | CloudWatch logs | 365 days | Operations + evidence |
-| Auth0 account | Deleted on erasure request | Processor deletion |
+| Cognito user | Deleted on erasure request (`AdminDeleteUser`) | Processor deletion |
 
 ## Cross-border transfers
 
+With auth on Amazon Cognito in ap-south-1, authentication data now stays in-India. The **only remaining cross-border transfer** is Anthropic (AI document extraction).
+
 | Processor | Location | DPDP | GDPR |
 |---|---|---|---|
-| Auth0 | US | Permitted — transfers allowed unless destination is government-blacklisted (none applicable); documented here in the ROPA | SCCs required (Okta standard DPA) |
-| Anthropic API | US | Same; document images transit for extraction, not retained for training under commercial terms | SCCs required |
-| AWS | ap-south-1 (Mumbai) | No transfer — data at rest stays in India | — |
+| Anthropic API | US | Permitted — transfers allowed unless destination is government-blacklisted (none applicable); document images transit for extraction, not retained for training under commercial terms; documented here in the ROPA | SCCs required |
+| AWS (incl. Cognito) | ap-south-1 (Mumbai) | No transfer — data at rest stays in India | — |
 
-TODO(Phase 3): evaluate Amazon Bedrock in ap-south-1 as an in-country alternative for document extraction, removing the US transfer entirely.
+TODO(Phase 3): evaluate Amazon Bedrock in ap-south-1 as an in-country alternative for document extraction, removing the last US transfer entirely.
 
 ## Breach notification
 

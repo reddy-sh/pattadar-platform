@@ -1,0 +1,15 @@
+# Copy to prod.auto.tfvars (git-ignored) and adjust. No secrets in tfvars.
+
+region          = "ap-south-1"
+tf_state_bucket = "pattadar-terraform-state-<ACCOUNT_ID>"
+
+# Image tags are normally pinned by deploy.yml (-var on apply); "latest" is
+# only a bootstrap convenience.
+# gateway_image_tag = "sha-abc1234"
+# api_image_tag     = "sha-abc1234"
+
+# Raise after the CloudFront "Response timeout per origin" quota increase:
+# cloudfront_origin_read_timeout = 180
+
+# First WAF rollout can observe before blocking:
+# waf_block_mode = false

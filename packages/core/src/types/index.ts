@@ -4,7 +4,7 @@
  * and as GraphQL codegen output replaces hand-written operation types.
  */
 
-/** Auth0-derived user identifier (gateway injects it as x-user-id). */
+/** Cognito-derived user identifier (gateway injects it as x-user-id). */
 export type UserId = string;
 
 /** Identifier of a node (file or folder) in the S3-backed document store. */

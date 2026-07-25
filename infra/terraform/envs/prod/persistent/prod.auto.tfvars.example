@@ -1,0 +1,7 @@
+# Copy to prod.auto.tfvars (git-ignored) and adjust if needed.
+# No secrets belong in tfvars — secret VALUES are filled out-of-band via
+# `aws secretsmanager put-secret-value` (see infra/terraform/README.md).
+
+region                             = "ap-south-1"
+noncurrent_version_expiration_days = 180
+parking_storage_class              = "DEEP_ARCHIVE" # or GLACIER_IR for fast un-parking

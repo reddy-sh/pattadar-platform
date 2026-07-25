@@ -1,0 +1,39 @@
+name: Platform up
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to bring up
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: platform-${{ inputs.environment }}
+
+jobs:
+  up:
+    name: platform-up (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Bring platform up
+        run: ./scripts/platform-up.sh "${{ inputs.environment }}"

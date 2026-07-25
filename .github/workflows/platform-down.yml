@@ -1,0 +1,52 @@
+name: Platform down
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to bring down (runtime layer only)
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - prod
+      confirm:
+        description: "For prod, type exactly: decommission-prod"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: platform-${{ inputs.environment }}
+
+jobs:
+  down:
+    name: platform-down (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard prod with typed confirmation
+        if: ${{ inputs.environment == 'prod' && inputs.confirm != 'decommission-prod' }}
+        run: |
+          echo "::error::Refusing to bring down prod — set the confirm input to 'decommission-prod'."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Bring platform down
+        env:
+          PLATFORM_DOWN_CONFIRM: "yes"
+        run: ./scripts/platform-down.sh "${{ inputs.environment }}"

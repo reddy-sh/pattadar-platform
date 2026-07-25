@@ -1,0 +1,22 @@
+# Copy to dev.auto.tfvars (git-ignored) and adjust. No secrets in tfvars.
+# Dev posture: no CDN/WAF (the SPA runs locally via `bun dev` and talks
+# straight to the dev ALB), short log retention, single task per service.
+
+region          = "ap-south-1"
+tf_state_bucket = "pattadar-terraform-state-<ACCOUNT_ID>"
+
+log_retention_days = 30
+desired_count      = 1
+enable_cdn         = false # dev talks straight to the ALB
+enable_waf         = false
+
+# Dev must NOT claim prod's api.pattadar.com — use a dev host in the shared zone:
+api_domain   = "api-dev.pattadar.com"
+api_base_url = "https://api-dev.pattadar.com"
+
+# Shared AWS account (dev persistent has manage_dns = false)? Point at prod's
+# zone: `terraform -chdir=../../prod/persistent output -raw route53_zone_id`
+# route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# Optional: skip the down-flip dance for a throwaway dev database:
+# deletion_protection = false

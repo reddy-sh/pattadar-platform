@@ -22,7 +22,7 @@ SOC 2 is an audit outcome, not a checkbox. This repository bakes in the **techni
 |---|---|---|
 | Encryption at rest (KMS CMK: RDS, S3) | Terraform scaffold | — |
 | TLS 1.2+ in transit, CloudFront→ALB | Terraform scaffold | — |
-| Auth0 JWT validation at gateway; api never exposed directly | Gateway scaffold | — |
+| Cognito access-token validation at gateway; api never exposed directly | Gateway scaffold | — |
 | CloudTrail, CloudWatch logs (365d), ALB/S3 access logs | Terraform scaffold | Alarm tuning (Phase 2) |
 | CI checks + secret scanning + main-branch protection | CI scaffold | — |
 | Aadhaar masking, beneficiary verification tokens, CRON_SECRET | Ported code | — |

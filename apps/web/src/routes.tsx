@@ -1,47 +1,115 @@
+/**
+ * Route table.
+ *
+ * Public: "/" landing, "/privacy", "/terms", "/auth/callback", and
+ * "/verify/:token" (beneficiary verification must work WITHOUT login —
+ * invitees follow this link before they have accounts).
+ *
+ * App: everything under "/app/*", gated by RequireAuth.
+ *
+ * Every route component is React.lazy so the initial chunk stays small: the
+ * landing page is its own chunk and the app shell + pages load only after
+ * sign-in (this also quiets Vite's large-chunk warning).
+ */
+import { Suspense, lazy } from 'react';
+import type { ComponentType, LazyExoticComponent } from 'react';
 import { createBrowserRouter } from 'react-router';
-import { AppShell } from './layout/AppShell';
-import { AdminPage } from './pages/AdminPage';
-import { AuditPage } from './pages/AuditPage';
-import { CalculatorPage } from './pages/CalculatorPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { DeedsPage } from './pages/DeedsPage';
-import { DocumentsPage } from './pages/DocumentsPage';
-import { GroupsPage } from './pages/GroupsPage';
-import { InvitationsPage } from './pages/InvitationsPage';
-import { MarketValuePage } from './pages/MarketValuePage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { ParcelsPage } from './pages/ParcelsPage';
-import { PassbooksPage } from './pages/PassbooksPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { PropertiesPage } from './pages/PropertiesPage';
-import { SroPage } from './pages/SroPage';
-import { StampDutyPage } from './pages/StampDutyPage';
-import { VerifyPage } from './pages/VerifyPage';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import { RequireAuth } from './auth/RequireAuth';
+
+// Public chunks.
+const LandingPage = lazy(() =>
+  import('./pages/landing/LandingPage').then((m) => ({ default: m.LandingPage })),
+);
+const PrivacyPage = lazy(() =>
+  import('./pages/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })),
+);
+const TermsPage = lazy(() => import('./pages/legal/TermsPage').then((m) => ({ default: m.TermsPage })));
+const AuthCallbackPage = lazy(() =>
+  import('./auth/AuthCallbackPage').then((m) => ({ default: m.AuthCallbackPage })),
+);
+const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ default: m.VerifyPage })));
+
+// App shell + pages: loaded only after sign-in.
+const AppShell = lazy(() => import('./layout/AppShell').then((m) => ({ default: m.AppShell })));
+const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })));
+const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
+const CalculatorPage = lazy(() =>
+  import('./pages/CalculatorPage').then((m) => ({ default: m.CalculatorPage })),
+);
+const DashboardPage = lazy(() =>
+  import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
+);
+const DeedsPage = lazy(() => import('./pages/DeedsPage').then((m) => ({ default: m.DeedsPage })));
+const DocumentsPage = lazy(() =>
+  import('./pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
+);
+const GroupsPage = lazy(() => import('./pages/GroupsPage').then((m) => ({ default: m.GroupsPage })));
+const InvitationsPage = lazy(() =>
+  import('./pages/InvitationsPage').then((m) => ({ default: m.InvitationsPage })),
+);
+const MarketValuePage = lazy(() =>
+  import('./pages/MarketValuePage').then((m) => ({ default: m.MarketValuePage })),
+);
+const NotificationsPage = lazy(() =>
+  import('./pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
+);
+const ParcelsPage = lazy(() => import('./pages/ParcelsPage').then((m) => ({ default: m.ParcelsPage })));
+const PassbooksPage = lazy(() =>
+  import('./pages/PassbooksPage').then((m) => ({ default: m.PassbooksPage })),
+);
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })));
+const PropertiesPage = lazy(() =>
+  import('./pages/PropertiesPage').then((m) => ({ default: m.PropertiesPage })),
+);
+const SroPage = lazy(() => import('./pages/SroPage').then((m) => ({ default: m.SroPage })));
+const StampDutyPage = lazy(() =>
+  import('./pages/StampDutyPage').then((m) => ({ default: m.StampDutyPage })),
+);
+
+function RouteFallback() {
+  return (
+    <Box sx={{ minHeight: '50vh', display: 'grid', placeItems: 'center' }}>
+      <CircularProgress aria-label="Loading" />
+    </Box>
+  );
+}
+
+function suspended(Component: LazyExoticComponent<ComponentType>) {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Component />
+    </Suspense>
+  );
+}
 
 export const router = createBrowserRouter([
+  { path: '/', element: suspended(LandingPage) },
+  { path: '/privacy', element: suspended(PrivacyPage) },
+  { path: '/terms', element: suspended(TermsPage) },
+  { path: '/auth/callback', element: suspended(AuthCallbackPage) },
+  { path: '/verify/:token', element: suspended(VerifyPage) },
   {
-    path: '/',
-    Component: AppShell,
+    path: '/app',
+    element: <RequireAuth>{suspended(AppShell)}</RequireAuth>,
     children: [
-      { index: true, Component: DashboardPage },
-      { path: 'passbooks', Component: PassbooksPage },
-      { path: 'parcels', Component: ParcelsPage },
-      { path: 'properties', Component: PropertiesPage },
-      { path: 'documents', Component: DocumentsPage },
-      { path: 'deeds', Component: DeedsPage },
-      { path: 'groups', Component: GroupsPage },
-      { path: 'invitations', Component: InvitationsPage },
-      { path: 'notifications', Component: NotificationsPage },
-      { path: 'sro', Component: SroPage },
-      { path: 'stamp-duty', Component: StampDutyPage },
-      { path: 'market-value', Component: MarketValuePage },
-      { path: 'calculator', Component: CalculatorPage },
-      { path: 'audit', Component: AuditPage },
-      { path: 'admin', Component: AdminPage },
-      { path: 'profile', Component: ProfilePage },
+      { index: true, element: suspended(DashboardPage) },
+      { path: 'passbooks', element: suspended(PassbooksPage) },
+      { path: 'parcels', element: suspended(ParcelsPage) },
+      { path: 'properties', element: suspended(PropertiesPage) },
+      { path: 'documents', element: suspended(DocumentsPage) },
+      { path: 'deeds', element: suspended(DeedsPage) },
+      { path: 'groups', element: suspended(GroupsPage) },
+      { path: 'invitations', element: suspended(InvitationsPage) },
+      { path: 'notifications', element: suspended(NotificationsPage) },
+      { path: 'sro', element: suspended(SroPage) },
+      { path: 'stamp-duty', element: suspended(StampDutyPage) },
+      { path: 'market-value', element: suspended(MarketValuePage) },
+      { path: 'calculator', element: suspended(CalculatorPage) },
+      { path: 'audit', element: suspended(AuditPage) },
+      { path: 'admin', element: suspended(AdminPage) },
+      { path: 'profile', element: suspended(ProfilePage) },
     ],
   },
-  // PUBLIC route, outside the shell: beneficiary verification landing must
-  // work WITHOUT login (invitees follow this link before they have accounts).
-  { path: '/verify/:token', Component: VerifyPage },
 ]);

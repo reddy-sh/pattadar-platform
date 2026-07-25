@@ -27,7 +27,7 @@ Extracted from the `rhub` platform (local Kind/k8s) per the design in [docs/spec
                             │
      ┌──────────────────────┼──────────────────────────┐
      │ services/gateway     │ services/api             │ services/assistant
-     │ Auth0 JWT→x-user-id  │ pattadar FastAPI +       │ (Phase 3)
+     │ Cognito JWT→x-user-id│ pattadar FastAPI +       │ (Phase 3)
      │ storage API (S3)     │ Strawberry GraphQL,      │ LLM assistant,
      │ proxy, super-admin   │ AI extraction (Anthropic)│ no MCP in v1
      └──────────┬───────────┴───────────┬──────────────┘
@@ -37,7 +37,18 @@ Extracted from the `rhub` platform (local Kind/k8s) per the design in [docs/spec
          GuardDuty malware)
 ```
 
-Region: **ap-south-1 (Mumbai)**. Auth: **Auth0** (unchanged tenant — user identity format is preserved exactly). AI extraction: direct Anthropic API (Bedrock ap-south-1 documented as a future data-residency option).
+Region: **ap-south-1 (Mumbai)**. Auth: **Amazon Cognito** (ap-south-1, Essentials tier — user identity format is preserved exactly). AI extraction: direct Anthropic API (Bedrock ap-south-1 documented as a future data-residency option).
+
+### Hosts (domain: pattadar.com)
+
+| Host | Serves |
+|---|---|
+| `pattadar.com` | Public landing page at `/` + the Cognito-gated web app under `/app/*` — one SPA via CloudFront |
+| `www.pattadar.com` | Same CloudFront distribution |
+| `api.pattadar.com` | ALB directly — EventBridge cron target + direct API access |
+| `pattadar-auth-<env>` (Cognito prefix domain) | Cognito hosted-UI auth for the pilot (custom `auth.pattadar.com` later) |
+
+Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.com`, which CloudFront routes to the ALB origin — no CORS.
 
 ## Repository layout
 
@@ -48,10 +59,12 @@ Region: **ap-south-1 (Mumbai)**. Auth: **Auth0** (unchanged tenant — user iden
 | `apps/web` | React + MUI web app — shell-lite chrome (header, drawer, content, footer, assistant slot) + all views. Buildable skeleton. |
 | `apps/mobile` | Expo / React Native companion app (native feel, ML Kit document scanning, push). Docs-only until Phase 4. |
 | `services/api` | The existing pattadar backend, ported unchanged (FastAPI + Strawberry GraphQL + AI extraction + notifications + inactivity cron). |
-| `services/gateway` | New slim gateway: Auth0 validation → `x-user-id`, document storage over S3, reverse proxy, super-admin AI/model admin. |
+| `services/gateway` | New slim gateway: Cognito access-token validation → `x-user-id`, document storage over S3, reverse proxy, super-admin AI/model admin. |
 | `services/assistant` | In-app assistant service (Phase 3), runs without MCP in v1. |
-| `infra/terraform` | Reusable `app-stack` module + `envs/{prod,dev}`. SOC 2 / DPDP-conscious defaults (KMS, versioning, 365-day logs). |
+| `infra/terraform` | Persistent/runtime module split + env roots `envs/{dev,prod}/{persistent,runtime}` for one-click up/down. SOC 2 / DPDP-conscious defaults (KMS, versioning, 365-day logs). |
+| `scripts` | One-click `platform-up.sh <env>` / `platform-down.sh <env>` (being added in parallel). |
 | `docs/specs` | Design documents. |
+| `docs/runbooks` | Operational runbooks — DNS cutover, up/down procedures (being added in parallel). |
 | `docs/compliance` | SOC 2 control matrix, GDPR + DPDP privacy docs, engineering checklist. |
 
 ## Stack (live-verified latest stable, July 2026)
@@ -60,10 +73,10 @@ Region: **ap-south-1 (Mumbai)**. Auth: **Auth0** (unchanged tenant — user iden
 |---|---|
 | Package manager | Bun 1.3.14 (workspaces) |
 | Web | React 19.2, MUI 9.2, Vite 8.1, TypeScript 7.0, React Router 8.3, TanStack Query 5 |
-| Mobile | Expo (latest SDK, Phase 4), React Native Paper (MD3), react-native-auth0, EAS |
+| Mobile | Expo (latest SDK, Phase 4), React Native Paper (MD3), Cognito hosted-UI auth (Phase 4), EAS |
 | Backend | Python FastAPI + Strawberry GraphQL (ported), PostgreSQL 17 |
 | Infra | Terraform ≥1.10, AWS provider 6.x, ECS Fargate, RDS, S3+KMS, CloudFront+WAF |
-| Auth | Auth0 (SPA + native SDKs, same tenant as today) |
+| Auth | Amazon Cognito (ap-south-1, Essentials tier; hosted UI) |
 | AI | Anthropic API (document vision extraction), model catalog under super-admin |
 
 No Ant Design, no pnpm, no webpack/module-federation — deliberate clean break from the rhub stack.
@@ -84,7 +97,7 @@ Infra: see [infra/terraform/README.md](infra/terraform/README.md). Compliance po
 | Phase | Deliverable | Verify |
 |---|---|---|
 | 0 | This template + AWS foundation (Terraform: KMS, S3, RDS, ECR, secrets, scheduler) | `terraform plan` clean; CI green |
-| 1 | Backend lift: api container → ECS, `pg_dump` → RDS, slim gateway, MinIO → S3 mirror, EventBridge cron | GraphQL + one AI extraction + one upload/preview round-trip on AWS with a real Auth0 token |
+| 1 | Backend lift: api container → ECS, `pg_dump` → RDS, slim gateway, MinIO → S3 mirror, EventBridge cron | GraphQL + one AI extraction + one upload/preview round-trip on AWS with a real Cognito token |
 | 2 | MUI web app rebuilt view-by-view; logic extracted into `packages/core` as we go | Feature parity checklist per view |
 | 3 | Assistant + super-admin console (model catalog; MCP stays out of v1) | Assistant answers with page context; admin gated fail-closed |
 | 4 | Expo companion app (scan, portfolio, members, notifications, verify deep link) + stores | EAS builds installed on iOS/Android |
@@ -93,7 +106,7 @@ Infra: see [infra/terraform/README.md](infra/terraform/README.md). Compliance po
 ## Key invariants (do not break)
 
 1. **`services/api` trusts the `x-user-id` header** — it must never be reachable except through the gateway.
-2. **User id format** = Auth0 email local-part, lowercased (e.g. `sankara.telukutla`). Every DB row and S3 object key depends on it.
+2. **User id format** = email local-part, lowercased (from the Cognito `email` claim — e.g. `sankara.telukutla`). Every DB row and S3 object key depends on it.
 3. **AI extraction routes** (`/import-*`, `/extract-*`) run up to 180 s — every hop in front needs ≥200 s timeout and must never retry.
 4. **`CRON_SECRET` is always set** — the inactivity-check endpoint is open without it.
 5. **Storage object keys** `{owner}/{node}/{version}` are migrated verbatim; metadata rows never change.

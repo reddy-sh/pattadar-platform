@@ -21,16 +21,31 @@ jobs:
       - run: bun run typecheck
       - run: bun run build
 
-  terraform:
-    name: Terraform fmt & validate
+  terraform-fmt:
+    name: Terraform fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
       - run: terraform fmt -check -recursive
         working-directory: infra/terraform
+
+  terraform-validate:
+    name: Terraform validate (${{ matrix.root }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        root:
+          - envs/dev/persistent
+          - envs/dev/runtime
+          - envs/prod/persistent
+          - envs/prod/runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
       - run: terraform init -backend=false && terraform validate
-        working-directory: infra/terraform/modules/app-stack
+        working-directory: infra/terraform/${{ matrix.root }}
 
   secrets-scan:
     name: Secret scan (gitleaks)

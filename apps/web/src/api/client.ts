@@ -10,8 +10,9 @@
 
 export type GetAccessToken = () => Promise<string | null>;
 
-// TODO(Phase 2): Auth0 SPA integration — replace this seam with
-// getAccessTokenSilently from @auth0/auth0-react at app bootstrap.
+// The Cognito AuthProvider (src/auth/AuthProvider.tsx) injects the real
+// provider at module load. In mock mode (no VITE_COGNITO_AUTHORITY) this
+// default stays: local dev talks to the gateway without a token.
 let getAccessToken: GetAccessToken = async () => null;
 
 /** Inject the token source (called once at bootstrap). */

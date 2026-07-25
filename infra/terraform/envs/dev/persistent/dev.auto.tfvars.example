@@ -1,0 +1,10 @@
+# Copy to dev.auto.tfvars (git-ignored) and adjust. No secrets in tfvars.
+
+region                = "ap-south-1"
+parking_storage_class = "GLACIER_IR"
+
+# Dev in the SAME AWS account as prod? Prod owns the account singletons —
+# disable them here (and reuse prod's ECR repositories, see README):
+# manage_dns          = false
+# manage_github_oidc  = false
+# manage_org_security = false
