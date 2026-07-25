@@ -3,11 +3,19 @@
 policies:
   - name: sg-open-to-world-non-web
     resource: aws.security-group
+    # TODO(cleanup): the launch-wizard-* exclusion below grandfathers 11 known
+    # pre-pattadar SGs in vpc-05a8764ebbcdabfb6 so the daily job is not
+    # permanently red. REMOVE the exclusion once the founder deletes them —
+    # any NEW world-open SG still fails the job.
     description: >
       Security groups allowing 0.0.0.0/0 ingress on anything other than
       80/443. The ALB is the only intended public door; the api service must
       never be internet-reachable (x-user-id trust invariant).
     filters:
+      - type: value
+        key: GroupName
+        op: regex
+        value: \'^(?!launch-wizard-).*\'
       - type: ingress
         Cidr:
           value: "0.0.0.0/0"

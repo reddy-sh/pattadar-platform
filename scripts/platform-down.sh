@@ -82,19 +82,20 @@ if [[ "${PLATFORM_DOWN_CONFIRM:-}" != "yes" ]]; then
 fi
 
 # --- 2. Flip RDS deletion protection off (full apply, no -target) -------------
-# CRON_SECRET is a required runtime variable, so it must be set for the apply
-# and the destroy. Never printed.
-log "Fetching CRON_SECRET from Secrets Manager (pattadar/${ENV}/cron-secret)"
-TF_VAR_cron_secret_header_value="$(aws secretsmanager get-secret-value \
-  --secret-id "pattadar/${ENV}/cron-secret" \
-  --query SecretString --output text)"
-export TF_VAR_cron_secret_header_value
-
 export TF_VAR_deletion_protection=false
-
-log "Runtime apply with deletion_protection=false (${ENV})"
 terraform -chdir="$RUNTIME_DIR" init -input=false
-terraform -chdir="$RUNTIME_DIR" apply -input=false -auto-approve
+
+# GUARD (review finding): if a prior down partially destroyed the stack, the
+# database may be GONE from state. Re-applying would recreate it EMPTY, and the
+# destroy below would then snapshot that empty database as the NEWEST final
+# snapshot — which the next up would silently restore. Skip the apply instead.
+if terraform -chdir="$RUNTIME_DIR" state list 2>/dev/null | grep -q 'aws_db_instance'; then
+  log "Runtime apply with deletion_protection=false (${ENV})"
+  terraform -chdir="$RUNTIME_DIR" apply -input=false -auto-approve
+else
+  log "WARNING: RDS instance not in runtime state (partial prior down?)."
+  log "Skipping re-apply — destroying remaining resources only (no new snapshot)."
+fi
 
 # --- 3. Destroy runtime (RDS takes a final snapshot) --------------------------
 TF_VAR_final_snapshot_suffix="$(date +%Y%m%d%H%M)"
@@ -103,6 +104,7 @@ log "Destroying runtime layer — RDS final snapshot: pattadar-${ENV}-pg-final-$
 terraform -chdir="$RUNTIME_DIR" destroy -input=false -auto-approve
 
 # --- 4. Park documents into the cold storage class -----------------------------
+terraform -chdir="$PERSISTENT_DIR" init -input=false >/dev/null
 docs_bucket="$(terraform -chdir="$PERSISTENT_DIR" output -raw documents_bucket_name)"
 parking_class="$(terraform -chdir="$PERSISTENT_DIR" output -raw parking_storage_class)"
 log "Parking s3://${docs_bucket} objects ({owner}/... keyspace) to ${parking_class}"

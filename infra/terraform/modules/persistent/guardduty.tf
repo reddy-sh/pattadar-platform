@@ -96,6 +96,14 @@ data "aws_iam_policy_document" "guardduty_malware" {
 
   # Documents bucket is SSE-KMS with the app CMK.
   statement {
+    # GuardDuty writes a test object to validate the plan; without PutObject the
+    # plan sits in WARNING and never validates (review finding).
+    sid       = "AllowMalwareValidationObject"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.documents.arn}/malware-protection-resource-validation-object"]
+  }
+
+  statement {
     sid = "DecryptDocuments"
     actions = [
       "kms:Decrypt",

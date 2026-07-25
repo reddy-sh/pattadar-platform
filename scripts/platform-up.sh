@@ -80,9 +80,9 @@ if [[ -z "$cron_secret" || "$cron_secret" == "None" ]]; then
   echo "  aws secretsmanager put-secret-value --secret-id pattadar/${ENV}/cron-secret --secret-string \"\$(openssl rand -hex 32)\"" >&2
   exit 1
 fi
-export TF_VAR_cron_secret_header_value="$cron_secret"
 unset cron_secret
-echo "CRON_SECRET loaded into TF_VAR_cron_secret_header_value (value not shown)."
+# (The runtime layer reads the secret VALUE itself via a Terraform data source —
+# the check above only guarantees it is non-empty before the apply.)
 
 # --- 4. Runtime layer --------------------------------------------------------
 log "Applying runtime layer (${ENV})"
@@ -111,11 +111,13 @@ fi
 
 # --- 6. Post-up smoke --------------------------------------------------------
 log "Smoke-checking gateway + api via the ALB"
-alb_dns="$(terraform -chdir="$RUNTIME_DIR" output -raw alb_dns)"
+alb_dns="$(terraform -chdir="$RUNTIME_DIR" output -raw alb_dns_name)"
 for path in "/health" "/api/gateway/pattadar/health"; do
   ok=""
   for _ in $(seq 1 30); do
-    if curl -fsS --max-time 15 "http://${alb_dns}${path}" >/dev/null 2>&1; then
+    code="$(curl -sk --max-time 15 -o /dev/null -w '%{http_code}' \
+      -H "Host: api.pattadar.com" "https://${alb_dns}${path}" || echo 000)"
+    if [[ "$code" == "200" ]]; then
       ok=1
       break
     fi
