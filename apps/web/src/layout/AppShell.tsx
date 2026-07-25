@@ -1,7 +1,10 @@
 /**
- * Shell-lite chrome: AppBar header, navigation drawer (permanent on desktop,
- * temporary on mobile), routed content area, slim footer, and a right-hand
- * assistant panel placeholder.
+ * Shell chrome — "Emerald & Gold" redesign. AppBar header (matte surface,
+ * emerald wordmark with a gold dot), navigation drawer regrouped under
+ * section headers (permanent on desktop, temporary on mobile), routed
+ * content area, slim footer, and a right-hand assistant panel placeholder.
+ * Selected nav item renders as an emerald pill; the Wallet item carries a
+ * small gold dot.
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
@@ -17,6 +20,7 @@ import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Toolbar from '@mui/material/Toolbar';
@@ -24,6 +28,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useColorScheme } from '@mui/material/styles';
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
@@ -43,34 +48,72 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
+import { gold, green } from '@pattadar/tokens';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 
-const DRAWER_WIDTH = 248;
+const DRAWER_WIDTH = 252;
 
 interface NavItem {
   label: string;
   path: string;
   icon: ReactElement;
+  /** Small gold dot after the label (Wallet). */
+  goldDot?: boolean;
 }
 
-/** Navigation order mirrors the rhub pattadar menu. */
-const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', path: '/app', icon: <DashboardOutlinedIcon /> },
-  { label: 'Passbooks', path: '/app/passbooks', icon: <MenuBookOutlinedIcon /> },
-  { label: 'Parcels', path: '/app/parcels', icon: <MapOutlinedIcon /> },
-  { label: 'Properties', path: '/app/properties', icon: <HomeWorkOutlinedIcon /> },
-  { label: 'Documents', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
-  { label: 'Deeds', path: '/app/deeds', icon: <HistoryEduOutlinedIcon /> },
-  { label: 'Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
-  { label: 'Invitations', path: '/app/invitations', icon: <MailOutlinedIcon /> },
-  { label: 'Notifications', path: '/app/notifications', icon: <NotificationsOutlinedIcon /> },
-  { label: 'SRO Offices', path: '/app/sro', icon: <AccountBalanceOutlinedIcon /> },
-  { label: 'Stamp Duty', path: '/app/stamp-duty', icon: <ReceiptLongOutlinedIcon /> },
-  { label: 'Market Value', path: '/app/market-value', icon: <TrendingUpOutlinedIcon /> },
-  { label: 'Calculator', path: '/app/calculator', icon: <CalculateOutlinedIcon /> },
-  { label: 'Audit', path: '/app/audit', icon: <FactCheckOutlinedIcon /> },
-  { label: 'Admin', path: '/app/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
-  { label: 'Profile', path: '/app/profile', icon: <PersonOutlinedIcon /> },
+interface NavSection {
+  header: string;
+  items: NavItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    header: 'Portfolio',
+    items: [
+      { label: 'Dashboard', path: '/app', icon: <DashboardOutlinedIcon /> },
+      { label: 'Parcels', path: '/app/parcels', icon: <MapOutlinedIcon /> },
+      { label: 'Passbooks', path: '/app/passbooks', icon: <MenuBookOutlinedIcon /> },
+      { label: 'Properties', path: '/app/properties', icon: <HomeWorkOutlinedIcon /> },
+    ],
+  },
+  {
+    header: 'Records',
+    items: [
+      { label: 'Documents', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
+      { label: 'Deeds', path: '/app/deeds', icon: <HistoryEduOutlinedIcon /> },
+    ],
+  },
+  {
+    header: 'Family',
+    items: [
+      { label: 'Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
+      { label: 'Invitations', path: '/app/invitations', icon: <MailOutlinedIcon /> },
+    ],
+  },
+  {
+    header: 'Wallet',
+    items: [
+      { label: 'Wallet', path: '/app/wallet', icon: <AccountBalanceWalletOutlinedIcon />, goldDot: true },
+    ],
+  },
+  {
+    header: 'Tools',
+    items: [
+      { label: 'SRO Offices', path: '/app/sro', icon: <AccountBalanceOutlinedIcon /> },
+      { label: 'Stamp Duty', path: '/app/stamp-duty', icon: <ReceiptLongOutlinedIcon /> },
+      { label: 'Market Value', path: '/app/market-value', icon: <TrendingUpOutlinedIcon /> },
+      { label: 'Calculator', path: '/app/calculator', icon: <CalculateOutlinedIcon /> },
+    ],
+  },
+  {
+    header: 'System',
+    items: [
+      { label: 'Notifications', path: '/app/notifications', icon: <NotificationsOutlinedIcon /> },
+      { label: 'Audit', path: '/app/audit', icon: <FactCheckOutlinedIcon /> },
+      { label: 'Admin', path: '/app/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
+      { label: 'Profile', path: '/app/profile', icon: <PersonOutlinedIcon /> },
+    ],
+  },
 ];
 
 function ThemeToggle() {
@@ -89,20 +132,63 @@ function ThemeToggle() {
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const { pathname } = useLocation();
   return (
-    <List dense sx={{ pt: 1 }}>
-      {NAV_ITEMS.map((item) => (
-        <ListItemButton
-          key={item.path}
-          component={NavLink}
-          to={item.path}
-          onClick={onNavigate}
-          selected={item.path === '/app' ? pathname === '/app' : pathname.startsWith(item.path)}
+    <Box sx={{ overflowY: 'auto', pb: 2 }}>
+      {NAV_SECTIONS.map((section) => (
+        <List
+          key={section.header}
+          dense
+          subheader={<ListSubheader disableSticky>{section.header}</ListSubheader>}
+          sx={{ pt: 0.5, pb: 0 }}
         >
-          <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-          <ListItemText primary={item.label} />
-        </ListItemButton>
+          {section.items.map((item) => {
+            const selected =
+              item.path === '/app' ? pathname === '/app' : pathname.startsWith(item.path);
+            return (
+              <ListItemButton
+                key={item.path}
+                component={NavLink}
+                to={item.path}
+                onClick={onNavigate}
+                selected={selected}
+                sx={(t) => ({
+                  mx: 1,
+                  my: 0.25,
+                  borderRadius: 2.5,
+                  '&.Mui-selected': {
+                    bgcolor: green[100],
+                    color: green[800],
+                    '& .MuiListItemIcon-root': { color: green[700] },
+                    '& .MuiListItemText-primary': { fontWeight: 600 },
+                    '&:hover': { bgcolor: green[200] },
+                    ...t.applyStyles('dark', {
+                      bgcolor: 'rgba(78, 166, 120, 0.16)',
+                      color: green[300],
+                      '& .MuiListItemIcon-root': { color: green[300] },
+                      '&:hover': { bgcolor: 'rgba(78, 166, 120, 0.24)' },
+                    }),
+                  },
+                })}
+              >
+                <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.label} />
+                {item.goldDot && (
+                  <Box
+                    sx={(t) => ({
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      bgcolor: gold[600],
+                      flexShrink: 0,
+                      ...t.applyStyles('dark', { bgcolor: gold[300] }),
+                    })}
+                  />
+                )}
+              </ListItemButton>
+            );
+          })}
+        </List>
       ))}
-    </List>
+    </Box>
   );
 }
 
@@ -120,7 +206,18 @@ export function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
+      <AppBar
+        position="fixed"
+        elevation={0}
+        color="transparent"
+        sx={{
+          zIndex: (t) => t.zIndex.drawer + 1,
+          bgcolor: 'background.paper',
+          borderBottom: 1,
+          borderColor: 'divider',
+          color: 'text.primary',
+        }}
+      >
         <Toolbar>
           <IconButton
             color="inherit"
@@ -131,9 +228,29 @@ export function AppShell() {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" component="h1" sx={{ flexGrow: 1 }}>
-            Pattadar
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, flexGrow: 1 }}>
+            <Typography
+              variant="h6"
+              component="h1"
+              sx={(t) => ({
+                fontWeight: 700,
+                letterSpacing: '-0.01em',
+                color: green[700],
+                ...t.applyStyles('dark', { color: green[300] }),
+              })}
+            >
+              Pattadar
+            </Typography>
+            <Box
+              sx={(t) => ({
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                bgcolor: gold[500],
+                ...t.applyStyles('dark', { bgcolor: gold[300] }),
+              })}
+            />
+          </Box>
           {isAuthMocked && (
             <Chip size="small" color="warning" label="Auth mocked — dev only" sx={{ mr: 1 }} />
           )}
@@ -150,7 +267,7 @@ export function AppShell() {
             aria-label="Account menu"
             sx={{ ml: 1 }}
           >
-            <Avatar sx={{ width: 32, height: 32 }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: green[600], fontSize: 15 }}>
               {(user?.email?.[0] ?? 'P').toUpperCase()}
             </Avatar>
           </IconButton>
@@ -192,21 +309,27 @@ export function AppShell() {
           display: { xs: 'none', md: 'block' },
           width: DRAWER_WIDTH,
           flexShrink: 0,
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            borderRight: 1,
+            borderColor: 'divider',
+            bgcolor: 'background.default',
+          },
         }}
       >
         {drawerContent}
       </Drawer>
 
-      <Box component="main" sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <Box component="main" sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Toolbar />
-        <Box sx={{ flexGrow: 1, p: 3 }}>
+        <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 } }}>
           <Outlet />
         </Box>
         <Divider />
         <Box component="footer" sx={{ px: 3, py: 1.5 }}>
           <Typography variant="caption" color="text.secondary">
-            Pattadar — Andhra Pradesh land records. Dates shown DD/MM/YYYY.
+            Pattadar — your land and property, in one place. Dates shown DD/MM/YYYY.
           </Typography>
         </Box>
       </Box>

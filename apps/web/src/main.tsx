@@ -14,7 +14,7 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider theme={theme} defaultMode="system">
+    <ThemeProvider theme={theme} defaultMode="light" modeStorageKey="pattadar-mode-v2">
       <CssBaseline enableColorScheme />
       <QueryClientProvider client={queryClient}>
         <AuthProvider>

@@ -1,55 +1,116 @@
 /**
  * @pattadar/tokens — design tokens for the Pattadar platform.
  *
- * PLACEHOLDER BRAND PALETTE — adjust once, here. Both the MUI theme
- * (apps/web) and the React Native Paper theme (apps/mobile) derive from
- * this file, so a change here propagates to both heads.
+ * "EMERALD & GOLD" BRAND PALETTE. Both the MUI theme (apps/web) and the
+ * React Native Paper theme (apps/mobile) derive from this file, so a change
+ * here propagates to both heads.
  *
- * Palette intent: professional and restrained, land/earth-inspired —
- * deep green primary, warm neutral surfaces, conventional semantic hues.
+ * Palette intent: deep emerald green (land, fertility, trust) as the primary
+ * hue; gold/amber (property, wealth, premium) as the second hue. Warm ivory
+ * surfaces in light mode, green-tinted charcoal in dark mode. Orange is
+ * RESERVED for warnings — the properties domain wears amber-gold, never orange.
  */
 
 // ---------------------------------------------------------------------------
 // Primitive scales
 // ---------------------------------------------------------------------------
 
-/** Deep green primary ramp (50 = lightest, 900 = darkest). */
+/** Deep emerald primary ramp, anchored at 600 = #146C43 (50 = lightest). */
 export const green = {
-  50: '#f0f5f1',
-  100: '#dbe8dd',
-  200: '#b8d2bd',
-  300: '#8fb798',
-  400: '#639a71',
-  500: '#3f7d51',
-  600: '#2e6540',
-  700: '#245234',
-  800: '#1c4029',
-  900: '#142f1f',
+  50: '#edf7f1',
+  100: '#d6ecdf',
+  200: '#acdac0',
+  300: '#7cc29d',
+  400: '#4ea678',
+  500: '#26875a',
+  600: '#146c43',
+  700: '#0f5735',
+  800: '#0c4429',
+  900: '#08321e',
 } as const;
 
-/** Warm neutral ramp — surfaces, borders, text. */
+/** Gold/amber second ramp — properties, wealth, premium accents. */
+export const gold = {
+  50: '#fbf6e7',
+  100: '#f5e8c4',
+  200: '#efd68f',
+  300: '#f0c24b',
+  400: '#d9a833',
+  500: '#c9a227',
+  600: '#b8860b',
+  700: '#96700e',
+  800: '#75570d',
+  900: '#54400c',
+} as const;
+
+/** Warm ivory/stone neutral ramp — light-mode surfaces, borders, text. */
 export const neutral = {
   0: '#ffffff',
-  50: '#faf9f7',
-  100: '#f3f1ed',
-  200: '#e7e3dc',
-  300: '#d5cfc5',
-  400: '#b0a89b',
-  500: '#8a8174',
-  600: '#665f54',
-  700: '#4a443b',
-  800: '#322d26',
-  900: '#1e1b16',
+  50: '#f4f8f4', // green-tinted ivory — the founder wants green FELT, not accented
+  100: '#e9f1e9',
+  200: '#dbe7da',
+  300: '#d2cec0',
+  400: '#ada894',
+  500: '#878271',
+  600: '#635f52',
+  700: '#47443a',
+  800: '#2e2c25',
+  900: '#1c1b16',
   1000: '#121009',
 } as const;
 
-/** Semantic accent hues (single anchor value each; tints derived in themes). */
-export const semantic = {
-  success: '#2e7d32',
-  warning: '#b3730d',
-  error: '#b3261e',
-  info: '#1e5f8a',
+/** Green-tinted charcoal ramp — dark-mode backgrounds and surfaces. */
+export const charcoal = {
+  background: '#0f2318', // deep emerald-charcoal — unmistakably green, never black
+  surface: '#153024',
+  surfaceRaised: '#1b3d2d',
+  border: '#2b4a39',
+  borderStrong: '#3d6450',
 } as const;
+
+/**
+ * Status hues (good / warning / serious / critical) — reserved meanings,
+ * always shipped with an icon + label, never reused as chart series.
+ * Orange lives HERE (warning), nowhere else.
+ */
+export const status = {
+  light: {
+    good: '#2e7d32',
+    warning: '#b45309',
+    serious: '#c43e1c',
+    critical: '#a61b1b',
+  },
+  dark: {
+    good: '#6fcf97',
+    warning: '#e8a13d',
+    serious: '#e8714a',
+    critical: '#ef6a6a',
+  },
+} as const;
+
+/** Back-compat semantic aliases (single anchor value each). */
+export const semantic = {
+  success: status.light.good,
+  warning: status.light.warning,
+  error: status.light.critical,
+  info: '#0083a0',
+} as const;
+
+// ---------------------------------------------------------------------------
+// Chart palette — validated with the dataviz six-checks validator.
+// Fixed slot order (follows the entity, never cycled):
+//   1 emerald · 2 gold · 3 teal · 4 terracotta · 5 plum · 6 slate
+// Light validated on #FAF9F6, dark on #121713 — ALL CHECKS PASS both modes
+// (worst adjacent CVD ΔE 13.8 light / 9.8 dark; normal-vision 22.0 / 16.3).
+// ---------------------------------------------------------------------------
+
+export const chartCategorical = {
+  light: ['#146C43', '#B8860B', '#0083A0', '#C96040', '#83368F', '#5E8DC9'],
+  dark: ['#45A97C', '#A6790F', '#0097B2', '#C86A4E', '#8F4EA8', '#5F8DD1'],
+} as const;
+
+/** Chart surfaces the palettes were validated against. */
+export const chartSurface = { light: '#faf9f6', dark: '#121713' } as const;
 
 // ---------------------------------------------------------------------------
 // Colour schemes (light / dark)
@@ -61,6 +122,13 @@ export interface ColorScheme {
   primaryHover: string;
   primaryActive: string;
   onPrimary: string;
+  /** Soft emerald container (selected nav pill, subtle fills). */
+  primaryContainer: string;
+  onPrimaryContainer: string;
+  /** Gold accent (properties, wealth, premium). */
+  accent: string;
+  accentContainer: string;
+  onAccentContainer: string;
   /** Page and surface backgrounds. */
   background: string;
   surface: string;
@@ -82,6 +150,11 @@ export const light: ColorScheme = {
   primaryHover: green[700],
   primaryActive: green[800],
   onPrimary: neutral[0],
+  primaryContainer: green[100],
+  onPrimaryContainer: green[800],
+  accent: gold[600],
+  accentContainer: gold[100],
+  onAccentContainer: gold[800],
   background: neutral[50],
   surface: neutral[0],
   surfaceRaised: neutral[0],
@@ -89,32 +162,92 @@ export const light: ColorScheme = {
   textPrimary: neutral[900],
   textSecondary: neutral[600],
   textDisabled: neutral[400],
-  success: semantic.success,
-  warning: semantic.warning,
-  error: semantic.error,
-  info: semantic.info,
+  success: status.light.good,
+  warning: status.light.warning,
+  error: status.light.critical,
+  info: '#0083a0',
 };
 
 export const dark: ColorScheme = {
   primary: green[400],
   primaryHover: green[300],
   primaryActive: green[200],
-  onPrimary: neutral[1000],
-  background: neutral[1000],
-  surface: neutral[900],
-  surfaceRaised: neutral[800],
-  border: neutral[700],
-  textPrimary: neutral[100],
-  textSecondary: neutral[400],
-  textDisabled: neutral[600],
-  success: '#66bb6a',
-  warning: '#e0a63f',
-  error: '#e57373',
-  info: '#64a6d4',
+  onPrimary: charcoal.background,
+  primaryContainer: 'rgba(78, 166, 120, 0.16)',
+  onPrimaryContainer: green[300],
+  accent: gold[300],
+  accentContainer: 'rgba(240, 194, 75, 0.14)',
+  onAccentContainer: gold[200],
+  background: charcoal.background,
+  surface: charcoal.surface,
+  surfaceRaised: charcoal.surfaceRaised,
+  border: charcoal.border,
+  textPrimary: '#e9ece9',
+  textSecondary: '#a3aca5',
+  textDisabled: '#5f6a62',
+  success: status.dark.good,
+  warning: status.dark.warning,
+  error: status.dark.critical,
+  info: '#4fb3c9',
 };
 
 export const schemes = { light, dark } as const;
 export type SchemeName = keyof typeof schemes;
+
+// ---------------------------------------------------------------------------
+// Gold-glass treatment — the "gold glassy, shiny" surface used SPARINGLY
+// (portfolio hero, wallet balance, key stat tiles). Everything else stays
+// clean matte. Consumed by apps/web <GlassCard>.
+// ---------------------------------------------------------------------------
+
+export interface GlassTone {
+  /** Translucent surface fill (over blur). */
+  surface: string;
+  /** Opaque-ish fallback when backdrop-filter is unsupported. */
+  surfaceFallback: string;
+  /** 1px gradient border stops (border-box gradient trick). */
+  borderStops: [string, string, string];
+  /** Radial sheen highlight colour. */
+  sheen: string;
+  shadow: string;
+}
+
+export const glass = {
+  light: {
+    gold: {
+      surface: 'rgba(255, 250, 236, 0.62)',
+      surfaceFallback: '#fdf8ea',
+      borderStops: ['rgba(201,162,39,0.75)', 'rgba(240,194,75,0.28)', 'rgba(184,134,11,0.65)'],
+      sheen: 'rgba(240, 194, 75, 0.30)',
+      shadow: '0 8px 28px rgba(117, 87, 13, 0.16)',
+    },
+    emerald: {
+      surface: 'rgba(240, 250, 244, 0.62)',
+      surfaceFallback: '#eef8f2',
+      borderStops: ['rgba(20,108,67,0.55)', 'rgba(124,194,157,0.25)', 'rgba(15,87,53,0.5)'],
+      sheen: 'rgba(124, 194, 157, 0.28)',
+      shadow: '0 8px 28px rgba(12, 68, 41, 0.14)',
+    },
+  },
+  dark: {
+    gold: {
+      surface: 'rgba(46, 42, 28, 0.55)',
+      surfaceFallback: '#26231a',
+      borderStops: ['rgba(240,194,75,0.55)', 'rgba(240,194,75,0.12)', 'rgba(201,162,39,0.45)'],
+      sheen: 'rgba(240, 194, 75, 0.16)',
+      shadow: '0 10px 32px rgba(0, 0, 0, 0.45)',
+    },
+    emerald: {
+      surface: 'rgba(24, 40, 31, 0.55)',
+      surfaceFallback: '#17251d',
+      borderStops: ['rgba(78,166,120,0.5)', 'rgba(78,166,120,0.12)', 'rgba(38,135,90,0.4)'],
+      sheen: 'rgba(78, 166, 120, 0.15)',
+      shadow: '0 10px 32px rgba(0, 0, 0, 0.45)',
+    },
+  },
+} as const;
+
+export type GlassToneName = keyof typeof glass.light;
 
 // ---------------------------------------------------------------------------
 // Typography
@@ -168,6 +301,7 @@ export const radii = {
   sm: 4,
   md: 8,
   lg: 12,
+  xl: 16,
   pill: 999,
 } as const;
 
@@ -184,8 +318,14 @@ export const elevation = {
 
 export const tokens = {
   green,
+  gold,
   neutral,
+  charcoal,
   semantic,
+  status,
+  chartCategorical,
+  chartSurface,
+  glass,
   schemes,
   typography,
   spacing,

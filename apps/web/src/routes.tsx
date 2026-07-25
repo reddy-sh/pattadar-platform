@@ -73,6 +73,7 @@ const PropertiesPage = lazy(() =>
   import('./pages/PropertiesPage').then((m) => ({ default: m.PropertiesPage })),
 );
 const SroPage = lazy(() => import('./pages/SroPage').then((m) => ({ default: m.SroPage })));
+const WalletPage = lazy(() => import('./pages/WalletPage').then((m) => ({ default: m.WalletPage })));
 const StampDutyPage = lazy(() =>
   import('./pages/StampDutyPage').then((m) => ({ default: m.StampDutyPage })),
 );
@@ -114,6 +115,7 @@ export const router = createBrowserRouter([
       { path: 'deeds', element: suspended(DeedsPage) },
       { path: 'groups', element: suspended(GroupsPage) },
       { path: 'invitations', element: suspended(InvitationsPage) },
+      { path: 'wallet', element: suspended(WalletPage) },
       { path: 'notifications', element: suspended(NotificationsPage) },
       { path: 'sro', element: suspended(SroPage) },
       { path: 'stamp-duty', element: suspended(StampDutyPage) },
