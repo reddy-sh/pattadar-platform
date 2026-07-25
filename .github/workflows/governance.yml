@@ -1,0 +1,46 @@
+name: Governance (Cloud Custodian)
+
+on:
+  schedule:
+    - cron: "30 3 * * *" # daily 03:30 UTC = 09:00 IST
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  custodian:
+    name: Report-only policy sweep (ap-south-1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GOVERNANCE_ROLE_ARN }}
+          aws-region: ap-south-1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet c7n
+      - run: custodian validate governance/custodian/policies/*.yml
+
+      - name: Security sweep (findings fail the job)
+        run: |
+          custodian run -s out/security --region ap-south-1 --dryrun governance/custodian/policies/security.yml
+          python3 governance/custodian/summarize.py out/security >> "$GITHUB_STEP_SUMMARY"
+          python3 governance/custodian/summarize.py --fail-on-findings out/security
+
+      - name: Cost + tagging sweep (report only)
+        if: always()
+        run: |
+          custodian run -s out/hygiene --region ap-south-1 --dryrun \
+            governance/custodian/policies/cost.yml governance/custodian/policies/tagging.yml
+          python3 governance/custodian/summarize.py out/hygiene >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: custodian-findings
+          path: out/
+          retention-days: 90

@@ -104,3 +104,8 @@ output "github_deploy_role_arn" {
   description = "IAM role ARN GitHub Actions assumes via OIDC (null when manage_github_oidc = false)."
   value       = one(aws_iam_role.github_deploy[*].arn)
 }
+
+output "github_governance_role_arn" {
+  description = "Read-only role for the Cloud Custodian governance workflow (null when manage_github_oidc = false)."
+  value       = one(aws_iam_role.github_governance[*].arn)
+}

@@ -71,3 +71,7 @@ output "ses_identity_arn" {
 output "github_deploy_role_arn" {
   value = module.persistent.github_deploy_role_arn
 }
+
+output "github_governance_role_arn" {
+  value = module.persistent.github_governance_role_arn
+}

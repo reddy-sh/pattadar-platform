@@ -1,0 +1,26 @@
+# Cost hygiene — REPORT-ONLY. Catches the classics that quietly bill.
+policies:
+  - name: ebs-unattached
+    resource: aws.ebs
+    description: EBS volumes attached to nothing (billing for zero value).
+    filters:
+      - Attachments: []
+
+  - name: eip-unassociated
+    resource: aws.network-addr
+    description: Elastic IPs not associated with anything ($3.6/mo each).
+    filters:
+      - AssociationId: absent
+
+  - name: rds-manual-snapshots-stale
+    resource: aws.rds-snapshot
+    description: >
+      Manual RDS snapshots older than 180 days — final snapshots from
+      decommission cycles should be pruned deliberately, not hoarded.
+    filters:
+      - type: value
+        key: SnapshotType
+        value: manual
+      - type: age
+        days: 180
+        op: greater-than

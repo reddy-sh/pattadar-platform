@@ -63,7 +63,9 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 | `services/assistant` | In-app assistant service (Phase 3), runs without MCP in v1. |
 | `infra/terraform` | Persistent/runtime module split + env roots `envs/{dev,prod}/{persistent,runtime}` for one-click up/down. SOC 2 / DPDP-conscious defaults (KMS, versioning, 365-day logs). |
 | `scripts` | One-click `platform-up.sh <env>` / `platform-down.sh <env>` (being added in parallel). |
+| `docs/architecture.md` | Rendered architecture diagrams (platform, layers, auth flow). |
 | `docs/specs` | Design documents. |
+| `governance/custodian` | Cloud Custodian report-only policy sweeps (daily via GitHub Actions). |
 | `docs/runbooks` | Operational runbooks — DNS cutover, up/down procedures (being added in parallel). |
 | `docs/compliance` | SOC 2 control matrix, GDPR + DPDP privacy docs, engineering checklist. |
 

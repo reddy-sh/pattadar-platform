@@ -1,0 +1,57 @@
+# Security posture — REPORT-ONLY (no actions). Findings fail the governance
+# workflow; remediation stays a human decision for now.
+policies:
+  - name: sg-open-to-world-non-web
+    resource: aws.security-group
+    description: >
+      Security groups allowing 0.0.0.0/0 ingress on anything other than
+      80/443. The ALB is the only intended public door; the api service must
+      never be internet-reachable (x-user-id trust invariant).
+    filters:
+      - type: ingress
+        Cidr:
+          value: "0.0.0.0/0"
+        Ports: [22, 3389, 5432, 8080]
+
+  - name: rds-publicly-accessible
+    resource: aws.rds
+    description: No RDS instance may be publicly accessible.
+    filters:
+      - PubliclyAccessible: true
+
+  - name: rds-unencrypted
+    resource: aws.rds
+    description: All RDS storage must be encrypted (SSE-KMS with the CMK).
+    filters:
+      - StorageEncrypted: false
+
+  - name: s3-missing-public-access-block
+    resource: aws.s3
+    description: Every bucket must block all public access.
+    filters:
+      - not:
+          - type: check-public-block
+            BlockPublicAcls: true
+            IgnorePublicAcls: true
+            BlockPublicPolicy: true
+            RestrictPublicBuckets: true
+
+  - name: iam-user-stale-access-keys
+    resource: aws.iam-user
+    description: >
+      Access keys older than 90 days (CI uses OIDC; long-lived keys should
+      be rare and rotated — SOC 2 logical-access control).
+    filters:
+      - type: credential
+        key: access_keys.last_rotated
+        value_type: age
+        value: 90
+        op: greater-than
+
+  - name: cloudtrail-not-logging
+    resource: aws.cloudtrail
+    description: The audit trail must always be logging (SOC 2 evidence).
+    filters:
+      - type: status
+        key: IsLogging
+        value: false

@@ -1,0 +1,19 @@
+# Tag discipline — REPORT-ONLY. Resource Groups / cost allocation / the
+# per-app template story all depend on App + Environment tags being present.
+policies:
+  - name: s3-missing-app-tag
+    resource: aws.s3
+    description: Buckets without the App tag (terraform state bucket is tagged by hand).
+    filters:
+      - "tag:App": absent
+      - "tag:Project": absent
+
+  - name: rds-missing-app-tag
+    resource: aws.rds
+    filters:
+      - "tag:App": absent
+
+  - name: ec2-missing-app-tag
+    resource: aws.ec2
+    filters:
+      - "tag:App": absent

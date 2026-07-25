@@ -213,3 +213,23 @@ resource "aws_iam_role_policy_attachment" "github_deploy" {
   role       = aws_iam_role.github_deploy[0].name
   policy_arn = aws_iam_policy.github_deploy[0].arn
 }
+
+# --- Governance (Cloud Custodian) — read-only role for the scheduled
+# governance workflow. Report-only posture: c7n policies carry no actions,
+# so ReadOnlyAccess is the entire blast radius.
+
+resource "aws_iam_role" "github_governance" {
+  count = var.manage_github_oidc ? 1 : 0
+
+  name               = "pattadar-github-governance"
+  description        = "Assumed via GitHub OIDC by the Cloud Custodian governance workflow (read-only)"
+  assume_role_policy = data.aws_iam_policy_document.github_deploy_assume[0].json
+  tags               = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "github_governance_readonly" {
+  count = var.manage_github_oidc ? 1 : 0
+
+  role       = aws_iam_role.github_governance[0].name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
