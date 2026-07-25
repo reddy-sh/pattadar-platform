@@ -14,6 +14,7 @@ locals {
     "cron-secret",
     "cognito-config",
     "notify-providers",
+    "idp-social", # {google:{client_id,client_secret}, facebook:{app_id,app_secret}, apple:{services_id,team_id,key_id,private_key}}
   ])
 }
 

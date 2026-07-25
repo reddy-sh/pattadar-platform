@@ -119,3 +119,22 @@ variable "manage_ecr" {
   type        = bool
   default     = true
 }
+
+# Social sign-in providers — flip to true AFTER filling the matching keys in
+# the <app>/<env>/idp-social secret (founder creates the apps in the Google /
+# Meta / Apple developer consoles; Cognito redirect URI for all three:
+# https://pattadar-auth-<env>.auth.ap-south-1.amazoncognito.com/oauth2/idpresponse).
+variable "enable_google_idp" {
+  type    = bool
+  default = false
+}
+
+variable "enable_facebook_idp" {
+  type    = bool
+  default = false
+}
+
+variable "enable_apple_idp" {
+  type    = bool
+  default = false
+}

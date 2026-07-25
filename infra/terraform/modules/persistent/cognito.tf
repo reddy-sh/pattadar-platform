@@ -157,7 +157,19 @@ resource "aws_cognito_user_pool_client" "spa" {
   callback_urls = var.spa_callback_urls
   logout_urls   = var.spa_logout_urls
 
-  supported_identity_providers = ["COGNITO"]
+  # IdPs must exist before the client can list them.
+  depends_on = [
+    aws_cognito_identity_provider.google,
+    aws_cognito_identity_provider.facebook,
+    aws_cognito_identity_provider.apple,
+  ]
+
+  supported_identity_providers = concat(
+    ["COGNITO"],
+    var.enable_google_idp ? ["Google"] : [],
+    var.enable_facebook_idp ? ["Facebook"] : [],
+    var.enable_apple_idp ? ["SignInWithApple"] : [],
+  )
 
   access_token_validity  = 60
   id_token_validity      = 60
@@ -178,4 +190,93 @@ resource "aws_cognito_user_pool_client" "spa" {
 resource "aws_cognito_user_pool_domain" "main" {
   domain       = "pattadar-auth-${var.environment}"
   user_pool_id = aws_cognito_user_pool.pattadar.id
+
+  # v2 = the modern Managed Login pages (branded), not the classic gray form.
+  managed_login_version = 2
+}
+
+# Default modern styling; customize colors/logo later in the branding editor.
+resource "aws_cognito_managed_login_branding" "spa" {
+  user_pool_id = aws_cognito_user_pool.pattadar.id
+  client_id    = aws_cognito_user_pool_client.spa.id
+
+  use_cognito_provided_values = true
+}
+
+# --- Social identity providers (each gated on its enable flag + creds in the
+# idp-social secret). Hosted UI shows the buttons automatically once enabled.
+# Account-linking caveat: a federated login with the same email creates a
+# SEPARATE Cognito user (different sub) — our app id derives from the email
+# claim, so data scope converges, but the pre-pilot pre-signup guard MUST
+# also reject federated identities whose email is unverified.
+
+data "aws_secretsmanager_secret_version" "idp_social" {
+  count     = (var.enable_google_idp || var.enable_facebook_idp || var.enable_apple_idp) ? 1 : 0
+  secret_id = aws_secretsmanager_secret.app["idp-social"].id
+}
+
+locals {
+  idp_social = length(data.aws_secretsmanager_secret_version.idp_social) > 0 ? jsondecode(data.aws_secretsmanager_secret_version.idp_social[0].secret_string) : {}
+}
+
+resource "aws_cognito_identity_provider" "google" {
+  count = var.enable_google_idp ? 1 : 0
+
+  user_pool_id  = aws_cognito_user_pool.pattadar.id
+  provider_name = "Google"
+  provider_type = "Google"
+
+  provider_details = {
+    client_id        = local.idp_social.google.client_id
+    client_secret    = local.idp_social.google.client_secret
+    authorize_scopes = "openid email profile"
+  }
+
+  attribute_mapping = {
+    email          = "email"
+    email_verified = "email_verified"
+    name           = "name"
+    username       = "sub"
+  }
+}
+
+resource "aws_cognito_identity_provider" "facebook" {
+  count = var.enable_facebook_idp ? 1 : 0
+
+  user_pool_id  = aws_cognito_user_pool.pattadar.id
+  provider_name = "Facebook"
+  provider_type = "Facebook"
+
+  provider_details = {
+    client_id        = local.idp_social.facebook.app_id
+    client_secret    = local.idp_social.facebook.app_secret
+    authorize_scopes = "public_profile,email"
+  }
+
+  attribute_mapping = {
+    email    = "email"
+    name     = "name"
+    username = "id"
+  }
+}
+
+resource "aws_cognito_identity_provider" "apple" {
+  count = var.enable_apple_idp ? 1 : 0
+
+  user_pool_id  = aws_cognito_user_pool.pattadar.id
+  provider_name = "SignInWithApple"
+  provider_type = "SignInWithApple"
+
+  provider_details = {
+    client_id        = local.idp_social.apple.services_id
+    team_id          = local.idp_social.apple.team_id
+    key_id           = local.idp_social.apple.key_id
+    private_key      = local.idp_social.apple.private_key
+    authorize_scopes = "email name"
+  }
+
+  attribute_mapping = {
+    email    = "email"
+    username = "sub"
+  }
 }
