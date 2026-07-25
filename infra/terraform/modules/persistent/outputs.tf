@@ -74,7 +74,7 @@ output "cognito_issuer" {
 
 output "cognito_hosted_ui_domain" {
   description = "Hosted UI domain (VITE_COGNITO_DOMAIN)."
-  value       = "${aws_cognito_user_pool_domain.main.domain}.auth.${data.aws_region.current.region}.amazoncognito.com"
+  value       = var.custom_auth_domain != "" && var.manage_dns ? var.custom_auth_domain : "${aws_cognito_user_pool_domain.main.domain}.auth.${data.aws_region.current.region}.amazoncognito.com"
 }
 
 # --- Route53 ----------------------------------------------------------------

@@ -138,3 +138,9 @@ variable "enable_apple_idp" {
   type    = bool
   default = false
 }
+
+variable "custom_auth_domain" {
+  description = "Custom Cognito hosted-UI domain (e.g. auth.pattadar.com) — customers must never see amazoncognito.com. Empty = prefix domain only. Requires manage_dns = true and the parent apex to resolve."
+  type        = string
+  default     = ""
+}

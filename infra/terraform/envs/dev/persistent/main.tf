@@ -25,8 +25,17 @@ provider "aws" {
 # false (dev.auto.tfvars) — prod owns the account singletons (hosted zone,
 # SES, GitHub OIDC, CloudTrail/Config/GuardDuty) and dev reuses the shared
 # ECR repositories.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
 module "persistent" {
   source = "../../../modules/persistent"
+
+  providers = {
+    aws.us_east_1 = aws.us_east_1
+  }
 
   app_name    = "pattadar"
   environment = "dev"

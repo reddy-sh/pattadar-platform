@@ -164,6 +164,12 @@ resource "aws_cognito_user_pool_client" "spa" {
     aws_cognito_identity_provider.apple,
   ]
 
+  # Native in-app login pages use SRP against the Cognito API — no hosted UI.
+  explicit_auth_flows = [
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
   supported_identity_providers = concat(
     ["COGNITO"],
     var.enable_google_idp ? ["Google"] : [],
@@ -278,5 +284,78 @@ resource "aws_cognito_identity_provider" "apple" {
   attribute_mapping = {
     email    = "email"
     username = "sub"
+  }
+}
+
+
+# --- Custom auth domain (auth.<domain>) — social-login redirects stay on the
+# founder's domain; amazoncognito.com never reaches a customer's browser.
+# Precondition (verified live): the parent apex already resolves via an A
+# record (CloudFront), which Cognito requires before accepting the domain.
+
+locals {
+  custom_auth_enabled = var.custom_auth_domain != "" && var.manage_dns
+}
+
+resource "aws_acm_certificate" "auth" {
+  count    = local.custom_auth_enabled ? 1 : 0
+  provider = aws.us_east_1
+
+  domain_name       = var.custom_auth_domain
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
+resource "aws_route53_record" "auth_cert_validation" {
+  for_each = local.custom_auth_enabled ? {
+    for dvo in aws_acm_certificate.auth[0].domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  } : {}
+
+  allow_overwrite = true
+  zone_id         = aws_route53_zone.main[0].zone_id
+  name            = each.value.name
+  type            = each.value.type
+  ttl             = 300
+  records         = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "auth" {
+  count    = local.custom_auth_enabled ? 1 : 0
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.auth[0].arn
+  validation_record_fqdns = [for r in aws_route53_record.auth_cert_validation : r.fqdn]
+}
+
+resource "aws_cognito_user_pool_domain" "custom" {
+  count = local.custom_auth_enabled ? 1 : 0
+
+  domain          = var.custom_auth_domain
+  user_pool_id    = aws_cognito_user_pool.pattadar.id
+  certificate_arn = aws_acm_certificate_validation.auth[0].certificate_arn
+
+  managed_login_version = 2
+}
+
+resource "aws_route53_record" "auth_alias" {
+  for_each = local.custom_auth_enabled ? toset(["A", "AAAA"]) : toset([])
+
+  zone_id = aws_route53_zone.main[0].zone_id
+  name    = var.custom_auth_domain
+  type    = each.value
+
+  alias {
+    name                   = aws_cognito_user_pool_domain.custom[0].cloudfront_distribution
+    zone_id                = aws_cognito_user_pool_domain.custom[0].cloudfront_distribution_zone_id
+    evaluate_target_health = false
   }
 }
