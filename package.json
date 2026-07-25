@@ -1,0 +1,17 @@
+{
+  "name": "pattadar-platform",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "bun run --filter '@pattadar/*' build",
+    "typecheck": "bun run --filter '@pattadar/*' typecheck",
+    "dev:web": "bun run --filter @pattadar/web dev"
+  }
+}

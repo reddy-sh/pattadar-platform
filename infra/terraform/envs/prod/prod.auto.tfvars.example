@@ -1,0 +1,8 @@
+# Copy to prod.auto.tfvars (git-ignored) and fill in real values.
+# NEVER put cron_secret_header_value in a tfvars file — pass it at apply time:
+#   export TF_VAR_cron_secret_header_value="$(aws secretsmanager get-secret-value \
+#     --secret-id pattadar/prod/cron-secret --query SecretString --output text)"
+
+region            = "ap-south-1"
+db_instance_class = "db.t4g.micro"
+api_base_url      = "https://api.pattadar.example.com" # TODO(Phase 1): real domain
