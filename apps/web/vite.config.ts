@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // amazon-cognito-identity-js references Node's `global` at runtime;
+  // browsers have globalThis only — without this the whole bundle throws
+  // 'global is not defined' at load (white page).
+  define: { global: 'globalThis' },
   plugins: [react()],
   server: {
     proxy: {
