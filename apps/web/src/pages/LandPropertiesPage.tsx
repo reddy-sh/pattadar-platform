@@ -41,7 +41,6 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
@@ -50,7 +49,10 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import SearchIcon from '@mui/icons-material/Search';
 import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { formatArea } from '@pattadar/core';
-import { CardActionsMenu, CardHero, EmptyLanding, StatCard, parcelPill, stakePill } from '../components/holdingCards';
+import { CardActionsMenu, CardHero, EmptyLanding, StatCard, StatRow, parcelPill, stakePill } from '../components/holdingCards';
+import { CardGridSkeleton, HeaderSkeleton, StatRowSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
+import { PageHeader } from '../components/PageHeader';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
 import { useHoldings } from '../data/hooks';
@@ -410,6 +412,16 @@ export function LandPropertiesPage() {
   }));
   const groupOptions = data.groups.map((g) => ({ value: g.name, label: `👪 ${g.name}` }));
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <StatRowSkeleton />
+        <CardGridSkeleton />
+      </>
+    );
+
   return (
     <>
       {firstRun ? (
@@ -422,29 +434,17 @@ export function LandPropertiesPage() {
         />
       ) : (
         <>
-          {/* Header: title + holdings chip + composition subtitle. */}
-          <Box sx={{ mb: 1.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography variant="h2" component="h1">
-                Land &amp; Properties
-              </Typography>
-              <Chip size="small" color="primary" label={`${t.parcels + t.properties} holdings`} />
-              {isSample && (
-                <Tooltip title="The live service is not reachable — showing bundled sample data.">
-                  <Chip size="small" variant="outlined" color="secondary" label="Sample data" />
-                </Tooltip>
-              )}
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              {t.parcels} land parcel{t.parcels !== 1 ? 's' : ''} ({formatArea(t.acres)}) · {t.properties} propert
-              {t.properties !== 1 ? 'ies' : 'y'}
-              {t.managed ? ` · ${t.managed} managed` : ''}
-              {t.watch ? ` · ${t.watch} watched` : ''}.
-            </Typography>
-          </Box>
+          {/* Header: eyebrow + title + holdings chip + composition subtitle. */}
+          <PageHeader
+            eyebrow="Your holdings"
+            title="Land & Properties"
+            sample={isSample}
+            titleChips={<Chip size="small" color="primary" label={`${t.parcels + t.properties} holdings`} />}
+            subtitle={`${t.parcels} land parcel${t.parcels !== 1 ? 's' : ''} (${formatArea(t.acres)}) · ${t.properties} propert${t.properties !== 1 ? 'ies' : 'y'}${t.managed ? ` · ${t.managed} managed` : ''}${t.watch ? ` · ${t.watch} watched` : ''}.`}
+          />
 
-          {/* Stat tiles — per-tab sets, verbatim from source. */}
-          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+          {/* Stat row — per-tab sets, verbatim from source. */}
+          <StatRow>
             {tab === 'parcels' ? (
               <>
                 <StatCard label="Parcels" value={t.parcels} />
@@ -473,7 +473,7 @@ export function LandPropertiesPage() {
                 <StatCard label="Portfolio Value" value={moneyT(t.value)} />
               </>
             )}
-          </Box>
+          </StatRow>
 
           {/* Tabs + toolbar. */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1.5 }}>
@@ -624,12 +624,11 @@ export function LandPropertiesPage() {
                       <Box
                         component="span"
                         sx={{
-                          bgcolor: '#EEF8F1',
-                          border: '1px solid #1E7A4633',
-                          color: '#1E7A46',
+                          bgcolor: 'primary.container',
+                          color: 'primary.onContainer',
                           fontWeight: 700,
                           fontSize: 12,
-                          borderRadius: 2,
+                          borderRadius: 999,
                           px: 1.1,
                           py: 0.15,
                           whiteSpace: 'nowrap',
@@ -668,7 +667,7 @@ export function LandPropertiesPage() {
               ))}
             </Box>
           ) : (
-            <TableContainer component={Card}>
+            <TableContainer component={Card} sx={stickyHeadSx}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -712,7 +711,7 @@ export function LandPropertiesPage() {
                       <TableCell>{r.passbook ? `📗 ${r.passbook}` : '—'}</TableCell>
                       <TableCell>
                         {r.groupName ? (
-                          <Chip size="small" variant="outlined" color="secondary" label={`👪 ${r.groupName}`} />
+                          <Chip size="small" variant="outlined" label={`👪 ${r.groupName}`} />
                         ) : (
                           '—'
                         )}
@@ -727,7 +726,7 @@ export function LandPropertiesPage() {
                         )}
                       </TableCell>
                       <TableCell align="right">
-                        <IconButton size="small" aria-label="Row actions" onClick={(e) => setRowMenu({ anchor: e.currentTarget, row: r })}>
+                        <IconButton className="rowActions" size="small" aria-label="Row actions" onClick={(e) => setRowMenu({ anchor: e.currentTarget, row: r })}>
                           <MoreVertIcon fontSize="small" />
                         </IconButton>
                       </TableCell>

@@ -6,11 +6,12 @@
 import { expect, test, uxCheck } from '../helpers/fixtures';
 
 const PUBLIC: { path: string; probe: RegExp; redirectsWhenAuthed?: boolean }[] = [
-  // /login and /signup send an authenticated visitor (mock auth = always
-  // signed in) straight to /app — that redirect IS the correct behaviour.
+  // /login, /signup and /forgot-password send an authenticated visitor (mock
+  // auth = always signed in) straight to /app — that redirect IS the correct
+  // behaviour (M3 redesign fixed /forgot-password to match /login).
   { path: '/login', probe: /Sign in/, redirectsWhenAuthed: true },
   { path: '/signup', probe: /Create your account/, redirectsWhenAuthed: true },
-  { path: '/forgot-password', probe: /Reset your password/ },
+  { path: '/forgot-password', probe: /Reset your password/, redirectsWhenAuthed: true },
   { path: '/verify/e2e-probe-token', probe: /Verify membership/ },
   { path: '/active/e2e-probe-token', probe: /Verify membership/ },
   { path: '/privacy', probe: /Privacy/i },
@@ -25,7 +26,7 @@ for (const { path, probe, redirectsWhenAuthed } of PUBLIC) {
       await expect(page.locator('.MuiDrawer-docked')).toBeVisible();
       test.info().annotations.push({
         type: 'note',
-        description: `${path} redirects an authenticated visitor to /app (mock auth is always signed in) — the pre-auth form is only reachable in real-Cognito mode. NB: /forgot-password does NOT redirect (inconsistent with /login and /signup).`,
+        description: `${path} redirects an authenticated visitor to /app (mock auth is always signed in) — the pre-auth form is only reachable in real-Cognito mode.`,
       });
       return;
     }

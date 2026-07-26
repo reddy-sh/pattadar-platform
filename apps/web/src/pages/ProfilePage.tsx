@@ -25,6 +25,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { gql } from '../api/client';
 import { PageHeader } from '../components/PageHeader';
+import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
 import { avaColor } from '../lib/format';
 import { useLiveOrSample } from '../data/useLiveOrSample';
 import { useProfile } from '../data/hooks';
@@ -49,7 +50,7 @@ interface Toast {
 }
 
 export function ProfilePage() {
-  const { data: me, isSample } = useProfile();
+  const { data: me, isSample, isLoading } = useProfile();
   const { data: districts } = useDistricts();
   const queryClient = useQueryClient();
 
@@ -106,9 +107,19 @@ export function ProfilePage() {
     setSaving(false);
   };
 
+  // Shaped loading state — never seed the form with uncredited sample data.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <TableSkeleton rows={4} />
+      </>
+    );
+
   return (
     <>
       <PageHeader
+        eyebrow="Account"
         title="Profile"
         subtitle="Your identity, preferences and consent — used across passbooks, families and notifications."
         sample={isSample}

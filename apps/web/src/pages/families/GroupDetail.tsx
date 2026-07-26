@@ -537,6 +537,7 @@ function MembersTab({
                   <TableCell align="right">
                     {!m.isSelf && (
                       <IconButton
+                        className="rowActions"
                         size="small"
                         aria-label="Member actions"
                         onClick={(e) => setRowMenu({ anchor: e.currentTarget, row: m })}

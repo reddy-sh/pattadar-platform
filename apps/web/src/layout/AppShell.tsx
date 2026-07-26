@@ -122,9 +122,11 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                 onClick={onNavigate}
                 selected={selected}
                 sx={(t) => ({
-                  mx: 1,
+                  mx: 1.5,
                   my: 0.25,
-                  borderRadius: 2.5,
+                  minHeight: 48,
+                  borderRadius: 999, // M3 inset active pill
+                  '& .MuiSvgIcon-root': { fontSize: 24 },
                   '&.Mui-selected': {
                     bgcolor: green[100],
                     color: green[800],
@@ -178,13 +180,14 @@ export function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      {/* Quiet top bar — blends with the page; titles live in content. */}
       <AppBar
         position="fixed"
         elevation={0}
         color="transparent"
         sx={{
           zIndex: (t) => t.zIndex.drawer + 1,
-          bgcolor: 'background.paper',
+          bgcolor: 'background.default',
           borderBottom: 1,
           borderColor: 'divider',
           color: 'text.primary',
@@ -200,10 +203,11 @@ export function AppShell() {
           >
             <MenuIcon />
           </IconButton>
+          {/* Brand wordmark — NOT a heading: each page owns its single <h1>. */}
           <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, flexGrow: 1 }}>
             <Typography
               variant="h6"
-              component="h1"
+              component="div"
               sx={(t) => ({
                 fontWeight: 700,
                 letterSpacing: '-0.01em',

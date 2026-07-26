@@ -41,6 +41,8 @@ import { formatINR, parseISOToDisplay, sampleRegisteredDocuments } from '@pattad
 import type { RegisteredDocument } from '@pattadar/core';
 import { gql } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
+import { TableSkeleton } from '../../components/Skeletons';
+import { stickyHeadSx } from '../../components/tableSx';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { fmtLocal } from '../../lib/format';
@@ -306,7 +308,7 @@ export function RegisteredDeedsTab({
 }: {
   onToast: (msg: string, severity: 'success' | 'error' | 'info') => void;
 }) {
-  const { data, isSample } = useRegisteredDeeds();
+  const { data, isSample, isLoading } = useRegisteredDeeds();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -346,11 +348,19 @@ export function RegisteredDeedsTab({
     { key: 'createdAt', title: 'Added', fmt: (v) => fmtLocal(String(v ?? ''), { dateOnly: true }) },
   ];
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading) return <TableSkeleton />;
+
   return (
     <>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1.5 }}>
         <ExportMenu filename="pattadar-registered-deeds" brand={exportBrand} cols={exportCols} rows={data.deeds} />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setImportOpen(true)}>
+        {/* One filled action per region: the empty state owns it when the list is empty. */}
+        <Button
+          variant={data.deeds.length === 0 ? 'tonal' : 'contained'}
+          startIcon={<AddIcon />}
+          onClick={() => setImportOpen(true)}
+        >
           Register a Deed
         </Button>
       </Box>
@@ -370,7 +380,7 @@ export function RegisteredDeedsTab({
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -398,7 +408,7 @@ export function RegisteredDeedsTab({
                       </TableCell>
                       <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{r.ref}</TableCell>
                       <TableCell>
-                        <Chip size="small" variant="outlined" color="secondary" label={r.docType || '—'} />
+                        <Chip size="small" variant="outlined" label={r.docType || '—'} />
                       </TableCell>
                       <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>
                         {r.documentNo || '—'}

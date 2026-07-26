@@ -17,7 +17,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -45,6 +44,7 @@ import { StatCard } from '../../components/holdingCards';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { NotFoundCard } from './common';
+import { HeaderSkeleton, HeroSkeleton, TableSkeleton } from '../../components/Skeletons';
 
 const PARCEL_UNIT_OPTIONS: { value: UnitKey; label: string }[] = [
   { value: 'acre', label: 'Acres' },
@@ -366,11 +366,14 @@ export function PassbookDetailPage() {
     return 'Mixed';
   }, [parcels]);
 
+  // Shaped loading state (M3: no lone spinners) — header, hero, fields.
   if (isLoading)
     return (
-      <Box sx={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
-        <CircularProgress aria-label="Loading" />
-      </Box>
+      <>
+        <HeaderSkeleton />
+        <HeroSkeleton height={240} />
+        <TableSkeleton rows={4} />
+      </>
     );
   const pb = data.passbook;
   if (!pb) return <NotFoundCard what="Passbook" backTo="/app/passbooks" backLabel="Back to Passbooks" />;
@@ -424,7 +427,8 @@ export function PassbookDetailPage() {
           </Tooltip>
           <Box sx={{ flex: 1, minWidth: 220 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography sx={{ fontWeight: 700, fontSize: 20 }}>
+              {/* The record page's single <h1>. */}
+              <Typography variant="h3" component="h1">
                 {pb.ownerName || '(owner not set)'}
               </Typography>
               <Chip size="small" color="info" label={`Khata ${pb.pattadarNo}`} />

@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router';
+import { Link as RouterLink, Navigate, useNavigate } from 'react-router';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -13,6 +13,7 @@ import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useAuth } from '../../auth/AuthProvider';
 import { AuthError, confirmForgotPassword, forgotPassword } from '../../auth/cognitoNative';
 import { AuthLayout } from './AuthLayout';
 
@@ -22,6 +23,7 @@ const PASSWORD_HINT =
 
 export function ForgotPasswordPage() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
 
   const [step, setStep] = useState<'request' | 'reset'>('request');
   const [email, setEmail] = useState('');
@@ -33,6 +35,9 @@ export function ForgotPasswordPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Already signed in (includes mock mode) — same behaviour as /login.
+  if (isAuthenticated) return <Navigate to="/app" replace />;
 
   const onRequest = async (e: FormEvent) => {
     e.preventDefault();

@@ -33,6 +33,7 @@ export function DocumentsPage() {
   return (
     <>
       <PageHeader
+        eyebrow="Records"
         title="Documents"
         subtitle="Deeds, passbooks, certificates and photos — every file linked to the land it belongs to."
         sample={isSample}

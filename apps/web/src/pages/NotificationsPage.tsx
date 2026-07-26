@@ -34,6 +34,8 @@ import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined
 import type { NotificationEntry } from '@pattadar/core';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
 import { fmtLocal } from '../lib/format';
 import {
   deleteNotification,
@@ -56,7 +58,7 @@ const isFailure = (r: NotificationEntry) => r.status === 'failed' || !!(r.error 
 
 export function NotificationsPage() {
   const queryClient = useQueryClient();
-  const { data: rows, isSample } = useNotificationLogList();
+  const { data: rows, isSample, isLoading } = useNotificationLogList();
   const [scope, setScope] = useState<'all' | 'failures'>('all');
   const [toast, setToast] = useState<Toast | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<NotificationEntry | null>(null);
@@ -109,10 +111,20 @@ export function NotificationsPage() {
     }
   };
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <TableSkeleton />
+      </>
+    );
+
   return (
     <>
       <PageHeader
-        title="Sent notifications"
+        eyebrow="Messages"
+        title="Notifications"
         subtitle="Invites, verification, and inactivity alerts. “stub · not delivered” means it was recorded but no provider is wired yet."
         sample={isSample}
         actions={
@@ -133,6 +145,11 @@ export function NotificationsPage() {
         }
       />
 
+      {/* Section title — the log itself. */}
+      <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
+        Sent notifications
+      </Typography>
+
       {shown.length === 0 ? (
         <Card>
           <EmptyState
@@ -147,7 +164,7 @@ export function NotificationsPage() {
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -208,6 +225,7 @@ export function NotificationsPage() {
                     <TableCell align="right">
                       <Tooltip title="Delete">
                         <IconButton
+                          className="rowActions"
                           size="small"
                           aria-label="Delete notification"
                           onClick={() => setDeleteTarget(n)}

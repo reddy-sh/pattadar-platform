@@ -16,7 +16,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -57,6 +56,7 @@ import {
   fmtDMY,
   money,
 } from './common';
+import { HeaderSkeleton, HeroSkeleton, TableSkeleton } from '../../components/Skeletons';
 import type { LinkedDoc } from './common';
 import { PropertyFilesPanel } from './PropertyFilesPanel';
 
@@ -488,11 +488,14 @@ export function PropertyDetailPage() {
     [queryClient],
   );
 
+  // Shaped loading state (M3: no lone spinners) — header, hero, fields.
   if (isLoading)
     return (
-      <Box sx={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
-        <CircularProgress aria-label="Loading" />
-      </Box>
+      <>
+        <HeaderSkeleton />
+        <HeroSkeleton height={240} />
+        <TableSkeleton rows={4} />
+      </>
     );
   const p = data.property;
   if (!p)
@@ -675,7 +678,8 @@ export function PropertyDetailPage() {
     <>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 18 }}>
+          {/* The record page's single <h1>. */}
+          <Typography variant="h3" component="h1">
             {def.icon} {p.label || 'Property'}
           </Typography>
           <StatusChip status={p.holdingStatus} />

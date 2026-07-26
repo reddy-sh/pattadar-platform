@@ -177,15 +177,44 @@ export function CardActionsMenu({ actions }: { actions: CardAction[] }) {
   );
 }
 
-/** Small stat card: caption label + big bold value (source's `tile()`). */
+/**
+ * One soft container for a row of stats (M3: no borders between stats — a
+ * single tinted surface with hairline dividers).
+ */
+export function StatRow({ children }: { children: ReactNode }) {
+  return (
+    <Box
+      sx={(t) => ({
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'stretch',
+        mb: 2,
+        borderRadius: 4, // 16px — card shape
+        bgcolor: 'rgba(20, 108, 67, 0.05)',
+        ...t.applyStyles('dark', { bgcolor: 'rgba(124, 194, 157, 0.08)' }),
+        '& > *': { flex: 1, minWidth: 140 },
+        '& > * + *': { borderLeft: '1px solid', borderColor: 'divider' },
+      })}
+    >
+      {children}
+    </Box>
+  );
+}
+
+/** One stat: overline label + tabular-numeral figure (source's `tile()`). */
 export function StatCard({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <Card sx={{ p: 1.5, flex: 1, minWidth: 140 }}>
-      <Typography variant="caption" color="text.secondary">
+    <Box sx={{ px: 2.5, py: 1.75, minWidth: 0 }}>
+      <Typography variant="overline" color="text.secondary" component="div" sx={{ whiteSpace: 'nowrap' }}>
         {label}
       </Typography>
-      <Typography sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.3 }}>{value}</Typography>
-    </Card>
+      <Typography
+        className="tnum"
+        sx={{ fontSize: 24, fontWeight: 700, lineHeight: 1.3, overflowWrap: 'anywhere' }}
+      >
+        {value}
+      </Typography>
+    </Box>
   );
 }
 

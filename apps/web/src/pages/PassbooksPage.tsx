@@ -34,7 +34,6 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
@@ -43,7 +42,10 @@ import SearchIcon from '@mui/icons-material/Search';
 import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { formatArea } from '@pattadar/core';
 import type { Passbook } from '@pattadar/core';
-import { CardActionsMenu, StatCard, EmptyLanding } from '../components/holdingCards';
+import { CardActionsMenu, StatCard, StatRow, EmptyLanding } from '../components/holdingCards';
+import { CardGridSkeleton, HeaderSkeleton, StatRowSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
+import { PageHeader } from '../components/PageHeader';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
 import { usePassbooks } from '../data/hooks';
@@ -166,13 +168,14 @@ export function PassbooksPage() {
           display: 'inline-flex',
           alignItems: 'center',
           gap: 0.5,
-          bgcolor: '#EEF8F1',
-          border: '1px solid #E5E7EB',
+          bgcolor: 'action.hover',
+          border: '1px solid',
+          borderColor: 'divider',
           borderRadius: 999,
           px: 1.25,
           py: 0.25,
           fontSize: 12,
-          color: '#1A1A1A',
+          color: 'text.primary',
           maxWidth: '100%',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -182,6 +185,16 @@ export function PassbooksPage() {
         {icon} {text}
       </Box>
     ) : null;
+
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <StatRowSkeleton />
+        <CardGridSkeleton />
+      </>
+    );
 
   return (
     <>
@@ -200,37 +213,28 @@ export function PassbooksPage() {
         />
       ) : (
         <>
-          {/* Header: title + khata chip + extent subtitle. */}
-          <Box sx={{ mb: 1.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Typography variant="h2" component="h1">
-                Passbooks
-              </Typography>
+          {/* Header: eyebrow + title + khata chip + extent subtitle. */}
+          <PageHeader
+            eyebrow="Land records"
+            title="Passbooks"
+            sample={isSample}
+            titleChips={
               <Chip
                 size="small"
                 color="primary"
                 label={`${data.passbooks.length} khata${data.passbooks.length !== 1 ? 's' : ''}`}
               />
-              {isSample && (
-                <Tooltip title="The live service is not reachable — showing bundled sample data.">
-                  <Chip size="small" variant="outlined" color="secondary" label="Sample data" />
-                </Tooltip>
-              )}
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              {formatArea(totalExtent)} across {villageCount} village{villageCount !== 1 ? 's' : ''} ·{' '}
-              {totalParcels} land parcel{totalParcels !== 1 ? 's' : ''}
-              {acqCost > 0 ? ` · ₹${acqCost.toLocaleString('en-IN')} invested` : ''}.
-            </Typography>
-          </Box>
+            }
+            subtitle={`${formatArea(totalExtent)} across ${villageCount} village${villageCount !== 1 ? 's' : ''} · ${totalParcels} land parcel${totalParcels !== 1 ? 's' : ''}${acqCost > 0 ? ` · ₹${acqCost.toLocaleString('en-IN')} invested` : ''}.`}
+          />
 
-          {/* Stat cards. */}
-          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+          {/* Stat row — one soft container, no per-stat borders. */}
+          <StatRow>
             <StatCard label="Passbooks" value={data.passbooks.length} />
             <StatCard label="Total Extent" value={formatArea(totalExtent)} />
             <StatCard label="Villages" value={villageCount} />
             <StatCard label="Acquisition Cost" value={`₹${acqCost.toLocaleString('en-IN')}`} />
-          </Box>
+          </StatRow>
 
           {/* Toolbar: search · view toggle · export · new passbook. */}
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
@@ -358,7 +362,8 @@ export function PassbooksPage() {
                         gap: 1,
                         mt: 1.75,
                         pt: 1.5,
-                        borderTop: '1px solid #E5E7EB',
+                        borderTop: '1px solid',
+                        borderColor: 'divider',
                         fontSize: 11.5,
                         color: 'text.secondary',
                       }}
@@ -366,12 +371,11 @@ export function PassbooksPage() {
                       <Box
                         component="span"
                         sx={{
-                          bgcolor: '#EEF8F1',
-                          border: '1px solid #1E7A4633',
-                          color: '#1E7A46',
+                          bgcolor: 'primary.container',
+                          color: 'primary.onContainer',
                           fontWeight: 700,
                           fontSize: 13,
-                          borderRadius: 2,
+                          borderRadius: 999,
                           px: 1.25,
                           py: 0.25,
                           whiteSpace: 'nowrap',
@@ -388,7 +392,7 @@ export function PassbooksPage() {
               })}
             </Box>
           ) : (
-            <TableContainer component={Card}>
+            <TableContainer component={Card} sx={stickyHeadSx}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -439,7 +443,7 @@ export function PassbooksPage() {
                         <TableCell>{b.state}</TableCell>
                         <TableCell>
                           {gname ? (
-                            <Chip size="small" variant="outlined" color="secondary" label={`👪 ${gname}`} />
+                            <Chip size="small" variant="outlined" label={`👪 ${gname}`} />
                           ) : (
                             '—'
                           )}
@@ -447,6 +451,7 @@ export function PassbooksPage() {
                         <TableCell>{fmtLocal(b.createdAt)}</TableCell>
                         <TableCell align="right">
                           <IconButton
+                            className="rowActions"
                             size="small"
                             aria-label="Row actions"
                             onClick={(e) => setRowMenu({ anchor: e.currentTarget, row: b })}

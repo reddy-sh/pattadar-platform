@@ -28,6 +28,7 @@ import AddIcon from '@mui/icons-material/Add';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { CardGridSkeleton, HeaderSkeleton } from '../components/Skeletons';
 import { GROUP_TYPES, createGroup, groupTypeDef, useGroupsList } from './families/familiesData';
 import { GroupDetail } from './families/GroupDetail';
 
@@ -39,7 +40,7 @@ interface Toast {
 export function FamiliesGroupsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: groups, isSample } = useGroupsList();
+  const { data: groups, isSample, isLoading } = useGroupsList();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newType, setNewType] = useState('family');
@@ -79,14 +80,29 @@ export function FamiliesGroupsPage() {
     }
   };
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <CardGridSkeleton count={3} />
+      </>
+    );
+
   return (
     <>
       <PageHeader
+        eyebrow="People"
         title="Families & Groups"
         subtitle="Your families, partnerships, and companies that hold land. Each has members with shares."
         sample={isSample}
         actions={
-          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+          /* One filled action per region: the empty state owns it when the list is empty. */
+          <Button
+            variant={groups.length === 0 ? 'tonal' : 'contained'}
+            startIcon={<AddIcon />}
+            onClick={openCreate}
+          >
             Create Group
           </Button>
         }

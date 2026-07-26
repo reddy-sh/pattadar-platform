@@ -33,6 +33,8 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import type { Invitation } from '@pattadar/core';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
 import { fmtLocal } from '../lib/format';
@@ -57,7 +59,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' 
 
 export function InvitationsPage() {
   const queryClient = useQueryClient();
-  const { data: invitations, isSample } = useInvitationsList();
+  const { data: invitations, isSample, isLoading } = useInvitationsList();
   const [toast, setToast] = useState<Toast | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: Invitation } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Invitation | null>(null);
@@ -158,9 +160,19 @@ export function InvitationsPage() {
 
   const pending = invitations.filter((i) => i.status === 'pending').length;
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <TableSkeleton />
+      </>
+    );
+
   return (
     <>
       <PageHeader
+        eyebrow="Sharing"
         title="Invitations"
         subtitle={
           pending
@@ -171,7 +183,12 @@ export function InvitationsPage() {
         actions={
           <>
             <ExportMenu filename="pattadar-invitations" brand={exportBrand} cols={exportCols} rows={invitations} />
-            <Button variant="contained" startIcon={<AddIcon />} onClick={openSend}>
+            {/* One filled action per region: the empty state owns it when the list is empty. */}
+            <Button
+              variant={invitations.length === 0 ? 'tonal' : 'contained'}
+              startIcon={<AddIcon />}
+              onClick={openSend}
+            >
               Send Invitation
             </Button>
           </>
@@ -193,7 +210,7 @@ export function InvitationsPage() {
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -238,6 +255,7 @@ export function InvitationsPage() {
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtLocal(inv.createdAt)}</TableCell>
                       <TableCell align="right">
                         <IconButton
+                          className="rowActions"
                           size="small"
                           aria-label="Invitation actions"
                           onClick={(e) => setRowMenu({ anchor: e.currentTarget, row: inv })}

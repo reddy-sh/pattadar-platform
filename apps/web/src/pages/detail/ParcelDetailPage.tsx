@@ -16,7 +16,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -64,6 +63,7 @@ import {
   dashVal,
   money,
 } from './common';
+import { HeaderSkeleton, HeroSkeleton, TableSkeleton } from '../../components/Skeletons';
 import type { LinkedDoc } from './common';
 import { PropertyFilesPanel } from './PropertyFilesPanel';
 
@@ -643,9 +643,10 @@ function EditParcelDialog({
 
   const half = { flex: '1 1 46%', minWidth: 200 };
   const row = { display: 'flex', gap: 1.5, flexWrap: 'wrap' as const, mb: 1.5 };
+  // M3 dialog sections: overline (label-style) headers.
   const section = (t: string) => (
     <Divider textAlign="left" sx={{ my: 1.5 }}>
-      <Typography variant="caption" color="text.secondary">
+      <Typography variant="overline" color="text.secondary">
         {t}
       </Typography>
     </Divider>
@@ -754,11 +755,14 @@ export function ParcelDetailPage() {
     [queryClient],
   );
 
+  // Shaped loading state (M3: no lone spinners) — header, hero, fields.
   if (isLoading)
     return (
-      <Box sx={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
-        <CircularProgress aria-label="Loading" />
-      </Box>
+      <>
+        <HeaderSkeleton />
+        <HeroSkeleton height={240} />
+        <TableSkeleton rows={4} />
+      </>
     );
   const p = data.parcel;
   if (!p) return <NotFoundCard what="Parcel" backTo="/app/parcels" backLabel="Back to Land & Properties" />;
@@ -943,7 +947,8 @@ export function ParcelDetailPage() {
               }}
             />
             <Box>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {/* component="div": the status Chip renders a <div> — never inside a <p>. */}
+              <Typography variant="body2" component="div" sx={{ fontWeight: 600 }}>
                 {o.ownerName || '—'}{' '}
                 {o.isCurrent && <Chip size="small" color="success" label="current" sx={{ ml: 0.5 }} />}
               </Typography>
@@ -986,7 +991,8 @@ export function ParcelDetailPage() {
     <>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 18 }}>
+          {/* The record page's single <h1>. */}
+          <Typography variant="h3" component="h1">
             Survey {p.surveyNo}
             {sub}
           </Typography>

@@ -20,12 +20,13 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { formatNumberIN, parseISOToDisplay } from '@pattadar/core';
+import { TableSkeleton } from '../../components/Skeletons';
 import { useMarketValues } from '../../data/hooks';
 
 const ALL = '__all__';
 
 export function MarketValueTool() {
-  const { data: rows, isSample } = useMarketValues();
+  const { data: rows, isSample, isLoading } = useMarketValues();
   const [district, setDistrict] = useState(ALL);
   const [mandal, setMandal] = useState(ALL);
   const [village, setVillage] = useState(ALL);
@@ -71,6 +72,9 @@ export function MarketValueTool() {
       ))}
     </TextField>
   );
+
+  // Shaped loading state — never show sample guideline rates uncredited.
+  if (isLoading) return <TableSkeleton rows={6} />;
 
   return (
     <>

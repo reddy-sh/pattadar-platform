@@ -26,6 +26,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { TableSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
 import { useSroOffices } from '../data/hooks';
 import { CalculatorTool } from './tools/CalculatorTool';
 import { MarketValueTool } from './tools/MarketValueTool';
@@ -36,7 +38,7 @@ type ToolTab = 'sro' | 'stamp-duty' | 'market-value' | 'calculator';
 const TAB_VALUES: ToolTab[] = ['sro', 'stamp-duty', 'market-value', 'calculator'];
 
 function SroTool() {
-  const { data: offices, isSample } = useSroOffices();
+  const { data: offices, isSample, isLoading } = useSroOffices();
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const rows = needle
@@ -45,9 +47,13 @@ function SroTool() {
       )
     : offices;
 
+  if (isLoading) return <TableSkeleton rows={8} />;
+
   return (
     <>
       <PageHeader
+        component="h2"
+        variant="h3"
         title="SRO Offices"
         subtitle="Find the Sub-Registrar Office for your village before you plan a registration visit."
         sample={isSample}
@@ -79,7 +85,7 @@ function SroTool() {
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -116,6 +122,11 @@ export function ToolsPage() {
 
   return (
     <>
+      <PageHeader
+        eyebrow="Utilities"
+        title="Tools"
+        subtitle="Everyday land utilities — offices, duty, market value and area conversions."
+      />
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Find SRO" value="sro" />
         <Tab label="Stamp Duty" value="stamp-duty" />

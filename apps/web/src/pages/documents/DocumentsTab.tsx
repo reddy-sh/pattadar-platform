@@ -41,6 +41,8 @@ import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { sampleDocuments, sampleParcels, samplePassbooks } from '@pattadar/core';
 import { apiFetch, gql } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
+import { TableSkeleton } from '../../components/Skeletons';
+import { stickyHeadSx } from '../../components/tableSx';
 import { openFileViewer } from '../../components/FileViewer';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
@@ -172,7 +174,7 @@ export function DocumentsTab({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data, isSample } = useDocumentsFull();
+  const { data, isSample, isLoading } = useDocumentsFull();
   const [family, setFamily] = useState('All');
   const [search, setSearch] = useState('');
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
@@ -491,6 +493,9 @@ export function DocumentsTab({
     { key: 'createdAt', title: 'Created', fmt: (v) => fmtLocal(String(v ?? '')) },
   ];
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading) return <TableSkeleton />;
+
   return (
     <>
       {/* Toolbar: family chips + search + upload + export */}
@@ -551,7 +556,7 @@ export function DocumentsTab({
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -593,6 +598,7 @@ export function DocumentsTab({
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtLocal(r.createdAt)}</TableCell>
                     <TableCell align="right">
                       <IconButton
+                        className="rowActions"
                         size="small"
                         aria-label={`Actions for ${r.name}`}
                         disabled={isSample}

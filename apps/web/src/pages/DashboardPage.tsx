@@ -39,6 +39,7 @@ import { formatArea, formatDate, formatDateTime, formatINR, formatINRCompact, pa
 import { gql } from '../api/client';
 import { GlassCard } from '../components/GlassCard';
 import { PageHeader } from '../components/PageHeader';
+import { HeaderSkeleton, HeroSkeleton, StatRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { BarList } from '../components/charts/BarList';
 import { HealthRing } from '../components/charts/HealthRing';
 import { useChartColors, useStatusColors } from '../components/charts/chartColors';
@@ -216,7 +217,7 @@ interface HoldingRow {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { data: d, isSample } = useDashboard();
+  const { data: d, isSample, isLoading } = useDashboard();
   const colors = useChartColors();
   const statusColors = useStatusColors();
   const [masked, setMasked] = useState(() => localStorage.getItem('pattadar-hide-values') === '1');
@@ -423,9 +424,21 @@ export function DashboardPage() {
   if (heroLines.length === 0)
     heroLines.push({ key: 'extent', big: formatArea(d.stats.totalExtent), rest: 'recorded extent' });
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <HeroSkeleton height={220} />
+        <StatRowSkeleton />
+        <TableSkeleton rows={4} />
+      </>
+    );
+
   return (
     <>
       <PageHeader
+        eyebrow="Overview"
         title="Land Portfolio"
         subtitle="Everything you own — farmland, plots and buildings — in one place."
         sample={isSample}

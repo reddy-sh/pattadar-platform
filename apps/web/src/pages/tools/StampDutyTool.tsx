@@ -22,6 +22,7 @@ import { calcStampDuty, formatINR } from '@pattadar/core';
 import type { FeeScheduleRow } from '@pattadar/core';
 import { gql } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
+import { TableSkeleton } from '../../components/Skeletons';
 import { useFeeSchedule } from '../../data/hooks';
 
 interface DutyResult {
@@ -36,7 +37,7 @@ interface DutyResult {
 }
 
 export function StampDutyTool() {
-  const { data: fees, isSample } = useFeeSchedule();
+  const { data: fees, isSample, isLoading } = useFeeSchedule();
   const [deed, setDeed] = useState<FeeScheduleRow | null>(null);
   const [consideration, setConsideration] = useState('');
   const [marketValue, setMarketValue] = useState('');
@@ -87,6 +88,9 @@ export function StampDutyTool() {
       </Typography>
     </Box>
   );
+
+  // Shaped loading state — never offer the sample fee schedule uncredited.
+  if (isLoading) return <TableSkeleton rows={4} />;
 
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>

@@ -302,7 +302,18 @@ export const radii = {
   md: 8,
   lg: 12,
   xl: 16,
+  /** Dialogs / hero surfaces (M3 extra-large). */
+  xxl: 20,
   pill: 999,
+} as const;
+
+/**
+ * Motion — M3 standard/emphasized durations on the emphasized-decelerate
+ * curve. Respect `prefers-reduced-motion` at the consumer.
+ */
+export const motion = {
+  duration: { standard: 200, emphasized: 250 },
+  easing: 'cubic-bezier(0.2, 0, 0, 1)',
 } as const;
 
 /**
@@ -330,6 +341,7 @@ export const tokens = {
   typography,
   spacing,
   radii,
+  motion,
   elevation,
 } as const;
 

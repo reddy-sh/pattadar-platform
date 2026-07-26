@@ -34,6 +34,7 @@ export function WalletPage() {
   return (
     <>
       <PageHeader
+        eyebrow="Money"
         title="Wallet"
         subtitle="Pay stamp duty, government fees and service charges from one balance."
         sample={isSample}

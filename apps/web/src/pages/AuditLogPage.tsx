@@ -26,6 +26,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import type { AuditEvent } from '@pattadar/core';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
 import { fmtLocal } from '../lib/format';
@@ -48,7 +50,7 @@ const exportCols: ExportCol<AuditEvent>[] = [
 ];
 
 export function AuditLogPage() {
-  const { data: events, isSample } = useAuditEvents();
+  const { data: events, isSample, isLoading } = useAuditEvents();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<string | null>(null);
 
@@ -60,10 +62,20 @@ export function AuditLogPage() {
     );
   }, [events, search]);
 
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <TableSkeleton />
+      </>
+    );
+
   return (
     <>
       <PageHeader
-        title="Audit"
+        eyebrow="Activity"
+        title="Audit Log"
         subtitle="Every action on your records — who did what, to which entity, and when."
         sample={isSample}
         actions={
@@ -98,7 +110,7 @@ export function AuditLogPage() {
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>

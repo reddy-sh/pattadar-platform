@@ -26,6 +26,8 @@ import type { FeeScheduleRow } from '@pattadar/core';
 import { gql } from '../api/client';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
+import { stickyHeadSx } from '../components/tableSx';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
 import { useLiveOrSample } from '../data/useLiveOrSample';
@@ -141,7 +143,7 @@ function RefTable<T extends { id: string }>({
         </Card>
       ) : (
         <Card>
-          <TableContainer sx={{ overflowX: 'auto' }}>
+          <TableContainer sx={stickyHeadSx}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -174,12 +176,22 @@ function RefTable<T extends { id: string }>({
 type AdminTab = 'states' | 'districts' | 'deed_types' | 'fee_schedule' | 'analytics';
 
 export function AdminRefDataPage() {
-  const { data, isSample } = useRefData();
+  const { data, isSample, isLoading } = useRefData();
   const [tab, setTab] = useState<AdminTab>('states');
+
+  // Shaped loading state — never paint the sample dataset uncredited.
+  if (isLoading)
+    return (
+      <>
+        <HeaderSkeleton />
+        <TableSkeleton rows={8} />
+      </>
+    );
 
   return (
     <>
       <PageHeader
+        eyebrow="Reference"
         title="Admin & Reference Data"
         subtitle="The government reference datasets behind the app — states, districts, deed types and the fee schedule."
         sample={isSample}
