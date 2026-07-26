@@ -23,7 +23,7 @@ export default function CustomBreadcrumbs({
 
   return (
     <Box sx={{ ...sx }}>
-      <Stack direction="row" alignItems="center">
+      <Stack direction="row" sx={{ alignItems: 'center' }}>
         <Box sx={{ flexGrow: 1 }}>
           {/* HEADING */}
           {heading && (

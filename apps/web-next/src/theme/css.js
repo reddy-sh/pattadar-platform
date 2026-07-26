@@ -6,22 +6,17 @@ import { autocompleteClasses } from '@mui/material/Autocomplete';
 
 // ----------------------------------------------------------------------
 
+// `rgba()` over a CSS-variable "R G B" channel — scheme-adaptive alpha.
+export const varAlpha = (channel, opacity) => `rgba(${channel} / ${opacity})`;
+
 export const paper = ({ theme, bgcolor, dropdown }) => ({
-  ...bgBlur({
-    blur: 20,
-    opacity: 0.9,
-    color: theme.palette.background.paper,
-    ...(!!bgcolor && {
-      color: bgcolor,
-    }),
-  }),
+  backdropFilter: 'blur(20px)',
+  WebkitBackdropFilter: 'blur(20px)',
+  backgroundColor: bgcolor ?? varAlpha(theme.vars.palette.background.paperChannel, 0.9),
   backgroundImage: 'url(/assets/cyan-blur.png), url(/assets/red-blur.png)',
   backgroundRepeat: 'no-repeat, no-repeat',
   backgroundPosition: 'top right, left bottom',
   backgroundSize: '50%, 50%',
-  ...(theme.direction === 'rtl' && {
-    backgroundPosition: 'top left, right bottom',
-  }),
   ...(dropdown && {
     padding: theme.spacing(0.5),
     boxShadow: theme.customShadows.dropdown,
@@ -40,9 +35,9 @@ export const menuItem = (theme) => ({
   },
   [`&.${menuItemClasses.selected}`]: {
     fontWeight: theme.typography.fontWeightSemiBold,
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: theme.vars.palette.action.selected,
     '&:hover': {
-      backgroundColor: theme.palette.action.hover,
+      backgroundColor: theme.vars.palette.action.hover,
     },
   },
   [`& .${checkboxClasses.root}`]: {
@@ -51,9 +46,9 @@ export const menuItem = (theme) => ({
     marginRight: theme.spacing(0.5),
   },
   [`&.${autocompleteClasses.option}[aria-selected="true"]`]: {
-    backgroundColor: theme.palette.action.selected,
+    backgroundColor: theme.vars.palette.action.selected,
     '&:hover': {
-      backgroundColor: theme.palette.action.hover,
+      backgroundColor: theme.vars.palette.action.hover,
     },
   },
   [`&+.${dividerClasses.root}`]: {

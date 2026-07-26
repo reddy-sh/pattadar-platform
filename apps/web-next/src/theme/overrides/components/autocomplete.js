@@ -18,7 +18,7 @@ export function autocomplete(theme) {
             lineHeight: '24px',
             textAlign: 'center',
             padding: theme.spacing(0, 0.75),
-            color: theme.palette.text.secondary,
+            color: theme.vars.palette.text.secondary,
             borderRadius: theme.shape.borderRadius,
             backgroundColor: alpha(theme.palette.grey[500], 0.16),
           },

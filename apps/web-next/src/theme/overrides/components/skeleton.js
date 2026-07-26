@@ -5,7 +5,7 @@ export function skeleton(theme) {
     MuiSkeleton: {
       styleOverrides: {
         root: {
-          backgroundColor: theme.palette.background.neutral,
+          backgroundColor: theme.vars.palette.background.neutral,
         },
         rounded: {
           borderRadius: theme.shape.borderRadius * 2,

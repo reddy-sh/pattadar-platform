@@ -43,10 +43,12 @@ export default function NavMobile({ data }) {
       <Drawer
         open={openMenu}
         onClose={handleCloseMenu}
-        PaperProps={{
-          sx: {
-            pb: 5,
-            width: 260,
+        slotProps={{
+          paper: {
+            sx: {
+              pb: 5,
+              width: 260,
+            },
           },
         }}
       >

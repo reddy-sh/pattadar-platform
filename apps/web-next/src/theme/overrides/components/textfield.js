@@ -8,9 +8,9 @@ import { outlinedInputClasses } from '@mui/material/OutlinedInput';
 
 export function textField(theme) {
   const color = {
-    focused: theme.palette.text.primary,
-    active: theme.palette.text.secondary,
-    placeholder: theme.palette.text.disabled,
+    focused: theme.vars.palette.text.primary,
+    active: theme.vars.palette.text.secondary,
+    placeholder: theme.vars.palette.text.disabled,
   };
 
   const font = {
@@ -45,7 +45,7 @@ export function textField(theme) {
               color: theme.palette.error.main,
             },
             [`&.${inputLabelClasses.disabled}`]: {
-              color: theme.palette.text.disabled,
+              color: theme.vars.palette.text.disabled,
             },
             [`&.${inputLabelClasses.filled}`]: {
               transform: 'translate(12px, 6px) scale(0.75)',
@@ -61,7 +61,7 @@ export function textField(theme) {
         root: {
           [`&.${inputBaseClasses.disabled}`]: {
             '& svg': {
-              color: theme.palette.text.disabled,
+              color: theme.vars.palette.text.disabled,
             },
           },
         },
@@ -105,7 +105,7 @@ export function textField(theme) {
           },
           [`&.${outlinedInputClasses.disabled}`]: {
             [`& .${outlinedInputClasses.notchedOutline}`]: {
-              borderColor: theme.palette.action.disabledBackground,
+              borderColor: theme.vars.palette.action.disabledBackground,
             },
           },
         },
@@ -137,7 +137,7 @@ export function textField(theme) {
             },
           },
           [`&.${filledInputClasses.disabled}`]: {
-            backgroundColor: theme.palette.action.disabledBackground,
+            backgroundColor: theme.vars.palette.action.disabledBackground,
           },
         },
       },

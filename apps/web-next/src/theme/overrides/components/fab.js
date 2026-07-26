@@ -1,15 +1,16 @@
-import { alpha } from '@mui/material/styles';
 import { fabClasses } from '@mui/material/Fab';
+
+import { varAlpha } from '../../css';
 
 // ----------------------------------------------------------------------
 
 const COLORS = ['primary', 'secondary', 'info', 'success', 'warning', 'error'];
 
+const GREY_CHANNEL = '145 158 171'; // grey[500], scheme-invariant
+
 // ----------------------------------------------------------------------
 
 export function fab(theme) {
-  const lightMode = theme.palette.mode === 'light';
-
   const rootStyles = (ownerState) => {
     const defaultColor = ownerState.color === 'default';
 
@@ -37,11 +38,17 @@ export function fab(theme) {
           boxShadow: theme.customShadows.z8,
         }),
         ...(inheritColor && {
-          backgroundColor: theme.palette.text.primary,
-          color: lightMode ? theme.palette.common.white : theme.palette.grey[800],
+          backgroundColor: theme.vars.palette.text.primary,
+          color: theme.palette.common.white,
           '&:hover': {
-            backgroundColor: lightMode ? theme.palette.grey[700] : theme.palette.grey[400],
+            backgroundColor: theme.palette.grey[700],
           },
+          ...theme.applyStyles('dark', {
+            color: theme.palette.grey[800],
+            '&:hover': {
+              backgroundColor: theme.palette.grey[400],
+            },
+          }),
         }),
       }),
       // OUTLINED
@@ -49,18 +56,18 @@ export function fab(theme) {
         boxShadow: 'none',
         backgroundColor: 'transparent',
         ...((defaultColor || inheritColor) && {
-          border: `solid 1px ${alpha(theme.palette.grey[500], 0.32)}`,
+          border: `solid 1px ${varAlpha(GREY_CHANNEL, 0.32)}`,
         }),
         ...(defaultColor && {
-          ...(!lightMode && {
-            color: theme.palette.text.secondary,
+          ...theme.applyStyles('dark', {
+            color: theme.vars.palette.text.secondary,
           }),
         }),
 
         '&:hover': {
           borderColor: 'currentColor',
           boxShadow: '0 0 0 0.5px currentColor',
-          backgroundColor: theme.palette.action.hover,
+          backgroundColor: theme.vars.palette.action.hover,
         },
       }),
       // SOFT
@@ -74,9 +81,9 @@ export function fab(theme) {
           },
         }),
         ...(inheritColor && {
-          backgroundColor: alpha(theme.palette.grey[500], 0.08),
+          backgroundColor: varAlpha(GREY_CHANNEL, 0.08),
           '&:hover': {
-            backgroundColor: alpha(theme.palette.grey[500], 0.24),
+            backgroundColor: varAlpha(GREY_CHANNEL, 0.24),
           },
         }),
       }),
@@ -88,24 +95,27 @@ export function fab(theme) {
         ...((circularVariant || extendedVariant) && {
           boxShadow: theme.customShadows[color],
           '&:hover': {
-            backgroundColor: theme.palette[color].dark,
+            backgroundColor: theme.vars.palette[color].dark,
           },
         }),
         // OUTLINED
         ...((outlinedVariant || outlinedExtendedVariant) && {
-          color: theme.palette[color].main,
-          border: `solid 1px ${alpha(theme.palette[color].main, 0.48)}`,
+          color: theme.vars.palette[color].main,
+          border: `solid 1px ${varAlpha(theme.vars.palette[color].mainChannel, 0.48)}`,
           '&:hover': {
-            backgroundColor: alpha(theme.palette[color].main, 0.08),
+            backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.08),
           },
         }),
         // SOFT
         ...((softVariant || softExtendedVariant) && {
-          color: theme.palette[color][lightMode ? 'dark' : 'light'],
-          backgroundColor: alpha(theme.palette[color].main, 0.16),
+          color: theme.vars.palette[color].dark,
+          backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.16),
           '&:hover': {
-            backgroundColor: alpha(theme.palette[color].main, 0.32),
+            backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.32),
           },
+          ...theme.applyStyles('dark', {
+            color: theme.vars.palette[color].light,
+          }),
         }),
       }),
     }));
@@ -114,7 +124,7 @@ export function fab(theme) {
       [`&.${fabClasses.disabled}`]: {
         ...((outlinedVariant || outlinedExtendedVariant) && {
           backgroundColor: 'transparent',
-          border: `solid 1px ${theme.palette.action.disabledBackground}`,
+          border: `solid 1px ${theme.vars.palette.action.disabledBackground}`,
         }),
       },
     };

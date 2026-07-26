@@ -1,16 +1,21 @@
-import { Barlow, Public_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 
 // ----------------------------------------------------------------------
+// Vendored Roboto (tokens.typography: the MUI default font, self-hosted —
+// nothing loads from third-party URLs, so Docker builds need no network).
+// Only 400/700 files are vendored; intermediate weights render via
+// synthesis, so heading weights are capped at 700.
+// ----------------------------------------------------------------------
 
-export function remToPx(value) {
+export function remToPx(value: string) {
   return Math.round(parseFloat(value) * 16);
 }
 
-export function pxToRem(value) {
+export function pxToRem(value: number) {
   return `${value / 16}rem`;
 }
 
-export function responsiveFontSizes({ sm, md, lg }) {
+export function responsiveFontSizes({ sm, md, lg }: { sm: number; md: number; lg: number }) {
   return {
     '@media (min-width:600px)': {
       fontSize: pxToRem(sm),
@@ -24,40 +29,32 @@ export function responsiveFontSizes({ sm, md, lg }) {
   };
 }
 
-export const primaryFont = Public_Sans({
-  weight: ['400', '500', '600', '700', '800', '900'],
-  subsets: ['latin'],
-  display: 'swap',
-  fallback: ['Helvetica', 'Arial', 'sans-serif'],
-});
-
-export const secondaryFont = Barlow({
-  weight: ['400', '500', '600', '700', '800', '900'],
-  subsets: ['latin'],
+export const primaryFont = localFont({
+  src: [
+    { path: '../../public/fonts/Roboto-Regular.ttf', weight: '400', style: 'normal' },
+    { path: '../../public/fonts/Roboto-Bold.ttf', weight: '700', style: 'normal' },
+  ],
   display: 'swap',
   fallback: ['Helvetica', 'Arial', 'sans-serif'],
 });
 
 // ----------------------------------------------------------------------
 
-// LEARN MORE
-// https://nextjs.org/docs/basic-features/font-optimization#google-fonts
-
 export const typography = {
   fontFamily: primaryFont.style.fontFamily,
-  fontSecondaryFamily: secondaryFont.style.fontFamily,
+  fontSecondaryFamily: primaryFont.style.fontFamily,
   fontWeightRegular: 400,
   fontWeightMedium: 500,
   fontWeightSemiBold: 600,
   fontWeightBold: 700,
   h1: {
-    fontWeight: 800,
+    fontWeight: 700,
     lineHeight: 80 / 64,
     fontSize: pxToRem(40),
     ...responsiveFontSizes({ sm: 52, md: 58, lg: 64 }),
   },
   h2: {
-    fontWeight: 800,
+    fontWeight: 700,
     lineHeight: 64 / 48,
     fontSize: pxToRem(32),
     ...responsiveFontSizes({ sm: 40, md: 44, lg: 48 }),
@@ -120,4 +117,4 @@ export const typography = {
     fontSize: pxToRem(14),
     textTransform: 'unset',
   },
-};
+} as const;

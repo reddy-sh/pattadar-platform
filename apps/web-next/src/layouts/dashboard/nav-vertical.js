@@ -87,9 +87,11 @@ export default function NavVertical({ openNav, onCloseNav }) {
         <Drawer
           open={openNav}
           onClose={onCloseNav}
-          PaperProps={{
-            sx: {
-              width: NAV.W_VERTICAL,
+          slotProps={{
+            paper: {
+              sx: {
+                width: NAV.W_VERTICAL,
+              },
             },
           }}
         >

@@ -90,12 +90,10 @@ export default function Footer() {
         <Logo sx={{ mb: 3 }} />
 
         <Grid
-          container
-          justifyContent={{
+          container sx={{ justifyContent: {
             xs: 'center',
             md: 'space-between',
-          }}
-        >
+          } }}>
           <Grid xs={8} md={3}>
             <Typography
               variant="body2"
@@ -110,8 +108,7 @@ export default function Footer() {
 
             <Stack
               direction="row"
-              justifyContent={{ xs: 'center', md: 'flex-start' }}
-              sx={{
+              sx={{ justifyContent: { xs: 'center', md: 'flex-start' },
                 mt: 3,
                 mb: { xs: 5, md: 0 },
               }}
@@ -137,8 +134,7 @@ export default function Footer() {
                 <Stack
                   key={list.headline}
                   spacing={2}
-                  alignItems={{ xs: 'center', md: 'flex-start' }}
-                  sx={{ width: 1 }}
+                  sx={{ alignItems: { xs: 'center', md: 'flex-start' }, width: 1 }}
                 >
                   <Typography component="div" variant="overline">
                     {list.headline}

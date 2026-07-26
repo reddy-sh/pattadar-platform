@@ -9,13 +9,12 @@ import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import Drawer, { drawerClasses } from '@mui/material/Drawer';
 
-import { paper } from 'src/theme/css';
+import { paper, varAlpha } from 'src/theme/css';
 
 import Iconify from '../../iconify';
 import Scrollbar from '../../scrollbar';
 import BaseOptions from './base-option';
 import LayoutOptions from './layout-options';
-import PresetsOptions from './presets-options';
 import StretchOptions from './stretch-options';
 import { useSettingsContext } from '../context';
 import FullScreenOption from './fullscreen-option';
@@ -36,9 +35,7 @@ export default function SettingsDrawer() {
   const renderHead = (
     <Stack
       direction="row"
-      alignItems="center"
-      justifyContent="space-between"
-      sx={{ py: 2, pr: 1, pl: 2.5 }}
+      sx={{ alignItems: 'center', justifyContent: 'space-between', py: 2, pr: 1, pl: 2.5 }}
     >
       <Typography variant="h6" sx={{ flexGrow: 1 }}>
         Settings
@@ -88,21 +85,6 @@ export default function SettingsDrawer() {
     </div>
   );
 
-  const renderDirection = (
-    <div>
-      <Typography variant="caption" component="div" sx={{ ...labelStyles }}>
-        Direction
-      </Typography>
-
-      <BaseOptions
-        value={settings.themeDirection}
-        onChange={(newValue) => settings.onUpdate('themeDirection', newValue)}
-        options={['ltr', 'rtl']}
-        icons={['align_left', 'align_right']}
-      />
-    </div>
-  );
-
   const renderLayout = (
     <div>
       <Typography variant="caption" component="div" sx={{ ...labelStyles }}>
@@ -141,19 +123,6 @@ export default function SettingsDrawer() {
     </div>
   );
 
-  const renderPresets = (
-    <div>
-      <Typography variant="caption" component="div" sx={{ ...labelStyles }}>
-        Presets
-      </Typography>
-
-      <PresetsOptions
-        value={settings.themeColorPresets}
-        onChange={(newValue) => settings.onUpdate('themeColorPresets', newValue)}
-      />
-    </div>
-  );
-
   return (
     <Drawer
       anchor="right"
@@ -164,7 +133,10 @@ export default function SettingsDrawer() {
       }}
       sx={{
         [`& .${drawerClasses.paper}`]: {
-          ...paper({ theme, bgcolor: theme.palette.background.default }),
+          ...paper({
+            theme,
+            bgcolor: varAlpha(theme.vars.palette.background.defaultChannel, 0.9),
+          }),
           width: 280,
         },
       }}
@@ -179,13 +151,9 @@ export default function SettingsDrawer() {
 
           {renderContrast}
 
-          {renderDirection}
-
           {renderLayout}
 
           {renderStretch}
-
-          {renderPresets}
         </Stack>
       </Scrollbar>
 

@@ -23,7 +23,7 @@ export default function NavUpgrade() {
         textAlign: 'center',
       }}
     >
-      <Stack alignItems="center">
+      <Stack sx={{ alignItems: 'center' }}>
         <Box sx={{ position: 'relative' }}>
           <Avatar src={user?.photoURL} alt={user?.displayName} sx={{ width: 48, height: 48 }}>
             {user?.displayName?.charAt(0).toUpperCase()}

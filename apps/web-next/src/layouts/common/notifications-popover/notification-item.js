@@ -23,9 +23,7 @@ export default function NotificationItem({ notification }) {
         <Avatar src={notification.avatarUrl} sx={{ bgcolor: 'background.neutral' }} />
       ) : (
         <Stack
-          alignItems="center"
-          justifyContent="center"
-          sx={{
+          sx={{ alignItems: 'center', justifyContent: 'center',
             width: 40,
             height: 40,
             borderRadius: '50%',
@@ -101,7 +99,7 @@ export default function NotificationItem({ notification }) {
   );
 
   const projectAction = (
-    <Stack alignItems="flex-start">
+    <Stack sx={{ alignItems: 'flex-start' }}>
       <Box
         sx={{
           p: 1.5,
@@ -139,7 +137,7 @@ export default function NotificationItem({ notification }) {
         sx={{ width: 40, height: 40 }}
       />
 
-      <Stack spacing={1} direction={{ xs: 'column', sm: 'row' }} flexGrow={1} sx={{ minWidth: 0 }}>
+      <Stack spacing={1} direction={{ xs: 'column', sm: 'row' }} sx={{ flexGrow: 1, minWidth: 0 }}>
         <ListItemText
           disableTypography
           primary={
@@ -178,7 +176,7 @@ export default function NotificationItem({ notification }) {
   );
 
   const tagsAction = (
-    <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ mt: 1.5 }}>
+    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', mt: 1.5 }}>
       <Label variant="outlined" color="info">
         Design
       </Label>

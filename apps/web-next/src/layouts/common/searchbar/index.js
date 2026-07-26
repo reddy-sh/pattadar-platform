@@ -107,7 +107,7 @@ function Searchbar() {
   };
 
   const renderButton = (
-    <Stack direction="row" alignItems="center">
+    <Stack direction="row" sx={{ alignItems: 'center' }}>
       <IconButton onClick={search.onTrue}>
         <Iconify icon="eva:search-fill" />
       </IconButton>
@@ -129,10 +129,12 @@ function Searchbar() {
           enter: theme.transitions.duration.shortest,
           exit: 0,
         }}
-        PaperProps={{
-          sx: {
-            mt: 15,
-            overflow: 'unset',
+        slotProps={{
+          paper: {
+            sx: {
+              mt: 15,
+              overflow: 'unset',
+            },
           },
         }}
         sx={{

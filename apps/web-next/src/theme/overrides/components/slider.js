@@ -3,14 +3,12 @@ import { sliderClasses } from '@mui/material/Slider';
 // ----------------------------------------------------------------------
 
 export function slider(theme) {
-  const lightMode = theme.palette.mode === 'light';
-
   return {
     MuiSlider: {
       styleOverrides: {
         root: {
           [`&.${sliderClasses.disabled}`]: {
-            color: theme.palette.action.disabled,
+            color: theme.vars.palette.action.disabled,
           },
         },
         rail: {
@@ -18,11 +16,14 @@ export function slider(theme) {
         },
         markLabel: {
           fontSize: 13,
-          color: theme.palette.text.disabled,
+          color: theme.vars.palette.text.disabled,
         },
         valueLabel: {
           borderRadius: 8,
-          backgroundColor: theme.palette.grey[lightMode ? 800 : 700],
+          backgroundColor: theme.palette.grey[800],
+          ...theme.applyStyles('dark', {
+            backgroundColor: theme.palette.grey[700],
+          }),
         },
       },
     },

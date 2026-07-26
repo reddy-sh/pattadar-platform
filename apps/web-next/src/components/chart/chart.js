@@ -3,49 +3,53 @@ import dynamic from 'next/dynamic';
 
 import { alpha, styled } from '@mui/material/styles';
 
-import { bgBlur } from 'src/theme/css';
+import { varAlpha } from 'src/theme/css';
 
 // ----------------------------------------------------------------------
 
 const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
+// Scheme-adaptive blurred tooltip background.
+const tooltipBlur = (theme) => ({
+  backdropFilter: 'blur(6px)',
+  WebkitBackdropFilter: 'blur(6px)',
+  backgroundColor: varAlpha(theme.vars.palette.background.defaultChannel, 0.8),
+});
+
 const Chart = styled(ApexChart)(({ theme }) => ({
   '& .apexcharts-canvas': {
     // Tooltip
     '& .apexcharts-tooltip': {
-      ...bgBlur({
-        color: theme.palette.background.default,
-      }),
-      color: theme.palette.text.primary,
+      ...tooltipBlur(theme),
+      color: theme.vars.palette.text.primary,
       boxShadow: theme.customShadows.dropdown,
       borderRadius: theme.shape.borderRadius * 1.25,
       '&.apexcharts-theme-light': {
         borderColor: 'transparent',
-        ...bgBlur({
-          color: theme.palette.background.default,
-        }),
+        ...tooltipBlur(theme),
       },
     },
     '& .apexcharts-xaxistooltip': {
-      ...bgBlur({
-        color: theme.palette.background.default,
-      }),
+      ...tooltipBlur(theme),
       borderColor: 'transparent',
-      color: theme.palette.text.primary,
+      color: theme.vars.palette.text.primary,
       boxShadow: theme.customShadows.dropdown,
       borderRadius: theme.shape.borderRadius * 1.25,
       '&:before': {
         borderBottomColor: alpha(theme.palette.grey[500], 0.24),
       },
       '&:after': {
-        borderBottomColor: alpha(theme.palette.background.default, 0.8),
+        borderBottomColor: varAlpha(theme.vars.palette.background.defaultChannel, 0.8),
       },
     },
     '& .apexcharts-tooltip-title': {
       textAlign: 'center',
       fontWeight: theme.typography.fontWeightBold,
       backgroundColor: alpha(theme.palette.grey[500], 0.08),
-      color: theme.palette.text[theme.palette.mode === 'light' ? 'secondary' : 'primary'],
+      color: theme.vars.palette.text.secondary,
+      ...theme.applyStyles('dark', {
+        color: theme.vars.palette.text.primary,
+      }),
     },
 
     // LEGEND

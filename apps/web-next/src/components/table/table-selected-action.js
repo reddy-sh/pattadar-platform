@@ -22,8 +22,7 @@ export default function TableSelectedAction({
   return (
     <Stack
       direction="row"
-      alignItems="center"
-      sx={{
+      sx={{ alignItems: 'center',
         pl: 1,
         pr: 2,
         top: 0,

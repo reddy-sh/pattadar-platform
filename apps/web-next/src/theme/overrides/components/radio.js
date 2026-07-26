@@ -21,11 +21,11 @@ export function radio(theme) {
             padding: theme.spacing(1),
             ...(color === 'default' && {
               [`&.${radioClasses.checked}`]: {
-                color: theme.palette.text.primary,
+                color: theme.vars.palette.text.primary,
               },
             }),
             [`&.${radioClasses.disabled}`]: {
-              color: theme.palette.action.disabled,
+              color: theme.vars.palette.action.disabled,
             },
           };
         },

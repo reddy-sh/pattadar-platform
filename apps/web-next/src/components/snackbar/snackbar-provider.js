@@ -4,20 +4,14 @@ import { useRef } from 'react';
 import PropTypes from 'prop-types';
 import { closeSnackbar, SnackbarProvider as NotistackProvider } from 'notistack';
 
-import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 
 import Iconify from '../iconify';
-import { useSettingsContext } from '../settings';
 import { StyledIcon, StyledNotistack } from './styles';
 
 // ----------------------------------------------------------------------
 
 export default function SnackbarProvider({ children }) {
-  const settings = useSettingsContext();
-
-  const isRTL = settings.themeDirection === 'rtl';
-
   const notistackRef = useRef(null);
 
   return (
@@ -26,9 +20,9 @@ export default function SnackbarProvider({ children }) {
       maxSnack={5}
       preventDuplicate
       autoHideDuration={3000}
-      TransitionComponent={isRTL ? Collapse : undefined}
       variant="success" // Set default variant
-      anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      // Pattadar seam: bottom-center snackbars (ported from apps/web theme.ts)
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       iconVariant={{
         info: (
           <StyledIcon color="info">

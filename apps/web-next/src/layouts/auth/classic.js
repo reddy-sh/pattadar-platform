@@ -86,11 +86,8 @@ export default function AuthClassicLayout({ children, image, title }) {
 
   const renderSection = (
     <Stack
-      flexGrow={1}
       spacing={10}
-      alignItems="center"
-      justifyContent="center"
-      sx={{
+      sx={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center',
         ...bgGradient({
           color: alpha(
             theme.palette.background.default,

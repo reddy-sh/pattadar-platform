@@ -71,7 +71,7 @@ export function buttonGroup(theme) {
       [`& .${buttonGroupClasses.grouped}`]: {
         [`&.${buttonGroupClasses.disabled}`]: {
           '&:not(:last-of-type)': {
-            borderColor: theme.palette.action.disabledBackground,
+            borderColor: theme.vars.palette.action.disabledBackground,
           },
         },
       },

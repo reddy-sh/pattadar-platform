@@ -7,7 +7,7 @@ export function tabs(theme) {
     MuiTabs: {
       styleOverrides: {
         indicator: {
-          backgroundColor: theme.palette.text.primary,
+          backgroundColor: theme.vars.palette.text.primary,
         },
         scrollButtons: {
           width: 48,
@@ -30,7 +30,7 @@ export function tabs(theme) {
             },
           },
           [`&:not(.${tabClasses.selected})`]: {
-            color: theme.palette.text.secondary,
+            color: theme.vars.palette.text.secondary,
           },
         },
       },

@@ -110,9 +110,7 @@ function NavSubList({ data, subheader, sx, ...other }) {
   return (
     <Stack
       spacing={2}
-      flexGrow={1}
-      alignItems="flex-start"
-      sx={{
+      sx={{ flexGrow: 1, alignItems: 'flex-start',
         pb: 2,
         ...(dashboard && {
           pb: 0,

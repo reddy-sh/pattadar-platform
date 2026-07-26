@@ -1,6 +1,8 @@
 /** Fresh config — kit's next.config.js is webpack-era and must not be copied. */
 const nextConfig = {
   output: 'standalone',
+  // Workspace source packages shipped as raw TS.
+  transpilePackages: ['@pattadar/tokens'],
   redirects: async () => [
     { source: '/app/properties', destination: '/app/parcels?tab=properties', permanent: false },
     { source: '/app/deeds', destination: '/app/documents', permanent: false },

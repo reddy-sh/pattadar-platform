@@ -1,11 +1,9 @@
 import Box from '@mui/material/Box';
-import { alpha, styled } from '@mui/material/styles';
+import { styled } from '@mui/material/styles';
 
 // ----------------------------------------------------------------------
 
 export const StyledLabel = styled(Box)(({ theme, ownerState }) => {
-  const lightMode = theme.palette.mode === 'light';
-
   const filledVariant = ownerState.variant === 'filled';
 
   const outlinedVariant = ownerState.variant === 'outlined';
@@ -16,19 +14,22 @@ export const StyledLabel = styled(Box)(({ theme, ownerState }) => {
     ...(ownerState.color === 'default' && {
       // FILLED
       ...(filledVariant && {
-        color: lightMode ? theme.palette.common.white : theme.palette.grey[800],
-        backgroundColor: theme.palette.text.primary,
+        color: theme.palette.common.white,
+        backgroundColor: theme.vars.palette.text.primary,
+        ...theme.applyStyles('dark', {
+          color: theme.palette.grey[800],
+        }),
       }),
       // OUTLINED
       ...(outlinedVariant && {
         backgroundColor: 'transparent',
-        color: theme.palette.text.primary,
-        border: `2px solid ${theme.palette.text.primary}`,
+        color: theme.vars.palette.text.primary,
+        border: `2px solid ${theme.vars.palette.text.primary}`,
       }),
       // SOFT
       ...(softVariant && {
-        color: theme.palette.text.secondary,
-        backgroundColor: alpha(theme.palette.grey[500], 0.16),
+        color: theme.vars.palette.text.secondary,
+        backgroundColor: 'rgba(145 158 171 / 0.16)', // grey[500]
       }),
     }),
   };
@@ -37,19 +38,22 @@ export const StyledLabel = styled(Box)(({ theme, ownerState }) => {
     ...(ownerState.color !== 'default' && {
       // FILLED
       ...(filledVariant && {
-        color: theme.palette[ownerState.color].contrastText,
-        backgroundColor: theme.palette[ownerState.color].main,
+        color: theme.vars.palette[ownerState.color].contrastText,
+        backgroundColor: theme.vars.palette[ownerState.color].main,
       }),
       // OUTLINED
       ...(outlinedVariant && {
         backgroundColor: 'transparent',
-        color: theme.palette[ownerState.color].main,
-        border: `2px solid ${theme.palette[ownerState.color].main}`,
+        color: theme.vars.palette[ownerState.color].main,
+        border: `2px solid ${theme.vars.palette[ownerState.color].main}`,
       }),
       // SOFT
       ...(softVariant && {
-        color: theme.palette[ownerState.color][lightMode ? 'dark' : 'light'],
-        backgroundColor: alpha(theme.palette[ownerState.color].main, 0.16),
+        color: theme.vars.palette[ownerState.color].dark,
+        backgroundColor: `rgba(${theme.vars.palette[ownerState.color].mainChannel} / 0.16)`,
+        ...theme.applyStyles('dark', {
+          color: theme.vars.palette[ownerState.color].light,
+        }),
       }),
     }),
   };

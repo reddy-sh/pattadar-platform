@@ -10,10 +10,7 @@ import Typography from '@mui/material/Typography';
 export default function EmptyContent({ title, imgUrl, action, filled, description, sx, ...other }) {
   return (
     <Stack
-      flexGrow={1}
-      alignItems="center"
-      justifyContent="center"
-      sx={{
+      sx={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center',
         px: 3,
         height: 1,
         ...(filled && {

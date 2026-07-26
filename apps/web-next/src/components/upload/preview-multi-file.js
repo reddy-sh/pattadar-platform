@@ -28,10 +28,8 @@ export default function MultiFilePreview({ thumbnail, files, onRemove, sx }) {
               key={key}
               component={m.div}
               {...varFade().inUp}
-              alignItems="center"
               display="inline-flex"
-              justifyContent="center"
-              sx={{
+              sx={{ alignItems: 'center', justifyContent: 'center',
                 m: 0.5,
                 width: 80,
                 height: 80,
@@ -80,8 +78,7 @@ export default function MultiFilePreview({ thumbnail, files, onRemove, sx }) {
             {...varFade().inUp}
             spacing={2}
             direction="row"
-            alignItems="center"
-            sx={{
+            sx={{ alignItems: 'center',
               my: 1,
               py: 1,
               px: 1.5,

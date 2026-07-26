@@ -49,7 +49,9 @@ export default function RHFAutocomplete({ name, label, type, helperText, placeho
                 );
               }}
               renderInput={(params) => {
-                const country = getCountry(params.inputProps.value);
+                // MUI 9: renderInput params expose slotProps (htmlInput/input),
+                // not the removed inputProps/InputProps pair.
+                const country = getCountry(params.slotProps.htmlInput.value);
 
                 const baseField = {
                   ...params,
@@ -57,36 +59,46 @@ export default function RHFAutocomplete({ name, label, type, helperText, placeho
                   placeholder,
                   error: !!error,
                   helperText: error ? error?.message : helperText,
-                  inputProps: {
-                    ...params.inputProps,
-                    autoComplete: 'new-password',
-                  },
+                };
+
+                const htmlInput = {
+                  ...params.slotProps.htmlInput,
+                  autoComplete: 'new-password',
                 };
 
                 if (multiple) {
-                  return <TextField {...baseField} />;
+                  return (
+                    <TextField
+                      {...baseField}
+                      slotProps={{ ...params.slotProps, htmlInput }}
+                    />
+                  );
                 }
 
                 return (
                   <TextField
                     {...baseField}
-                    InputProps={{
-                      ...params.InputProps,
-                      startAdornment: (
-                        <InputAdornment
-                          position="start"
-                          sx={{
-                            ...(!country.code && {
-                              display: 'none',
-                            }),
-                          }}
-                        >
-                          <Iconify
-                            icon={`circle-flags:${country.code?.toLowerCase()}`}
-                            sx={{ mr: -0.5, ml: 0.5 }}
-                          />
-                        </InputAdornment>
-                      ),
+                    slotProps={{
+                      ...params.slotProps,
+                      htmlInput,
+                      input: {
+                        ...params.slotProps.input,
+                        startAdornment: (
+                          <InputAdornment
+                            position="start"
+                            sx={{
+                              ...(!country.code && {
+                                display: 'none',
+                              }),
+                            }}
+                          >
+                            <Iconify
+                              icon={`circle-flags:${country.code?.toLowerCase()}`}
+                              sx={{ mr: -0.5, ml: 0.5 }}
+                            />
+                          </InputAdornment>
+                        ),
+                      },
                     }}
                   />
                 );
@@ -124,9 +136,12 @@ export default function RHFAutocomplete({ name, label, type, helperText, placeho
                 placeholder={placeholder}
                 error={!!error}
                 helperText={error ? error?.message : helperText}
-                inputProps={{
-                  ...params.inputProps,
-                  autoComplete: 'new-password',
+                slotProps={{
+                  ...params.slotProps,
+                  htmlInput: {
+                    ...params.slotProps.htmlInput,
+                    autoComplete: 'new-password',
+                  },
                 }}
               />
             )}

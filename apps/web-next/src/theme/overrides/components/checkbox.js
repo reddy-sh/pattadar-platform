@@ -13,11 +13,11 @@ export function checkbox(theme) {
             padding: theme.spacing(1),
             ...(color === 'default' && {
               [`&.${checkboxClasses.checked}`]: {
-                color: theme.palette.text.primary,
+                color: theme.vars.palette.text.primary,
               },
             }),
             [`&.${checkboxClasses.disabled}`]: {
-              color: theme.palette.action.disabled,
+              color: theme.vars.palette.action.disabled,
             },
           };
         },

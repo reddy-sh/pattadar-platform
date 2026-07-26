@@ -1,16 +1,19 @@
-import { alpha } from '@mui/material/styles';
-
-import { grey, common } from './palette';
+import type { Shadows } from '@mui/material/styles';
 
 // ----------------------------------------------------------------------
+// Elevation shadows. A single definition serves both color schemes: the
+// shadow color references the per-scheme `palette.shadowChannel` CSS
+// variable (grey[500] in light, black in dark) defined in palette.ts.
+// ----------------------------------------------------------------------
 
-export function shadows(mode) {
-  const color = mode === 'light' ? grey[500] : common.black;
+// Matches the default cssVarPrefix ('mui') used by createTheme in index.tsx.
+export const SHADOW_CHANNEL = 'var(--mui-palette-shadowChannel)';
 
-  const transparent1 = alpha(color, 0.2);
-  const transparent2 = alpha(color, 0.14);
-  const transparent3 = alpha(color, 0.12);
+const transparent1 = `rgba(${SHADOW_CHANNEL} / 0.2)`;
+const transparent2 = `rgba(${SHADOW_CHANNEL} / 0.14)`;
+const transparent3 = `rgba(${SHADOW_CHANNEL} / 0.12)`;
 
+export function shadows(): Shadows {
   return [
     'none',
     `0px 2px 1px -1px ${transparent1},0px 1px 1px 0px ${transparent2},0px 1px 3px 0px ${transparent3}`,

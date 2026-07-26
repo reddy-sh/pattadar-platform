@@ -20,7 +20,7 @@ export function toggleButton(theme) {
       ...(ownerState.color === color && {
         '&:hover': {
           borderColor: alpha(theme.palette[color].main, 0.48),
-          backgroundColor: alpha(theme.palette[color].main, theme.palette.action.hoverOpacity),
+          backgroundColor: alpha(theme.palette[color].main, theme.vars.palette.action.hoverOpacity),
         },
       }),
     }));
@@ -28,9 +28,9 @@ export function toggleButton(theme) {
     const disabledState = {
       [`&.${toggleButtonClasses.disabled}`]: {
         [`&.${toggleButtonClasses.selected}`]: {
-          color: theme.palette.action.disabled,
-          backgroundColor: theme.palette.action.selected,
-          borderColor: theme.palette.action.disabledBackground,
+          color: theme.vars.palette.action.disabled,
+          backgroundColor: theme.vars.palette.action.selected,
+          borderColor: theme.vars.palette.action.disabledBackground,
         },
       },
     };
@@ -48,7 +48,7 @@ export function toggleButton(theme) {
       styleOverrides: {
         root: {
           borderRadius: theme.shape.borderRadius,
-          backgroundColor: theme.palette.background.paper,
+          backgroundColor: theme.vars.palette.background.paper,
           border: `solid 1px ${alpha(theme.palette.grey[500], 0.08)}`,
         },
         grouped: {

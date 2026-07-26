@@ -64,9 +64,8 @@ export default function LayoutOptions({ options, value, onChange }) {
     return (
       <Stack
         spacing={0.5}
-        flexShrink={0}
         direction={option === 'horizontal' ? 'row' : 'column'}
-        sx={{
+        sx={{ flexShrink: 0,
           p: 0.5,
           width: 28,
           height: 1,
@@ -125,12 +124,7 @@ export default function LayoutOptions({ options, value, onChange }) {
               border: `solid 1px ${alpha(theme.palette.grey[500], 0.08)}`,
               ...(selected && {
                 bgcolor: 'background.paper',
-                boxShadow: `-24px 8px 24px -4px ${alpha(
-                  theme.palette.mode === 'light'
-                    ? theme.palette.grey[500]
-                    : theme.palette.common.black,
-                  0.08
-                )}`,
+                boxShadow: `-24px 8px 24px -4px rgba(${theme.vars.palette.shadowChannel} / 0.08)`,
               }),
               ...(option === 'horizontal' && {
                 flexDirection: 'column',

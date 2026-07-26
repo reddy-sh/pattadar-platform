@@ -26,12 +26,7 @@ export default function BaseOptions({ icons, options, value, onChange }) {
               ...(selected && {
                 bgcolor: 'background.paper',
                 boxShadow: (theme) =>
-                  `-24px 8px 24px -4px ${alpha(
-                    theme.palette.mode === 'light'
-                      ? theme.palette.grey[500]
-                      : theme.palette.common.black,
-                    0.08
-                  )}`,
+                  `-24px 8px 24px -4px rgba(${theme.vars.palette.shadowChannel} / 0.08)`,
               }),
               '& .svg-color': {
                 background: (theme) =>

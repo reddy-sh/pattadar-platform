@@ -73,7 +73,7 @@ export default function NotificationsPopover() {
   };
 
   const renderHead = (
-    <Stack direction="row" alignItems="center" sx={{ py: 2, pl: 2.5, pr: 1, minHeight: 68 }}>
+    <Stack direction="row" sx={{ alignItems: 'center', py: 2, pl: 2.5, pr: 1, minHeight: 68 }}>
       <Typography variant="h6" sx={{ flexGrow: 1 }}>
         Notifications
       </Typography>
@@ -155,9 +155,9 @@ export default function NotificationsPopover() {
         anchor="right"
         slotProps={{
           backdrop: { invisible: true },
-        }}
-        PaperProps={{
-          sx: { width: 1, maxWidth: 420 },
+          paper: {
+            sx: { width: 1, maxWidth: 420 },
+          },
         }}
       >
         {renderHead}
@@ -166,9 +166,7 @@ export default function NotificationsPopover() {
 
         <Stack
           direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ pl: 2.5, pr: 1 }}
+          sx={{ alignItems: 'center', justifyContent: 'space-between', pl: 2.5, pr: 1 }}
         >
           {renderTabs}
           <IconButton onClick={handleMarkAllAsRead}>

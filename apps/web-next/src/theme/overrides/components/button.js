@@ -1,15 +1,16 @@
-import { alpha } from '@mui/material/styles';
 import { buttonClasses } from '@mui/material/Button';
+
+import { varAlpha } from '../../css';
 
 // ----------------------------------------------------------------------
 
 const COLORS = ['primary', 'secondary', 'info', 'success', 'warning', 'error'];
 
+const GREY_CHANNEL = '145 158 171'; // grey[500], scheme-invariant
+
 // ----------------------------------------------------------------------
 
 export function button(theme) {
-  const lightMode = theme.palette.mode === 'light';
-
   const rootStyles = (ownerState) => {
     const inheritColor = ownerState.color === 'inherit';
 
@@ -31,31 +32,38 @@ export function button(theme) {
       ...(inheritColor && {
         // CONTAINED
         ...(containedVariant && {
-          color: lightMode ? theme.palette.common.white : theme.palette.grey[800],
-          backgroundColor: lightMode ? theme.palette.grey[800] : theme.palette.common.white,
+          color: theme.palette.common.white,
+          backgroundColor: theme.palette.grey[800],
           '&:hover': {
-            backgroundColor: lightMode ? theme.palette.grey[700] : theme.palette.grey[400],
+            backgroundColor: theme.palette.grey[700],
           },
+          ...theme.applyStyles('dark', {
+            color: theme.palette.grey[800],
+            backgroundColor: theme.palette.common.white,
+            '&:hover': {
+              backgroundColor: theme.palette.grey[400],
+            },
+          }),
         }),
         // OUTLINED
         ...(outlinedVariant && {
-          borderColor: alpha(theme.palette.grey[500], 0.32),
+          borderColor: varAlpha(GREY_CHANNEL, 0.32),
           '&:hover': {
-            backgroundColor: theme.palette.action.hover,
+            backgroundColor: theme.vars.palette.action.hover,
           },
         }),
         // TEXT
         ...(textVariant && {
           '&:hover': {
-            backgroundColor: theme.palette.action.hover,
+            backgroundColor: theme.vars.palette.action.hover,
           },
         }),
         // SOFT
         ...(softVariant && {
-          color: theme.palette.text.primary,
-          backgroundColor: alpha(theme.palette.grey[500], 0.08),
+          color: theme.vars.palette.text.primary,
+          backgroundColor: varAlpha(GREY_CHANNEL, 0.08),
           '&:hover': {
-            backgroundColor: alpha(theme.palette.grey[500], 0.24),
+            backgroundColor: varAlpha(GREY_CHANNEL, 0.24),
           },
         }),
       }),
@@ -77,11 +85,14 @@ export function button(theme) {
         }),
         // SOFT
         ...(softVariant && {
-          color: theme.palette[color][lightMode ? 'dark' : 'light'],
-          backgroundColor: alpha(theme.palette[color].main, 0.16),
+          color: theme.vars.palette[color].dark,
+          backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.16),
           '&:hover': {
-            backgroundColor: alpha(theme.palette[color].main, 0.32),
+            backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.32),
           },
+          ...theme.applyStyles('dark', {
+            color: theme.vars.palette[color].light,
+          }),
         }),
       }),
     }));
@@ -90,7 +101,7 @@ export function button(theme) {
       [`&.${buttonClasses.disabled}`]: {
         // SOFT
         ...(softVariant && {
-          backgroundColor: theme.palette.action.disabledBackground,
+          backgroundColor: theme.vars.palette.action.disabledBackground,
         }),
       },
     };

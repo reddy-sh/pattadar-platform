@@ -37,13 +37,13 @@ export function table(theme) {
         },
         head: {
           fontSize: 14,
-          color: theme.palette.text.secondary,
+          color: theme.vars.palette.text.secondary,
           fontWeight: theme.typography.fontWeightSemiBold,
-          backgroundColor: theme.palette.background.neutral,
+          backgroundColor: theme.vars.palette.background.neutral,
         },
         stickyHeader: {
-          backgroundColor: theme.palette.background.paper,
-          backgroundImage: `linear-gradient(to bottom, ${theme.palette.background.neutral} 0%, ${theme.palette.background.neutral} 100%)`,
+          backgroundColor: theme.vars.palette.background.paper,
+          backgroundImage: `linear-gradient(to bottom, ${theme.vars.palette.background.neutral} 0%, ${theme.vars.palette.background.neutral} 100%)`,
         },
         paddingCheckbox: {
           paddingLeft: theme.spacing(1),

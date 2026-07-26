@@ -13,7 +13,7 @@ export function accordion(theme) {
           [`&.${accordionClasses.expanded}`]: {
             boxShadow: theme.customShadows.z8,
             borderRadius: theme.shape.borderRadius,
-            backgroundColor: theme.palette.background.paper,
+            backgroundColor: theme.vars.palette.background.paper,
           },
           [`&.${accordionClasses.disabled}`]: {
             backgroundColor: 'transparent',
@@ -28,7 +28,7 @@ export function accordion(theme) {
           paddingRight: theme.spacing(1),
           [`&.${accordionSummaryClasses.disabled}`]: {
             opacity: 1,
-            color: theme.palette.action.disabled,
+            color: theme.vars.palette.action.disabled,
             [`& .${typographyClasses.root}`]: {
               color: 'inherit',
             },

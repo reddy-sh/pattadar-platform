@@ -5,7 +5,7 @@ export function stepper(theme) {
     MuiStepConnector: {
       styleOverrides: {
         line: {
-          borderColor: theme.palette.divider,
+          borderColor: theme.vars.palette.divider,
         },
       },
     },

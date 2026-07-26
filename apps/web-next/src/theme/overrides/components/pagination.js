@@ -1,15 +1,16 @@
-import { alpha } from '@mui/material/styles';
 import { paginationItemClasses } from '@mui/material/PaginationItem';
+
+import { varAlpha } from '../../css';
 
 // ----------------------------------------------------------------------
 
 const COLORS = ['primary', 'secondary', 'info', 'success', 'warning', 'error'];
 
+const GREY_CHANNEL = '145 158 171'; // grey[500], scheme-invariant
+
 // ----------------------------------------------------------------------
 
 export function pagination(theme) {
-  const lightMode = theme.palette.mode === 'light';
-
   const rootStyles = (ownerState) => {
     const defaultColor = ownerState.color === 'standard';
 
@@ -22,7 +23,7 @@ export function pagination(theme) {
     const defaultStyle = {
       [`& .${paginationItemClasses.root}`]: {
         ...(outlinedVariant && {
-          borderColor: alpha(theme.palette.grey[500], 0.24),
+          borderColor: varAlpha(GREY_CHANNEL, 0.24),
         }),
 
         [`&.${paginationItemClasses.selected}`]: {
@@ -32,13 +33,19 @@ export function pagination(theme) {
           }),
 
           ...(defaultColor && {
-            backgroundColor: alpha(theme.palette.grey[500], 0.08),
+            backgroundColor: varAlpha(GREY_CHANNEL, 0.08),
             ...(filledVariant && {
-              color: lightMode ? theme.palette.common.white : theme.palette.grey[800],
-              backgroundColor: theme.palette.text.primary,
+              color: theme.palette.common.white,
+              backgroundColor: theme.vars.palette.text.primary,
               '&:hover': {
-                backgroundColor: lightMode ? theme.palette.grey[700] : theme.palette.grey[100],
+                backgroundColor: theme.palette.grey[700],
               },
+              ...theme.applyStyles('dark', {
+                color: theme.palette.grey[800],
+                '&:hover': {
+                  backgroundColor: theme.palette.grey[100],
+                },
+              }),
             }),
           }),
         },
@@ -52,11 +59,14 @@ export function pagination(theme) {
             ...(ownerState.color === color && {
               // SOFT
               ...(softVariant && {
-                color: theme.palette[color][lightMode ? 'dark' : 'light'],
-                backgroundColor: alpha(theme.palette[color].main, 0.08),
+                color: theme.vars.palette[color].dark,
+                backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.08),
                 '&:hover': {
-                  backgroundColor: alpha(theme.palette[color].main, 0.16),
+                  backgroundColor: varAlpha(theme.vars.palette[color].mainChannel, 0.16),
                 },
+                ...theme.applyStyles('dark', {
+                  color: theme.vars.palette[color].light,
+                }),
               }),
             }),
           },

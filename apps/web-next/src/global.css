@@ -4,17 +4,28 @@
 /* lazy image */
 @import 'react-lazy-load-image-component/src/effects/blur.css';
 
-/* map */
-@import 'mapbox-gl/dist/mapbox-gl.css';
+/* nprogress route-transition bar */
+#nprogress {
+  pointer-events: none;
+}
 
-/* editor */
-@import 'react-quill/dist/quill.snow.css';
+#nprogress .bar {
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  position: fixed;
+  z-index: 9999;
+  background: var(--mui-palette-primary-main);
+}
 
-/* carousel */
-@import 'slick-carousel/slick/slick.css';
-@import 'slick-carousel/slick/slick-theme.css';
-
-/* lightbox */
-@import 'yet-another-react-lightbox/styles.css';
-@import 'yet-another-react-lightbox/plugins/captions.css';
-@import 'yet-another-react-lightbox/plugins/thumbnails.css';
+#nprogress .peg {
+  right: 0;
+  opacity: 1;
+  width: 100px;
+  height: 100%;
+  display: block;
+  position: absolute;
+  transform: rotate(3deg) translate(0px, -4px);
+  box-shadow: 0 0 10px var(--mui-palette-primary-main), 0 0 5px var(--mui-palette-primary-main);
+}

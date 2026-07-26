@@ -42,11 +42,9 @@ export default function UploadAvatar({ error, file, disabled, helperText, sx, ..
 
   const renderPlaceholder = (
     <Stack
-      alignItems="center"
-      justifyContent="center"
       spacing={1}
       className="upload-placeholder"
-      sx={{
+      sx={{ alignItems: 'center', justifyContent: 'center',
         top: 0,
         left: 0,
         width: 1,

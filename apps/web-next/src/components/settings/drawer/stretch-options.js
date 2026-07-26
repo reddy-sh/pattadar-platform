@@ -23,18 +23,13 @@ export default function StretchOptions({ value, onChange }) {
           bgcolor: 'background.paper',
           color: (theme) => theme.palette.primary.main,
           boxShadow: (theme) =>
-            `-24px 8px 24px -4px ${alpha(
-              theme.palette.mode === 'light' ? theme.palette.grey[500] : theme.palette.common.black,
-              0.08
-            )}`,
+            `-24px 8px 24px -4px rgba(${theme.vars.palette.shadowChannel} / 0.08)`,
         }),
       }}
     >
       <Stack
         direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{
+        sx={{ alignItems: 'center', justifyContent: 'space-between',
           width: 0.24,
           transition: (theme) => theme.transitions.create(['width']),
           ...(value && {

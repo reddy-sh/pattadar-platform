@@ -106,10 +106,13 @@ export function defaultProps(theme) {
     },
     MuiCardHeader: {
       defaultProps: {
-        titleTypographyProps: { variant: 'h6' },
-        subheaderTypographyProps: {
-          variant: 'body2',
-          marginTop: theme.spacing(0.5),
+        // MUI 9: titleTypographyProps/subheaderTypographyProps removed.
+        slotProps: {
+          title: { variant: 'h6' },
+          subheader: {
+            variant: 'body2',
+            marginTop: theme.spacing(0.5),
+          },
         },
       },
     },
@@ -135,11 +138,10 @@ export function defaultProps(theme) {
     },
     MuiListItemText: {
       defaultProps: {
-        primaryTypographyProps: {
-          typography: 'subtitle2',
-        },
-        secondaryTypographyProps: {
-          component: 'span',
+        // MUI 9: primaryTypographyProps/secondaryTypographyProps removed.
+        slotProps: {
+          primary: { typography: 'subtitle2' },
+          secondary: { component: 'span' },
         },
       },
     },
@@ -179,11 +181,12 @@ export function defaultProps(theme) {
     },
     MuiTablePagination: {
       defaultProps: {
-        backIconButtonProps: {
-          size: 'small',
-        },
-        nextIconButtonProps: {
-          size: 'small',
+        // MUI 9: back/nextIconButtonProps removed.
+        slotProps: {
+          actions: {
+            previousButton: { size: 'small' },
+            nextButton: { size: 'small' },
+          },
         },
       },
     },

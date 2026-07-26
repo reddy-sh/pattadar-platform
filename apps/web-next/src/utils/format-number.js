@@ -1,22 +1,12 @@
-import { useLocales as getLocales } from 'src/locales';
-
 // ----------------------------------------------------------------------
 
-/*
- * Locales code
- * https://gist.github.com/raushankrjha/d1c7e35cf87e69aa8b4208a8171a8416
- */
+// De-i18n'd (src/locales was pruned): Pattadar is an India-market product —
+// fixed en-IN locale (lakh/crore grouping) and INR currency.
 
 function getLocaleCode() {
-  const {
-    currentLang: {
-      numberFormat: { code, currency },
-    },
-  } = getLocales();
-
   return {
-    code: code ?? 'en-US',
-    currency: currency ?? 'USD',
+    code: 'en-IN',
+    currency: 'INR',
   };
 }
 

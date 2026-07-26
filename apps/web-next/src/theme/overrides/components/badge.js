@@ -53,7 +53,7 @@ export function badge(theme) {
             ...(offline && {
               [`& .${badgeClasses.badge}`]: {
                 ...baseStyles,
-                backgroundColor: theme.palette.text.disabled,
+                backgroundColor: theme.vars.palette.text.disabled,
                 '&:before': {
                   width: 6,
                   height: 6,

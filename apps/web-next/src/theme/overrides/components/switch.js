@@ -1,11 +1,12 @@
-import { alpha } from '@mui/material/styles';
 import { switchClasses } from '@mui/material/Switch';
+
+import { varAlpha } from '../../css';
+
+const GREY_CHANNEL = '145 158 171'; // grey[500], scheme-invariant
 
 // ----------------------------------------------------------------------
 
 export function switches(theme) {
-  const lightMode = theme.palette.mode === 'light';
-
   const rootStyles = (ownerState) => {
     const { color } = ownerState;
 
@@ -22,7 +23,7 @@ export function switches(theme) {
       [`& .${switchClasses.track}`]: {
         opacity: 1,
         borderRadius: 14,
-        backgroundColor: alpha(theme.palette.grey[500], 0.48),
+        backgroundColor: varAlpha(GREY_CHANNEL, 0.48),
       },
       [`& .${switchClasses.switchBase}`]: {
         left: 3,
@@ -31,20 +32,23 @@ export function switches(theme) {
           transform: 'translateX(13px)',
           [`& .${switchClasses.thumb}`]: {
             ...(color === 'default' &&
-              !lightMode && {
+              theme.applyStyles('dark', {
                 color: theme.palette.grey[800],
-              }),
+              })),
           },
           [`&+.${switchClasses.track}`]: {
             opacity: 1,
             ...(color === 'default' && {
-              backgroundColor: theme.palette.text.primary,
+              backgroundColor: theme.vars.palette.text.primary,
             }),
           },
         },
         [`&.${switchClasses.disabled}`]: {
           [`& .${switchClasses.thumb}`]: {
-            opacity: lightMode ? 1 : 0.48,
+            opacity: 1,
+            ...theme.applyStyles('dark', {
+              opacity: 0.48,
+            }),
           },
           [`&+.${switchClasses.track}`]: {
             opacity: 0.48,
