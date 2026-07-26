@@ -41,3 +41,6 @@ tests/e2e-ux/results.json
 
 # Local dev state — venvs, logs, MinIO bytes, one-off SQL. Never committed.
 .local/
+
+# sdd scratch
+.superpowers/
