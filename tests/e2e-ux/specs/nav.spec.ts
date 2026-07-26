@@ -62,15 +62,25 @@ test('footer shows the DD/MM/YYYY date notice', async ({ page }) => {
 
 test('dark/light toggle switches the scheme and persists across reload', async ({ page }) => {
   await openApp(page);
-  const toggle = page.locator(
-    'button:has([data-testid="DarkModeOutlinedIcon"]), button:has([data-testid="LightModeOutlinedIcon"])',
-  );
+  const toggle = page.getByRole('button', { name: 'Change theme' });
   await expect(toggle).toBeVisible();
 
   const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const before = await bg();
+
+  // The control is a Light / Dark / Match-device menu (founder request).
   await toggle.click();
-  await expect.poll(bg, { message: 'toggle must change the colour scheme' }).not.toBe(before);
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Light' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Dark' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Match device' })).toBeVisible();
+
+  // Pick the scheme we are NOT currently on.
+  const goDark = await page.evaluate(
+    () => !document.documentElement.classList.contains('dark'),
+  );
+  await menu.getByRole('menuitem', { name: goDark ? 'Dark' : 'Light' }).click();
+  await expect.poll(bg, { message: 'menu choice must change the colour scheme' }).not.toBe(before);
   const after = await bg();
 
   await page.reload();
@@ -80,5 +90,6 @@ test('dark/light toggle switches the scheme and persists across reload', async (
 
   // Restore the original scheme for the rest of the suite.
   await toggle.click();
+  await page.getByRole('menu').getByRole('menuitem', { name: goDark ? 'Light' : 'Dark' }).click();
   await expect.poll(bg).toBe(before);
 });

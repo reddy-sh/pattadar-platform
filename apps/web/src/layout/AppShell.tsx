@@ -42,6 +42,8 @@ import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
+import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
+import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import { gold, green } from '@pattadar/tokens';
 import { AssistantPanel } from '../assistant/AssistantPanel';
@@ -87,14 +89,38 @@ const NAV_SECTIONS: NavSection[] = [
 
 function ThemeToggle() {
   const { mode, systemMode, setMode } = useColorScheme();
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null);
   if (!mode) return null;
   const isDark = mode === 'dark' || (mode === 'system' && systemMode === 'dark');
+  const options = [
+    { value: 'light' as const, label: 'Light', icon: <LightModeOutlinedIcon fontSize="small" /> },
+    { value: 'dark' as const, label: 'Dark', icon: <DarkModeOutlinedIcon fontSize="small" /> },
+    { value: 'system' as const, label: 'Match device', icon: <SettingsBrightnessOutlinedIcon fontSize="small" /> },
+  ];
   return (
-    <Tooltip title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
-      <IconButton color="inherit" onClick={() => setMode(isDark ? 'light' : 'dark')}>
-        {isDark ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
-      </IconButton>
-    </Tooltip>
+    <>
+      <Tooltip title="Theme">
+        <IconButton color="inherit" aria-label="Change theme" onClick={(e) => setAnchor(e.currentTarget)}>
+          {isDark ? <DarkModeOutlinedIcon /> : <LightModeOutlinedIcon />}
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+        {options.map((o) => (
+          <MenuItem
+            key={o.value}
+            selected={mode === o.value}
+            onClick={() => {
+              setMode(o.value);
+              setAnchor(null);
+            }}
+          >
+            <ListItemIcon>{o.icon}</ListItemIcon>
+            <ListItemText>{o.label}</ListItemText>
+            {mode === o.value && <CheckIcon fontSize="small" sx={{ ml: 1.5, color: 'primary.main' }} />}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   );
 }
 
