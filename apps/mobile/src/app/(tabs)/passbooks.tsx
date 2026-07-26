@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useHoldingActions, usePassbooks } from '@/data/hooks';
 import { formatArea } from '@pattadar/core';
 import type { Passbook } from '@pattadar/core';
+import { AppHeader } from '@/components/AppHeader';
 import { tokens } from '@pattadar/tokens';
 
 /** Web PassbooksPage, native dress: stat tiles, search, khata cards. */
@@ -185,9 +186,7 @@ export default function PassbooksScreen() {
         }
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text variant="headlineSmall" style={styles.heading}>
-              Passbooks
-            </Text>
+            <AppHeader title="Passbooks" />
             {result?.isSample && (
               <Banner visible icon="database-outline">
                 Showing sample data — the API is unreachable.

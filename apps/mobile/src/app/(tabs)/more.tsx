@@ -2,13 +2,14 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { Divider, List, Text, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppHeader } from '@/components/AppHeader';
 import { useDashboard } from '@/data/hooks';
 import { tokens } from '@pattadar/tokens';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 const DEV_USER = process.env.EXPO_PUBLIC_DEV_USER ?? '';
 
-export default function SettingsScreen() {
+export default function MoreScreen() {
   const theme = useTheme();
   const { data: result } = useDashboard();
   const name = result?.data.me?.name || '—';
@@ -16,10 +17,13 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text variant="headlineSmall" style={styles.heading}>
-          Settings
-        </Text>
+        <AppHeader title="More" />
         <List.Section>
+          <List.Subheader>Coming soon</List.Subheader>
+          <List.Item title="Documents" description="View and manage files — needs sign-in (Cognito)" left={(p) => <List.Icon {...p} icon="file-document-outline" />} />
+          <List.Item title="Notifications" description="Alerts and reminders" left={(p) => <List.Icon {...p} icon="bell-outline" />} />
+          <List.Item title="Tools" description="Stamp duty, market value, calculators" left={(p) => <List.Icon {...p} icon="calculator-variant-outline" />} />
+          <Divider />
           <List.Subheader>Account</List.Subheader>
           <List.Item title={name} description="Signed-in profile" left={(p) => <List.Icon {...p} icon="account-circle-outline" />} />
           <List.Item

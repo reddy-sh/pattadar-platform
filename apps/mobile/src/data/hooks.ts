@@ -5,6 +5,7 @@
  * staleTime 30s, no retries. Query documents come from @pattadar/core.
  */
 import {
+  ADD_MEMBER_MUTATION,
   CREATE_PARCEL_MUTATION,
   CREATE_PASSBOOK_MUTATION,
   DASHBOARD_QUERY,
@@ -16,6 +17,7 @@ import {
   DOCUMENT_REFS_QUERY,
   PASSBOOKS_QUERY,
   PASSBOOK_DOCUMENTS_QUERY,
+  REMOVE_MEMBER_MUTATION,
   SET_STAKE_MUTATION,
   UPDATE_PARCEL_PRICE_MUTATION,
   GROUPS_QUERY,
@@ -381,6 +383,45 @@ export function useHoldingActions() {
   });
 
   return { deleteParcel, deletePassbook, deleteProperty, setStake };
+}
+
+// --- family member actions ---------------------------------------------------
+
+export interface NewMember {
+  groupId: string;
+  name: string;
+  relation: string;
+  phone: string;
+  email: string;
+  isBeneficiary: boolean;
+  sharePct: number;
+}
+
+export function useMemberActions() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['pattadar', 'groups'] });
+    qc.invalidateQueries({ queryKey: ['pattadar', 'dashboard'] });
+  };
+  const addMember = useMutation({
+    mutationFn: (v: NewMember) =>
+      api.gql<{ addMember: { id: string; inviteToken: string } | null }>(ADD_MEMBER_MUTATION, {
+        ...v,
+        role: 'Member', gender: '', dob: '', bio: '', photo: '',
+        fatherId: '', motherId: '', spouseId: '',
+        kind: v.isBeneficiary ? 'legalheir' : '',
+        parcelId: '', presentAddress: '', aadhaar: '',
+        guardianName: '', guardianContact: '',
+        maritalStatus: '', spouseName: '', spouseContact: '', spouseStatus: '',
+      }),
+    onSuccess: invalidate,
+  });
+  const removeMember = useMutation({
+    mutationFn: (id: string) =>
+      api.gql<{ removeMember: boolean }>(REMOVE_MEMBER_MUTATION, { id }),
+    onSuccess: invalidate,
+  });
+  return { addMember, removeMember };
 }
 
 // --- verify (public) ---------------------------------------------------------

@@ -42,8 +42,8 @@ export default function TabsLayout() {
         options={{ title: 'Family', tabBarIcon: tabIcon('account-group-outline') }}
       />
       <Tabs.Screen
-        name="settings"
-        options={{ title: 'Settings', tabBarIcon: tabIcon('cog-outline') }}
+        name="more"
+        options={{ title: 'More', tabBarIcon: tabIcon('dots-horizontal') }}
       />
     </Tabs>
   );

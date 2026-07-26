@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useHoldingActions, useHoldings, type HoldingsData } from '@/data/hooks';
 import { holdingStatusLabel, normalizeHoldings, type Holding } from '@/data/holdings';
 import { formatArea } from '@pattadar/core';
+import { AppHeader } from '@/components/AppHeader';
 import { tokens } from '@pattadar/tokens';
 
 function money(v: number): string {
@@ -210,9 +211,7 @@ export default function HoldingsScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <Text variant="headlineSmall" style={styles.heading}>
-          Land & Properties
-        </Text>
+        <AppHeader title="Land & Properties" />
         <Searchbar
           placeholder="Search survey no, owner, village…"
           value={search}

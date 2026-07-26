@@ -1,6 +1,7 @@
 export { createGraphQLClient } from './api/client';
 export type { GraphQLClient, GraphQLClientConfig, HeadersProvider } from './api/client';
 export {
+  ADD_MEMBER_MUTATION,
   CREATE_PARCEL_MUTATION,
   CREATE_PASSBOOK_MUTATION,
   DASHBOARD_QUERY,
@@ -17,6 +18,7 @@ export {
   INVITATIONS_QUERY,
   INVITE_MEMBER_MUTATION,
   PASSBOOKS_QUERY,
+  REMOVE_MEMBER_MUTATION,
   PASSBOOK_DOCUMENTS_QUERY,
   PROPERTY_DOCUMENTS_QUERY,
   SET_STAKE_MUTATION,

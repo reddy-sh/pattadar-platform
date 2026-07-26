@@ -1,19 +1,25 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Banner,
+  Button,
   Chip,
+  Dialog,
+  IconButton,
   List,
+  Portal,
   Text,
   useTheme,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useGroups } from '@/data/hooks';
+import { useGroups, useMemberActions } from '@/data/hooks';
 import { formatArea } from '@pattadar/core';
 import type { Member } from '@pattadar/core';
+import { AppHeader } from '@/components/AppHeader';
 import { tokens } from '@pattadar/tokens';
 
 const GROUP_ICONS: Record<string, string> = {
@@ -43,6 +49,8 @@ export default function FamilyScreen() {
   const qc = useQueryClient();
   const { data: result, isLoading, isRefetching } = useGroups();
   const [open, setOpen] = useState<string | null>(null);
+  const { removeMember } = useMemberActions();
+  const [confirm, setConfirm] = useState<{ id: string; name: string } | null>(null);
 
   if (isLoading || !result) {
     return (
@@ -74,9 +82,7 @@ export default function FamilyScreen() {
           />
         }
       >
-        <Text variant="headlineSmall" style={styles.heading}>
-          Family & groups
-        </Text>
+        <AppHeader title="Family & groups" />
         {result.isSample && (
           <Banner visible icon="database-outline" style={styles.banner}>
             Showing sample data — the API is unreachable.
@@ -117,13 +123,24 @@ export default function FamilyScreen() {
                       .filter(Boolean)
                       .join(' · ')}
                     right={() => (
-                      <Chip
-                        compact
-                        mode="outlined"
-                        textStyle={[styles.chipText, { color: toneColor[chip.tone] }]}
-                      >
-                        {chip.label}
-                      </Chip>
+                      <View style={styles.memberRight}>
+                        {chip.label !== '—' && (
+                          <Chip
+                            compact
+                            mode="outlined"
+                            textStyle={[styles.chipText, { color: toneColor[chip.tone] }]}
+                          >
+                            {chip.label}
+                          </Chip>
+                        )}
+                        {!m.isSelf && (
+                          <IconButton
+                            icon="delete-outline"
+                            size={18}
+                            onPress={() => setConfirm({ id: m.id, name: m.name })}
+                          />
+                        )}
+                      </View>
                     )}
                   />
                 );
@@ -139,10 +156,45 @@ export default function FamilyScreen() {
                   Heir shares total {totalShare}%{totalShare > 100 ? ' — over 100%' : ''}
                 </Text>
               )}
+              <Button
+                mode="text"
+                icon="account-plus-outline"
+                style={styles.addMember}
+                onPress={() =>
+                  router.push({ pathname: '/add-member', params: { groupId: g.id, groupName: g.name } })
+                }
+              >
+                Add member
+              </Button>
             </List.Accordion>
           );
         })}
       </ScrollView>
+      <Portal>
+        <Dialog visible={confirm !== null} onDismiss={() => setConfirm(null)}>
+          <Dialog.Title>Remove {confirm?.name}?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Removes this member from the group. Any pending invite link stops
+              working.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setConfirm(null)}>Cancel</Button>
+            <Button
+              textColor={theme.colors.error}
+              loading={removeMember.isPending}
+              disabled={removeMember.isPending}
+              onPress={async () => {
+                if (confirm) await removeMember.mutateAsync(confirm.id).catch(() => undefined);
+                setConfirm(null);
+              }}
+            >
+              Remove
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 }
@@ -156,4 +208,6 @@ const styles = StyleSheet.create({
   accordion: { borderRadius: tokens.radii.md },
   chipText: { fontSize: 11 },
   shareLine: { paddingHorizontal: tokens.spacing.lg, paddingBottom: tokens.spacing.sm },
+  memberRight: { flexDirection: 'row', alignItems: 'center' },
+  addMember: { alignSelf: 'flex-start', marginLeft: tokens.spacing.sm },
 });

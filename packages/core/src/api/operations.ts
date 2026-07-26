@@ -104,3 +104,9 @@ export const PROPERTY_DOCUMENTS_QUERY = `query($id:String!){ propertyDocuments(p
 
 /** My relationship to a holding: owned / managed / watch. */
 export const SET_STAKE_MUTATION = `mutation($k:String!,$id:String!,$s:String!){ setStake(kind:$k, id:$id, stake:$s) }`;
+
+/** Full 24-arg member write (every arg required by the schema; '' / false / 0
+ * for unused). Server auto-creates the invite token when isBeneficiary. */
+export const ADD_MEMBER_MUTATION = `mutation($groupId:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$fatherId:String!,$motherId:String!,$spouseId:String!,$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String!,$parcelId:String!,$presentAddress:String!,$aadhaar:String!,$guardianName:String!,$guardianContact:String!,$maritalStatus:String!,$spouseName:String!,$spouseContact:String!,$spouseStatus:String!){ addMember(groupId:$groupId,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,presentAddress:$presentAddress,aadhaar:$aadhaar,guardianName:$guardianName,guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,spouseContact:$spouseContact,spouseStatus:$spouseStatus){ id inviteToken } }`;
+
+export const REMOVE_MEMBER_MUTATION = `mutation($id:String!){ removeMember(id:$id) }`;

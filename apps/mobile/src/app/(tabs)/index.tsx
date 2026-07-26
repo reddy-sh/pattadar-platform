@@ -16,7 +16,8 @@ function formatTimestamp(iso: string): string {
 
 /** Web parity: greet with a first name, never a raw email-local-part id. */
 function firstName(name: string | undefined): string {
-  return (name || '').split(/[@\s.]/)[0];
+  const s = (name || '').split(/[@\s.]/)[0];
+  return s ? s[0].toUpperCase() + s.slice(1) : '';
 }
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
@@ -32,13 +33,14 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppHeader } from '@/components/AppHeader';
 import { useDashboard } from '@/data/hooks';
 import { tokens } from '@pattadar/tokens';
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value, href }: { label: string; value: string; href?: string }) {
   const theme = useTheme();
   return (
-    <Card mode="outlined" style={styles.tile}>
+    <Card mode="outlined" style={styles.tile} onPress={href ? () => router.push(href as never) : undefined}>
       <Card.Content style={styles.tileContent}>
         <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant }}>
           {label}
@@ -99,6 +101,7 @@ export default function DashboardScreen() {
           </Banner>
         )}
 
+        <AppHeader title="Home" />
         <Text variant="headlineSmall" style={styles.greeting}>
           Namaste{firstName(d.me?.name) ? `, ${firstName(d.me?.name)}` : ''}
         </Text>
@@ -173,12 +176,12 @@ export default function DashboardScreen() {
 
         {!isEmpty && (
         <View style={styles.grid}>
-          <StatTile label="Total extent" value={formatArea(d.stats.totalExtent)} />
-          <StatTile label="Passbooks" value={String(d.stats.totalPassbooks)} />
-          <StatTile label="Parcels" value={String(d.stats.totalParcels)} />
+          <StatTile label="Total extent" value={formatArea(d.stats.totalExtent)} href="/holdings" />
+          <StatTile label="Passbooks" value={String(d.stats.totalPassbooks)} href="/passbooks" />
+          <StatTile label="Parcels" value={String(d.stats.totalParcels)} href="/holdings" />
           <StatTile label="Documents" value={String(d.stats.totalDocuments)} />
-          <StatTile label="Family groups" value={String(d.stats.totalGroups)} />
-          <StatTile label="Beneficiaries" value={String(d.stats.totalBeneficiaries)} />
+          <StatTile label="Family groups" value={String(d.stats.totalGroups)} href="/family" />
+          <StatTile label="Beneficiaries" value={String(d.stats.totalBeneficiaries)} href="/family" />
         </View>
         )}
 
@@ -190,7 +193,7 @@ export default function DashboardScreen() {
                 Nothing yet.
               </Text>
             )}
-            {d.recent.slice(0, 6).map((e, i) => {
+            {d.recent.slice(0, 5).map((e, i) => {
               const label = actionLabel(e.action);
               const rawEntity = humanEntity(e.target, e.details);
               // Some audit rows repeat the action as their detail
