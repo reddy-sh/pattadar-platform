@@ -36,6 +36,7 @@ import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { formatArea, formatDate, formatDateTime, formatINR, formatINRCompact, parseISOToDisplay } from '@pattadar/core';
+import { motion, schemes } from '@pattadar/tokens';
 import { gql } from '../api/client';
 import { GlassCard } from '../components/GlassCard';
 import { PageHeader } from '../components/PageHeader';
@@ -43,6 +44,8 @@ import { HeaderSkeleton, HeroSkeleton, StatRowSkeleton, TableSkeleton } from '..
 import { BarList } from '../components/charts/BarList';
 import { HealthRing } from '../components/charts/HealthRing';
 import { useChartColors, useStatusColors } from '../components/charts/chartColors';
+import { useSchemeMode } from '../components/useSchemeMode';
+import { humanEntity } from '../lib/format';
 import { useDashboard } from '../data/hooks';
 import {
   actionLabel,
@@ -220,6 +223,11 @@ export function DashboardPage() {
   const { data: d, isSample, isLoading } = useDashboard();
   const colors = useChartColors();
   const statusColors = useStatusColors();
+  const mode = useSchemeMode();
+  // Semantic ring colour: complete = primary emerald, gaps = warning amber,
+  // nothing actionable = neutral. Never a decorative chart-series hue.
+  const ringColor = (pct: number, actionable: boolean) =>
+    pct >= 100 ? schemes[mode].primary : actionable ? statusColors.warning : schemes[mode].textDisabled;
   const [masked, setMasked] = useState(() => localStorage.getItem('pattadar-hide-values') === '1');
 
   const today = new Date();
@@ -271,14 +279,14 @@ export function DashboardPage() {
   const rings = [
     rHealth && {
       pct: rHealth.pct,
-      color: colors[0],
+      color: ringColor(rHealth.pct, rHealth.gaps.length > 0),
       title: 'Records health',
       gap: rHealth.gaps[0] || 'All records complete',
       go: '/app/parcels',
     },
     sCover && {
       pct: sCover.pct,
-      color: colors[2],
+      color: ringColor(sCover.pct, sCover.uncovered > 0),
       title: 'Succession cover',
       gap: sCover.uncovered
         ? `${sCover.uncovered} parcel${sCover.uncovered > 1 ? 's' : ''} without heirs`
@@ -287,14 +295,14 @@ export function DashboardPage() {
     },
     tax && {
       pct: tax.pct,
-      color: colors[1],
+      color: ringColor(tax.pct, tax.overdue > 0),
       title: 'Tax compliance',
       gap: tax.overdue ? `${tax.overdue} overdue` : 'All taxes current',
       go: '/app/parcels',
     },
     mVer && {
       pct: mVer.pct,
-      color: colors[4],
+      color: ringColor(mVer.pct, mVer.pending > 0),
       title: 'Members verified',
       gap: mVer.pending ? `${mVer.pending} pending` : 'All members verified',
       go: '/app/groups',
@@ -371,12 +379,12 @@ export function DashboardPage() {
   };
 
   const quickActions = [
-    { label: 'New Passbook', icon: <MenuBookOutlinedIcon fontSize="small" />, go: '/app/passbooks' },
-    { label: 'Add Parcel', icon: <GrassOutlinedIcon fontSize="small" />, go: '/app/parcels' },
-    { label: 'Add Property', icon: <AddHomeWorkOutlinedIcon fontSize="small" />, go: '/app/parcels?tab=properties' },
-    { label: 'Upload Deed', icon: <UploadFileOutlinedIcon fontSize="small" />, go: '/app/documents' },
-    { label: 'Find SRO', icon: <AccountBalanceOutlinedIcon fontSize="small" />, go: '/app/tools?tab=sro' },
-    { label: 'Stamp Duty', icon: <CalculateOutlinedIcon fontSize="small" />, go: '/app/tools?tab=stamp-duty' },
+    { label: 'New Passbook', icon: <MenuBookOutlinedIcon />, go: '/app/passbooks' },
+    { label: 'Add Parcel', icon: <GrassOutlinedIcon />, go: '/app/parcels' },
+    { label: 'Add Property', icon: <AddHomeWorkOutlinedIcon />, go: '/app/parcels?tab=properties' },
+    { label: 'Upload Deed', icon: <UploadFileOutlinedIcon />, go: '/app/documents' },
+    { label: 'Find SRO', icon: <AccountBalanceOutlinedIcon />, go: '/app/tools?tab=sro' },
+    { label: 'Stamp Duty', icon: <CalculateOutlinedIcon />, go: '/app/tools?tab=stamp-duty' },
   ];
 
   const countChips = [
@@ -481,13 +489,13 @@ export function DashboardPage() {
               {notifierCount > 0 ? (
                 <Chip
                   size="small"
-                  variant="outlined"
+                  color="primary"
                   label={`Watch armed · ${notifierCount} notifier${notifierCount > 1 ? 's' : ''}`}
                 />
               ) : (
                 <Chip
                   size="small"
-                  variant="outlined"
+                  color="primary"
                   label="Set up inactivity watch →"
                   onClick={() => navigate('/app/groups')}
                 />
@@ -500,7 +508,11 @@ export function DashboardPage() {
                 Your land &amp; property
               </Typography>
               {heroLines.map((l) => (
-                <Typography key={l.key} sx={{ fontSize: { xs: 20, sm: 24 }, fontWeight: 700, lineHeight: 1.35, letterSpacing: '-0.01em' }}>
+                <Typography
+                  key={l.key}
+                  className="tnum"
+                  sx={{ fontSize: { xs: 20, sm: 24 }, fontWeight: 700, lineHeight: 1.35, letterSpacing: '-0.01em', color: 'text.primary' }}
+                >
                   {l.big}
                   <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 600 }}>
                     {l.rest}
@@ -511,7 +523,7 @@ export function DashboardPage() {
 
             {/* Est. value + gain + mask toggle */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mt: 1 }}>
-              <Typography variant="body1" sx={{ fontWeight: 600 }}>
+              <Typography variant="body1" className="tnum" sx={{ fontWeight: 600 }}>
                 Est. value {total > 0 ? (masked ? '₹ ••••' : formatINR(total)) : '—'}
                 <Typography component="span" variant="caption" color="text.secondary">
                   {' '}
@@ -571,13 +583,17 @@ export function DashboardPage() {
 
             <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               {countChips.map((c) => (
-                <Chip key={c.label} size="small" variant="outlined" label={c.label} onClick={() => navigate(c.go)} />
+                <Chip key={c.label} size="small" color="primary" label={c.label} onClick={() => navigate(c.go)} />
               ))}
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                {total > 0
-                  ? 'Estimated from AP-IGRS market-value rates · guideline basis'
-                  : 'Add market values to see estimated worth'}
-              </Typography>
+              {total > 0 ? (
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                  Estimated from AP-IGRS market-value rates · guideline basis
+                </Typography>
+              ) : (
+                <Button size="small" variant="tonal" sx={{ ml: 'auto' }} onClick={() => navigate('/app/parcels')}>
+                  Add market values
+                </Button>
+              )}
             </Box>
           </Box>
         )}
@@ -586,10 +602,21 @@ export function DashboardPage() {
       {/* ── Quick actions ───────────────────────────────────────────── */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr', lg: 'repeat(6, 1fr)' }, gap: 1.5, mb: 2.5 }}>
         {quickActions.map((a) => (
-          <Card key={a.label} sx={{ cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }} onClick={() => navigate(a.go)}>
+          <Card
+            key={a.label}
+            sx={{
+              cursor: 'pointer',
+              transition: `transform ${motion.duration.standard}ms ${motion.easing}, border-color ${motion.duration.standard}ms ${motion.easing}`,
+              '&:hover': { borderColor: 'primary.main', transform: 'translateY(-2px)' },
+            }}
+            onClick={() => navigate(a.go)}
+          >
             <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
-              <Box sx={{ color: 'primary.main' }}>{a.icon}</Box>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {/* 48px icon area, 24px optical icon */}
+              <Box sx={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+                {a.icon}
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
                 {a.label}
               </Typography>
             </CardContent>
@@ -642,7 +669,8 @@ export function DashboardPage() {
                           display: 'flex',
                           alignItems: 'center',
                           gap: 1,
-                          py: 0.9,
+                          minHeight: 52,
+                          py: 0.75,
                           borderBottom: 1,
                           borderColor: 'divider',
                           cursor: 'pointer',
@@ -650,7 +678,7 @@ export function DashboardPage() {
                         }}
                       >
                         <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                          <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.primary' }} noWrap>
                             {r.title}
                           </Typography>
                           {r.sub && (
@@ -660,29 +688,40 @@ export function DashboardPage() {
                           )}
                         </Box>
                         <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {r.value > 0 ? money(r.value) : '—'}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: r.litigation
-                                ? statusColors.critical
-                                : r.value <= 0
-                                  ? statusColors.warning
-                                  : r.gainPct !== null && r.gainPct >= 0
-                                    ? statusColors.good
-                                    : statusColors.critical,
-                            }}
-                          >
-                            {r.litigation
-                              ? 'litigation'
-                              : r.value <= 0
-                                ? 'add value'
-                                : r.gainPct !== null && !masked
-                                  ? `${r.gainPct >= 0 ? '▲' : '▼'} ${Math.abs(r.gainPct)}%`
-                                  : ''}
-                          </Typography>
+                          {r.value <= 0 && !r.litigation ? (
+                            <Button
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(r.go);
+                              }}
+                            >
+                              Add value
+                            </Button>
+                          ) : (
+                            <>
+                              <Typography variant="body2" className="tnum" sx={{ fontWeight: 600 }}>
+                                {r.value > 0 ? money(r.value) : '—'}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                className="tnum"
+                                sx={{
+                                  color: r.litigation
+                                    ? statusColors.critical
+                                    : r.gainPct !== null && r.gainPct >= 0
+                                      ? statusColors.good
+                                      : statusColors.critical,
+                                }}
+                              >
+                                {r.litigation
+                                  ? 'litigation'
+                                  : r.gainPct !== null && !masked
+                                    ? `${r.gainPct >= 0 ? '▲' : '▼'} ${Math.abs(r.gainPct)}%`
+                                    : ''}
+                              </Typography>
+                            </>
+                          )}
                         </Box>
                       </Box>
                     ))}
@@ -796,7 +835,7 @@ export function DashboardPage() {
                     id: c.name,
                     label: c.name,
                     value: c.value,
-                    display: c.hasValue ? (masked ? '₹ ••••' : formatINRCompact(c.value)) : 'add value',
+                    display: c.hasValue ? (masked ? '₹ ••••' : formatINRCompact(c.value)) : 'Add value',
                   }))}
                   color={colors[1]}
                   onRowClick={() => navigate('/app/parcels?tab=properties')}
@@ -874,7 +913,11 @@ export function DashboardPage() {
                 No recent activity
               </Typography>
             ) : (
-              d.audit.slice(0, 8).map((a) => (
+              d.audit.slice(0, 8).map((a) => {
+                // Humanised entity — a raw UUID is never user-facing copy; when
+                // no human label exists in the event, the id is omitted entirely.
+                const entity = humanEntity(a.target, a.details);
+                return (
                 <Box
                   key={a.id}
                   sx={{
@@ -905,14 +948,15 @@ export function DashboardPage() {
                       <Box component="span" sx={{ fontWeight: 600 }}>
                         {actionLabel(a.action)}
                       </Box>
-                      {a.target ? ` · ${a.target}` : ''}
+                      {entity ? ` · ${entity}` : ''}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {(a.actor || '').split('@')[0] || '—'} · {fmtWhen(a.timestamp)}
                     </Typography>
                   </Box>
                 </Box>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>

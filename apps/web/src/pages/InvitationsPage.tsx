@@ -37,7 +37,7 @@ import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
-import { fmtLocal } from '../lib/format';
+import { fmtLocal, humanEntity } from '../lib/format';
 import {
   createInvitation,
   deleteInvitation,
@@ -236,7 +236,8 @@ export function InvitationsPage() {
                         <Chip size="small" variant="outlined" label={inv.scopeType} />
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {inv.scopeId}
+                        {/* Raw UUID scope ids are never user-facing — export keeps them. */}
+                        {humanEntity(inv.scopeId) || '—'}
                       </TableCell>
                       <TableCell>
                         <Chip size="small" variant="outlined" color="info" label={inv.role} />

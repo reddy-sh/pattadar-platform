@@ -22,6 +22,22 @@ export function fmtLocal(iso: string | null | undefined, opts?: { dateOnly?: boo
   return `${date}, ${hh}:${min}`;
 }
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * Human-friendly entity text for feeds and tables — machine UUIDs are NEVER
+ * user-facing copy. Prefers `detail` when it reads as a label (survey no,
+ * name, doc no), falls back to `ref`, and returns '' when only a raw UUID is
+ * available so callers omit the id entirely.
+ */
+export function humanEntity(ref?: string | null, detail?: string | null): string {
+  const d = (detail || '').trim();
+  if (d && !UUID_RE.test(d)) return d;
+  const r = (ref || '').trim();
+  if (r && !UUID_RE.test(r)) return r;
+  return '';
+}
+
 const AVA_COLORS = [
   '#1677ff', '#389e0d', '#722ed1', '#d46b08', '#eb2f96', '#08979c', '#cf1322',
   '#d48806', '#2f54eb', '#c41d7f', '#d4380d', '#5b8c00', '#873800', '#0ea5b7',

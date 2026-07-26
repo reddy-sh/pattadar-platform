@@ -159,9 +159,10 @@ export const light: ColorScheme = {
   surface: neutral[0],
   surfaceRaised: neutral[0],
   border: neutral[200],
-  textPrimary: neutral[900],
-  textSecondary: neutral[600],
-  textDisabled: neutral[400],
+  // Deliberate ink hierarchy — green-tinted near-black, never default grey.
+  textPrimary: '#191d1a',
+  textSecondary: '#5c665f',
+  textDisabled: '#8a958d',
   success: status.light.good,
   warning: status.light.warning,
   error: status.light.critical,
@@ -182,9 +183,10 @@ export const dark: ColorScheme = {
   surface: charcoal.surface,
   surfaceRaised: charcoal.surfaceRaised,
   border: charcoal.border,
-  textPrimary: '#e9ece9',
-  textSecondary: '#a3aca5',
-  textDisabled: '#5f6a62',
+  // Deliberate ink hierarchy — soft green-tinted white over emerald charcoal.
+  textPrimary: '#ecf2ed',
+  textSecondary: '#a8b5ac',
+  textDisabled: '#6b7a6f',
   success: status.dark.good,
   warning: status.dark.warning,
   error: status.dark.critical,
@@ -254,9 +256,14 @@ export type GlassToneName = keyof typeof glass.light;
 // ---------------------------------------------------------------------------
 
 export const typography = {
-  /** System-first stack; swap in a brand face later without touching themes. */
+  /**
+   * Inter, SELF-HOSTED (apps/web imports @fontsource-variable/inter — the
+   * founder rule: nothing loads from third-party URLs). 'InterVariable' /
+   * 'Inter Variable' cover both registered spellings of the variable face;
+   * static 'Inter' and the system stack are fallbacks only.
+   */
   fontFamily:
-    "'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+    "'InterVariable', 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
   fontFamilyMono:
     "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
   size: {

@@ -46,7 +46,15 @@ export function BarList({ rows, color, onRowClick }: BarListProps) {
             >
               {row.label}
             </Typography>
-            <Box sx={{ height: 12, borderRadius: '0 4px 4px 0', bgcolor: 'action.hover', position: 'relative' }}>
+            {/* Track = soft container tint of the series hue (M3 primaryContainer pattern). */}
+            <Box
+              sx={{
+                height: 12,
+                borderRadius: '0 4px 4px 0',
+                bgcolor: `color-mix(in srgb, ${color} 15%, transparent)`,
+                position: 'relative',
+              }}
+            >
               <Box
                 className="bar-fill"
                 sx={{
@@ -60,7 +68,11 @@ export function BarList({ rows, color, onRowClick }: BarListProps) {
                 }}
               />
             </Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, textAlign: 'right', minWidth: 72 }}>
+            <Typography
+              variant="caption"
+              className="tnum"
+              sx={{ fontWeight: 600, color: 'text.primary', textAlign: 'right', minWidth: 72 }}
+            >
               {row.display}
             </Typography>
           </Box>

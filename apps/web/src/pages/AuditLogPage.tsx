@@ -30,7 +30,7 @@ import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
 import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
-import { fmtLocal } from '../lib/format';
+import { fmtLocal, humanEntity } from '../lib/format';
 import { useAuditEvents } from '../data/hooks';
 import { actionLabel } from '../data/portfolio';
 
@@ -144,7 +144,10 @@ export function AuditLogPage() {
                           <Chip size="small" variant="outlined" label={actionLabel(e.action)} />
                         </Tooltip>
                       </TableCell>
-                      <TableCell>{e.target || '—'}</TableCell>
+                      {/* Humanised entity — raw UUIDs stay in the details expander/export only. */}
+                      <TableCell sx={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {humanEntity(e.target, e.details) || '—'}
+                      </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtLocal(e.timestamp)}</TableCell>
                     </TableRow>
                     <TableRow>

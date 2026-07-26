@@ -229,6 +229,14 @@ export const theme = createTheme({
                 // M3 tonal status chips: container fill + readable on-colour.
                 backgroundColor: `color-mix(in srgb, ${t.vars.palette[ownerState.color].main} 16%, transparent)`,
                 color: `color-mix(in srgb, ${t.vars.palette[ownerState.color].main} 78%, ${t.vars.palette.text.primary})`,
+                // Clickable tonal chips deepen the container on hover (8% layer).
+                ...(ownerState.onClick || ownerState.clickable
+                  ? {
+                      '&:hover': {
+                        backgroundColor: `color-mix(in srgb, ${t.vars.palette[ownerState.color].main} 26%, transparent)`,
+                      },
+                    }
+                  : {}),
               }
             : {}),
         }),
@@ -277,6 +285,10 @@ export const theme = createTheme({
     },
     MuiTooltip: {
       defaultProps: { arrow: true },
+    },
+    // Interactive text = primary.main with underline on hover only.
+    MuiLink: {
+      defaultProps: { underline: 'hover' },
     },
     MuiListItemButton: {
       styleOverrides: {

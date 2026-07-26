@@ -1,5 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+// Self-hosted Inter (variable) — founder rule: nothing loads from third-party
+// URLs. Vite bundles the woff2 files as local assets.
+import '@fontsource-variable/inter';
 import CssBaseline from '@mui/material/CssBaseline';
 import { ThemeProvider } from '@mui/material/styles';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

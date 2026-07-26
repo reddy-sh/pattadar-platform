@@ -42,7 +42,15 @@ export function HealthRing({ pct, color, title, gap, onClick }: HealthRingProps)
           aria-label={`${title}: ${Math.round(clamped)}%`}
           sx={{ transform: 'rotate(-90deg)' }}
         >
-          <circle cx={SIZE / 2} cy={SIZE / 2} r={R} fill="none" strokeWidth={8} stroke="rgba(128,128,128,0.15)" />
+          <Box
+            component="circle"
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            r={R}
+            fill="none"
+            strokeWidth={8}
+            sx={(t) => ({ stroke: (t.vars ?? t).palette.divider })}
+          />
           <Box
             component="circle"
             cx={SIZE / 2}
@@ -61,10 +69,12 @@ export function HealthRing({ pct, color, title, gap, onClick }: HealthRingProps)
           />
         </Box>
         <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 16 }}>{Math.round(clamped)}%</Typography>
+          <Typography className="tnum" sx={{ fontWeight: 600, fontSize: 20 }}>
+            {Math.round(clamped)}%
+          </Typography>
         </Box>
       </Box>
-      <Typography variant="subtitle2" sx={{ mt: 1 }}>
+      <Typography sx={{ mt: 1, fontSize: 16, fontWeight: 600, lineHeight: 1.3 }}>
         {title}
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }}>
