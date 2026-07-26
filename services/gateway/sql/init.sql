@@ -19,8 +19,8 @@
 CREATE TABLE IF NOT EXISTS storage_nodes (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id           TEXT NOT NULL,
-    org_id             TEXT NOT NULL DEFAULT 'rfactory',  -- org the file belongs to (slug)
-    workspace_id       TEXT NOT NULL DEFAULT 'rfactory',  -- workspace it was created in
+    org_id             TEXT NOT NULL DEFAULT 'pattadar',  -- org the file belongs to (slug)
+    workspace_id       TEXT NOT NULL DEFAULT 'pattadar',  -- workspace it was created in
     app_id             TEXT,                 -- owning app slug; NULL for personal uploads
     parent_id          UUID REFERENCES storage_nodes(id) ON DELETE CASCADE,
     kind               TEXT NOT NULL CHECK (kind IN ('folder','file')),

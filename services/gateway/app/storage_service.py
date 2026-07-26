@@ -9,7 +9,7 @@ method takes ``owner`` and filters every query by it.
 Deltas vs rhub:
 - MinIO client → boto3 S3 client (task-role IAM creds, no static keys).
   Bucket ensure is a no-op existence check — the bucket is Terraform-managed.
-- org/workspace scoping hardcoded to the base org 'rfactory' (columns kept).
+- org/workspace scoping hardcoded to the base org 'pattadar' (columns kept).
 - Share/tag MUTATION methods and public link-token reads are not ported
   (v1). Read-side share/tag awareness (_access, _attach_shares,
   _attach_tags, list_shared_children) is kept so responses and access
@@ -33,9 +33,9 @@ _log = logging.getLogger("pattadar.gateway.storage")
 
 _ROOT_UUID = None  # parent_id for root-level items
 
-# org/workspace scoping: single-tenant platform — everything is 'rfactory'.
-ORG_ID = "rfactory"
-WORKSPACE_ID = "rfactory"
+# org/workspace scoping: single-tenant platform — everything is 'pattadar'.
+ORG_ID = "pattadar"
+WORKSPACE_ID = "pattadar"
 
 
 class StorageExpired(RuntimeError):
@@ -177,7 +177,7 @@ class StorageService:
     def list_orgs(self, caller: str) -> list[dict]:
         """Distinct orgs the caller has (untrashed) files in — powers the My
         Drive org filter. No organizations table here; org_id doubles as the
-        display name (it is always 'rfactory' in this platform)."""
+        display name (it is always 'pattadar' in this platform)."""
         rows = db.query_native(
             "storage_nodes",
             "SELECT org_id AS id, org_id AS name, count(*) AS count "

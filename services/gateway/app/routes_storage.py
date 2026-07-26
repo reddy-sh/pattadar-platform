@@ -10,7 +10,7 @@ Deltas vs rhub (v1):
 - Share and tag mutation routes (and the unauthenticated link-token routes)
   are not ported. nodes/files/folders/versions/trash/star — everything the
   app uses — keeps the exact rhub route surface and behavior.
-- org/workspace scoping hardcoded to 'rfactory'.
+- org/workspace scoping hardcoded to 'pattadar'.
 """
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ def _image_thumb(data: bytes, max_px: int) -> bytes:
 
 def _scope(svc: StorageService) -> tuple[str, str]:
     """(org_id, workspace_id) to stamp on a new node — hardcoded to the base
-    org/workspace 'rfactory' (single-tenant platform; columns kept)."""
+    org/workspace 'pattadar' (single-tenant platform; columns kept)."""
     return ORG_ID, WORKSPACE_ID
 
 
