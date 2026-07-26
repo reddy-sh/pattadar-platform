@@ -152,6 +152,7 @@ export function PassbooksPage() {
 
   const rowActions = (b: Passbook) => [
     { key: 'open', label: 'Open land parcels', onClick: () => openParcels(b) },
+    { key: 'record', label: 'Passbook record', onClick: () => navigate(`/app/passbooks/${b.id}`) },
     { key: 'delete', label: 'Delete', danger: true, onClick: () => setDeleteTarget(b) },
   ];
 

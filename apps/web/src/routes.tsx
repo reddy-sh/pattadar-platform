@@ -84,6 +84,16 @@ const AdminRefDataPage = lazy(() =>
   import('./pages/AdminRefDataPage').then((m) => ({ default: m.AdminRefDataPage })),
 );
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })));
+// Record detail views (parcel 360 / property 360 / passbook record).
+const ParcelDetailPage = lazy(() =>
+  import('./pages/detail/ParcelDetailPage').then((m) => ({ default: m.ParcelDetailPage })),
+);
+const PropertyDetailPage = lazy(() =>
+  import('./pages/detail/PropertyDetailPage').then((m) => ({ default: m.PropertyDetailPage })),
+);
+const PassbookDetailPage = lazy(() =>
+  import('./pages/detail/PassbookDetailPage').then((m) => ({ default: m.PassbookDetailPage })),
+);
 
 function RouteFallback() {
   return (
@@ -117,7 +127,10 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: suspended(DashboardPage) },
       { path: 'passbooks', element: suspended(PassbooksPage) },
+      { path: 'passbooks/:id', element: suspended(PassbookDetailPage) },
       { path: 'parcels', element: suspended(LandPropertiesPage) },
+      { path: 'parcels/:id', element: suspended(ParcelDetailPage) },
+      { path: 'properties/:id', element: suspended(PropertyDetailPage) },
       { path: 'documents', element: suspended(DocumentsPage) },
       { path: 'groups', element: suspended(FamiliesGroupsPage) },
       { path: 'invitations', element: suspended(InvitationsPage) },

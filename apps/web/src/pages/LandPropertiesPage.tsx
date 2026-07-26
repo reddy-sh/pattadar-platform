@@ -11,7 +11,7 @@
  * the Properties tab (the old /app/properties route redirects here).
  */
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -100,6 +100,7 @@ const shortName = (name: string) => {
 
 export function LandPropertiesPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data, isSample, isLoading } = useHoldings();
 
@@ -299,7 +300,12 @@ export function LandPropertiesPage() {
     }
   };
 
+  // Parcels open the parcel 360, properties the property detail (source parity).
+  const openDetail = (h: Holding) =>
+    navigate(`/app/${h.kind === 'parcel' ? 'parcels' : 'properties'}/${h.id}`);
+
   const rowActions = (h: Holding) => [
+    { key: 'open', label: 'Open', onClick: () => openDetail(h) },
     {
       key: 'stake',
       label: 'My stake…',
@@ -542,7 +548,11 @@ export function LandPropertiesPage() {
           {view === 'grid' ? (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 1.5 }}>
               {shown.map((r) => (
-                <Card key={`${r.kind}-${r.id}`} sx={{ position: 'relative', p: 1.5 }}>
+                <Card
+                  key={`${r.kind}-${r.id}`}
+                  onClick={() => openDetail(r)}
+                  sx={{ position: 'relative', p: 1.5, cursor: 'pointer' }}
+                >
                   <CardActionsMenu actions={rowActions(r)} />
                   <CardHero fileRef={r.cover} fallbackIcon={r.icon} pill={parcelPill(r.status, r.litigation)} pill2={stakePill(r.stake)} />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
@@ -627,9 +637,14 @@ export function LandPropertiesPage() {
                   {shown.map((r) => (
                     <TableRow key={`${r.kind}-${r.id}`} hover>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        <Link
+                          component="button"
+                          underline="hover"
+                          onClick={() => openDetail(r)}
+                          sx={{ fontWeight: 600 }}
+                        >
                           {r.title}
-                        </Typography>
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <Chip
