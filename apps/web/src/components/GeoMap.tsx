@@ -51,11 +51,11 @@ export interface GeoMapProps {
 /** Emerald accent from the MUI theme CSS variables (Leaflet SVG layers need a
  *  resolved color string — presentation attributes can't read var()). */
 function accent(): string {
-  if (typeof document === 'undefined') return '#146C43';
+  if (typeof document === 'undefined') return '#1976D2';
   const v = getComputedStyle(document.documentElement)
     .getPropertyValue('--mui-palette-primary-main')
     .trim();
-  return v || '#146C43';
+  return v || '#1976D2';
 }
 
 function pinIcon(): L.DivIcon {
@@ -557,7 +557,7 @@ export default function GeoMap(props: GeoMapProps) {
           width: '100%',
           borderRadius: 12,
           overflow: 'hidden',
-          border: '1px solid var(--mui-palette-primary-main, #146C43)',
+          border: '1px solid var(--mui-palette-primary-main, #1976D2)',
         }}
       />
       {!readOnly ? (
@@ -589,12 +589,12 @@ export default function GeoMap(props: GeoMapProps) {
             </>
           ) : null}
           {area > 0 ? (
-            <span style={{ color: 'var(--mui-palette-primary-main, #146C43)', fontWeight: 600 }}>
+            <span style={{ color: 'var(--mui-palette-primary-main, #1976D2)', fontWeight: 600 }}>
               Area {fmtArea(area)}
               {perim > 0 ? ` · Perimeter ${fmtLen(perim)}` : ''}
             </span>
           ) : perim > 0 ? (
-            <span style={{ color: 'var(--mui-palette-primary-main, #146C43)', fontWeight: 600 }}>Length {fmtLen(perim)}</span>
+            <span style={{ color: 'var(--mui-palette-primary-main, #1976D2)', fontWeight: 600 }}>Length {fmtLen(perim)}</span>
           ) : null}
         </div>
       ) : null}

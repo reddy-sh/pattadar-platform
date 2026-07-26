@@ -1,13 +1,14 @@
 /**
  * @pattadar/tokens — design tokens for the Pattadar platform.
  *
- * "EMERALD & GOLD" BRAND PALETTE. Both the MUI theme (apps/web) and the
- * React Native Paper theme (apps/mobile) derive from this file, so a change
- * here propagates to both heads.
+ * INDUSTRY-STANDARD NEUTRAL PALETTE (2026-07-26, founder decision: the
+ * Emerald & Gold green theme is removed). Both the MUI theme (apps/web) and
+ * the React Native Paper theme (apps/mobile) derive from this file, so a
+ * change here propagates to both heads.
  *
- * Palette intent: deep emerald green (land, fertility, trust) as the primary
- * hue; gold/amber (property, wealth, premium) as the second hue. Warm ivory
- * surfaces in light mode, green-tinted charcoal in dark mode. Orange is
+ * Palette intent: Material-standard blue as the primary hue; gold/amber
+ * (property, wealth, premium) stays as the second hue. Plain neutral
+ * surfaces in light mode, standard #121212 stack in dark mode. Orange is
  * RESERVED for warnings — the properties domain wears amber-gold, never orange.
  */
 
@@ -15,18 +16,18 @@
 // Primitive scales
 // ---------------------------------------------------------------------------
 
-/** Deep emerald primary ramp, anchored at 600 = #146C43 (50 = lightest). */
-export const green = {
-  50: '#edf7f1',
-  100: '#d6ecdf',
-  200: '#acdac0',
-  300: '#7cc29d',
-  400: '#4ea678',
-  500: '#26875a',
-  600: '#146c43',
-  700: '#0f5735',
-  800: '#0c4429',
-  900: '#08321e',
+/** Primary brand ramp — Material-standard blue, anchored at 600 = #1976D2. */
+export const brand = {
+  50: '#e3f2fd',
+  100: '#bbdefb',
+  200: '#90caf9',
+  300: '#64b5f6',
+  400: '#42a5f5',
+  500: '#1e88e5',
+  600: '#1976d2',
+  700: '#1565c0',
+  800: '#0d47a1',
+  900: '#0a3576',
 } as const;
 
 /** Gold/amber second ramp — properties, wealth, premium accents. */
@@ -43,29 +44,29 @@ export const gold = {
   900: '#54400c',
 } as const;
 
-/** Warm ivory/stone neutral ramp — light-mode surfaces, borders, text. */
+/** Neutral grey ramp — light-mode surfaces, borders, text. */
 export const neutral = {
   0: '#ffffff',
-  50: '#f4f8f4', // green-tinted ivory — the founder wants green FELT, not accented
-  100: '#e9f1e9',
-  200: '#dbe7da',
-  300: '#d2cec0',
-  400: '#ada894',
-  500: '#878271',
-  600: '#635f52',
-  700: '#47443a',
-  800: '#2e2c25',
-  900: '#1c1b16',
-  1000: '#121009',
+  50: '#f7f8fa',
+  100: '#f1f3f5',
+  200: '#e4e7eb',
+  300: '#d1d6db',
+  400: '#9aa2ab',
+  500: '#6b7480',
+  600: '#4f5760',
+  700: '#3a4046',
+  800: '#26292e',
+  900: '#17191c',
+  1000: '#0e0f11',
 } as const;
 
-/** Green-tinted charcoal ramp — dark-mode backgrounds and surfaces. */
+/** Standard dark-mode ramp — Material #121212 stack. */
 export const charcoal = {
-  background: '#0f2318', // deep emerald-charcoal — unmistakably green, never black
-  surface: '#153024',
-  surfaceRaised: '#1b3d2d',
-  border: '#2b4a39',
-  borderStrong: '#3d6450',
+  background: '#121212',
+  surface: '#1e1e1e',
+  surfaceRaised: '#262626',
+  border: '#33363a',
+  borderStrong: '#4a4e54',
 } as const;
 
 /**
@@ -99,18 +100,18 @@ export const semantic = {
 // ---------------------------------------------------------------------------
 // Chart palette — validated with the dataviz six-checks validator.
 // Fixed slot order (follows the entity, never cycled):
-//   1 emerald · 2 gold · 3 teal · 4 terracotta · 5 plum · 6 slate
-// Light validated on #FAF9F6, dark on #121713 — ALL CHECKS PASS both modes
-// (worst adjacent CVD ΔE 13.8 light / 9.8 dark; normal-vision 22.0 / 16.3).
+//   1 blue · 2 gold · 3 teal · 4 terracotta · 5 plum · 6 olive
+// Light validated on #F7F8FA, dark on #121212 — ALL CHECKS PASS both modes
+// (worst adjacent CVD ΔE 16.2 light / 14.7 dark; normal-vision 22.0 / 20.2).
 // ---------------------------------------------------------------------------
 
 export const chartCategorical = {
-  light: ['#146C43', '#B8860B', '#0083A0', '#C96040', '#83368F', '#5E8DC9'],
-  dark: ['#45A97C', '#A6790F', '#0097B2', '#C86A4E', '#8F4EA8', '#5F8DD1'],
+  light: ['#1976D2', '#B8860B', '#0E97AD', '#C96040', '#83368F', '#6F7D28'],
+  dark: ['#3B8DE0', '#A6790F', '#0097B2', '#C86A4E', '#8F4EA8', '#7E9027'],
 } as const;
 
 /** Chart surfaces the palettes were validated against. */
-export const chartSurface = { light: '#faf9f6', dark: '#121713' } as const;
+export const chartSurface = { light: '#f7f8fa', dark: '#121212' } as const;
 
 // ---------------------------------------------------------------------------
 // Colour schemes (light / dark)
@@ -122,7 +123,7 @@ export interface ColorScheme {
   primaryHover: string;
   primaryActive: string;
   onPrimary: string;
-  /** Soft emerald container (selected nav pill, subtle fills). */
+  /** Soft primary container (selected nav pill, subtle fills). */
   primaryContainer: string;
   onPrimaryContainer: string;
   /** Gold accent (properties, wealth, premium). */
@@ -146,12 +147,12 @@ export interface ColorScheme {
 }
 
 export const light: ColorScheme = {
-  primary: green[600],
-  primaryHover: green[700],
-  primaryActive: green[800],
+  primary: brand[600],
+  primaryHover: brand[700],
+  primaryActive: brand[800],
   onPrimary: neutral[0],
-  primaryContainer: green[100],
-  onPrimaryContainer: green[800],
+  primaryContainer: brand[50],
+  onPrimaryContainer: brand[800],
   accent: gold[600],
   accentContainer: gold[100],
   onAccentContainer: gold[800],
@@ -159,23 +160,23 @@ export const light: ColorScheme = {
   surface: neutral[0],
   surfaceRaised: neutral[0],
   border: neutral[200],
-  // Deliberate ink hierarchy — green-tinted near-black, never default grey.
-  textPrimary: '#191d1a',
-  textSecondary: '#5c665f',
-  textDisabled: '#8a958d',
+  // Standard neutral ink hierarchy.
+  textPrimary: '#1c1e21',
+  textSecondary: '#5f6368',
+  textDisabled: '#9aa0a6',
   success: status.light.good,
   warning: status.light.warning,
   error: status.light.critical,
-  info: '#0083a0',
+  info: '#0288d1',
 };
 
 export const dark: ColorScheme = {
-  primary: green[400],
-  primaryHover: green[300],
-  primaryActive: green[200],
-  onPrimary: charcoal.background,
-  primaryContainer: 'rgba(78, 166, 120, 0.16)',
-  onPrimaryContainer: green[300],
+  primary: brand[200],
+  primaryHover: brand[100],
+  primaryActive: brand[50],
+  onPrimary: 'rgba(0, 0, 0, 0.87)',
+  primaryContainer: 'rgba(144, 202, 249, 0.16)',
+  onPrimaryContainer: brand[100],
   accent: gold[300],
   accentContainer: 'rgba(240, 194, 75, 0.14)',
   onAccentContainer: gold[200],
@@ -183,14 +184,14 @@ export const dark: ColorScheme = {
   surface: charcoal.surface,
   surfaceRaised: charcoal.surfaceRaised,
   border: charcoal.border,
-  // Deliberate ink hierarchy — soft green-tinted white over emerald charcoal.
-  textPrimary: '#ecf2ed',
-  textSecondary: '#a8b5ac',
-  textDisabled: '#6b7a6f',
+  // Standard neutral ink hierarchy over #121212.
+  textPrimary: '#e8eaed',
+  textSecondary: '#9aa0a6',
+  textDisabled: '#5f6368',
   success: status.dark.good,
   warning: status.dark.warning,
   error: status.dark.critical,
-  info: '#4fb3c9',
+  info: '#4fc3f7',
 };
 
 export const schemes = { light, dark } as const;
@@ -223,12 +224,12 @@ export const glass = {
       sheen: 'rgba(240, 194, 75, 0.30)',
       shadow: '0 8px 28px rgba(117, 87, 13, 0.16)',
     },
-    emerald: {
-      surface: 'rgba(240, 250, 244, 0.62)',
-      surfaceFallback: '#eef8f2',
-      borderStops: ['rgba(20,108,67,0.55)', 'rgba(124,194,157,0.25)', 'rgba(15,87,53,0.5)'],
-      sheen: 'rgba(124, 194, 157, 0.28)',
-      shadow: '0 8px 28px rgba(12, 68, 41, 0.14)',
+    sky: {
+      surface: 'rgba(240, 246, 253, 0.62)',
+      surfaceFallback: '#eef5fc',
+      borderStops: ['rgba(25,118,210,0.55)', 'rgba(144,202,249,0.25)', 'rgba(13,71,161,0.5)'],
+      sheen: 'rgba(144, 202, 249, 0.28)',
+      shadow: '0 8px 28px rgba(13, 71, 161, 0.14)',
     },
   },
   dark: {
@@ -239,11 +240,11 @@ export const glass = {
       sheen: 'rgba(240, 194, 75, 0.16)',
       shadow: '0 10px 32px rgba(0, 0, 0, 0.45)',
     },
-    emerald: {
-      surface: 'rgba(24, 40, 31, 0.55)',
-      surfaceFallback: '#17251d',
-      borderStops: ['rgba(78,166,120,0.5)', 'rgba(78,166,120,0.12)', 'rgba(38,135,90,0.4)'],
-      sheen: 'rgba(78, 166, 120, 0.15)',
+    sky: {
+      surface: 'rgba(24, 32, 41, 0.55)',
+      surfaceFallback: '#172029',
+      borderStops: ['rgba(100,181,246,0.5)', 'rgba(100,181,246,0.12)', 'rgba(30,136,229,0.4)'],
+      sheen: 'rgba(100, 181, 246, 0.15)',
       shadow: '0 10px 32px rgba(0, 0, 0, 0.45)',
     },
   },
@@ -335,7 +336,7 @@ export const elevation = {
 } as const;
 
 export const tokens = {
-  green,
+  brand,
   gold,
   neutral,
   charcoal,

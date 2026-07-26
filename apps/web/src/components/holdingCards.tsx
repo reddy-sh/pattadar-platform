@@ -26,12 +26,12 @@ export function parcelPill(status?: string, litigation?: boolean): Pill {
   if (litigation) return { text: 'Litigation', color: '#cf1322' };
   const s = String(status || 'owned');
   const colors: Record<string, string> = {
-    owned: '#389e0d',
+    owned: '#2e7d32',
     'for-sale': '#1677ff',
     sold: '#8c8c8c',
     disputed: '#cf1322',
   };
-  return { text: s.replace(/-/g, ' '), color: colors[s] || '#389e0d' };
+  return { text: s.replace(/-/g, ' '), color: colors[s] || '#2e7d32' };
 }
 
 /** Stake pill (managed / watch) — owned holdings show no second pill. */
@@ -74,7 +74,7 @@ export function useBlobUrl(fileRef?: string): string {
 /** Small TONAL overlay chip (M3): tinted container fill + readable on-colour. */
 const pillSx = (color: string) => ({
   bgcolor: `color-mix(in srgb, ${color} 14%, #FFFFFF)`,
-  color: `color-mix(in srgb, ${color} 78%, #14261B)`,
+  color: `color-mix(in srgb, ${color} 78%, #16191c)`,
   fontSize: 11,
   fontWeight: 700,
   lineHeight: 1,
@@ -143,7 +143,7 @@ export function CardHero({
         flexShrink: 0,
         overflow: 'hidden',
         background:
-          'radial-gradient(120% 100% at 85% -20%, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 55%), linear-gradient(150deg, #17603C 0%, #1E7A46 48%, #35996B 100%)',
+          'radial-gradient(120% 100% at 85% -20%, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 55%), linear-gradient(150deg, #144E8C 0%, #1976D2 48%, #4D9BE0 100%)',
       }}
     >
       {url ? (
@@ -177,7 +177,7 @@ export function CardHero({
           position: 'absolute',
           inset: 0,
           background:
-            'linear-gradient(180deg, rgba(10,26,17,0.32) 0%, rgba(10,26,17,0.10) 32%, rgba(10,26,17,0) 55%)',
+            'linear-gradient(180deg, rgba(9,20,33,0.32) 0%, rgba(9,20,33,0.10) 32%, rgba(9,20,33,0) 55%)',
           pointerEvents: 'none',
         }}
       />
@@ -253,8 +253,8 @@ export function StatRow({ children }: { children: ReactNode }) {
         alignItems: 'stretch',
         mb: 2,
         borderRadius: 4, // 16px — card shape
-        bgcolor: 'rgba(20, 108, 67, 0.05)',
-        ...t.applyStyles('dark', { bgcolor: 'rgba(124, 194, 157, 0.08)' }),
+        bgcolor: 'rgba(25, 118, 210, 0.05)',
+        ...t.applyStyles('dark', { bgcolor: 'rgba(144, 202, 249, 0.08)' }),
         '& > *': { flex: 1, minWidth: 140 },
         '& > * + *': { borderLeft: '1px solid', borderColor: 'divider' },
       })}

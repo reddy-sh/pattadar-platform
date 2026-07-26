@@ -361,7 +361,7 @@ export function MediaHero({
         overflow: 'hidden',
         cursor: 'pointer',
         mb: 1.5,
-        background: 'linear-gradient(135deg, #1E7A46 0%, #35996B 100%)',
+        background: 'linear-gradient(135deg, #144E8C 0%, #4D9BE0 100%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

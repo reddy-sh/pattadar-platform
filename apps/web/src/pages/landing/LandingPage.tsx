@@ -102,7 +102,7 @@ export function LandingPage() {
             sx={{
               flexGrow: 1,
               fontWeight: 700,
-              background: 'linear-gradient(120deg, #146c43 20%, #c9a227 80%)',
+              background: 'linear-gradient(120deg, #1976d2 20%, #c9a227 80%)',
               backgroundClip: 'text',
               WebkitBackgroundClip: 'text',
               color: 'transparent',
@@ -121,8 +121,8 @@ export function LandingPage() {
         component="section"
         sx={{
           background:
-            'radial-gradient(1400px 620px at 50% -12%, rgba(231,199,102,0.32), transparent 62%), radial-gradient(700px 300px at 85% 105%, rgba(201,162,39,0.22), transparent 70%), linear-gradient(160deg, #0b3d2e 0%, #146c43 62%, #0f5132 100%)',
-          color: '#f4f8f4',
+            'radial-gradient(1400px 620px at 50% -12%, rgba(231,199,102,0.32), transparent 62%), radial-gradient(700px 300px at 85% 105%, rgba(201,162,39,0.22), transparent 70%), linear-gradient(160deg, #0a2540 0%, #144e8c 62%, #0d3a6b 100%)',
+          color: '#f5f8fc',
           borderBottom: '1px solid rgba(201,162,39,0.55)',
           boxShadow: 'inset 0 -24px 48px -32px rgba(201,162,39,0.45)',
         }}
@@ -326,10 +326,10 @@ export function LandingPage() {
       </Box>
 
       {/* Portfolio preview — a taste of the dashboard on emerald */}
-      <Box component="section" sx={{ background: 'linear-gradient(165deg, #0b3d2e 0%, #146c43 85%)', py: { xs: 6, md: 9 } }}>
+      <Box component="section" sx={{ background: 'linear-gradient(165deg, #0a2540 0%, #144e8c 85%)', py: { xs: 6, md: 9 } }}>
         <Container maxWidth="lg">
           <Box sx={{ display: 'grid', gap: 5, alignItems: 'center', gridTemplateColumns: { xs: '1fr', md: '5fr 6fr' } }}>
-            <Box sx={{ color: '#f4f8f4' }}>
+            <Box sx={{ color: '#f5f8fc' }}>
               <Typography variant="overline" component="p" sx={{ color: '#e7c766', letterSpacing: 2, mb: 0.5 }}>
                 Your land, at a glance
               </Typography>
@@ -362,7 +362,7 @@ export function LandingPage() {
                 <Typography variant="overline" sx={{ color: '#e7c766', letterSpacing: 1.5 }}>
                   Land portfolio · sample
                 </Typography>
-                <Typography variant="h2" component="p" sx={{ color: '#f4f8f4', my: 0.5 }}>
+                <Typography variant="h2" component="p" sx={{ color: '#f5f8fc', my: 0.5 }}>
                   ₹2,84,50,000
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'rgba(244,248,244,0.75)', mb: 2 }}>
@@ -377,7 +377,7 @@ export function LandingPage() {
                   ].map(([k, v]) => (
                     <Box key={k} sx={{ p: 1.25, borderRadius: 2, border: '1px solid rgba(244,248,244,0.18)', bgcolor: 'rgba(244,248,244,0.06)' }}>
                       <Typography variant="caption" sx={{ color: 'rgba(244,248,244,0.7)', display: 'block' }}>{k}</Typography>
-                      <Typography variant="body2" sx={{ color: '#f4f8f4', fontWeight: 600 }}>{v}</Typography>
+                      <Typography variant="body2" sx={{ color: '#f5f8fc', fontWeight: 600 }}>{v}</Typography>
                     </Box>
                   ))}
                 </Box>
@@ -499,9 +499,9 @@ export function LandingPage() {
       </Box>
 
       {/* Final CTA — emerald band */}
-      <Box component="section" sx={{ background: 'radial-gradient(900px 380px at 50% 120%, rgba(231,199,102,0.25), transparent 65%), linear-gradient(160deg, #0f5132 0%, #0b3d2e 100%)', py: { xs: 7, md: 9 }, textAlign: 'center' }}>
+      <Box component="section" sx={{ background: 'radial-gradient(900px 380px at 50% 120%, rgba(231,199,102,0.25), transparent 65%), linear-gradient(160deg, #0d3a6b 0%, #0a2540 100%)', py: { xs: 7, md: 9 }, textAlign: 'center' }}>
         <Container maxWidth="sm">
-          <Typography variant="h2" component="h2" sx={{ color: '#f4f8f4', mb: 1.5 }}>
+          <Typography variant="h2" component="h2" sx={{ color: '#f5f8fc', mb: 1.5 }}>
             Your family's land deserves this care
           </Typography>
           <Typography variant="body1" sx={{ color: 'rgba(244,248,244,0.8)', mb: 3.5 }}>
@@ -526,7 +526,7 @@ export function LandingPage() {
       <Box
         component="section"
         sx={{
-          background: 'linear-gradient(160deg, #0b3d2e 0%, #0f5132 100%)',
+          background: 'linear-gradient(160deg, #0a2540 0%, #0d3a6b 100%)',
           borderTop: '1px solid rgba(201,162,39,0.45)',
           borderBottom: '1px solid rgba(201,162,39,0.45)',
         }}

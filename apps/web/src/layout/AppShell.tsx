@@ -45,7 +45,7 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
 import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import { gold, green } from '@pattadar/tokens';
+import { brand, gold } from '@pattadar/tokens';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 import { FileViewerHost } from '../components/FileViewer';
@@ -154,16 +154,16 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                   borderRadius: 999, // M3 inset active pill
                   '& .MuiSvgIcon-root': { fontSize: 24 },
                   '&.Mui-selected': {
-                    bgcolor: green[100],
-                    color: green[800],
-                    '& .MuiListItemIcon-root': { color: green[700] },
+                    bgcolor: brand[100],
+                    color: brand[800],
+                    '& .MuiListItemIcon-root': { color: brand[700] },
                     '& .MuiListItemText-primary': { fontWeight: 600 },
-                    '&:hover': { bgcolor: green[200] },
+                    '&:hover': { bgcolor: brand[200] },
                     ...t.applyStyles('dark', {
-                      bgcolor: 'rgba(78, 166, 120, 0.16)',
-                      color: green[300],
-                      '& .MuiListItemIcon-root': { color: green[300] },
-                      '&:hover': { bgcolor: 'rgba(78, 166, 120, 0.24)' },
+                      bgcolor: 'rgba(144, 202, 249, 0.16)',
+                      color: brand[300],
+                      '& .MuiListItemIcon-root': { color: brand[300] },
+                      '&:hover': { bgcolor: 'rgba(144, 202, 249, 0.24)' },
                     }),
                   },
                 })}
@@ -237,8 +237,8 @@ export function AppShell() {
               sx={(t) => ({
                 fontWeight: 700,
                 letterSpacing: '-0.01em',
-                color: green[700],
-                ...t.applyStyles('dark', { color: green[300] }),
+                color: brand[700],
+                ...t.applyStyles('dark', { color: brand[300] }),
               })}
             >
               Pattadar
@@ -271,7 +271,7 @@ export function AppShell() {
             aria-label="Account menu"
             sx={{ ml: 1 }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: green[600], fontSize: 15 }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: brand[600], fontSize: 15 }}>
               {(user?.email?.[0] ?? 'P').toUpperCase()}
             </Avatar>
           </IconButton>

@@ -22,7 +22,7 @@ import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import { gold, green } from '@pattadar/tokens';
+import { brand, gold } from '@pattadar/tokens';
 import { apiFetch } from '../api/client';
 
 const ASSISTANT_BASE = '/api/gateway/assistant/api';
@@ -231,7 +231,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
           }}
         >
           <SmartToyOutlinedIcon
-            sx={(t) => ({ color: green[700], ...t.applyStyles('dark', { color: green[300] }) })}
+            sx={(t) => ({ color: brand[700], ...t.applyStyles('dark', { color: brand[300] }) })}
           />
           <Typography variant="h6" sx={{ fontWeight: 700, flexGrow: 1 }}>
             Assistant
@@ -268,9 +268,9 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
               <SmartToyOutlinedIcon
                 sx={(t) => ({
                   fontSize: 40,
-                  color: green[600],
+                  color: brand[600],
                   mb: 1,
-                  ...t.applyStyles('dark', { color: green[300] }),
+                  ...t.applyStyles('dark', { color: brand[300] }),
                 })}
               />
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -302,7 +302,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
                     overflowWrap: 'anywhere',
                     ...(m.role === 'user'
                       ? {
-                          bgcolor: green[600],
+                          bgcolor: brand[600],
                           color: '#fff',
                           borderBottomRightRadius: 6,
                         }
@@ -371,8 +371,8 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
               onClick={() => void send()}
               disabled={busy || !input.trim()}
               sx={(t) => ({
-                color: green[700],
-                ...t.applyStyles('dark', { color: green[300] }),
+                color: brand[700],
+                ...t.applyStyles('dark', { color: brand[300] }),
               })}
             >
               <SendIcon />

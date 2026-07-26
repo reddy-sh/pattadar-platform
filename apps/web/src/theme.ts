@@ -1,6 +1,6 @@
 /**
- * "Emerald & Gold" MUI theme derived from @pattadar/tokens — Material Design 3
- * role mapping over the brand palette (2026-07-26 UX redesign spec).
+ * Industry-standard MUI theme derived from @pattadar/tokens — Material Design 3
+ * role mapping over the neutral brand palette (2026-07-26; green theme removed).
  *
  * CSS theme variables are enabled with a CLASS colour-scheme selector so both
  * schemes ship in one stylesheet AND `useColorScheme().setMode` works (the
@@ -8,13 +8,13 @@
  * calls `useColorScheme()` and sets mode 'light' | 'dark' | 'system'.
  *
  * M3 mapping:
- *  - primary emerald + primaryContainer (selected states, tonal buttons)
- *  - secondary gold — RESERVED: wallet, hero glass, focus rings, accents
- *  - tertiary teal rides on `info`; warning orange stays reserved (tax/EC)
+ *  - primary blue + primaryContainer (selected states, tonal buttons)
+ *  - secondary gold — RESERVED: wallet, hero glass, premium accents
+ *  - warning orange stays reserved (tax/EC)
  *  - state layers: hover 8%, focus/pressed 12%
  *  - shape: 12 default · 16 cards · 20 dialogs · full pills/chips/buttons
  *  - motion: 200ms standard / 250ms emphasized on cubic-bezier(0.2, 0, 0, 1)
- *  - focus-visible: 2px GOLD ring, 2px offset, everywhere
+ *  - focus-visible: 2px primary ring, 2px offset, everywhere
  */
 import { createTheme } from '@mui/material/styles';
 import { motion, radii, schemes, typography } from '@pattadar/tokens';
@@ -67,10 +67,10 @@ function palette(s: ColorScheme, mode: 'light' | 'dark') {
         disabled: s.textDisabled,
       },
       divider: s.border,
-      // M3 state layers: hover 8%, focus/pressed/selected 12% — emerald-washed.
+      // M3 state layers: hover 8%, focus/pressed/selected 12% — neutral.
       action: {
-        hover: mode === 'light' ? 'rgba(20, 108, 67, 0.05)' : 'rgba(124, 194, 157, 0.08)',
-        selected: mode === 'light' ? 'rgba(20, 108, 67, 0.10)' : 'rgba(124, 194, 157, 0.14)',
+        hover: mode === 'light' ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.08)',
+        selected: mode === 'light' ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.14)',
         hoverOpacity: 0.08,
         focusOpacity: 0.12,
         selectedOpacity: 0.12,
@@ -137,9 +137,9 @@ export const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: (t) => ({
-        // Global focus-visible: the 2px GOLD ring, 2px offset.
+        // Global focus-visible: the 2px primary ring, 2px offset.
         ':focus-visible': {
-          outline: `2px solid ${t.vars.palette.secondary.main}`,
+          outline: `2px solid ${t.vars.palette.primary.main}`,
           outlineOffset: '2px',
         },
         // MUI fields draw their own focused border — no inner double ring.
@@ -165,7 +165,7 @@ export const theme = createTheme({
       styleOverrides: {
         root: ({ theme: t }) => ({
           '&.Mui-focusVisible': {
-            outline: `2px solid ${t.vars.palette.secondary.main}`,
+            outline: `2px solid ${t.vars.palette.primary.main}`,
             outlineOffset: 2,
           },
         }),

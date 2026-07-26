@@ -3,7 +3,7 @@ import { useSchemeMode } from '../useSchemeMode';
 
 /**
  * Validated categorical chart palette for the active scheme.
- * Fixed slot order (never cycled): emerald, gold, teal, terracotta, plum, slate.
+ * Fixed slot order (never cycled): blue, gold, teal, terracotta, plum, slate.
  */
 export function useChartColors(): readonly string[] {
   const mode = useSchemeMode();
