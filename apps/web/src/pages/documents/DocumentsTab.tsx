@@ -31,6 +31,7 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
@@ -38,6 +39,7 @@ import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import SearchIcon from '@mui/icons-material/Search';
+import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { sampleDocuments, sampleParcels, samplePassbooks } from '@pattadar/core';
@@ -637,24 +639,14 @@ export function DocumentsTab({
         </Box>
       ) : (
         <>
-          {/* Toolbar: family chips + search + upload + export */}
-          <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-            {FAMILIES.map((f) => (
-              <Chip
-                key={f}
-                size="small"
-                label={f}
-                color={family === f ? 'primary' : 'default'}
-                variant={family === f ? 'filled' : 'outlined'}
-                onClick={() => setFamily(f)}
-              />
-            ))}
-            <Box sx={{ flexGrow: 1 }} />
+          {/* Toolbar: search + upload + export (one action row) */}
+          <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <TextField
               size="small"
               placeholder="Search documents…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              sx={{ minWidth: 260 }}
               slotProps={{
                 input: {
                   startAdornment: (
@@ -665,25 +657,45 @@ export function DocumentsTab({
                 },
               }}
             />
-            <Button component="label" variant="contained" startIcon={<UploadFileOutlinedIcon />} disabled={uploading}>
-              {uploading ? 'Uploading…' : 'Upload'}
-              <input
-                type="file"
-                hidden
-                multiple
-                accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov,.webm,image/*,video/*"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  if (files.length) void uploadBatch(files);
-                  e.target.value = '';
-                }}
-              />
-            </Button>
+            <Box sx={{ flexGrow: 1 }} />
+            <Tooltip title="PDF / JPG / PNG / MP4 · up to 10 files, 1 GB per upload · type is detected automatically">
+              <span>
+                <Button component="label" variant="contained" startIcon={<UploadFileOutlinedIcon />} disabled={uploading}>
+                  {uploading ? 'Uploading…' : 'Upload'}
+                  <input
+                    type="file"
+                    hidden
+                    multiple
+                    accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov,.webm,image/*,video/*"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length) void uploadBatch(files);
+                      e.target.value = '';
+                    }}
+                  />
+                </Button>
+              </span>
+            </Tooltip>
             <ExportMenu filename="pattadar-documents" brand={exportBrand} cols={exportCols} rows={shown} />
           </Box>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-            PDF / JPG / PNG / MP4 · up to 10 files, 1 GB per upload · type is detected automatically
-          </Typography>
+          {/* Type filter — visually subordinate to the page tabs (was reading
+              as a second tab row, founder-reported). */}
+          <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap', alignItems: 'center', color: 'text.secondary' }}>
+            <FilterAltOutlinedIcon sx={{ fontSize: 18 }} />
+            <Typography variant="caption" sx={{ fontWeight: 600, letterSpacing: 0.6, mr: 0.5 }}>
+              TYPE
+            </Typography>
+            {FAMILIES.map((f) => (
+              <Chip
+                key={f}
+                size="small"
+                label={f}
+                color={family === f ? 'primary' : 'default'}
+                variant={family === f ? 'filled' : 'outlined'}
+                onClick={() => setFamily(f)}
+              />
+            ))}
+          </Box>
         </>
       )}
 
