@@ -28,6 +28,18 @@ export const UNIT_SQFT: Record<UnitKey, number> = {
 
 const SQFT_PER_ACRE = 43560;
 
+/** Display order for pickers / converter grid. */
+export const UNITS: { key: UnitKey; label: string; short: string }[] = [
+  { key: 'acre', label: 'Acres', short: 'ac' },
+  { key: 'cent', label: 'Cents', short: 'ct' },
+  { key: 'gunta', label: 'Guntas', short: 'g' },
+  { key: 'sqyd', label: 'Sq. yards', short: 'sq.yd' },
+  { key: 'sqft', label: 'Sq. feet', short: 'sq.ft' },
+  { key: 'sqm', label: 'Sq. metres', short: 'sq.m' },
+  { key: 'hectare', label: 'Hectares', short: 'ha' },
+  { key: 'ankanam', label: 'Ankanam', short: 'ank' },
+];
+
 export const round2 = (n: number): number =>
   Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100;
 
@@ -37,6 +49,14 @@ export function toAcres(value: number, unit: UnitKey): number {
 
 export function fromAcres(acres: number, unit: UnitKey): number {
   return ((Number(acres) || 0) * SQFT_PER_ACRE) / UNIT_SQFT[unit];
+}
+
+export function convert(value: number, from: UnitKey, to: UnitKey): number {
+  return fromAcres(toAcres(value, from), to);
+}
+
+export function acresToAll(acres: number): { key: UnitKey; label: string; value: number }[] {
+  return UNITS.map((u) => ({ key: u.key, label: u.label, value: fromAcres(acres, u.key) }));
 }
 
 /** "2 Acres 50 Cents" — cents keep a decimal only when non-integer. */
@@ -80,4 +100,9 @@ export function unitKey(label: string | null | undefined): UnitKey {
   if (s.includes('metre') || s.includes('meter') || s.includes('sq.m') || s.includes('sqm')) return 'sqm';
   if (s.includes('feet') || s.includes('sq.ft') || s.includes('sqft')) return 'sqft';
   return 'acre';
+}
+
+export function unitLabel(label: string): string {
+  const u = UNITS.find((x) => x.key === unitKey(label));
+  return u ? u.label : label;
 }

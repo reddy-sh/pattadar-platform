@@ -27,7 +27,6 @@ import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useColorScheme } from '@mui/material/styles';
-import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
@@ -36,8 +35,6 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
-import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
-import HomeWorkOutlinedIcon from '@mui/icons-material/HomeWorkOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import MailOutlinedIcon from '@mui/icons-material/MailOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
@@ -45,9 +42,7 @@ import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
-import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import { gold, green } from '@pattadar/tokens';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
@@ -67,51 +62,23 @@ interface NavSection {
   items: NavItem[];
 }
 
+// One flat section, in the exact order of the current rhub pattadar app's
+// sider menu (plus Wallet, ours, with its gold dot).
 const NAV_SECTIONS: NavSection[] = [
   {
-    header: 'Portfolio',
+    header: '',
     items: [
       { label: 'Dashboard', path: '/app', icon: <DashboardOutlinedIcon /> },
-      { label: 'Parcels', path: '/app/parcels', icon: <MapOutlinedIcon /> },
       { label: 'Passbooks', path: '/app/passbooks', icon: <MenuBookOutlinedIcon /> },
-      { label: 'Properties', path: '/app/properties', icon: <HomeWorkOutlinedIcon /> },
-    ],
-  },
-  {
-    header: 'Records',
-    items: [
+      { label: 'Land & Properties', path: '/app/parcels', icon: <MapOutlinedIcon /> },
       { label: 'Documents', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
-      { label: 'Deeds', path: '/app/deeds', icon: <HistoryEduOutlinedIcon /> },
-    ],
-  },
-  {
-    header: 'Family',
-    items: [
-      { label: 'Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
+      { label: 'Families & Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
       { label: 'Invitations', path: '/app/invitations', icon: <MailOutlinedIcon /> },
-    ],
-  },
-  {
-    header: 'Wallet',
-    items: [
-      { label: 'Wallet', path: '/app/wallet', icon: <AccountBalanceWalletOutlinedIcon />, goldDot: true },
-    ],
-  },
-  {
-    header: 'Tools',
-    items: [
-      { label: 'SRO Offices', path: '/app/sro', icon: <AccountBalanceOutlinedIcon /> },
-      { label: 'Stamp Duty', path: '/app/stamp-duty', icon: <ReceiptLongOutlinedIcon /> },
-      { label: 'Market Value', path: '/app/market-value', icon: <TrendingUpOutlinedIcon /> },
-      { label: 'Calculator', path: '/app/calculator', icon: <CalculateOutlinedIcon /> },
-    ],
-  },
-  {
-    header: 'System',
-    items: [
       { label: 'Notifications', path: '/app/notifications', icon: <NotificationsOutlinedIcon /> },
-      { label: 'Audit', path: '/app/audit', icon: <FactCheckOutlinedIcon /> },
-      { label: 'Admin', path: '/app/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
+      { label: 'Wallet', path: '/app/wallet', icon: <AccountBalanceWalletOutlinedIcon />, goldDot: true },
+      { label: 'Tools', path: '/app/tools', icon: <CalculateOutlinedIcon /> },
+      { label: 'Audit Log', path: '/app/audit', icon: <FactCheckOutlinedIcon /> },
+      { label: 'Admin & Ref Data', path: '/app/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
       { label: 'Profile', path: '/app/profile', icon: <PersonOutlinedIcon /> },
     ],
   },
@@ -136,9 +103,11 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
     <Box sx={{ overflowY: 'auto', pb: 2 }}>
       {NAV_SECTIONS.map((section) => (
         <List
-          key={section.header}
+          key={section.header || 'main'}
           dense
-          subheader={<ListSubheader disableSticky>{section.header}</ListSubheader>}
+          subheader={
+            section.header ? <ListSubheader disableSticky>{section.header}</ListSubheader> : undefined
+          }
           sx={{ pt: 0.5, pb: 0 }}
         >
           {section.items.map((item) => {

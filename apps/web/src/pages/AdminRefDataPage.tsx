@@ -1,6 +1,6 @@
 import Typography from '@mui/material/Typography';
 
-export function AdminPage() {
+export function AdminRefDataPage() {
   return (
     <>
       <Typography variant="h2">Admin</Typography>

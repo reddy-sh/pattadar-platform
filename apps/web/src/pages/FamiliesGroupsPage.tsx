@@ -40,7 +40,7 @@ const GROUP_META: Record<string, { label: string; icon: ReactElement }> = {
   trust: { label: 'Trust / Society', icon: <BalanceOutlinedIcon /> },
 };
 
-export function GroupsPage() {
+export function FamiliesGroupsPage() {
   const { data, isSample } = useGroups();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = data.groups.find((g) => g.id === selectedId) ?? data.groups[0];

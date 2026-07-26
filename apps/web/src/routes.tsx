@@ -7,7 +7,19 @@
  * (beneficiary verification must work WITHOUT login — invitees follow this
  * link before they have accounts).
  *
- * App: everything under "/app/*", gated by RequireAuth.
+ * App: everything under "/app/*", gated by RequireAuth. The section paths
+ * mirror the current rhub pattadar app exactly:
+ *   dashboard(index) · passbooks · parcels (Land & Properties, merged) ·
+ *   documents · groups (Families & Groups) · invitations · notifications ·
+ *   wallet · tools · audit · admin · profile
+ * Legacy routes redirect INTO that structure — /app/properties into the
+ * Properties tab of Land & Properties, /app/deeds into Documents, and the
+ * four old tool routes into the matching Tools tab.
+ *
+ * THIS FILE IS FINAL for the rebuild: later parts fill their page files
+ * (DocumentsPage, FamiliesGroupsPage, InvitationsPage, NotificationsPage,
+ * ToolsPage, AuditLogPage, AdminRefDataPage, ProfilePage) and never touch
+ * routes again.
  *
  * Every route component is React.lazy so the initial chunk stays small: the
  * landing page is its own chunk and the app shell + pages load only after
@@ -15,7 +27,7 @@
  */
 import { Suspense, lazy } from 'react';
 import type { ComponentType, LazyExoticComponent } from 'react';
-import { createBrowserRouter } from 'react-router';
+import { Navigate, createBrowserRouter } from 'react-router';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import { RequireAuth } from './auth/RequireAuth';
@@ -42,41 +54,36 @@ const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ defaul
 
 // App shell + pages: loaded only after sign-in.
 const AppShell = lazy(() => import('./layout/AppShell').then((m) => ({ default: m.AppShell })));
-const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })));
-const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
-const CalculatorPage = lazy(() =>
-  import('./pages/CalculatorPage').then((m) => ({ default: m.CalculatorPage })),
-);
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
 );
-const DeedsPage = lazy(() => import('./pages/DeedsPage').then((m) => ({ default: m.DeedsPage })));
+const PassbooksPage = lazy(() =>
+  import('./pages/PassbooksPage').then((m) => ({ default: m.PassbooksPage })),
+);
+const LandPropertiesPage = lazy(() =>
+  import('./pages/LandPropertiesPage').then((m) => ({ default: m.LandPropertiesPage })),
+);
 const DocumentsPage = lazy(() =>
   import('./pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
 );
-const GroupsPage = lazy(() => import('./pages/GroupsPage').then((m) => ({ default: m.GroupsPage })));
+const FamiliesGroupsPage = lazy(() =>
+  import('./pages/FamiliesGroupsPage').then((m) => ({ default: m.FamiliesGroupsPage })),
+);
 const InvitationsPage = lazy(() =>
   import('./pages/InvitationsPage').then((m) => ({ default: m.InvitationsPage })),
-);
-const MarketValuePage = lazy(() =>
-  import('./pages/MarketValuePage').then((m) => ({ default: m.MarketValuePage })),
 );
 const NotificationsPage = lazy(() =>
   import('./pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
 );
-const ParcelsPage = lazy(() => import('./pages/ParcelsPage').then((m) => ({ default: m.ParcelsPage })));
-const PassbooksPage = lazy(() =>
-  import('./pages/PassbooksPage').then((m) => ({ default: m.PassbooksPage })),
+const WalletPage = lazy(() => import('./pages/WalletPage').then((m) => ({ default: m.WalletPage })));
+const ToolsPage = lazy(() => import('./pages/ToolsPage').then((m) => ({ default: m.ToolsPage })));
+const AuditLogPage = lazy(() =>
+  import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
+);
+const AdminRefDataPage = lazy(() =>
+  import('./pages/AdminRefDataPage').then((m) => ({ default: m.AdminRefDataPage })),
 );
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })));
-const PropertiesPage = lazy(() =>
-  import('./pages/PropertiesPage').then((m) => ({ default: m.PropertiesPage })),
-);
-const SroPage = lazy(() => import('./pages/SroPage').then((m) => ({ default: m.SroPage })));
-const WalletPage = lazy(() => import('./pages/WalletPage').then((m) => ({ default: m.WalletPage })));
-const StampDutyPage = lazy(() =>
-  import('./pages/StampDutyPage').then((m) => ({ default: m.StampDutyPage })),
-);
 
 function RouteFallback() {
   return (
@@ -110,21 +117,23 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: suspended(DashboardPage) },
       { path: 'passbooks', element: suspended(PassbooksPage) },
-      { path: 'parcels', element: suspended(ParcelsPage) },
-      { path: 'properties', element: suspended(PropertiesPage) },
+      { path: 'parcels', element: suspended(LandPropertiesPage) },
       { path: 'documents', element: suspended(DocumentsPage) },
-      { path: 'deeds', element: suspended(DeedsPage) },
-      { path: 'groups', element: suspended(GroupsPage) },
+      { path: 'groups', element: suspended(FamiliesGroupsPage) },
       { path: 'invitations', element: suspended(InvitationsPage) },
-      { path: 'wallet', element: suspended(WalletPage) },
       { path: 'notifications', element: suspended(NotificationsPage) },
-      { path: 'sro', element: suspended(SroPage) },
-      { path: 'stamp-duty', element: suspended(StampDutyPage) },
-      { path: 'market-value', element: suspended(MarketValuePage) },
-      { path: 'calculator', element: suspended(CalculatorPage) },
-      { path: 'audit', element: suspended(AuditPage) },
-      { path: 'admin', element: suspended(AdminPage) },
+      { path: 'wallet', element: suspended(WalletPage) },
+      { path: 'tools', element: suspended(ToolsPage) },
+      { path: 'audit', element: suspended(AuditLogPage) },
+      { path: 'admin', element: suspended(AdminRefDataPage) },
       { path: 'profile', element: suspended(ProfilePage) },
+      // Legacy routes → the new structure (kept working, like the rhub app).
+      { path: 'properties', element: <Navigate to="/app/parcels?tab=properties" replace /> },
+      { path: 'deeds', element: <Navigate to="/app/documents" replace /> },
+      { path: 'sro', element: <Navigate to="/app/tools?tab=sro" replace /> },
+      { path: 'stamp-duty', element: <Navigate to="/app/tools?tab=stamp-duty" replace /> },
+      { path: 'market-value', element: <Navigate to="/app/tools?tab=market-value" replace /> },
+      { path: 'calculator', element: <Navigate to="/app/tools?tab=calculator" replace /> },
     ],
   },
 ]);

@@ -18,7 +18,6 @@ import {
   samplePassbooks,
   sampleProfile,
   sampleProperties,
-  sampleRegisteredDocuments,
   sampleServiceRequests,
   sampleSroOffices,
   sampleWallet,
@@ -37,7 +36,6 @@ import type {
   Passbook,
   Profile,
   Property,
-  RegisteredDocument,
   ServiceRequest,
   SroOffice,
   WalletSummary,
@@ -146,32 +144,14 @@ export function useDashboard() {
 }
 
 // ---------------------------------------------------------------------------
-// Portfolio views
+// Portfolio views — field selections copied verbatim from the rhub pattadar
+// app (RemoteApp.tsx PassbooksView / HoldingsView + AllHoldingsView.tsx).
 // ---------------------------------------------------------------------------
-
-export interface ParcelsData {
-  parcels: Parcel[];
-  passbooks: Passbook[];
-  groups: Group[];
-}
-
-export function useParcels() {
-  return useLiveOrSample<ParcelsData>(
-    'parcels',
-    async () => {
-      const d = await gql<ParcelsData>(
-        `query { parcels { ${PARCEL_FIELDS} } passbooks { ${PASSBOOK_FIELDS} } groups { ${GROUP_FIELDS} } }`,
-      );
-      return { parcels: d.parcels ?? [], passbooks: d.passbooks ?? [], groups: d.groups ?? [] };
-    },
-    { parcels: sampleParcels, passbooks: samplePassbooks, groups: sampleGroups },
-  );
-}
 
 export interface PassbooksData {
   passbooks: Passbook[];
-  parcels: Pick<Parcel, 'id' | 'passbookId'>[];
-  groups: Group[];
+  parcels: Pick<Parcel, 'passbookId' | 'purchasePrice'>[];
+  groups: Pick<Group, 'id' | 'name'>[];
 }
 
 export function usePassbooks() {
@@ -179,7 +159,7 @@ export function usePassbooks() {
     'passbooks',
     async () => {
       const d = await gql<PassbooksData>(
-        `query { passbooks { ${PASSBOOK_FIELDS} } parcels { id passbookId } groups { ${GROUP_FIELDS} } }`,
+        `query { passbooks { id ref ownerUserId pattadarNo ownerName fatherHusbandName state district mandal village photo totalExtent groupId createdAt } parcels { passbookId purchasePrice } groups { id name } }`,
       );
       return { passbooks: d.passbooks ?? [], parcels: d.parcels ?? [], groups: d.groups ?? [] };
     },
@@ -187,11 +167,84 @@ export function usePassbooks() {
   );
 }
 
-export function useProperties() {
-  return useLiveOrSample<Property[]>(
-    'properties',
-    async () => (await gql<{ properties: Property[] }>(`query { properties { ${PROPERTY_FIELDS} } }`)).properties ?? [],
-    sampleProperties,
+/** Narrowed live shapes for the merged Land & Properties page. */
+export type HoldingParcel = Pick<
+  Parcel,
+  | 'id'
+  | 'surveyNo'
+  | 'subdivision'
+  | 'extent'
+  | 'unit'
+  | 'classification'
+  | 'status'
+  | 'litigation'
+  | 'stake'
+  | 'currentOwner'
+  | 'purchasePrice'
+  | 'marketValue'
+  | 'passbookId'
+  | 'createdAt'
+>;
+export type HoldingPassbook = Pick<
+  Passbook,
+  'id' | 'pattadarNo' | 'ownerName' | 'village' | 'mandal' | 'district' | 'groupId'
+>;
+export type HoldingProperty = Pick<
+  Property,
+  | 'id'
+  | 'type'
+  | 'label'
+  | 'city'
+  | 'district'
+  | 'landArea'
+  | 'landUnit'
+  | 'builtupArea'
+  | 'builtupUnit'
+  | 'holdingStatus'
+  | 'stake'
+  | 'currentValue'
+  | 'currentOwner'
+  | 'groupId'
+  | 'createdAt'
+>;
+export type HoldingDocument = Pick<DocumentRecord, 'parcelId' | 'propertyId' | 'docType' | 'tags' | 'fileRef'>;
+
+export interface HoldingsData {
+  parcels: HoldingParcel[];
+  passbooks: HoldingPassbook[];
+  properties: HoldingProperty[];
+  documents: HoldingDocument[];
+  groups: Pick<Group, 'id' | 'name'>[];
+}
+
+export function useHoldings() {
+  return useLiveOrSample<HoldingsData>(
+    'holdings',
+    async () => {
+      const d = await gql<HoldingsData>(
+        `query {
+      parcels { id surveyNo subdivision extent unit classification status litigation stake currentOwner purchasePrice marketValue passbookId createdAt }
+      passbooks { id pattadarNo ownerName village mandal district groupId }
+      properties { id type label city district landArea landUnit builtupArea builtupUnit holdingStatus stake currentValue currentOwner groupId createdAt }
+      documents { parcelId propertyId docType tags fileRef }
+      groups { id name }
+    }`,
+      );
+      return {
+        parcels: d.parcels ?? [],
+        passbooks: d.passbooks ?? [],
+        properties: d.properties ?? [],
+        documents: d.documents ?? [],
+        groups: d.groups ?? [],
+      };
+    },
+    {
+      parcels: sampleParcels,
+      passbooks: samplePassbooks,
+      properties: sampleProperties,
+      documents: sampleDocuments,
+      groups: sampleGroups,
+    },
   );
 }
 
@@ -215,19 +268,6 @@ export function useDocuments() {
       return { documents: d.documents ?? [], parcels: d.parcels ?? [], passbooks: d.passbooks ?? [] };
     },
     { documents: sampleDocuments, parcels: sampleParcels, passbooks: samplePassbooks },
-  );
-}
-
-export function useDeeds() {
-  return useLiveOrSample<RegisteredDocument[]>(
-    'deeds',
-    async () =>
-      (
-        await gql<{ registeredDocuments: RegisteredDocument[] }>(
-          `query { registeredDocuments { id ref docType documentNo regYear sro surveyNo plotNo consideration village district passbookId parcelId createdAt } }`,
-        )
-      ).registeredDocuments ?? [],
-    sampleRegisteredDocuments,
   );
 }
 

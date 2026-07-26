@@ -1,6 +1,6 @@
 import Typography from '@mui/material/Typography';
 
-export function AuditPage() {
+export function AuditLogPage() {
   return (
     <>
       <Typography variant="h2">Audit</Typography>

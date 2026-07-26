@@ -18,6 +18,8 @@ export interface DashboardStats {
 export interface Passbook {
   id: string;
   ref: string;
+  /** Owning user id (live shape; absent from older samples). */
+  ownerUserId?: string;
   pattadarNo: string;
   ownerName: string;
   fatherHusbandName: string;
@@ -57,6 +59,8 @@ export interface Parcel {
   taxPaidUpto: string;
   litigation: boolean;
   createdAt: string;
+  /** My relationship to the holding: 'owned' | 'managed' | 'watch'. */
+  stake?: string;
 }
 
 export type PropertyType =
@@ -90,6 +94,10 @@ export interface Property {
   /** JSON string of type-specific attributes (bhk, plot_no, monthly_rent…). */
   attributes: string;
   createdAt: string;
+  /** My relationship to the holding: 'owned' | 'managed' | 'watch'. */
+  stake?: string;
+  currentOwner?: string;
+  groupId?: string;
 }
 
 export interface DocumentRecord {
@@ -99,6 +107,8 @@ export interface DocumentRecord {
   parcelId: string;
   passbookId: string;
   createdAt: string;
+  propertyId?: string;
+  tags?: string;
 }
 
 export interface RegisteredDocument {
