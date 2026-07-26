@@ -48,12 +48,27 @@ def get_storage() -> StorageService:
     """Lazily build the S3-backed service singleton from env.
 
     boto3 resolves credentials via the default chain — on ECS/EKS that is
-    the task-role. NO static keys are read here, by design."""
+    the task-role. NO static keys are read here, by design.
+
+    STORAGE_S3_ENDPOINT is a LOCAL-DEV-ONLY override (scripts/start-local.sh
+    points it at a MinIO container so uploads/preview work off-cloud on the
+    same boto3 code path). It is never set in any deployed environment."""
     global _service
     if _service is None:
         import boto3
 
-        client = boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-south-1"))
+        endpoint = os.getenv("STORAGE_S3_ENDPOINT", "").strip()
+        if endpoint:
+            from botocore.config import Config
+
+            client = boto3.client(
+                "s3",
+                region_name=os.getenv("AWS_REGION", "ap-south-1"),
+                endpoint_url=endpoint,
+                config=Config(s3={"addressing_style": "path"}),
+            )
+        else:
+            client = boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-south-1"))
         _service = StorageService(client, os.getenv("STORAGE_BUCKET", "pattadar-user-documents"))
     return _service
 

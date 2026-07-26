@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react';
 // (VITE_API_PROXY_TARGET=http://localhost:18080) so tests run against their
 // own API instance and never touch the founder's dev stack on :8080.
 const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8080';
+// DEV-ONLY: the local gateway (services/gateway run by start-local.sh) serves
+// storage + admin on :8081, backed by MinIO + the local pattadar_hub DB.
+const gatewayTarget = process.env.VITE_GATEWAY_PROXY_TARGET || 'http://localhost:8081';
 
 export default defineConfig({
   // amazon-cognito-identity-js references Node's `global` at runtime;
@@ -21,6 +24,11 @@ export default defineConfig({
       // so '/api/gateway/pattadar/graphql' reaches the service as '/graphql',
       // and x-user-id is injected (the local api trusts this header) so the
       // dev preview shows the founder's real data.
+      // Storage + admin → the REAL local gateway (Cognito-validated Bearer
+      // token passes through untouched; no identity injection — the gateway
+      // strips client identity headers by design).
+      '/api/gateway/storage': { target: gatewayTarget, changeOrigin: true },
+      '/api/gateway/admin': { target: gatewayTarget, changeOrigin: true },
       '/api/gateway/pattadar': {
         target: apiTarget,
         changeOrigin: true,
