@@ -13,6 +13,7 @@ import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Typography from '@mui/material/Typography';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import type { Theme } from '@mui/material/styles';
 import { apiFetch } from '../api/client';
 
 export interface Pill {
@@ -70,51 +71,79 @@ export function useBlobUrl(fileRef?: string): string {
   return url;
 }
 
+/** Small TONAL overlay chip (M3): tinted container fill + readable on-colour. */
 const pillSx = (color: string) => ({
-  position: 'absolute' as const,
-  top: 8,
-  bgcolor: color,
-  color: '#fff',
+  bgcolor: `color-mix(in srgb, ${color} 14%, #FFFFFF)`,
+  color: `color-mix(in srgb, ${color} 78%, #14261B)`,
   fontSize: 11,
   fontWeight: 700,
   lineHeight: 1,
-  px: 1,
-  py: 0.5,
+  px: 1.25,
+  py: 0.625,
   borderRadius: 999,
   textTransform: 'capitalize' as const,
   whiteSpace: 'nowrap' as const,
 });
 
 /**
- * Card hero band — the cover photo when there is one, else an emerald
- * gradient with an icon; status pills overlay the top-left corner.
+ * M3 interactive-card shell: whole card clickable with hover lift (-2px),
+ * primary-tinted border + soft shadow, pressed state layer. Motion rides the
+ * theme's standard tokens; `prefers-reduced-motion` is handled globally.
+ */
+export const clickableCardSx = (t: Theme) => ({
+  position: 'relative' as const,
+  display: 'flex',
+  flexDirection: 'column' as const,
+  cursor: 'pointer',
+  transition: t.transitions.create(['transform', 'box-shadow', 'border-color', 'background-color'], {
+    duration: t.transitions.duration.standard,
+    easing: t.transitions.easing.easeInOut,
+  }),
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    borderColor: `color-mix(in srgb, ${(t.vars ?? t).palette.primary.main} 45%, transparent)`,
+    boxShadow: '0 4px 12px rgba(13, 38, 25, 0.12)',
+  },
+  '&:active': {
+    transform: 'translateY(0)',
+    boxShadow: 'none',
+    backgroundColor: (t.vars ?? t).palette.action.selected,
+  },
+});
+
+/**
+ * Card media band (M3 anatomy, full-bleed under the card's own radius) —
+ * the cover photo when there is one, else a layered emerald gradient with a
+ * large, partially-cropped, low-opacity motif anchored bottom-right. Status
+ * pills overlay the top-left as small tonal chips on a subtle scrim.
  */
 export function CardHero({
   fileRef,
+  src,
   fallbackIcon,
   pill,
   pill2,
-  height = 110,
+  height = 140,
 }: {
   fileRef?: string;
+  /** Direct image URL (holder-photo data URLs etc.) — wins over fileRef. */
+  src?: string;
   fallbackIcon: string;
   pill?: Pill;
   pill2?: Pill;
   height?: number;
 }) {
-  const url = useBlobUrl(fileRef);
+  const blobUrl = useBlobUrl(fileRef);
+  const url = src || blobUrl;
   return (
     <Box
       sx={{
         position: 'relative',
         height,
-        borderRadius: 2.5,
+        flexShrink: 0,
         overflow: 'hidden',
-        mb: 1.25,
-        background: 'linear-gradient(135deg, #1E7A46 0%, #35996B 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        background:
+          'radial-gradient(120% 100% at 85% -20%, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 55%), linear-gradient(150deg, #17603C 0%, #1E7A46 48%, #35996B 100%)',
       }}
     >
       {url ? (
@@ -125,12 +154,39 @@ export function CardHero({
           sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
         />
       ) : (
-        <Box component="span" sx={{ fontSize: 40, opacity: 0.9 }}>
+        <Box
+          component="span"
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            right: -14,
+            bottom: -22,
+            fontSize: 96,
+            lineHeight: 1,
+            opacity: 0.35,
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
           {fallbackIcon}
         </Box>
       )}
-      {pill && <Box sx={{ ...pillSx(pill.color), left: 8 }}>{pill.text}</Box>}
-      {pill2 && <Box sx={{ ...pillSx(pill2.color), right: 8 }}>{pill2.text}</Box>}
+      {/* Subtle top scrim so overlaid chips and the ⋮ read on any media. */}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          background:
+            'linear-gradient(180deg, rgba(10,26,17,0.32) 0%, rgba(10,26,17,0.10) 32%, rgba(10,26,17,0) 55%)',
+          pointerEvents: 'none',
+        }}
+      />
+      {(pill || pill2) && (
+        <Box sx={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 0.75 }}>
+          {pill && <Box sx={pillSx(pill.color)}>{pill.text}</Box>}
+          {pill2 && <Box sx={pillSx(pill2.color)}>{pill2.text}</Box>}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -150,12 +206,19 @@ export function CardActionsMenu({ actions }: { actions: CardAction[] }) {
     setAnchor(e.currentTarget);
   };
   return (
-    <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 2 }} onClick={(e) => e.stopPropagation()}>
+    <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }} onClick={(e) => e.stopPropagation()}>
       <IconButton
         size="small"
         aria-label="Card actions"
         onClick={open}
-        sx={{ bgcolor: 'rgba(255,255,255,0.85)', '&:hover': { bgcolor: 'rgba(255,255,255,0.95)' }, color: '#1A1A1A' }}
+        sx={{
+          // Scrim circle for contrast over media; always visible (touch),
+          // brightens on hover.
+          bgcolor: 'rgba(10, 26, 17, 0.40)',
+          color: '#fff',
+          backdropFilter: 'blur(2px)',
+          '&:hover': { bgcolor: 'rgba(10, 26, 17, 0.62)' },
+        }}
       >
         <MoreVertIcon fontSize="small" />
       </IconButton>

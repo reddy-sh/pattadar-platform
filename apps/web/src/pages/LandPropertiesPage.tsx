@@ -46,10 +46,11 @@ import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { formatArea } from '@pattadar/core';
-import { CardActionsMenu, CardHero, EmptyLanding, StatCard, StatRow, parcelPill, stakePill } from '../components/holdingCards';
+import { CardActionsMenu, CardHero, EmptyLanding, StatCard, StatRow, clickableCardSx, parcelPill, stakePill } from '../components/holdingCards';
 import { CardGridSkeleton, HeaderSkeleton, StatRowSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
 import { PageHeader } from '../components/PageHeader';
@@ -598,70 +599,83 @@ export function LandPropertiesPage() {
           )}
 
           {view === 'grid' ? (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 3 }}>
               {shown.map((r) => (
                 <Card
                   key={`${r.kind}-${r.id}`}
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`Open ${r.title}`}
                   onClick={() => openDetail(r)}
-                  sx={{ position: 'relative', p: 1.5, cursor: 'pointer' }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.target === e.currentTarget) openDetail(r);
+                  }}
+                  sx={clickableCardSx}
                 >
                   <CardActionsMenu actions={rowActions(r)} />
                   <CardHero fileRef={r.cover} fallbackIcon={r.icon} pill={parcelPill(r.status, r.litigation)} pill2={stakePill(r.stake)} />
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
-                    <Typography sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {r.title}
-                    </Typography>
-                    <Chip size="small" color={r.typeColor} variant="outlined" label={r.typeLabel} sx={{ flexShrink: 0 }} />
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }} noWrap>
-                    {r.owner || '—'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }} noWrap>
-                    📍 {r.location || '—'}
-                  </Typography>
-                  {r.kind === 'parcel' && (
-                    <Box sx={{ mt: 0.75 }}>
-                      <Box
-                        component="span"
-                        sx={{
-                          bgcolor: 'primary.container',
-                          color: 'primary.onContainer',
-                          fontWeight: 700,
-                          fontSize: 12,
-                          borderRadius: 999,
-                          px: 1.1,
-                          py: 0.15,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Khata {r.khata || '—'}
-                      </Box>
+                  <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1, flexGrow: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {r.title}
+                      </Typography>
+                      <Chip size="small" color={r.typeColor} label={r.typeLabel} sx={{ flexShrink: 0 }} />
                     </Box>
-                  )}
-                  {r.groupName && (
-                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'secondary.main' }} noWrap>
-                      👪 {r.groupName}
+                    <Typography variant="body2" color="text.secondary" noWrap>
+                      {r.owner || '—'}
                     </Typography>
-                  )}
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mt: 1.25, pt: 1.25, borderTop: 1, borderColor: 'divider' }}>
-                    {r.value > 0 ? (
-                      <>
-                        <Typography sx={{ fontWeight: 700, fontSize: 15 }}>
-                          ₹{r.value.toLocaleString('en-IN')}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {r.perAc ? `₹${r.perAc.toLocaleString('en-IN')}/ac · ` : ''}
-                          {r.extentLabel}
-                        </Typography>
-                      </>
-                    ) : (
-                      <>
-                        <Typography sx={{ fontWeight: 700, fontSize: 15 }}>{r.extentLabel}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {r.kind === 'parcel' ? 'Land parcel' : 'Property'}
-                        </Typography>
-                      </>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, color: 'text.secondary' }}>
+                      <PlaceOutlinedIcon sx={{ fontSize: 16, ml: -0.25, flexShrink: 0 }} />
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {r.location || '—'}
+                      </Typography>
+                    </Box>
+                    {(r.kind === 'parcel' || r.groupName) && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.25 }}>
+                        {r.kind === 'parcel' && (
+                          <Chip
+                            size="small"
+                            label={`Khata ${r.khata || '—'}`}
+                            onClick={
+                              r.passbookId
+                                ? (e) => {
+                                    e.stopPropagation();
+                                    setTab('parcels');
+                                    setFPb(r.passbookId);
+                                  }
+                                : undefined
+                            }
+                            sx={(th) => ({
+                              bgcolor: (th.vars ?? th).palette.primary.container,
+                              color: (th.vars ?? th).palette.primary.onContainer,
+                              fontWeight: 600,
+                              '&:hover': {
+                                bgcolor: `color-mix(in srgb, ${(th.vars ?? th).palette.primary.main} 8%, ${(th.vars ?? th).palette.primary.container})`,
+                              },
+                            })}
+                          />
+                        )}
+                        {r.groupName && (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`👪 ${r.groupName}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFGroup(r.groupName);
+                            }}
+                          />
+                        )}
+                      </Box>
                     )}
+                    <Box sx={{ mt: 'auto', pt: 1.5, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1 }}>
+                      <Typography className="tnum" sx={{ fontSize: 17, fontWeight: 700 }} noWrap>
+                        {r.extentLabel}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {r.kind === 'parcel' ? 'Land parcel' : r.typeLabel}
+                      </Typography>
+                    </Box>
                   </Box>
                 </Card>
               ))}

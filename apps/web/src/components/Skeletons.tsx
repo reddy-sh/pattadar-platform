@@ -57,18 +57,21 @@ export function CardGridSkeleton({ count = 6 }: { count?: number }) {
       sx={{
         display: 'grid',
         gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)' },
-        gap: 1.5,
+        gap: 3,
       }}
     >
       {Array.from({ length: count }, (_, i) => (
-        <Card key={i} sx={{ p: 1.5 }}>
-          <Skeleton variant="rounded" height={96} sx={{ borderRadius: 2.5 }} />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 1 }}>
-            <Skeleton variant="circular" width={40} height={40} />
-            <Skeleton width="55%" height={22} />
+        <Card key={i}>
+          <Skeleton variant="rectangular" height={140} />
+          <Box sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Skeleton variant="circular" width={40} height={40} />
+              <Skeleton width="55%" height={22} />
+            </Box>
+            <Skeleton width="70%" height={18} sx={{ mt: 1 }} />
+            <Skeleton width="50%" height={18} sx={{ mt: 0.5 }} />
+            <Skeleton width="40%" height={26} sx={{ mt: 1.5 }} />
           </Box>
-          <Skeleton width="40%" height={34} sx={{ mt: 1 }} />
-          <Skeleton width="80%" height={18} sx={{ mt: 0.75 }} />
         </Card>
       ))}
     </Box>

@@ -38,11 +38,12 @@ import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
 import { formatArea } from '@pattadar/core';
 import type { Passbook } from '@pattadar/core';
-import { CardActionsMenu, StatCard, StatRow, EmptyLanding } from '../components/holdingCards';
+import { CardActionsMenu, CardHero, StatCard, StatRow, EmptyLanding, clickableCardSx } from '../components/holdingCards';
 import { CardGridSkeleton, HeaderSkeleton, StatRowSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
 import { PageHeader } from '../components/PageHeader';
@@ -160,32 +161,6 @@ export function PassbooksPage() {
 
   const firstRun = !isLoading && data.passbooks.length === 0;
 
-  const chip = (icon: string, text?: string) =>
-    text ? (
-      <Box
-        component="span"
-        sx={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 0.5,
-          bgcolor: 'action.hover',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 999,
-          px: 1.25,
-          py: 0.25,
-          fontSize: 12,
-          color: 'text.primary',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {icon} {text}
-      </Box>
-    ) : null;
-
   // Shaped loading state — never paint the sample dataset uncredited.
   if (isLoading)
     return (
@@ -280,111 +255,111 @@ export function PassbooksPage() {
               sx={{
                 display: 'grid',
                 gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)' },
-                gap: 1.5,
+                gap: 3,
               }}
             >
               {shown.map((b) => {
                 const agg = parcelAgg.get(b.id) || { count: 0, cost: 0 };
                 const acres = Number(b.totalExtent) || 0;
                 const gname = groupName.get(b.groupId || '') || '';
+                const location = [b.village, b.mandal].filter(Boolean).join(', ');
                 return (
                   <Card
                     key={b.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open land parcels of Khata ${b.pattadarNo}`}
                     onClick={() => openParcels(b)}
-                    sx={{ cursor: 'pointer', position: 'relative', p: 1.5 }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target === e.currentTarget) openParcels(b);
+                    }}
+                    sx={clickableCardSx}
                   >
                     <CardActionsMenu actions={rowActions(b)} />
-                    {/* Emerald passbook banner. */}
-                    <Box
-                      sx={{
-                        height: 72,
-                        borderRadius: 2.5,
-                        background: 'linear-gradient(135deg, #1E7A46 0%, #35996B 100%)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 34,
-                      }}
-                    >
-                      📗
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 0.75 }}>
-                      <Avatar
-                        src={b.photo || undefined}
-                        sx={{ width: 46, height: 46, bgcolor: avaColor(b.ownerName || '?'), flexShrink: 0 }}
-                      >
-                        {(b.ownerName || '?').slice(0, 1).toUpperCase()}
-                      </Avatar>
-                      <Typography
-                        sx={{
-                          minWidth: 0,
-                          fontWeight: 700,
-                          fontSize: 18,
-                          lineHeight: 1.25,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {b.ownerName || '(owner not set)'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ mt: 1.75 }}>
-                      <Box component="span" sx={{ fontSize: 32, fontWeight: 800, letterSpacing: -0.5 }}>
-                        {acres.toFixed(2).replace(/\.00$/, '')}
+                    {/* Media: holder photo when set, else the passbook motif. */}
+                    <CardHero src={b.photo || undefined} fallbackIcon="📗" />
+                    <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1, flexGrow: 1 }}>
+                      <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center' }}>
+                        <Avatar
+                          src={b.photo || undefined}
+                          sx={{ width: 40, height: 40, bgcolor: avaColor(b.ownerName || '?'), flexShrink: 0 }}
+                        >
+                          {(b.ownerName || '?').slice(0, 1).toUpperCase()}
+                        </Avatar>
+                        <Typography
+                          sx={{
+                            minWidth: 0,
+                            fontWeight: 600,
+                            fontSize: 17,
+                            lineHeight: 1.3,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {b.ownerName || '(owner not set)'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, color: 'text.secondary' }}>
+                        <PlaceOutlinedIcon sx={{ fontSize: 16, ml: -0.25, flexShrink: 0 }} />
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {location || '—'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.25 }}>
+                        {b.fatherHusbandName && (
+                          <Chip size="small" variant="outlined" label={`👨 ${b.fatherHusbandName}`} sx={{ maxWidth: '100%' }} />
+                        )}
+                        {gname && (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`👪 ${gname}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/app/parcels?group=${b.groupId}`);
+                            }}
+                          />
+                        )}
+                        <Chip size="small" variant="outlined" label={`🌾 ${agg.count} parcel${agg.count !== 1 ? 's' : ''}`} />
                       </Box>
                       <Box
-                        component="span"
                         sx={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: 'text.secondary',
-                          ml: 0.75,
-                          textTransform: 'uppercase',
-                          letterSpacing: 0.5,
+                          mt: 'auto',
+                          pt: 1.5,
+                          borderTop: '1px solid',
+                          borderColor: 'divider',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 1,
+                          flexWrap: 'wrap',
                         }}
                       >
-                        Acres
-                      </Box>
-                    </Box>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1.5 }}>
-                      {chip('📍', b.village)}
-                      {chip('👨', b.fatherHusbandName)}
-                      {chip('👪', gname)}
-                      {chip('🌾', `${agg.count} parcel${agg.count !== 1 ? 's' : ''}`)}
-                    </Box>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'baseline',
-                        gap: 1,
-                        mt: 1.75,
-                        pt: 1.5,
-                        borderTop: '1px solid',
-                        borderColor: 'divider',
-                        fontSize: 11.5,
-                        color: 'text.secondary',
-                      }}
-                    >
-                      <Box
-                        component="span"
-                        sx={{
-                          bgcolor: 'primary.container',
-                          color: 'primary.onContainer',
-                          fontWeight: 700,
-                          fontSize: 13,
-                          borderRadius: 999,
-                          px: 1.25,
-                          py: 0.25,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Khata {b.pattadarNo}
-                      </Box>
-                      <Box component="span" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        Updated {fmtLocal(b.createdAt, { dateOnly: true })}
+                        <Typography className="tnum" sx={{ fontSize: 17, fontWeight: 700 }} noWrap>
+                          {acres.toFixed(2).replace(/\.00$/, '')} Acres
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                          <Box
+                            component="span"
+                            sx={{
+                              bgcolor: 'primary.container',
+                              color: 'primary.onContainer',
+                              fontWeight: 700,
+                              fontSize: 12,
+                              borderRadius: 999,
+                              px: 1.25,
+                              py: 0.375,
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Khata {b.pattadarNo}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            Updated {fmtLocal(b.createdAt, { dateOnly: true })}
+                          </Typography>
+                        </Box>
                       </Box>
                     </Box>
                   </Card>
