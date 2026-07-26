@@ -8,12 +8,12 @@
     "scheme": "pattadar",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.rfactory.pattadar",
+      "bundleIdentifier": "com.pattadar.app",
       "icon": "./assets/expo.icon",
       "associatedDomains": ["applinks:pattadar.com"]
     },
     "android": {
-      "package": "com.rfactory.pattadar",
+      "package": "com.pattadar.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

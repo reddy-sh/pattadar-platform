@@ -68,7 +68,7 @@ Because logic lives in `@pattadar/core`, graduating a view from web to mobile is
   dev-only `x-user-id` (start-mobile.sh; `EXPO_PUBLIC_DEV_USER`, only attached
   when `__DEV__`). The seeded local DB's data belongs to users `u01`–`u06` —
   run `EXPO_PUBLIC_DEV_USER=u01 ./scripts/start-mobile.sh ios` to see data.
-- `app.json` — bundle ids `com.rfactory.pattadar`, scheme `pattadar`, Android
+- `app.json` — bundle ids `com.pattadar.app`, scheme `pattadar`, Android
   App Link intent filter for `https://pattadar.com/verify/*`.
 - Not yet: Cognito native client (blocks real sign-in), documents/storage
   screens (need Cognito Bearer for the gateway), push, ML Kit scanner (needs
