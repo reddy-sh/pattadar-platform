@@ -161,6 +161,10 @@ export interface Member {
   isBeneficiary: boolean;
   sharePct: number;
   status: string; // 'pending' | 'verified'
+  /** '' | 'invited' | 'joined' — set by the server invite fan-out. */
+  inviteStatus?: string;
+  /** Present while an invite link is outstanding. */
+  inviteToken?: string;
   aadhaarMasked: string;
   phoneVerified: boolean;
   emailVerified: boolean;

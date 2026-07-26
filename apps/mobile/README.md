@@ -42,12 +42,26 @@ audit, admin, assistant.
 
 Because logic lives in `@pattadar/core`, graduating a view from web to mobile is UI-only work.
 
-## Current state
+## Current state (v1 screens live — 26/07/2026)
 
-- `src/app/_layout.tsx` — PaperProvider (light/dark from tokens) + React Query provider.
-- `src/app/index.tsx` — placeholder home proving tokens theming + core formatters
-  end-to-end. Replace with the real portfolio dashboard.
+- `src/app/_layout.tsx` — PaperProvider (light/dark from tokens) + React Query.
+- `src/app/(tabs)/` — Dashboard (hero value = server estimatedValue + property
+  values, stat tiles, recent activity), Holdings (parcels + properties
+  normalized, search + kind filter), Family (groups + members, status chips,
+  heir share total), Invitations (pending/accepted/revoked/expired state
+  machine with Accept/Revoke/Delete).
+- `src/app/verify/[token].tsx` — public verify landing (verifyBeneficiary —
+  the gateway's only unauthenticated operation; the web page is still a stub).
+- `src/data/hooks.ts` — live-or-sample hooks (web semantics: fetch failure →
+  bundled sample data flagged isSample). Operations come from
+  `@pattadar/core/src/api/operations.ts`; valuation math from
+  `@pattadar/core/src/portfolio/value.ts`.
+- `src/api/client.ts` — shared GraphQL transport from core. Local dev sends a
+  dev-only `x-user-id` (start-mobile.sh; `EXPO_PUBLIC_DEV_USER`, only attached
+  when `__DEV__`). The seeded local DB's data belongs to users `u01`–`u06` —
+  run `EXPO_PUBLIC_DEV_USER=u01 ./scripts/start-mobile.sh ios` to see data.
 - `app.json` — bundle ids `com.rfactory.pattadar`, scheme `pattadar`, Android
   App Link intent filter for `https://pattadar.com/verify/*`.
-- Not yet: Cognito native client, GraphQL wiring, push, ML Kit, EAS project id,
-  local start script (`scripts/start-mobile.sh` — planned).
+- Not yet: Cognito native client (blocks real sign-in), documents/storage
+  screens (need Cognito Bearer for the gateway), push, ML Kit scanner (needs
+  an EAS dev build), EAS project id.

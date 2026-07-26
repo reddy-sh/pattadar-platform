@@ -40,6 +40,10 @@ const propertyValue = (p: DashData['properties'][number]) =>
 
 test('hero, rings, village split and activity match a direct GraphQL fetch', async ({ page, request }) => {
   const d = await gql<DashData>(request, QUERY);
+  test.skip(
+    d.dashboardStats.totalPassbooks === 0 && d.parcels.length === 0,
+    'no data — dashboard shows the first-run setup hero',
+  );
 
   await openApp(page, '/app');
   await expect(page.getByRole('heading', { name: 'Land Portfolio' })).toBeVisible();

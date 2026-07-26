@@ -18,6 +18,7 @@ import {
 } from '@pattadar/core';
 import type { Group, Invitation, NotificationEntry } from '@pattadar/core';
 import { gql } from '../../api/client';
+import { emptyLike } from '../../data/useLiveOrSample';
 
 // ---------------------------------------------------------------------------
 // Group type definitions (port of rhub groups.ts)
@@ -242,14 +243,14 @@ function useFamLive<T>(key: string, fetchLive: () => Promise<T>, sample: T) {
       try {
         return { data: await fetchLive(), isSample: false };
       } catch {
-        return { data: sample, isSample: true };
+        return { data: emptyLike(sample), isSample: true };
       }
     },
     staleTime: 30_000,
     retry: false,
   });
   return {
-    data: q.data?.data ?? sample,
+    data: q.data?.data ?? emptyLike(sample),
     isSample: q.data?.isSample ?? false,
     isLoading: q.isPending,
   };
@@ -381,7 +382,8 @@ export async function updateGroup(id: string, name: string, description: string)
 }
 
 export async function deleteGroup(id: string): Promise<void> {
-  await gql(`mutation($id:String!){ deleteGroup(id:$id) }`, { id });
+  const d = await gql<{ deleteGroup: boolean }>(`mutation($id:String!){ deleteGroup(id:$id) }`, { id });
+  if (!d.deleteGroup) throw new Error('Group not found — reload and try again');
 }
 
 export interface MemberVars {
@@ -453,7 +455,8 @@ export async function updateMember(id: string, vars: MemberVars): Promise<SavedM
 }
 
 export async function removeMember(id: string): Promise<void> {
-  await gql(`mutation($id:String!){ removeMember(id:$id) }`, { id });
+  const d = await gql<{ removeMember: boolean }>(`mutation($id:String!){ removeMember(id:$id) }`, { id });
+  if (!d.removeMember) throw new Error('Member not found — reload and try again');
 }
 
 /** Server-side invite — notify.py fans out to the configured channels

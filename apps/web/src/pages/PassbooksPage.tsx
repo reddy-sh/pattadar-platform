@@ -174,6 +174,8 @@ export function PassbooksPage() {
   return (
     <>
       {firstRun ? (
+        <>
+        <PageHeader eyebrow="Land records" title="Passbooks" />
         <EmptyLanding
           icon="📗"
           title="Start your land record"
@@ -186,6 +188,7 @@ export function PassbooksPage() {
             </Typography>
           }
         />
+        </>
       ) : (
         <>
           {/* Header: eyebrow + title + khata chip + extent subtitle. */}
@@ -208,7 +211,7 @@ export function PassbooksPage() {
             <StatCard label="Passbooks" value={data.passbooks.length} />
             <StatCard label="Total Extent" value={formatArea(totalExtent)} />
             <StatCard label="Villages" value={villageCount} />
-            <StatCard label="Acquisition Cost" value={`₹${acqCost.toLocaleString('en-IN')}`} />
+            <StatCard label="Parcels" value={totalParcels} />
           </StatRow>
 
           {/* Toolbar: search · view toggle · export · new passbook. */}

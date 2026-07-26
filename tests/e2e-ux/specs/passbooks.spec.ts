@@ -31,6 +31,7 @@ const QUERY = `query {
 
 test('stat cards, khata chip and totals match GraphQL', async ({ page, request }) => {
   const d = await gql<PbData>(request, QUERY);
+  test.skip(d.passbooks.length === 0, 'no passbooks in the dataset — page shows first-run landing');
   await openApp(page, '/app/passbooks');
   await expect(page.getByText('Sample data')).toHaveCount(0);
 
@@ -43,7 +44,7 @@ test('stat cards, khata chip and totals match GraphQL', async ({ page, request }
     `Total Extent card should read "${formatArea(totalExtent)}"`,
   ).toBeVisible();
 
-  for (const label of ['Passbooks', 'Total Extent', 'Villages', 'Acquisition Cost'])
+  for (const label of ['Passbooks', 'Total Extent', 'Villages', 'Parcels'])
     await expect.soft(page.getByText(label, { exact: true }).first(), `stat card "${label}"`).toBeVisible();
 
   await uxCheck(page, 'passbooks');

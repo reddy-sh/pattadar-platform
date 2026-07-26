@@ -25,21 +25,33 @@ command -v bun >/dev/null || { echo "bun not found — install: curl -fsSL https
 [ -f "$MOBILE_DIR/package.json" ] || { echo "mobile app missing — expected $MOBILE_DIR/package.json"; exit 1; }
 [ -d "$PLATFORM_DIR/node_modules" ] || { echo "» first run — installing workspace..."; (cd "$PLATFORM_DIR" && bun install); }
 
-# --- LAN address for on-phone development ------------------------------------
-# A phone running Expo Go cannot reach 127.0.0.1 on this Mac; give the app the
-# Mac's LAN IP for when API calls are wired in (harmless until then).
-LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1)"
-export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://${LAN_IP}:8081}"
+# --- backend URL + dev identity ----------------------------------------------
+# GraphQL goes STRAIGHT to the local pattadar API (:8080, same one
+# start-local.sh runs) with a dev-only x-user-id header — the exact trust
+# model the web Vite proxy uses. 127.0.0.1 works from the iOS simulator
+# (it shares the Mac's network). SECURITY: the local API trusts x-user-id
+# blindly — keep it loopback-only. Do NOT bind it to the LAN for a physical
+# phone; use `./scripts/start-mobile.sh tunnel` for Metro and keep API work
+# on the simulator until real Cognito auth lands.
+export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://127.0.0.1:8080}"
+export EXPO_PUBLIC_DEV_USER="${EXPO_PUBLIC_DEV_USER:-sankara.telukutla}"
 
-# Metro defaults to :8081 — the same port the local gateway uses. If anything
-# is already listening there (start-local.sh, or another Metro), move to :8082
-# instead of hitting Expo's interactive port prompt.
+if ! curl -fsS -m 2 "${EXPO_PUBLIC_API_URL}/health" >/dev/null 2>&1; then
+  echo "» WARNING: no API at ${EXPO_PUBLIC_API_URL} — app will show sample data (run ./scripts/start-local.sh for real data)"
+fi
+
+# Metro defaults to :8081 — the same port the local gateway uses. Scan for the
+# first genuinely free port (another Metro, the gateway, or any stray listener
+# on ANY interface counts as taken) instead of hitting Expo's port prompt.
 PORT=8081
+while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do
+  PORT=$((PORT + 1))
+  [ "$PORT" -gt 8099 ] && { echo "no free port in 8081-8099"; exit 1; }
+done
 PORT_FLAG=""
-if lsof -nP -iTCP:8081 -sTCP:LISTEN >/dev/null 2>&1; then
-  PORT=8082
-  PORT_FLAG="--port 8082"
-  echo "» :8081 busy — Metro will use :8082"
+if [ "$PORT" -ne 8081 ]; then
+  PORT_FLAG="--port $PORT"
+  echo "» :8081 busy — Metro will use :$PORT"
 fi
 
 # Xcode 27 (beta) replaced Simulator.app with DeviceHub.app; Expo CLI 57 still
@@ -81,14 +93,22 @@ case "$MODE" in
       ios_without_simulator_app
     fi
     ;;
-  android) FLAG="--android" ;;
+  android)
+    FLAG="--android"
+    # Inside the Android emulator, 127.0.0.1 is the emulator itself;
+    # 10.0.2.2 is its alias for this Mac.
+    if [ "$EXPO_PUBLIC_API_URL" = "http://127.0.0.1:8080" ]; then
+      export EXPO_PUBLIC_API_URL="http://10.0.2.2:8080"
+      echo "» android emulator — API URL rewritten to $EXPO_PUBLIC_API_URL"
+    fi
+    ;;
   web)     FLAG="--web" ;;
   tunnel)  FLAG="--tunnel" ;;
   "")      ;;
   *) echo "unknown mode '$MODE' (use: ios | android | web | tunnel, or nothing for QR)"; exit 1 ;;
 esac
 
-echo "» starting Expo (${MODE:-QR for Expo Go}) — EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL"
+echo "» starting Expo (${MODE:-QR for Expo Go}) — API=$EXPO_PUBLIC_API_URL as $EXPO_PUBLIC_DEV_USER (dev header)"
 echo "»   keys once running: i = iOS simulator, a = Android, w = web, r = reload"
 cd "$MOBILE_DIR"
 # shellcheck disable=SC2086  # FLAG/PORT_FLAG are intentionally word-split

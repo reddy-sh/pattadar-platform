@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.rfactory.pattadar",
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "associatedDomains": ["applinks:pattadar.com"]
     },
     "android": {
       "package": "com.rfactory.pattadar",

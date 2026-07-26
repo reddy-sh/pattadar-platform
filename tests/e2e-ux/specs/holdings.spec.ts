@@ -43,7 +43,9 @@ test('holdings chip and per-tab counts match GraphQL', async ({ page, request })
   await uxCheck(page, 'holdings');
 });
 
-test('filter panel opens with all quick filters', async ({ page }) => {
+test('filter panel opens with all quick filters', async ({ page, request }) => {
+  const d = await gql<HoldData>(request, QUERY);
+  test.skip(d.parcels.length + d.properties.length === 0, 'no holdings — page shows first-run landing');
   await openApp(page, '/app/parcels');
   await page.getByRole('button', { name: /^Filters/ }).click();
   for (const label of ['Kind', 'Status', 'My stake', 'Family / group', 'Passbook'])

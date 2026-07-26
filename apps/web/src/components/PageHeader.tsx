@@ -61,8 +61,8 @@ export function PageHeader({
           </Typography>
           {titleChips}
           {sample && (
-            <Tooltip title="The live service is not reachable — showing bundled sample data.">
-              <Chip size="small" variant="outlined" color="secondary" label="Sample data" />
+            <Tooltip title="The live service is not reachable — nothing is shown until it responds.">
+              <Chip size="small" variant="outlined" color="error" label="Service unreachable" />
             </Tooltip>
           )}
         </Box>

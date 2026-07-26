@@ -97,7 +97,6 @@ interface Toast {
   severity: 'success' | 'error' | 'warning' | 'info';
 }
 
-const moneyT = (v: number) => (v > 0 ? `₹${Math.round(v).toLocaleString('en-IN')}` : '—');
 
 const shortName = (name: string) => {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -237,6 +236,8 @@ export function LandPropertiesPage() {
       acres: ps.reduce((a, p) => a + (Number(p.extent) || 0), 0),
       invested: ps.reduce((a, p) => a + (Number(p.purchasePrice) || 0), 0),
       attention: ps.filter((p) => p.litigation || (p.status && p.status !== 'owned')).length,
+      passbooks: data.passbooks.length,
+      plots: prs.filter((p) => p.type === 'open_plot').length,
       sqyd: prs.reduce((a, p) => a + (Number(p.landArea) || 0), 0),
       sqft: prs.reduce((a, p) => a + (Number(p.builtupArea) || 0), 0),
       value:
@@ -426,6 +427,8 @@ export function LandPropertiesPage() {
   return (
     <>
       {firstRun ? (
+        <>
+        <PageHeader eyebrow="Your holdings" title="Land & Properties" />
         <EmptyLanding
           icon="🌍"
           title="Add your first holding"
@@ -433,6 +436,7 @@ export function LandPropertiesPage() {
           ctaText="＋ Add a holding"
           onCta={() => setAddOpen(true)}
         />
+        </>
       ) : (
         <>
           {/* Header: eyebrow + title + holdings chip + composition subtitle. */}
@@ -450,7 +454,7 @@ export function LandPropertiesPage() {
               <>
                 <StatCard label="Parcels" value={t.parcels} />
                 <StatCard label="Total Extent" value={t.acres > 0 ? formatArea(t.acres) : '—'} />
-                <StatCard label="Invested" value={moneyT(t.invested)} />
+                <StatCard label="Passbooks" value={t.passbooks} />
                 <StatCard label="Needs Attention" value={t.attention} />
               </>
             ) : tab === 'properties' ? (
@@ -461,7 +465,7 @@ export function LandPropertiesPage() {
                   value={t.sqyd > 0 ? `${t.sqyd.toLocaleString('en-IN')} Sq.yd` : '—'}
                 />
                 <StatCard label="Built-up" value={t.sqft > 0 ? `${t.sqft.toLocaleString('en-IN')} sq.ft` : '—'} />
-                <StatCard label="Portfolio Value" value={moneyT(t.value)} />
+                <StatCard label="Plots" value={t.plots} />
               </>
             ) : (
               <>
@@ -471,7 +475,7 @@ export function LandPropertiesPage() {
                   label="Plots & Sites"
                   value={t.sqyd > 0 ? `${t.sqyd.toLocaleString('en-IN')} Sq.yd` : '—'}
                 />
-                <StatCard label="Portfolio Value" value={moneyT(t.value)} />
+                <StatCard label="Passbooks" value={t.passbooks} />
               </>
             )}
           </StatRow>

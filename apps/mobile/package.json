@@ -11,6 +11,7 @@
     "build": "echo 'expo app — built via EAS, not bundled in CI'"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "@pattadar/core": "workspace:*",
     "@pattadar/tokens": "workspace:*",
     "@tanstack/react-query": "^5.101.4",

@@ -128,8 +128,8 @@ export function GroupDetail({ group, notify }: { group: Group; notify: Notify })
       setDeleteOpen(false);
       notify('Group deleted');
       refresh();
-    } catch {
-      notify('Could not delete the group', 'error');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Could not delete the group', 'error');
     }
   };
 
@@ -340,8 +340,8 @@ function MembersTab({
       await removeMember(removeTarget.id);
       notify('Removed');
       onChanged();
-    } catch {
-      notify('Could not remove this member', 'error');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Could not remove this member', 'error');
     } finally {
       setRemoveTarget(null);
     }
@@ -369,7 +369,8 @@ function MembersTab({
       acts.push({ key: 'link', label: 'Copy invite link', onClick: () => showInviteLink(p) });
     if (p.status && p.status !== 'revoked')
       acts.push({ key: 'revoke', label: 'Revoke', onClick: () => void doRevoke(p) });
-    acts.push({ key: 'remove', label: 'Remove', danger: true, onClick: () => setRemoveTarget(p) });
+    if (!p.isSelf)
+      acts.push({ key: 'remove', label: 'Remove', danger: true, onClick: () => setRemoveTarget(p) });
     return acts;
   };
 
