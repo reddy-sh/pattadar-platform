@@ -1,34 +1,45 @@
 /**
- * "Land Portfolio" dashboard — the flagship view.
- * Gold-glass hero (total value, gain chip, last visit), four health rings,
- * category-holdings donut + legend list, needs-attention feed, by-village
- * bars, service-requests strip, recent activity.
+ * "Land Portfolio" dashboard — the flagship view, at functional parity with
+ * the current rhub dashboard.ts + DashboardView:
+ *   gold-glass hero (extent-led asset-class summary, est. value ₹ on the
+ *   AP-IGRS guideline basis, gain-since-purchase, net-of-loans, farm/property
+ *   split strip, hide-values toggle, last visit, inactivity-watch chip),
+ *   quick actions, four health rings (records / succession / tax / members),
+ *   category holdings (largest parcels · plots & sites · buildings),
+ *   needs-attention feed, by-village + by-city bars, service-requests hub,
+ *   recent activity. Value/summary math is ported from rhub dashboard.ts;
+ *   ring/attention/village helpers come from data/portfolio (same formulas).
  */
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import AddHomeWorkOutlinedIcon from '@mui/icons-material/AddHomeWorkOutlined';
+import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
+import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
 import CameraAltOutlinedIcon from '@mui/icons-material/CameraAltOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import FenceOutlinedIcon from '@mui/icons-material/FenceOutlined';
+import GrassOutlinedIcon from '@mui/icons-material/GrassOutlined';
 import HandymanOutlinedIcon from '@mui/icons-material/HandymanOutlined';
+import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import SquareFootOutlinedIcon from '@mui/icons-material/SquareFootOutlined';
-import {
-  formatArea,
-  formatDate,
-  formatDateTime,
-  formatINR,
-  formatINRCompact,
-  parseISOToDisplay,
-} from '@pattadar/core';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
+import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import { formatArea, formatDate, formatDateTime, formatINR, formatINRCompact, parseISOToDisplay } from '@pattadar/core';
+import { gql } from '../api/client';
 import { GlassCard } from '../components/GlassCard';
 import { PageHeader } from '../components/PageHeader';
 import { BarList } from '../components/charts/BarList';
-import { Donut } from '../components/charts/Donut';
 import { HealthRing } from '../components/charts/HealthRing';
 import { useChartColors, useStatusColors } from '../components/charts/chartColors';
 import { useDashboard } from '../data/hooks';
@@ -36,20 +47,154 @@ import {
   actionLabel,
   attentionItems,
   gainSincePurchase,
-  holdingCategories,
   membersVerified,
+  parcelValue,
+  propertyValue,
   recordsHealth,
   successionCover,
   taxCompliance,
-  totalExtentAcres,
-  totalPortfolioValue,
-  villageExtents,
 } from '../data/portfolio';
+import type { DashParcel, DashProperty } from '../data/portfolio';
+
+/* ── Pure summaries ported from rhub dashboard.ts ─────────────────────── */
+
+/** Extent-led hero summary — what the owner actually knows, by asset class. */
+interface HoldingsSummary {
+  farmAcres: number;
+  farmCost: number;
+  parcels: number;
+  plotSqyd: number;
+  plotCost: number;
+  plots: number;
+  resSqft: number;
+  resCost: number;
+  comSqft: number;
+  comCost: number;
+  comCount: number;
+  rentMonthly: number;
+  rentals: number;
+}
+
+function holdingsSummary(parcels: DashParcel[], properties: DashProperty[]): HoldingsSummary {
+  const s: HoldingsSummary = {
+    farmAcres: 0, farmCost: 0, parcels: parcels.length,
+    plotSqyd: 0, plotCost: 0, plots: 0,
+    resSqft: 0, resCost: 0,
+    comSqft: 0, comCost: 0, comCount: 0,
+    rentMonthly: 0, rentals: 0,
+  };
+  for (const p of parcels) {
+    s.farmAcres += Number(p.extent) || 0;
+    s.farmCost += Number(p.purchasePrice) || 0;
+  }
+  for (const p of properties) {
+    const cost = Number(p.purchasePrice) || 0;
+    const commercial = p.type === 'commercial' || p.type === 'rental';
+    const builtup = Number(p.builtupArea) || 0;
+    const land = Number(p.landArea) || 0;
+    try {
+      const a = p.attributes ? JSON.parse(p.attributes) : {};
+      const rent = Number(a.monthly_rent) || Number(a.rent) || 0;
+      if (rent > 0) {
+        s.rentMonthly += rent;
+        s.rentals += 1;
+      }
+    } catch {
+      /* malformed attributes never break the hero */
+    }
+    if (commercial && builtup > 0) {
+      s.comSqft += builtup;
+      s.comCost += cost;
+      s.comCount += 1;
+    } else if (builtup > 0) {
+      s.resSqft += builtup;
+      s.resCost += cost;
+    }
+    if (land > 0) {
+      s.plotSqyd += land;
+      s.plots += builtup > 0 ? 0 : 1;
+      if (builtup === 0) s.plotCost += cost;
+    }
+  }
+  return s;
+}
+
+function totalLoans(parcels: DashParcel[]): number {
+  return parcels.reduce((s, p) => s + (p.loanAmount || 0), 0);
+}
+
+function splitShares(farm: number, prop: number) {
+  const total = farm + prop;
+  if (total <= 0) return { farmPct: 0, propPct: 0 };
+  const farmPct = Math.round((farm / total) * 100);
+  return { farmPct, propPct: 100 - farmPct };
+}
+
+function cityValues(properties: DashProperty[]) {
+  const acc = new Map<string, number>();
+  for (const p of properties) {
+    const c = p.city || '—';
+    acc.set(c, (acc.get(c) || 0) + propertyValue(p));
+  }
+  return [...acc.entries()]
+    .map(([name, value]) => ({ name, value, hasValue: value > 0 }))
+    .sort((a, b) => b.value - a.value);
+}
+
+/** Acres per village — top 3 + a "+N more" row (rhub dashboard.ts shape). */
+function villageExtents3(parcels: DashParcel[], passbooks: { id: string; village: string }[]) {
+  const villageOf = new Map(passbooks.map((b) => [b.id, b.village || '—']));
+  const acc = new Map<string, number>();
+  for (const p of parcels) {
+    const v = villageOf.get(p.passbookId) || '—';
+    acc.set(v, (acc.get(v) || 0) + (Number(p.extent) || 0));
+  }
+  const rows = [...acc.entries()].map(([name, acres]) => ({ name, acres })).sort((a, b) => b.acres - a.acres);
+  const top = rows.slice(0, 3);
+  const rest = rows.slice(3);
+  return { top, moreCount: rest.length, moreAcres: rest.reduce((s, r) => s + r.acres, 0) };
+}
+
+function bySizeThenValue<T>(items: T[], value: (t: T) => number, size: (t: T) => number, n: number): T[] {
+  return [...items]
+    .sort((a, b) => {
+      const va = value(a);
+      const vb = value(b);
+      if (va !== vb) return vb - va;
+      return size(b) - size(a);
+    })
+    .slice(0, n);
+}
+
+const topParcels = (parcels: DashParcel[], n: number) =>
+  bySizeThenValue(parcels, parcelValue, (p) => Number(p.extent) || 0, n);
+const BUILDING_TYPES = new Set(['flat', 'independent_house', 'villa', 'commercial', 'rental', 'other']);
+const topPlots = (properties: DashProperty[], n: number) =>
+  bySizeThenValue(properties.filter((p) => p.type === 'open_plot'), propertyValue, (p) => p.landArea || 0, n);
+const topBuildings = (properties: DashProperty[], n: number) =>
+  bySizeThenValue(
+    properties.filter((p) => BUILDING_TYPES.has(p.type)),
+    propertyValue,
+    (p) => p.builtupArea || p.landArea || 0,
+    n,
+  );
+
+function assetGainPct(value: number, purchasePrice: number): number | null {
+  if (!(value > 0) || !(purchasePrice > 0)) return null;
+  return Math.round(((value - purchasePrice) / purchasePrice) * 100);
+}
+
+/* ── View ─────────────────────────────────────────────────────────────── */
 
 const REQ_META: Record<string, { label: string; icon: ReactElement }> = {
   site_photos: { label: 'Site photos', icon: <CameraAltOutlinedIcon fontSize="small" /> },
+  fencing: { label: 'Fencing', icon: <FenceOutlinedIcon fontSize="small" /> },
   survey: { label: 'Boundary survey', icon: <SquareFootOutlinedIcon fontSize="small" /> },
+  repair: { label: 'Repair', icon: <HandymanOutlinedIcon fontSize="small" /> },
   EC: { label: 'Encumbrance certificate', icon: <DescriptionOutlinedIcon fontSize="small" /> },
+  CC: { label: 'Certified copy', icon: <DescriptionOutlinedIcon fontSize="small" /> },
+  marketvalue: { label: 'Market value', icon: <AccountBalanceOutlinedIcon fontSize="small" /> },
+  duty: { label: 'Stamp duty', icon: <CalculateOutlinedIcon fontSize="small" /> },
 };
 
 function fmtWhen(iso: string): string {
@@ -59,62 +204,102 @@ function fmtWhen(iso: string): string {
   return iso.includes('T') ? formatDateTime(d) : formatDate(d);
 }
 
+interface HoldingRow {
+  id: string;
+  title: string;
+  sub: string;
+  value: number;
+  gainPct: number | null;
+  litigation: boolean;
+  go: string;
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const { data: d, isSample } = useDashboard();
   const colors = useChartColors();
   const statusColors = useStatusColors();
+  const [masked, setMasked] = useState(() => localStorage.getItem('pattadar-hide-values') === '1');
 
   const today = new Date();
-  const { farm, prop, total } = totalPortfolioValue(d.parcels, d.properties);
-  const gain = gainSincePurchase(d.parcels, d.properties);
-  const acres = totalExtentAcres(d.parcels);
   const hour = today.getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstRun = d.parcels.length === 0 && d.properties.length === 0;
+  const firstRun = d.stats.totalPassbooks === 0 && d.properties.length === 0;
 
-  const docsRing = recordsHealth(d.parcels, d.passbooks, d.documents);
-  const verifyRing = membersVerified(d.members);
-  const taxRing = taxCompliance(d.parcels, d.properties, today);
-  const familyRing = successionCover(d.parcels, d.passbooks, d.groups);
+  // ── dashboard.ts value model: farm total is the AP-IGRS estimate from the
+  // API (dashboardStats.estimatedValue); properties add their own values. ──
+  const farmTotal = d.stats.estimatedValue ?? 0;
+  const propTotal = d.properties.reduce((s, p) => s + propertyValue(p), 0);
+  const total = farmTotal + propTotal;
+  const gain = gainSincePurchase(d.parcels, d.properties);
+  const hs = holdingsSummary(d.parcels, d.properties);
+  const loans = totalLoans(d.parcels);
+  const split = splitShares(farmTotal, propTotal);
+  const money = (v: number) => (masked ? '₹ ••••' : formatINRCompact(v));
+  const toggleMask = () => {
+    const next = !masked;
+    setMasked(next);
+    localStorage.setItem('pattadar-hide-values', next ? '1' : '0');
+  };
+
+  // Inactivity-watch chip — notifier count across groups (best-effort).
+  const notifierQ = useQuery({
+    queryKey: ['pattadar', 'dash-notifiers', d.groups.map((g) => g.id).join(',')],
+    enabled: !isSample && d.groups.length > 0,
+    retry: false,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const per = await Promise.all(
+        d.groups.map((g) =>
+          gql<{ notifiers: { memberId: string }[] }>(
+            'query($gid: String!) { notifiers(groupId: $gid) { memberId } }',
+            { gid: g.id },
+          ).catch(() => ({ notifiers: [] as { memberId: string }[] })),
+        ),
+      );
+      return per.reduce((n, r) => n + (r.notifiers?.length ?? 0), 0);
+    },
+  });
+  const notifierCount = notifierQ.data ?? 0;
+
+  // ── health rings (same formulas as rhub dashboard.ts) ─────────────────
+  const rHealth = recordsHealth(d.parcels, d.passbooks, d.documents);
+  const sCover = successionCover(d.parcels, d.passbooks, d.groups);
+  const tax = taxCompliance(d.parcels, d.properties, today);
+  const mVer = membersVerified(d.members);
   const rings = [
-    docsRing && {
-      pct: docsRing.pct,
+    rHealth && {
+      pct: rHealth.pct,
       color: colors[0],
-      title: 'Documents',
-      gap: docsRing.gaps[0] || 'All records complete',
-      go: '/app/documents',
-    },
-    verifyRing && {
-      pct: verifyRing.pct,
-      color: colors[2],
-      title: 'Verification',
-      gap: verifyRing.pending
-        ? `${verifyRing.pending} member${verifyRing.pending > 1 ? 's' : ''} pending`
-        : 'All members verified',
-      go: '/app/groups',
-    },
-    taxRing && {
-      pct: taxRing.pct,
-      color: colors[1],
-      title: 'Tax & EC',
-      gap: taxRing.overdue
-        ? `${taxRing.overdue} payment${taxRing.overdue > 1 ? 's' : ''} overdue`
-        : 'All taxes current',
+      title: 'Records health',
+      gap: rHealth.gaps[0] || 'All records complete',
       go: '/app/parcels',
     },
-    familyRing && {
-      pct: familyRing.pct,
+    sCover && {
+      pct: sCover.pct,
+      color: colors[2],
+      title: 'Succession cover',
+      gap: sCover.uncovered
+        ? `${sCover.uncovered} parcel${sCover.uncovered > 1 ? 's' : ''} without heirs`
+        : 'Every parcel has nominated heirs',
+      go: '/app/groups',
+    },
+    tax && {
+      pct: tax.pct,
+      color: colors[1],
+      title: 'Tax compliance',
+      gap: tax.overdue ? `${tax.overdue} overdue` : 'All taxes current',
+      go: '/app/parcels',
+    },
+    mVer && {
+      pct: mVer.pct,
       color: colors[4],
-      title: 'Family coverage',
-      gap: familyRing.uncovered
-        ? `${familyRing.uncovered} parcel${familyRing.uncovered > 1 ? 's' : ''} without heirs`
-        : 'Every parcel has heirs',
+      title: 'Members verified',
+      gap: mVer.pending ? `${mVer.pending} pending` : 'All members verified',
       go: '/app/groups',
     },
   ].filter((r): r is { pct: number; color: string; title: string; gap: string; go: string } => Boolean(r));
 
-  const cats = holdingCategories(d.parcels, d.properties, d.documents.length);
   const attention = attentionItems(
     {
       pendingInvites: d.invitations.length,
@@ -124,16 +309,119 @@ export function DashboardPage() {
     },
     today,
   );
-  const villages = villageExtents(d.parcels, d.passbooks);
-  const splitFarm = total > 0 ? Math.round((farm / total) * 100) : 0;
+
+  const villages = villageExtents3(d.parcels, d.passbooks);
+  const cities = cityValues(d.properties);
+
+  // ── category holdings (dashboard.ts holdingCats) ──────────────────────
+  const villageOf = new Map(d.passbooks.map((b) => [b.id, b.village]));
+  const holdingCats: { key: string; title: string; rows: HoldingRow[]; addGo: string; addLabel: string }[] = [
+    {
+      key: 'parcels',
+      title: 'Largest parcels',
+      rows: topParcels(d.parcels, 3).map((p) => ({
+        id: p.id,
+        title: `Sy ${p.surveyNo}${villageOf.get(p.passbookId) ? ` · ${villageOf.get(p.passbookId)}` : ''}`,
+        sub: [p.classification, formatArea(Number(p.extent) || 0)].filter(Boolean).join(' · '),
+        value: parcelValue(p),
+        gainPct: assetGainPct(parcelValue(p), p.purchasePrice),
+        litigation: p.litigation,
+        go: '/app/parcels',
+      })),
+      addGo: '/app/parcels',
+      addLabel: '+ Add a parcel',
+    },
+    {
+      key: 'plots',
+      title: 'Largest plots & sites',
+      rows: topPlots(d.properties, 3).map((p) => ({
+        id: p.id,
+        title: `${p.label || 'Plot'}${p.city ? ` · ${p.city}` : ''}`,
+        sub: p.landArea ? `${p.landArea} ${p.landUnit}` : '',
+        value: propertyValue(p),
+        gainPct: assetGainPct(propertyValue(p), p.purchasePrice),
+        litigation: p.litigation,
+        go: '/app/parcels?tab=properties',
+      })),
+      addGo: '/app/parcels?tab=properties',
+      addLabel: '+ Add a plot',
+    },
+    {
+      key: 'buildings',
+      title: 'Buildings',
+      rows: topBuildings(d.properties, 3).map((p) => ({
+        id: p.id,
+        title: `${p.label || p.type}${p.city ? ` · ${p.city}` : ''}`,
+        sub: p.builtupArea ? `${p.builtupArea} ${p.builtupUnit} built-up` : '',
+        value: propertyValue(p),
+        gainPct: assetGainPct(propertyValue(p), p.purchasePrice),
+        litigation: p.litigation,
+        go: '/app/parcels?tab=properties',
+      })),
+      addGo: '/app/parcels?tab=properties',
+      addLabel: '+ Add a building',
+    },
+  ].filter((c) => c.rows.length > 0);
+
+  const reqCounts = {
+    active: d.requests.filter((r) => r.status === 'pending').length,
+    prog: d.requests.filter((r) => r.status === 'in_progress').length,
+    done: d.requests.filter((r) => r.status === 'completed').length,
+  };
+
+  const quickActions = [
+    { label: 'New Passbook', icon: <MenuBookOutlinedIcon fontSize="small" />, go: '/app/passbooks' },
+    { label: 'Add Parcel', icon: <GrassOutlinedIcon fontSize="small" />, go: '/app/parcels' },
+    { label: 'Add Property', icon: <AddHomeWorkOutlinedIcon fontSize="small" />, go: '/app/parcels?tab=properties' },
+    { label: 'Upload Deed', icon: <UploadFileOutlinedIcon fontSize="small" />, go: '/app/documents' },
+    { label: 'Find SRO', icon: <AccountBalanceOutlinedIcon fontSize="small" />, go: '/app/tools?tab=sro' },
+    { label: 'Stamp Duty', icon: <CalculateOutlinedIcon fontSize="small" />, go: '/app/tools?tab=stamp-duty' },
+  ];
 
   const countChips = [
-    { label: `${d.stats.totalPassbooks} passbooks`, go: '/app/passbooks' },
-    { label: `${d.stats.totalParcels} parcels`, go: '/app/parcels' },
-    { label: `${d.properties.length} properties`, go: '/app/properties' },
-    { label: `${d.stats.totalDocuments} documents`, go: '/app/documents' },
-    { label: `${d.stats.totalGroups} groups`, go: '/app/groups' },
+    { label: `${d.stats.totalPassbooks} passbook${d.stats.totalPassbooks !== 1 ? 's' : ''}`, go: '/app/passbooks' },
+    { label: `${d.stats.totalGroups} group${d.stats.totalGroups !== 1 ? 's' : ''}`, go: '/app/groups' },
+    {
+      label: `${d.stats.totalBeneficiaries} beneficiar${d.stats.totalBeneficiaries !== 1 ? 'ies' : 'y'}`,
+      go: '/app/groups',
+    },
+    { label: `${d.stats.totalDocuments} document${d.stats.totalDocuments !== 1 ? 's' : ''}`, go: '/app/documents' },
   ];
+
+  // Hero asset-class lines (dashboard.ts extent-led summary).
+  const heroLines: { key: string; big: string; rest: string }[] = [];
+  if (hs.farmAcres > 0)
+    heroLines.push({
+      key: 'farm',
+      big: formatArea(hs.farmAcres),
+      rest: `farmland · ${hs.parcels} parcel${hs.parcels !== 1 ? 's' : ''}${hs.farmCost > 0 && !masked ? ` · ${formatINRCompact(hs.farmCost)} invested` : ''}`,
+    });
+  if (hs.plotSqyd > 0)
+    heroLines.push({
+      key: 'plots',
+      big: `${hs.plotSqyd.toLocaleString('en-IN')} Sq.yd`,
+      rest: `plots & sites · ${hs.plots}${hs.plotCost > 0 && !masked ? ` · ${formatINRCompact(hs.plotCost)} invested` : ''}`,
+    });
+  if (hs.resSqft > 0)
+    heroLines.push({
+      key: 'res',
+      big: `${hs.resSqft.toLocaleString('en-IN')} sq.ft`,
+      rest: `residential built-up${hs.resCost > 0 && !masked ? ` · ${formatINRCompact(hs.resCost)} invested` : ''}`,
+    });
+  if (hs.comSqft > 0)
+    heroLines.push({
+      key: 'com',
+      big: `${hs.comSqft.toLocaleString('en-IN')} sq.ft`,
+      rest: `commercial · ${hs.comCount}${hs.comCost > 0 && !masked ? ` · ${formatINRCompact(hs.comCost)} invested` : ''}`,
+    });
+  if (hs.rentMonthly > 0 && !masked)
+    heroLines.push({
+      key: 'rent',
+      big: formatINRCompact(hs.rentMonthly),
+      rest: `/ month rental income · ${hs.rentals} unit${hs.rentals !== 1 ? 's' : ''}`,
+    });
+  if (heroLines.length === 0)
+    heroLines.push({ key: 'extent', big: formatArea(d.stats.totalExtent), rest: 'recorded extent' });
 
   return (
     <>
@@ -177,18 +465,47 @@ export function DashboardPage() {
                   · Last visit {fmtWhen(d.lastVisit)}
                 </Typography>
               )}
+              {notifierCount > 0 ? (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Watch armed · ${notifierCount} notifier${notifierCount > 1 ? 's' : ''}`}
+                />
+              ) : (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label="Set up inactivity watch →"
+                  onClick={() => navigate('/app/groups')}
+                />
+              )}
             </Box>
-            <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-              Total portfolio value
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap' }}>
-              <Typography
-                component="p"
-                sx={{ fontSize: { xs: 36, sm: 48 }, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em' }}
-              >
-                {formatINR(total)}
+
+            {/* Extent-led asset-class lines */}
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="overline" color="text.secondary">
+                Your land &amp; property
               </Typography>
-              {gain.counted > 0 && (
+              {heroLines.map((l) => (
+                <Typography key={l.key} sx={{ fontSize: { xs: 20, sm: 24 }, fontWeight: 700, lineHeight: 1.35, letterSpacing: '-0.01em' }}>
+                  {l.big}
+                  <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 600 }}>
+                    {l.rest}
+                  </Typography>
+                </Typography>
+              ))}
+            </Box>
+
+            {/* Est. value + gain + mask toggle */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mt: 1 }}>
+              <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                Est. value {total > 0 ? (masked ? '₹ ••••' : formatINR(total)) : '—'}
+                <Typography component="span" variant="caption" color="text.secondary">
+                  {' '}
+                  · guideline basis
+                </Typography>
+              </Typography>
+              {total > 0 && !masked && gain.counted > 0 && (
                 <Tooltip title={`On ${gain.counted} of ${gain.total} assets with purchase records`}>
                   <Chip
                     size="small"
@@ -203,120 +520,172 @@ export function DashboardPage() {
                   />
                 </Tooltip>
               )}
+              <Tooltip title={masked ? 'Show values' : 'Hide values'}>
+                <IconButton size="small" onClick={toggleMask} aria-label={masked ? 'Show values' : 'Hide values'}>
+                  {masked ? <VisibilityOutlinedIcon fontSize="small" /> : <VisibilityOffOutlinedIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
             </Box>
-            <Typography variant="caption" color="text.secondary">
-              Guideline basis — estimated from AP-IGRS market-value rates · {formatArea(acres)} of farmland
-            </Typography>
-            {total > 0 && (
+            {loans > 0 && total > 0 && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                Net of {money(loans)} loans: <b>{money(total - loans)}</b>
+              </Typography>
+            )}
+
+            {/* Farm / property split strip */}
+            {total > 0 && propTotal > 0 && (
               <>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    gap: '2px',
-                    height: 9,
-                    borderRadius: '5px',
-                    overflow: 'hidden',
-                    maxWidth: 520,
-                    mt: 1.5,
-                  }}
-                >
-                  <Box sx={{ flexGrow: Math.max(splitFarm, 2), bgcolor: colors[0] }} />
-                  <Box sx={{ flexGrow: Math.max(100 - splitFarm, 2), bgcolor: colors[1] }} />
+                <Box sx={{ display: 'flex', gap: '2px', height: 9, borderRadius: '5px', overflow: 'hidden', maxWidth: 520, mt: 1.5 }}>
+                  <Box sx={{ flexGrow: Math.max(split.farmPct, 2), bgcolor: colors[0] }} />
+                  <Box sx={{ flexGrow: Math.max(split.propPct, 2), bgcolor: colors[1] }} />
                 </Box>
                 <Box sx={{ display: 'flex', gap: 2, mt: 0.75, flexWrap: 'wrap' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: colors[0] }} />
                     <Typography variant="caption" color="text.secondary">
-                      Farmland {formatINRCompact(farm)}
+                      Farmland {money(farmTotal)} · {d.stats.totalParcels} parcels
                     </Typography>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: colors[1] }} />
                     <Typography variant="caption" color="text.secondary">
-                      Properties {formatINRCompact(prop)}
+                      Properties {money(propTotal)} · {d.properties.length} asset{d.properties.length !== 1 ? 's' : ''}
                     </Typography>
                   </Box>
                 </Box>
               </>
             )}
-            <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap' }}>
+
+            <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               {countChips.map((c) => (
                 <Chip key={c.label} size="small" variant="outlined" label={c.label} onClick={() => navigate(c.go)} />
               ))}
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                {total > 0
+                  ? 'Estimated from AP-IGRS market-value rates · guideline basis'
+                  : 'Add market values to see estimated worth'}
+              </Typography>
             </Box>
           </Box>
         )}
       </GlassCard>
 
+      {/* ── Quick actions ───────────────────────────────────────────── */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr', lg: 'repeat(6, 1fr)' }, gap: 1.5, mb: 2.5 }}>
+        {quickActions.map((a) => (
+          <Card key={a.label} sx={{ cursor: 'pointer', '&:hover': { borderColor: 'primary.main' } }} onClick={() => navigate(a.go)}>
+            <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Box sx={{ color: 'primary.main' }}>{a.icon}</Box>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {a.label}
+              </Typography>
+            </CardContent>
+          </Card>
+        ))}
+      </Box>
+
       {/* ── Health rings ────────────────────────────────────────────── */}
-      {rings.length > 0 && (
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr 1fr', md: `repeat(${rings.length}, 1fr)` },
-            gap: 1.5,
-            mb: 2.5,
-          }}
-        >
+      {!firstRun && rings.length > 0 && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: `repeat(${rings.length}, 1fr)` }, gap: 1.5, mb: 2.5 }}>
           {rings.map((r) => (
             <HealthRing key={r.title} pct={r.pct} color={r.color} title={r.title} gap={r.gap} onClick={() => navigate(r.go)} />
           ))}
         </Box>
       )}
 
-      {/* ── Holdings donut + attention ──────────────────────────────── */}
+      {/* ── Category holdings + attention ───────────────────────────── */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 1.5, mb: 2.5 }}>
-        <Card>
-          <CardContent>
-            <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
-              Your holdings by category
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Donut
-                slices={cats.map((c, i) => ({
-                  label: c.label,
-                  value: c.value,
-                  display: formatINRCompact(c.value),
-                  color: colors[i],
-                }))}
-                centerLabel={formatINRCompact(total)}
-                centerSub="all holdings"
-              />
-              {/* Legend list — swatch + label + detail + value. */}
-              <Box sx={{ flexGrow: 1, minWidth: 240 }}>
-                {cats.map((c, i) => (
-                  <Box
-                    key={c.key}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.25,
-                      py: 1,
-                      borderBottom: 1,
-                      borderColor: 'divider',
-                      '&:last-of-type': { borderBottom: 0 },
-                    }}
-                  >
-                    <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: colors[i], flexShrink: 0 }} />
-                    <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {c.label}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {c.detail}
-                      </Typography>
-                    </Box>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {c.value > 0 ? formatINRCompact(c.value) : '—'}
+        <Box>
+          <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
+            Top holdings
+          </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: `repeat(${Math.max(1, holdingCats.length)}, 1fr)` },
+              gap: 1.5,
+            }}
+          >
+            {holdingCats.length === 0 ? (
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary">
+                    Add parcels or properties to see your largest holdings here.
+                  </Typography>
+                </CardContent>
+              </Card>
+            ) : (
+              holdingCats.map((c) => (
+                <Card key={c.key}>
+                  <CardContent>
+                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                      {c.title}
                     </Typography>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
+                    {c.rows.map((r) => (
+                      <Box
+                        key={r.id}
+                        onClick={() => navigate(r.go)}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1,
+                          py: 0.9,
+                          borderBottom: 1,
+                          borderColor: 'divider',
+                          cursor: 'pointer',
+                          '&:last-of-type': { borderBottom: 0 },
+                        }}
+                      >
+                        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                            {r.title}
+                          </Typography>
+                          {r.sub && (
+                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                              {r.sub}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {r.value > 0 ? money(r.value) : '—'}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: r.litigation
+                                ? statusColors.critical
+                                : r.value <= 0
+                                  ? statusColors.warning
+                                  : r.gainPct !== null && r.gainPct >= 0
+                                    ? statusColors.good
+                                    : statusColors.critical,
+                            }}
+                          >
+                            {r.litigation
+                              ? 'litigation'
+                              : r.value <= 0
+                                ? 'add value'
+                                : r.gainPct !== null && !masked
+                                  ? `${r.gainPct >= 0 ? '▲' : '▼'} ${Math.abs(r.gainPct)}%`
+                                  : ''}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    ))}
+                    {c.rows.length < 3 && (
+                      <Button size="small" sx={{ mt: 1 }} onClick={() => navigate(c.addGo)}>
+                        {c.addLabel}
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </Box>
+        </Box>
 
-        <Card>
+        <Card sx={{ alignSelf: 'start' }}>
           <CardContent>
             <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
               Needs attention
@@ -359,30 +728,124 @@ export function DashboardPage() {
         </Card>
       </Box>
 
-      {/* ── By village + activity ───────────────────────────────────── */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.5, mb: 2.5 }}>
-        {villages.length > 0 && (
-          <Card>
-            <CardContent>
-              <Typography variant="h4" component="h2" sx={{ mb: 0.5 }}>
-                Farmland by village
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                {formatArea(acres)} across {d.stats.totalParcels} parcel{d.stats.totalParcels !== 1 ? 's' : ''}
-              </Typography>
-              <BarList
-                rows={villages.map((v) => ({
-                  id: v.name,
-                  label: v.name,
-                  value: v.acres,
-                  display: formatArea(v.acres),
-                }))}
-                color={colors[0]}
-                onRowClick={() => navigate('/app/parcels')}
-              />
-            </CardContent>
-          </Card>
-        )}
+      {/* ── By village + by city ────────────────────────────────────── */}
+      {(d.parcels.length > 0 || cities.length > 0) && (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.5, mb: 2.5 }}>
+          {d.parcels.length > 0 && (
+            <Card>
+              <CardContent>
+                <Typography variant="h4" component="h2" sx={{ mb: 0.5 }}>
+                  Farmland by village
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  {farmTotal > 0 ? `${money(farmTotal)} · ` : ''}
+                  {d.stats.totalParcels} parcel{d.stats.totalParcels !== 1 ? 's' : ''} ·{' '}
+                  {formatArea(d.stats.totalExtent)}
+                </Typography>
+                <BarList
+                  rows={[
+                    ...villages.top.map((v) => ({
+                      id: v.name,
+                      label: v.name,
+                      value: v.acres,
+                      display: formatArea(v.acres),
+                    })),
+                    ...(villages.moreCount > 0
+                      ? [
+                          {
+                            id: '__more__',
+                            label: `+ ${villages.moreCount} more`,
+                            value: villages.moreAcres,
+                            display: formatArea(villages.moreAcres),
+                          },
+                        ]
+                      : []),
+                  ]}
+                  color={colors[0]}
+                  onRowClick={() => navigate('/app/parcels')}
+                />
+              </CardContent>
+            </Card>
+          )}
+          {cities.length > 0 && (
+            <Card>
+              <CardContent>
+                <Typography variant="h4" component="h2" sx={{ mb: 0.5 }}>
+                  Properties by city
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  {propTotal > 0 ? `${money(propTotal)} · ` : ''}
+                  {d.properties.length} asset{d.properties.length !== 1 ? 's' : ''} · {cities.length}{' '}
+                  cit{cities.length !== 1 ? 'ies' : 'y'}
+                </Typography>
+                <BarList
+                  rows={cities.map((c) => ({
+                    id: c.name,
+                    label: c.name,
+                    value: c.value,
+                    display: c.hasValue ? (masked ? '₹ ••••' : formatINRCompact(c.value)) : 'add value',
+                  }))}
+                  color={colors[1]}
+                  onRowClick={() => navigate('/app/parcels?tab=properties')}
+                />
+              </CardContent>
+            </Card>
+          )}
+        </Box>
+      )}
+
+      {/* ── Service requests hub + recent activity ──────────────────── */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.5 }}>
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+            <Typography variant="h4" component="h2">
+              Service requests
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {reqCounts.active} active · {reqCounts.prog} in progress · {reqCounts.done} completed
+            </Typography>
+          </Box>
+          {d.requests.length === 0 ? (
+            <Card>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">
+                  No requests yet — site photos, boundary surveys, fencing and record copies will
+                  appear here.
+                </Typography>
+              </CardContent>
+            </Card>
+          ) : (
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 1.5 }}>
+              {d.requests.slice(0, 3).map((r) => {
+                const meta = REQ_META[r.reqType] ?? {
+                  label: r.reqType || 'Request',
+                  icon: <HandymanOutlinedIcon fontSize="small" />,
+                };
+                const chip =
+                  r.status === 'completed'
+                    ? { label: 'Completed', color: 'success' as const }
+                    : r.status === 'in_progress'
+                      ? { label: 'In progress', color: 'info' as const }
+                      : { label: 'Active', color: 'default' as const };
+                return (
+                  <Card key={r.id}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                        <Box sx={{ color: 'text.secondary' }}>{meta.icon}</Box>
+                        <Chip size="small" label={chip.label} color={chip.color} variant="outlined" />
+                      </Box>
+                      <Typography variant="subtitle2">{meta.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {parseISOToDisplay(r.createdAt)} — {r.details}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Box>
+          )}
+        </Box>
+
         <Card>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 1.5 }}>
@@ -390,87 +853,57 @@ export function DashboardPage() {
                 Recent activity
               </Typography>
               <Button size="small" onClick={() => navigate('/app/audit')}>
-                Full history
+                Audit log
               </Button>
             </Box>
-            {d.audit.slice(0, 6).map((a) => (
-              <Box
-                key={a.id}
-                sx={{
-                  display: 'flex',
-                  gap: 1.25,
-                  py: 0.9,
-                  borderBottom: 1,
-                  borderColor: 'divider',
-                  '&:last-of-type': { borderBottom: 0 },
-                }}
-              >
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: colors[0], mt: '7px', flexShrink: 0 }} />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="body2">
-                    <Box component="span" sx={{ fontWeight: 600 }}>
-                      {actionLabel(a.action)}
-                    </Box>
-                    {a.target ? ` · ${a.target}` : ''}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {(a.actor || '').split('@')[0] || '—'} · {fmtWhen(a.timestamp)}
-                  </Typography>
+            {d.audit.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No recent activity
+              </Typography>
+            ) : (
+              d.audit.slice(0, 8).map((a) => (
+                <Box
+                  key={a.id}
+                  sx={{
+                    display: 'flex',
+                    gap: 1.25,
+                    py: 0.9,
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    '&:last-of-type': { borderBottom: 0 },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      mt: '7px',
+                      flexShrink: 0,
+                      bgcolor: /delete|remove/.test(a.action)
+                        ? statusColors.critical
+                        : /create|add|upload/.test(a.action)
+                          ? statusColors.good
+                          : colors[2],
+                    }}
+                  />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="body2">
+                      <Box component="span" sx={{ fontWeight: 600 }}>
+                        {actionLabel(a.action)}
+                      </Box>
+                      {a.target ? ` · ${a.target}` : ''}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {(a.actor || '').split('@')[0] || '—'} · {fmtWhen(a.timestamp)}
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </Box>
-
-      {/* ── Service requests strip ──────────────────────────────────── */}
-      <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
-        Service requests
-      </Typography>
-      {d.requests.length === 0 ? (
-        <Card>
-          <CardContent>
-            <Typography variant="body2" color="text.secondary">
-              No requests yet — site photos, boundary surveys, fencing and record copies will appear here.
-            </Typography>
-          </CardContent>
-        </Card>
-      ) : (
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: `repeat(${Math.min(3, d.requests.length)}, 1fr)` },
-            gap: 1.5,
-          }}
-        >
-          {d.requests.slice(0, 3).map((r) => {
-            const meta = REQ_META[r.reqType] ?? {
-              label: r.reqType || 'Request',
-              icon: <HandymanOutlinedIcon fontSize="small" />,
-            };
-            const chip =
-              r.status === 'completed'
-                ? { label: 'Completed', color: 'success' as const }
-                : r.status === 'in_progress'
-                  ? { label: 'In progress', color: 'info' as const }
-                  : { label: 'Waiting', color: 'default' as const };
-            return (
-              <Card key={r.id}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                    <Box sx={{ color: 'text.secondary' }}>{meta.icon}</Box>
-                    <Chip size="small" label={chip.label} color={chip.color} variant="outlined" />
-                  </Box>
-                  <Typography variant="subtitle2">{meta.label}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {parseISOToDisplay(r.createdAt)} — {r.details}
-                  </Typography>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </Box>
-      )}
     </>
   );
 }

@@ -1,66 +1,108 @@
 /**
- * Groups & members — typed groups (family, partnership, company, HUF, trust)
- * own land; the member table shows DOB, gender, contact, verification state,
- * heir flag, nominated share and masked Aadhaar. Invite CTA per group.
+ * Families & Groups — functional-parity port of the rhub pattadar app's
+ * GroupsListView + GroupDetailView (founder screenshot contract): typed
+ * group cards ("<n> members · <n> passbooks · Your role: …", "View
+ * holdings ›" deep link) with the full in-page group detail — member table,
+ * PersonDialog (Scan Aadhaar AI + manual form), verification invites,
+ * land assignment, notifier priority editor and activity.
  */
 import { useState } from 'react';
-import type { ReactElement } from 'react';
+import { useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
-import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import Tooltip from '@mui/material/Tooltip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Link from '@mui/material/Link';
+import MenuItem from '@mui/material/MenuItem';
+import Snackbar from '@mui/material/Snackbar';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
-import BalanceOutlinedIcon from '@mui/icons-material/BalanceOutlined';
-import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
-import CorporateFareOutlinedIcon from '@mui/icons-material/CorporateFareOutlined';
-import Diversity3OutlinedIcon from '@mui/icons-material/Diversity3Outlined';
+import AddIcon from '@mui/icons-material/Add';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
-import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined';
-import PersonAddAltOutlinedIcon from '@mui/icons-material/PersonAddAltOutlined';
-import { formatArea, parseISOToDisplay } from '@pattadar/core';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
-import { useGroups } from '../data/hooks';
+import { GROUP_TYPES, createGroup, groupTypeDef, useGroupsList } from './families/familiesData';
+import { GroupDetail } from './families/GroupDetail';
 
-const GROUP_META: Record<string, { label: string; icon: ReactElement }> = {
-  family: { label: 'Family', icon: <Diversity3OutlinedIcon /> },
-  partnership: { label: 'Partnership', icon: <HandshakeOutlinedIcon /> },
-  company: { label: 'Company / LLP', icon: <CorporateFareOutlinedIcon /> },
-  huf: { label: 'HUF', icon: <AccountBalanceOutlinedIcon /> },
-  trust: { label: 'Trust / Society', icon: <BalanceOutlinedIcon /> },
-};
+interface Toast {
+  msg: string;
+  severity: 'success' | 'error' | 'warning' | 'info';
+}
 
 export function FamiliesGroupsPage() {
-  const { data, isSample } = useGroups();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: groups, isSample } = useGroupsList();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = data.groups.find((g) => g.id === selectedId) ?? data.groups[0];
-  const members = selected ? data.members.filter((m) => m.groupId === selected.id) : [];
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newType, setNewType] = useState('family');
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [toast, setToast] = useState<Toast | null>(null);
+
+  const notify = (msg: string, severity: Toast['severity'] = 'success') =>
+    setToast({ msg, severity });
+  const selected = groups.find((g) => g.id === selectedId) ?? groups[0];
+
+  const openCreate = () => {
+    setNewType('family');
+    setNewName('');
+    setNewDesc('');
+    setNameError('');
+    setCreateOpen(true);
+  };
+  const doCreate = async () => {
+    if (!newName.trim()) {
+      setNameError('Give the group a name');
+      return;
+    }
+    try {
+      const id = await createGroup(newType, newName.trim(), newDesc || '');
+      setCreateOpen(false);
+      if (id) {
+        notify('Group created');
+        setSelectedId(id);
+        void queryClient.invalidateQueries({ queryKey: ['pattadar'] });
+      } else {
+        notify('Could not create group', 'error');
+      }
+    } catch {
+      notify('Could not create group', 'error');
+    }
+  };
 
   return (
     <>
       <PageHeader
-        title="Groups & members"
-        subtitle="Who holds your land together — and who inherits it. Nominate heirs and keep every member verified."
+        title="Families & Groups"
+        subtitle="Your families, partnerships, and companies that hold land. Each has members with shares."
         sample={isSample}
+        actions={
+          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+            Create Group
+          </Button>
+        }
       />
 
-      {data.groups.length === 0 ? (
+      {groups.length === 0 ? (
         <Card>
           <EmptyState
             icon={<GroupsOutlinedIcon />}
             title="No groups yet"
-            description="Create a family group to nominate heirs, or a partnership to hold land together."
-            action={<Button variant="contained">Create a group</Button>}
+            description="Create your family, a partnership, or a company."
+            action={
+              <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
+                Create your first group
+              </Button>
+            }
           />
         </Card>
       ) : (
@@ -74,152 +116,130 @@ export function FamiliesGroupsPage() {
               mb: 2.5,
             }}
           >
-            {data.groups.map((g) => {
-              const meta = GROUP_META[g.type] ?? GROUP_META.family;
+            {groups.map((g) => {
+              const def = groupTypeDef(g.type);
               const isSelected = selected?.id === g.id;
               return (
                 <Card
                   key={g.id}
+                  onClick={() => setSelectedId(g.id)}
                   sx={{
+                    cursor: 'pointer',
                     borderColor: isSelected ? 'primary.main' : 'divider',
                     borderWidth: isSelected ? 2 : 1,
                   }}
                 >
-                  <CardActionArea onClick={() => setSelectedId(g.id)}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                        <Box
-                          sx={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 2,
-                            display: 'grid',
-                            placeItems: 'center',
-                            bgcolor: 'action.hover',
-                            color: 'primary.main',
-                          }}
-                        >
-                          {meta.icon}
+                  <CardContent sx={{ p: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1 }}>
+                        <Box component="span" sx={{ fontSize: 26, lineHeight: 1 }}>
+                          {def.icon}
                         </Box>
                         <Box sx={{ minWidth: 0 }}>
                           <Typography variant="subtitle1" sx={{ fontWeight: 700 }} noWrap>
                             {g.name}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {meta.label} · you are {g.myRole}
-                          </Typography>
+                          <Chip size="small" variant="outlined" label={def.label} />
                         </Box>
                       </Box>
-                      <Box sx={{ display: 'flex', gap: 0.75, mt: 1.5, flexWrap: 'wrap' }}>
-                        <Chip size="small" variant="outlined" label={`${g.memberCount} members`} />
-                        <Chip size="small" variant="outlined" label={`${g.landCount} holdings`} />
-                        {g.totalExtent > 0 && (
-                          <Chip size="small" variant="outlined" label={formatArea(g.totalExtent)} />
-                        )}
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color={g.totalShare >= 100 ? 'success' : 'warning'}
-                          label={`${g.totalShare}% shares nominated`}
-                        />
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          gap: 2,
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          color: 'text.secondary',
+                          fontSize: 13,
+                        }}
+                      >
+                        <span>
+                          {g.memberCount} member{g.memberCount === 1 ? '' : 's'}
+                        </span>
+                        <span>
+                          {g.landCount} passbook{g.landCount === 1 ? '' : 's'}
+                        </span>
+                        <span>Your role: {g.myRole || def.primaryRole}</span>
+                        <Link
+                          component="button"
+                          underline="hover"
+                          sx={{ ml: 'auto', whiteSpace: 'nowrap' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/app/parcels?group=${g.id}`);
+                          }}
+                        >
+                          View holdings ›
+                        </Link>
                       </Box>
-                    </CardContent>
-                  </CardActionArea>
+                  </CardContent>
                 </Card>
               );
             })}
           </Box>
 
-          {/* ── Member table for the selected group ───────────────────── */}
-          {selected && (
-            <Card>
-              <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, pb: 1 }}>
-                <Box>
-                  <Typography variant="h4" component="h2">
-                    {selected.name}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {members.length} member{members.length !== 1 ? 's' : ''} · created {parseISOToDisplay(selected.createdAt)}
-                  </Typography>
-                </Box>
-                <Button variant="contained" startIcon={<PersonAddAltOutlinedIcon />}>
-                  Invite a member
-                </Button>
-              </CardContent>
-              <TableContainer sx={{ overflowX: 'auto' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Name</TableCell>
-                      <TableCell>Relation</TableCell>
-                      <TableCell>Date of birth</TableCell>
-                      <TableCell>Gender</TableCell>
-                      <TableCell>Contact</TableCell>
-                      <TableCell>Aadhaar</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell align="right">Heir share</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {members.map((m) => (
-                      <TableRow key={m.id} hover>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                              {m.name}
-                            </Typography>
-                            {m.isSelf && <Chip size="small" label="You" variant="outlined" />}
-                          </Box>
-                        </TableCell>
-                        <TableCell>{m.relation || m.role}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          {m.dob ? parseISOToDisplay(m.dob) : '—'}
-                        </TableCell>
-                        <TableCell>{m.gender || '—'}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          {m.phone || m.email || '—'}
-                          {(m.phoneVerified || m.emailVerified) && (
-                            <Tooltip title="Contact verified">
-                              <CheckCircleOutlinedIcon
-                                sx={{ fontSize: 15, color: 'success.main', ml: 0.5, verticalAlign: 'text-bottom' }}
-                              />
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                          {m.aadhaarMasked || '—'}
-                        </TableCell>
-                        <TableCell>
-                          {m.isSelf ? (
-                            <Chip size="small" color="success" variant="outlined" label="Active" />
-                          ) : m.status === 'verified' ? (
-                            <Chip
-                              size="small"
-                              color="success"
-                              variant="outlined"
-                              icon={<CheckCircleOutlinedIcon />}
-                              label="Active"
-                            />
-                          ) : (
-                            <Chip size="small" color="warning" variant="outlined" label="Invited" />
-                          )}
-                        </TableCell>
-                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                          {m.isBeneficiary ? (
-                            <Chip size="small" color="primary" variant="outlined" label={`Heir · ${m.sharePct}%`} />
-                          ) : (
-                            '—'
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Card>
-          )}
+          {/* ── In-page detail for the selected group ─────────────────── */}
+          {selected && <GroupDetail key={selected.id} group={selected} notify={notify} />}
         </>
       )}
+
+      {/* ── Create group dialog (typed groups per the source enum) ────── */}
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Create a group</DialogTitle>
+        <DialogContent>
+          <TextField
+            select
+            fullWidth
+            required
+            size="small"
+            label="Type"
+            value={newType}
+            onChange={(e) => setNewType(e.target.value)}
+            sx={{ mt: 1 }}
+          >
+            {GROUP_TYPES.map((g) => (
+              <MenuItem key={g.type} value={g.type}>
+                {g.icon}&nbsp;&nbsp;{g.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth
+            required
+            size="small"
+            label="Name"
+            placeholder="e.g. Telukutla Family / Reddy & Sons"
+            value={newName}
+            onChange={(e) => {
+              setNewName(e.target.value);
+              if (e.target.value.trim()) setNameError('');
+            }}
+            error={!!nameError}
+            helperText={nameError}
+            sx={{ mt: 2 }}
+          />
+          <TextField
+            fullWidth
+            size="small"
+            label="Description (optional)"
+            multiline
+            minRows={2}
+            value={newDesc}
+            onChange={(e) => setNewDesc(e.target.value)}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={() => void doCreate()}>
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={Boolean(toast)} autoHideDuration={4000} onClose={() => setToast(null)}>
+        <Alert severity={toast?.severity ?? 'success'} onClose={() => setToast(null)}>
+          {toast?.msg}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

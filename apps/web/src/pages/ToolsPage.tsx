@@ -5,8 +5,9 @@
  * /app/market-value, /app/calculator) redirect here and land on the matching
  * tab via ?tab=.
  *
- * The SRO directory is live; the other three tabs are being rebuilt from the
- * rhub source (parts 2-3 fill this page — edit ONLY this file, not routes).
+ * All four tabs are at functional parity with the rhub source: the SRO
+ * directory, the AP fee-schedule stamp-duty calculator, the guideline
+ * market-value cascade lookup, and the landcalc-driven area calculator.
  */
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -21,12 +22,14 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 import SearchIcon from '@mui/icons-material/Search';
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { useSroOffices } from '../data/hooks';
+import { CalculatorTool } from './tools/CalculatorTool';
+import { MarketValueTool } from './tools/MarketValueTool';
+import { StampDutyTool } from './tools/StampDutyTool';
 
 type ToolTab = 'sro' | 'stamp-duty' | 'market-value' | 'calculator';
 
@@ -106,15 +109,6 @@ function SroTool() {
   );
 }
 
-function Rebuilding({ title, detail }: { title: string; detail: string }) {
-  return (
-    <>
-      <Typography variant="h2">{title}</Typography>
-      <Typography color="text.secondary">{detail}</Typography>
-    </>
-  );
-}
-
 export function ToolsPage() {
   const [searchParams] = useSearchParams();
   const initial = searchParams.get('tab') as ToolTab | null;
@@ -131,20 +125,11 @@ export function ToolsPage() {
       {tab === 'sro' ? (
         <SroTool />
       ) : tab === 'stamp-duty' ? (
-        <Rebuilding
-          title="Stamp Duty"
-          detail="Stamp-duty & registration-fee calculator (AP fee schedule); rebuilt from rhub StampDutyView with calcStampDuty in @pattadar/core."
-        />
+        <StampDutyTool />
       ) : tab === 'market-value' ? (
-        <Rebuilding
-          title="Market Value"
-          detail="Guideline market-value lookup by district/mandal/village; rebuilt from rhub MarketValueView in RemoteApp.tsx."
-        />
+        <MarketValueTool />
       ) : (
-        <Rebuilding
-          title="Area Calculator"
-          detail="Land-extent unit converter and ground-measurement calculator (rectangle/triangle/quadrilateral, GPS polygon, fence estimate); rebuilt from rhub Calculator.tsx over landcalc.ts + units.ts in @pattadar/core."
-        />
+        <CalculatorTool />
       )}
     </>
   );
