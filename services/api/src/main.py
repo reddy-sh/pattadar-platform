@@ -1628,8 +1628,8 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
                 "SELECT COALESCE(NULLIF(email,''),'') AS email FROM users WHERE id=%s", (owner,))).fetchone()
             to = (head or {}).get("email") or owner
             await notify.notify_contact(
-                conn, to, "Are you still active? — R Factory",
-                f"We haven't seen activity on your R Factory account recently. Tap to confirm you're active, "
+                conn, to, "Are you still active? — Pattadar",
+                f"We haven't seen activity on your Pattadar account recently. Tap to confirm you're active, "
                 f"otherwise your family will be notified: {link}", owner=owner)
             await _set_state("checkin", 0)
             summary["nudged"] += 1
@@ -1642,7 +1642,7 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
             "SELECT member_id, priority FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s ORDER BY priority",
             (owner, gid))).fetchall()
         subject = f"Family alert — {g['gname']}"
-        body = (f"The head of {g['gname']} on R Factory has been inactive for over 6 months. "
+        body = (f"The head of {g['gname']} on Pattadar has been inactive for over 6 months. "
                 f"Please check on them. Acknowledge here: {link}")
         if not notifiers:
             # Default: notify ALL members once.
@@ -2487,8 +2487,8 @@ class Mutation:
                 "VALUES (%s, 'family', %s, %s, %s, %s, '', 'pending', %s)",
                 (new_id(), id, role, invitee, token, datetime.utcnow().isoformat()))
             name = (m.get("name") or "there").strip() or "there"
-            subject = "Please confirm your family/heir details — R Factory"
-            body = (f"Hi {name}, you've been listed as a beneficiary/heir on R Factory land records. "
+            subject = "Please confirm your family/heir details — Pattadar"
+            body = (f"Hi {name}, you've been listed as a beneficiary/heir on Pattadar land records. "
                     f"Please confirm your details here: {link}")
             send = await notify.notify_contact(conn, invitee, subject, body, owner=uid)
             cur = await conn.execute(
@@ -2540,8 +2540,8 @@ class Mutation:
             raise ValueError("Enter an email or phone number to send the test to")
         async with pool.connection() as conn:
             res = await notify.notify_contact(
-                conn, to, "R Factory — test notification",
-                "This is a test message from R Factory. If you received it, your notification provider is working.",
+                conn, to, "Pattadar — test notification",
+                "This is a test message from Pattadar. If you received it, your notification provider is working.",
                 owner=uid)
         return json.dumps(res)
 

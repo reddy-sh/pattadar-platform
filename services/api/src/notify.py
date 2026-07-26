@@ -46,7 +46,7 @@ async def send_email(conn, to: str, subject: str, html: str, owner: str = "") ->
                 r = await c.post(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {_env('RESEND_API_KEY')}"},
-                    json={"from": _env("NOTIFY_EMAIL_FROM", "R Factory <noreply@rfactory.ai>"),
+                    json={"from": _env("NOTIFY_EMAIL_FROM", "Pattadar <no-reply@pattadar.com>"),
                           "to": [to], "subject": subject, "html": html})
             ok = r.status_code < 300
             await _record(conn, "email", to, subject, html, "resend", "sent" if ok else "failed",
