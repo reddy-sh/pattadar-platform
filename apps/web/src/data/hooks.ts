@@ -184,6 +184,7 @@ export type HoldingParcel = Pick<
   | 'marketValue'
   | 'passbookId'
   | 'createdAt'
+  | 'geoPoint'
 >;
 export type HoldingPassbook = Pick<
   Passbook,
@@ -223,7 +224,7 @@ export function useHoldings() {
     async () => {
       const d = await gql<HoldingsData>(
         `query {
-      parcels { id surveyNo subdivision extent unit classification status litigation stake currentOwner purchasePrice marketValue passbookId createdAt }
+      parcels { id surveyNo subdivision extent unit classification status litigation stake currentOwner purchasePrice marketValue passbookId createdAt geoPoint }
       passbooks { id pattadarNo ownerName village mandal district groupId }
       properties { id type label city district landArea landUnit builtupArea builtupUnit holdingStatus stake currentValue currentOwner groupId createdAt }
       documents { parcelId propertyId docType tags fileRef }

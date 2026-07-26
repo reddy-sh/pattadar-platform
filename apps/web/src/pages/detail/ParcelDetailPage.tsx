@@ -17,6 +17,7 @@ import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -48,6 +49,7 @@ import {
   unitLabel,
 } from '@pattadar/core';
 import { gql } from '../../api/client';
+import { GeoMap } from '../../components/GeoMapLazy';
 import { fmtLocal } from '../../lib/format';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
 import {
@@ -289,11 +291,14 @@ function useParcelDetail(id: string) {
   );
 }
 
-// ── geo section (Tools Map-Area approach + updateParcelGeo) ──────────────
+// ── geo section (interactive map port of the source Map tab + updateParcelGeo) ──
 
 function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify: (m: string, err?: boolean) => void; refresh: () => void }) {
   const [draft, setDraft] = useState(parcel.geoPoint || '');
+  const [drawMode, setDrawMode] = useState<'off' | 'marker' | 'polygon'>('off');
   const [saving, setSaving] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   const [spacing, setSpacing] = useState('8');
   const [strands, setStrands] = useState('3');
 
@@ -303,7 +308,31 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
   const perimFt = perimM * 3.280839895;
   const fence = fenceEstimate(perimFt, Number(spacing) || 0, Number(strands) || 0);
   const isPoint = draft.includes('Point');
+  const isPolygon = draft.includes('Polygon');
   const dirty = draft !== (parcel.geoPoint || '');
+  const armed = drawMode !== 'off';
+
+  const loc = parcel.location || { village: '', mandal: '', district: '', state: '' };
+  const addressLine = [loc.village, loc.mandal, loc.district, loc.state].filter(Boolean).join(', ') || 'Andhra Pradesh';
+  // Fallback list for the empty map: village → mandal → district → state
+  // (most specific first, source parity — GeoMap stops at the first that geocodes).
+  const geoCandidates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            [loc.village, loc.mandal, loc.district, loc.state],
+            [loc.mandal, loc.district, loc.state],
+            [loc.district, loc.state],
+            [loc.state || 'Andhra Pradesh'],
+          ]
+            .map((parts) => parts.filter(Boolean).join(', '))
+            .filter(Boolean)
+            .map((s) => `${s}, India`),
+        ),
+      ),
+    [loc.village, loc.mandal, loc.district, loc.state],
+  );
 
   const persist = useCallback(
     async (geo: string) => {
@@ -313,6 +342,7 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
           id: parcel.id,
           geo,
         });
+        setDrawMode('off');
         notify(geo ? 'Boundary saved' : 'Boundary removed');
         refresh();
       } catch {
@@ -324,37 +354,104 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
     [parcel.id, notify, refresh],
   );
 
+  const cancelGeo = () => {
+    setDraft(parcel.geoPoint || '');
+    setDrawMode('off');
+  };
+  // Capture the parcel's location from the device GPS (handy when standing on the land).
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      notify("Geolocation isn't available in this browser", true);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDraft(JSON.stringify({ type: 'Point', coordinates: [pos.coords.longitude, pos.coords.latitude] }));
+        setDrawMode('marker');
+        notify('Location captured — drag the pin to fine-tune, then Save');
+      },
+      () => notify("Couldn't get your location — allow location access and retry", true),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
+  const sub = parcel.subdivision ? '/' + parcel.subdivision : '';
+  const boundaryLabel = !parcel.geoPoint ? 'Approximate' : parcel.geoPoint.includes('Polygon') ? 'Exact boundary' : 'Point set';
+  // Rich hover-tooltip / click-popup for the map pin (source parity).
+  const pinInfoHtml =
+    `<div style="min-width:190px;line-height:1.55">` +
+    `<div style="font-weight:600;font-size:13px">Survey ${parcel.surveyNo}${sub}</div>` +
+    `<div>${formatArea(Number(parcel.extent))} &middot; ${parcel.classification || '—'}</div>` +
+    `<div>📍 ${addressLine}</div>` +
+    `<div>Owner: ${parcel.currentOwner || '—'}</div>` +
+    `<div>${boundaryLabel}${parcel.geoPoint ? ' &middot; ' + geoLabel(parcel.geoPoint) : ''}</div>` +
+    `</div>`;
+
   return (
     <Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        {parcel.geoPoint
-          ? `Stored location: ${parcel.geoPoint.includes('Polygon') ? 'Exact boundary' : 'Point set'} · 📍 ${geoLabel(parcel.geoPoint)}`
-          : 'No boundary stored yet — paste the plot boundary as GeoJSON (a Polygon of [longitude, latitude] corners from any GPS/mapping tool).'}
-      </Typography>
-      <TextField
-        fullWidth
-        multiline
-        minRows={5}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder='{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}'
-        slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 13 } } }}
-      />
-      <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-        <Button size="small" variant="contained" disabled={!dirty || saving} onClick={() => void persist(draft)}>
-          Save location
-        </Button>
-        {parcel.geoPoint && (
-          <Button size="small" color="error" disabled={saving} onClick={() => { setDraft(''); void persist(''); }}>
-            Remove boundary
-          </Button>
-        )}
-        {dirty && (
-          <Button size="small" disabled={saving} onClick={() => setDraft(parcel.geoPoint || '')}>
-            Cancel
-          </Button>
-        )}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap', mb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', fontSize: 12, flexWrap: 'wrap' }}>
+          {armed ? (
+            drawMode === 'polygon' ? (
+              'Drawing boundary — click the map to add points, drag points to reshape.'
+            ) : (
+              'Drop pin — click the map to place it, drag to fine-tune.'
+            )
+          ) : parcel.geoPoint ? (
+            <>
+              <Chip size="small" color="success" label={boundaryLabel} />
+              <span>📍 {geoLabel(parcel.geoPoint)}</span>
+            </>
+          ) : (
+            `Approximate area — ${addressLine}. Search your land, then draw the boundary.`
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {armed || dirty ? (
+            <>
+              <Button size="small" variant="contained" onClick={() => void persist(draft)} disabled={!dirty || saving}>
+                Save
+              </Button>
+              <Button size="small" onClick={cancelGeo} disabled={saving}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                size="small"
+                variant={parcel.geoPoint ? 'outlined' : 'contained'}
+                onClick={() => {
+                  if (isPoint) setDraft('');
+                  setDrawMode('polygon');
+                }}
+              >
+                ✏️ {isPolygon ? 'Edit boundary' : 'Draw boundary'}
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  if (isPolygon) setDraft('');
+                  setDrawMode('marker');
+                }}
+              >
+                📍 {isPoint ? 'Move pin' : 'Drop pin'}
+              </Button>
+              <Button size="small" variant="outlined" color="inherit" onClick={useMyLocation}>
+                🎯 Use my location
+              </Button>
+              {parcel.geoPoint && (
+                <Button size="small" color="error" disabled={saving} onClick={() => setConfirmDel(true)}>
+                  Delete
+                </Button>
+              )}
+            </>
+          )}
+        </Box>
       </Box>
+      <GeoMap value={draft} onChange={setDraft} drawMode={drawMode} height={430} showSearch label={pinInfoHtml} autoLocate={geoCandidates} />
       {ring.length >= 3 ? (
         <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           <SectionCard title="Boundary measurements">
@@ -376,9 +473,46 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
         </Box>
       ) : isPoint ? (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-          A point pin is stored ({geoLabel(draft)}) — paste a Polygon to measure area, perimeter and fencing.
+          A point pin is set ({geoLabel(draft)}) — draw a boundary to measure area, perimeter and fencing.
         </Typography>
       ) : null}
+      <Box sx={{ mt: 2 }}>
+        <Link component="button" variant="caption" onClick={() => setAdvOpen((v) => !v)}>
+          {advOpen ? '▾' : '▸'} Advanced: paste coordinates
+        </Link>
+        <Collapse in={advOpen}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 0.5 }}>
+            Paste the plot boundary as GeoJSON (a Polygon of [longitude, latitude] corners from any GPS/mapping tool) — the map and
+            measurements update live; Save above to store it.
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={5}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder='{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}'
+            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 13 } } }}
+          />
+        </Collapse>
+      </Box>
+      <Dialog open={confirmDel} onClose={() => setConfirmDel(false)}>
+        <DialogTitle>Remove this boundary?</DialogTitle>
+        <DialogActions>
+          <Button onClick={() => setConfirmDel(false)}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              setConfirmDel(false);
+              setDraft('');
+              void persist('');
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

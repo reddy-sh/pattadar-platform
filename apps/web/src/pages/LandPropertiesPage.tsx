@@ -56,6 +56,8 @@ import { useHoldings } from '../data/hooks';
 import { deleteParcel, deleteProperty } from '../data/pattadarActions';
 import { AddParcelDialog } from './holdings/AddParcelDialog';
 import { AddPropertyDialog } from './holdings/AddPropertyDialog';
+import { LocationDialog } from './holdings/LocationDialog';
+import type { LocationTarget } from './holdings/LocationDialog';
 import { StakeDialog } from './holdings/StakeDialog';
 import type { StakeTarget } from './holdings/StakeDialog';
 import { propertyTypeDef } from './holdings/propertyTypes';
@@ -78,6 +80,7 @@ interface Holding {
   icon: string;
   cover?: string;
   createdAt: string;
+  geoPoint: string;
   passbookId: string;
   passbook: string;
   khata: string;
@@ -124,6 +127,7 @@ export function LandPropertiesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addParcelOpen, setAddParcelOpen] = useState(false);
   const [stakeTarget, setStakeTarget] = useState<StakeTarget>(null);
+  const [locTarget, setLocTarget] = useState<LocationTarget>(null);
   const [deleteTarget, setDeleteTarget] = useState<Holding | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -174,6 +178,7 @@ export function LandPropertiesPage() {
         icon: p.classification === 'agri' ? '🌾' : '🏗️',
         cover: cov[p.id],
         createdAt: p.createdAt || '',
+        geoPoint: p.geoPoint || '',
       };
     });
     const properties: Holding[] = data.properties.map((p) => {
@@ -203,6 +208,7 @@ export function LandPropertiesPage() {
         icon: def.icon || '🏢',
         cover: cov[p.id],
         createdAt: p.createdAt || '',
+        geoPoint: '',
       };
     });
     return [...parcels, ...properties];
@@ -311,6 +317,22 @@ export function LandPropertiesPage() {
       label: 'My stake…',
       onClick: () => setStakeTarget({ kind: h.kind, id: h.id, title: h.title, stake: h.stake || 'owned' }),
     },
+    // Location on the open-source map — parcels only (source parity: ParcelLocationModal).
+    ...(h.kind === 'parcel'
+      ? [
+          {
+            key: 'location',
+            label: 'Location…',
+            onClick: () =>
+              setLocTarget({
+                id: h.id,
+                title: h.title,
+                geoPoint: h.geoPoint,
+                autoLocate: h.location ? `${h.location}, India` : '',
+              }),
+          },
+        ]
+      : []),
     { key: 'delete', label: 'Delete', danger: true, onClick: () => setDeleteTarget(h) },
   ];
 
@@ -742,6 +764,7 @@ export function LandPropertiesPage() {
         notify={notify}
       />
       <StakeDialog target={stakeTarget} onClose={() => setStakeTarget(null)} onDone={refresh} notify={notify} />
+      <LocationDialog target={locTarget} onClose={() => setLocTarget(null)} onDone={refresh} notify={notify} />
 
       <Snackbar open={Boolean(toast)} autoHideDuration={4000} onClose={() => setToast(null)}>
         <Alert severity={toast?.severity ?? 'success'} onClose={() => setToast(null)}>

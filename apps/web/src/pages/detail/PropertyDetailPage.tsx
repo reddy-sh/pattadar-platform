@@ -40,6 +40,7 @@ import Typography from '@mui/material/Typography';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { sampleDocuments, sampleGroups, sampleProperties } from '@pattadar/core';
 import { gql } from '../../api/client';
+import { GeoMap } from '../../components/GeoMapLazy';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
 import { deleteProperty } from '../../data/pattadarActions';
 import { attributeFieldsFor, propertyTypeDef } from '../holdings/propertyTypes';
@@ -517,6 +518,26 @@ export function PropertyDetailPage() {
   const addressLine = [p.address, p.locality, p.city, p.district].filter(Boolean).join(', ') || '—';
   const ownerName = data.owners.find((o) => o.role === 'owner')?.ownerName || data.owners[0]?.ownerName || 'You';
   const badges = attentionBadges(p);
+  // Most-specific-first candidates — GeoMap stops at the first that geocodes
+  // (source parity: PropertyDetailView mapQuery).
+  const mapQuery = [
+    [p.address, p.locality, p.city],
+    [p.locality, p.city, p.district],
+    [p.city, p.district],
+    [p.district],
+  ]
+    .map((parts) => parts.filter(Boolean).join(', '))
+    .filter((s, i, a) => s && a.indexOf(s) === i)
+    .map((s) => `${s}, India`);
+
+  const mapTab = (
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        {p.geoPoint ? 'Stored location.' : `Approximate area — ${addressLine}.`}
+      </Typography>
+      <GeoMap value={p.geoPoint || undefined} readOnly showSearch={false} height={430} label={p.label || 'Property'} autoLocate={mapQuery} />
+    </Box>
+  );
 
   const glance = (count: number, label: string, tabKey: string) => (
     <Box onClick={() => setTab(tabKey)} sx={{ cursor: 'pointer', minWidth: 84 }}>
@@ -686,12 +707,14 @@ export function PropertyDetailPage() {
       </Box>
       <Tabs value={tab} onChange={(_e, val) => setTab(val)} sx={{ mb: 1.5, minHeight: 38, '& .MuiTab-root': { minHeight: 38, py: 0.5 } }} variant="scrollable" allowScrollButtonsMobile>
         <Tab label="Overview" value="overview" />
+        <Tab label="Map" value="map" />
         <Tab label={`Files (${data.docs.length})`} value="files" />
         <Tab label="Owners" value="owners" />
         <Tab label="Notes" value="notes" />
         <Tab label="Audit log" value="audit" />
       </Tabs>
       {tab === 'overview' && overview}
+      {tab === 'map' && mapTab}
       {tab === 'files' && (
         <DocumentsList docs={data.docs} emptyText="No documents linked to this property yet — upload from the Documents section." />
       )}
