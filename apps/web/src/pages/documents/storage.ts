@@ -7,6 +7,12 @@
  */
 import { apiFetch, gql } from '../../api/client';
 
+/** Legacy document rows sometimes hold a raw FILENAME in fileRef instead of a
+ * storage node UUID (pre-migration data). Guard every storage call — a
+ * non-UUID ref can never resolve and must not be treated as an outage. */
+export const isStorageRef = (ref: string | undefined | null): ref is string =>
+  !!ref && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+
 /**
  * The one clear message every upload surface shows when the storage gateway
  * is unreachable (local dev has no cloud storage) — never N error toasts.
@@ -33,13 +39,15 @@ export async function uploadToDrive(file: File): Promise<string> {
 
 /** Fetch a stored file's bytes (preview/download). Throws when unavailable. */
 export async function fetchFileBlob(fileRef: string): Promise<Blob> {
+  if (!isStorageRef(fileRef)) throw new Error('legacy-ref');
   const res = await apiFetch(`/api/gateway/storage/files/${fileRef}/content`);
   if (!res.ok) throw new Error(`storage ${res.status}`);
   return res.blob();
 }
 
 /** Resolve real My Drive filenames from storage node ids (same lookup FilesPanel uses). */
-export async function fetchNodeNames(refs: string[]): Promise<Record<string, string>> {
+export async function fetchNodeNames(refs_in: string[]): Promise<Record<string, string>> {
+  const refs = refs_in.filter(isStorageRef);
   const entries = await Promise.all(
     refs.map(async (ref) => {
       try {

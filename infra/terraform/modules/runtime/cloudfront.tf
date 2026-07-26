@@ -126,7 +126,10 @@ resource "aws_acm_certificate_validation" "web" {
 
 locals {
   waf_managed_rules = [
-    { name = "AWSManagedRulesCommonRuleSet", priority = 10 },
+    # SizeRestrictions_BODY blocks request bodies over the ~8KB inspection
+    # limit — fatal for a document-upload app (the gateway enforces its own
+    # 100MB cap). Count-only for that single rule; everything else blocks.
+    { name = "AWSManagedRulesCommonRuleSet", priority = 10, count_rules = ["SizeRestrictions_BODY"] },
     { name = "AWSManagedRulesKnownBadInputsRuleSet", priority = 20 },
     { name = "AWSManagedRulesAmazonIpReputationList", priority = 30 },
   ]
@@ -167,6 +170,18 @@ resource "aws_wafv2_web_acl" "web" {
         managed_rule_group_statement {
           name        = rule.value.name
           vendor_name = "AWS"
+
+          dynamic "rule_action_override" {
+            for_each = try(rule.value.count_rules, [])
+
+            content {
+              name = rule_action_override.value
+
+              action_to_use {
+                count {}
+              }
+            }
+          }
         }
       }
 
