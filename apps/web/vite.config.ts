@@ -1,6 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// DEV-ONLY: where the '/api' proxies point. The e2e-ux suite overrides this
+// (VITE_API_PROXY_TARGET=http://localhost:18080) so tests run against their
+// own API instance and never touch the founder's dev stack on :8080.
+const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8080';
+
 export default defineConfig({
   // amazon-cognito-identity-js references Node's `global` at runtime;
   // browsers have globalThis only — without this the whole bundle throws
@@ -17,7 +22,7 @@ export default defineConfig({
       // and x-user-id is injected (the local api trusts this header) so the
       // dev preview shows the founder's real data.
       '/api/gateway/pattadar': {
-        target: 'http://localhost:8080',
+        target: apiTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/gateway\/pattadar/, ''),
         headers: { 'x-user-id': 'sankara.telukutla' },
@@ -25,7 +30,7 @@ export default defineConfig({
       // Everything else stays gateway-relative: the slim gateway
       // (services/gateway) listens on 8080 in local dev. In AWS, CloudFront
       // routes '/api' to the ALB/gateway — same bundle, no runtime config.
-      '/api': 'http://localhost:8080',
+      '/api': apiTarget,
     },
   },
 });

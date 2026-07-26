@@ -1,0 +1,13 @@
+{
+  "name": "@pattadar/e2e-ux",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automated UX + functionality review suite — the gate for the M3 UX redesign. Runs against its own API (:18080) + web (:5174) so the founder's dev stack (:8080/:5173) is never touched.",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0"
+  }
+}

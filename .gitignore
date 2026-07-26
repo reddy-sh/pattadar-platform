@@ -33,3 +33,8 @@ android/
 # OS / editor
 .DS_Store
 *.log
+
+# Playwright (tests/e2e-ux)
+test-results/
+playwright-report/
+tests/e2e-ux/results.json
