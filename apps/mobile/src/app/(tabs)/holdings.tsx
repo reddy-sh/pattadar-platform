@@ -1,5 +1,5 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import {
@@ -149,6 +149,15 @@ export default function HoldingsScreen() {
   const [kind, setKind] = useState('all');
   const [fabOpen, setFabOpen] = useState(false);
   const [confirm, setConfirm] = useState<DeleteTarget | null>(null);
+  // Deep link from a passbook card (web parity: ?pb=<passbookId> filter).
+  const { pb } = useLocalSearchParams<{ pb?: string }>();
+  const [pbFilter, setPbFilter] = useState('');
+  useEffect(() => {
+    if (pb) {
+      setPbFilter(pb);
+      setKind('parcel');
+    }
+  }, [pb]);
   const [deleteError, setDeleteError] = useState('');
   const deleting = deleteParcel.isPending || deletePassbook.isPending || deleteProperty.isPending;
 
@@ -177,6 +186,7 @@ export default function HoldingsScreen() {
   const allRows = useMemo(() => (result ? normalizeHoldings(result.data) : []), [result]);
   const holdings = useMemo(() => {
     let rows = allRows;
+    if (pbFilter) rows = rows.filter((h) => h.passbookId === pbFilter);
     if (kind !== 'all') rows = rows.filter((h) => h.kind === kind);
     const q = search.trim().toLowerCase();
     if (q) {
@@ -188,7 +198,13 @@ export default function HoldingsScreen() {
       );
     }
     return rows;
-  }, [allRows, kind, search]);
+  }, [allRows, kind, search, pbFilter]);
+
+  const pbFilterLabel = useMemo(() => {
+    if (!pbFilter || !result) return '';
+    const match = result.data.passbooks.find((x) => x.id === pbFilter);
+    return match ? `Khata ${match.pattadarNo || '—'}` : 'Khata filter';
+  }, [pbFilter, result]);
 
 
   return (
@@ -213,6 +229,18 @@ export default function HoldingsScreen() {
             { value: 'property', label: 'Properties' },
           ]}
         />
+        {!!pbFilter && (
+          <Chip
+            compact
+            mode="flat"
+            icon="filter-variant"
+            closeIcon="close"
+            onClose={() => setPbFilter('')}
+            style={styles.filterChip}
+          >
+            {pbFilterLabel}
+          </Chip>
+        )}
       </View>
       {result?.isSample && (
         <Banner visible icon="database-outline">
@@ -325,6 +353,7 @@ const styles = StyleSheet.create({
   },
   pillRow: { flexDirection: 'row', gap: tokens.spacing.xs, marginTop: tokens.spacing.xs },
   chipText: { fontSize: 11, textTransform: 'capitalize' },
+  filterChip: { alignSelf: 'flex-start' },
   empty: { textAlign: 'center', marginTop: tokens.spacing.xxl },
   emptyBox: {
     marginTop: tokens.spacing.xxl,

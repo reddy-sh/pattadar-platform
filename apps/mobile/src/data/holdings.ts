@@ -24,6 +24,8 @@ export interface Holding {
   khata: string;
   groupName: string;
   createdAt: string;
+  /** Owning passbook id for parcels ('' for properties) — khata filtering. */
+  passbookId: string;
 }
 
 /** Verbatim from apps/web/src/pages/holdings/propertyTypes.ts PROPERTY_TYPES. */
@@ -62,6 +64,7 @@ function parcelRow(
     khata: pb?.pattadarNo || '—',
     groupName,
     createdAt: p.createdAt,
+    passbookId: p.passbookId,
   };
 }
 
@@ -86,6 +89,7 @@ function propertyRow(p: Property, groupName: string): Holding {
     khata: '',
     groupName,
     createdAt: p.createdAt,
+    passbookId: '',
   };
 }
 

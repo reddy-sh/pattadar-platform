@@ -46,7 +46,11 @@ function PassbookCard({
   const theme = useTheme();
   const [menu, setMenu] = useState(false);
   return (
-    <Card mode="outlined" style={styles.card}>
+    <Card
+      mode="outlined"
+      style={styles.card}
+      onPress={() => router.push({ pathname: '/holdings', params: { pb: pb.id } })}
+    >
       <Card.Content style={styles.cardContent}>
         <View style={styles.titleRow}>
           <Text variant="titleMedium" style={styles.title} numberOfLines={1}>

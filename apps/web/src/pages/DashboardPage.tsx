@@ -38,7 +38,6 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { formatArea, formatDate, formatDateTime, formatINR, formatINRCompact, parseISOToDisplay } from '@pattadar/core';
 import { motion, schemes } from '@pattadar/tokens';
 import { gql } from '../api/client';
-import { GlassCard } from '../components/GlassCard';
 import { PageHeader } from '../components/PageHeader';
 import { HeaderSkeleton, HeroSkeleton, StatRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { BarList } from '../components/charts/BarList';
@@ -452,8 +451,53 @@ export function DashboardPage() {
         sample={isSample}
       />
 
-      {/* ── Gold-glass hero ─────────────────────────────────────────── */}
-      <GlassCard tone="gold" sx={{ mb: 2.5 }}>
+      {/* ── Portfolio hero — dark premium card in both modes ────────── */}
+      <Box
+        sx={{
+          mb: 2.5,
+          borderRadius: '20px',
+          p: '1px',
+          background:
+            'linear-gradient(135deg, rgba(100,181,246,0.55), rgba(255,255,255,0.10) 45%, rgba(25,118,210,0.45))',
+          boxShadow: '0 26px 60px -30px rgba(13, 71, 161, 0.5)',
+        }}
+      >
+        <Box
+          sx={{
+            borderRadius: '19px',
+            p: { xs: 2.5, sm: 3 },
+            position: 'relative',
+            overflow: 'hidden',
+            background: 'linear-gradient(150deg, #0c1524 0%, #0d1e33 55%, #10294a 100%)',
+            // Dark-island: children consume MUI vars, so redefining them here
+            // flips the subtree to dark ink without touching any child.
+            '--mui-palette-text-primary': '#e8eaed',
+            '--mui-palette-text-secondary': 'rgba(232, 234, 237, 0.72)',
+            '--mui-palette-divider': 'rgba(255, 255, 255, 0.18)',
+            '--mui-palette-primary-main': '#90caf9',
+            '--mui-palette-primary-contrastText': 'rgba(0, 0, 0, 0.87)',
+            '--mui-palette-primary-container': 'rgba(144, 202, 249, 0.16)',
+            '--mui-palette-primary-onContainer': '#90caf9',
+            '--mui-palette-action-hover': 'rgba(255, 255, 255, 0.08)',
+            // Blanket ink flip — Typography color props resolve statically in
+            // places, so enforce light ink classwise inside the island.
+            color: '#e8eaed',
+            '& .MuiTypography-root': { color: '#e8eaed' },
+            '& .MuiTypography-caption, & .MuiTypography-overline': { color: 'rgba(232, 234, 237, 0.72)' },
+            '& .MuiTypography-body2': { color: 'rgba(232, 234, 237, 0.8)' },
+            '& .MuiIconButton-root': { color: 'rgba(232, 234, 237, 0.85)' },
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              right: '-18%',
+              top: '-55%',
+              width: 520,
+              height: 420,
+              pointerEvents: 'none',
+              background: 'radial-gradient(ellipse 50% 50% at 50% 50%, rgba(100, 181, 246, 0.18), transparent 70%)',
+            },
+          }}
+        >
         {firstRun ? (
           /* First run = upload only. The classifier reads whatever comes in
              and routes it — the user never has to decide what to create. */
@@ -614,7 +658,8 @@ export function DashboardPage() {
             </Box>
           </Box>
         )}
-      </GlassCard>
+        </Box>
+      </Box>
 
       {/* ── Quick actions (hidden on first run — upload is the one door) ── */}
       {!firstRun && (
@@ -631,7 +676,20 @@ export function DashboardPage() {
           >
             <CardContent sx={{ textAlign: 'center', py: 1.5, '&:last-child': { pb: 1.5 } }}>
               {/* 48px icon area, 24px optical icon */}
-              <Box sx={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+              <Box
+                sx={{
+                  width: 48,
+                  height: 48,
+                  mx: 'auto',
+                  mb: 0.5,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'primary.main',
+                  bgcolor: 'rgba(25, 118, 210, 0.08)',
+                }}
+              >
                 {a.icon}
               </Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }}>

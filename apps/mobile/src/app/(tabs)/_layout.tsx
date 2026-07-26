@@ -30,20 +30,20 @@ export default function TabsLayout() {
         options={{ title: 'Dashboard', tabBarIcon: tabIcon('view-dashboard-outline') }}
       />
       <Tabs.Screen
-        name="holdings"
-        options={{ title: 'Land', tabBarIcon: tabIcon('terrain') }}
-      />
-      <Tabs.Screen
         name="passbooks"
         options={{ title: 'Passbooks', tabBarIcon: tabIcon('book-open-outline') }}
+      />
+      <Tabs.Screen
+        name="holdings"
+        options={{ title: 'Properties', tabBarIcon: tabIcon('terrain') }}
       />
       <Tabs.Screen
         name="family"
         options={{ title: 'Family', tabBarIcon: tabIcon('account-group-outline') }}
       />
       <Tabs.Screen
-        name="invitations"
-        options={{ title: 'Invites', tabBarIcon: tabIcon('email-outline') }}
+        name="settings"
+        options={{ title: 'Settings', tabBarIcon: tabIcon('cog-outline') }}
       />
     </Tabs>
   );
