@@ -56,9 +56,9 @@ import {
   AuditTrailPanel,
   Field,
   FieldGrid,
+  MediaHero,
   NotFoundCard,
   NotesPanel,
-  PhotoStrip,
   SectionCard,
   StatusChip,
   dashVal,
@@ -790,7 +790,6 @@ export function ParcelDetailPage() {
 
   const overview = (
     <Box>
-      <PhotoStrip photos={photos} videos={videos} onGoFiles={() => setTab('files')} />
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 1.5 }}>
         <SectionCard title="Parcel record">
           <FieldGrid>
@@ -1009,6 +1008,13 @@ export function ParcelDetailPage() {
           Edit details
         </Button>
       </Box>
+      {/* Newest photo/video as a full-width cover above the tabs (source parity). */}
+      <MediaHero
+        photos={photos}
+        videos={videos}
+        fallbackIcon={p.classification === 'agri' ? '🌾' : '🏗️'}
+        onGoFiles={() => setTab('files')}
+      />
       <Tabs value={tab} onChange={(_e, val) => setTab(val)} sx={{ mb: 1.5, minHeight: 38, '& .MuiTab-root': { minHeight: 38, py: 0.5 } }} variant="scrollable" allowScrollButtonsMobile>
         <Tab label="Overview" value="overview" />
         <Tab label="Boundary & map" value="geo" />

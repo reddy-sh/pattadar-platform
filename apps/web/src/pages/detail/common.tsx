@@ -3,7 +3,7 @@
  * property 360, passbook record) — MUI ports of the small helpers the rhub
  * pattadar app keeps inside RemoteApp.tsx: description fields, status chips,
  * the append-only NotesPanel, the read-only audit timeline, the linked
- * documents list (My Drive preview/download) and the photo strip.
+ * documents list (My Drive preview/download) and the media hero banner.
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -12,13 +12,14 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
-import Link from '@mui/material/Link';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { gql } from '../../api/client';
 import { avaColor, fmtLocal } from '../../lib/format';
+import { openFileViewer } from '../../components/FileViewer';
+import type { ViewerFile } from '../../components/FileViewer';
 import { useBlobUrl } from '../../components/holdingCards';
-import { fetchFileBlob, openBlob } from '../documents/storage';
+import { fetchFileBlob } from '../documents/storage';
 
 // ── tiny display helpers (ported from source) ────────────────────────────
 
@@ -301,78 +302,116 @@ export interface LinkedDoc {
   createdAt?: string;
 }
 
-// ── photo strip (source's ParcelPhotosSection, MUI edition) ──────────────
+// ── media hero (parity: the source's ParcelPhotosSection cover banner) ───
 
-function BlobThumb({ fileRef, name }: { fileRef: string; name: string }) {
-  const url = useBlobUrl(fileRef);
-  const openFull = useCallback(async () => {
-    try {
-      openBlob(await fetchFileBlob(fileRef));
-    } catch {
-      /* best-effort */
-    }
-  }, [fileRef]);
+const heroChipSx = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 0.75,
+  px: 1.5,
+  py: 0.75,
+  borderRadius: 999,
+  bgcolor: 'rgba(0,0,0,0.65)',
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: 600,
+  backdropFilter: 'blur(2px)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+} as const;
+
+/**
+ * Full-width hero banner above the record tabs — the newest photo (or a
+ * video placeholder) as cover, "📷 N Photos" / "🎬 Video" chips bottom-left.
+ * Clicking opens the in-portal FileViewer over all of the record's media
+ * (never a new tab). Blob failures / no media degrade to the emerald
+ * gradient — never a broken image.
+ */
+export function MediaHero({
+  photos,
+  videos,
+  fallbackIcon,
+  onGoFiles,
+}: {
+  photos: { fileRef: string; name: string }[];
+  videos: { fileRef: string; name: string }[];
+  fallbackIcon: string;
+  onGoFiles?: () => void;
+}) {
+  const cover = photos[0]; // arrays are newest-first
+  const url = useBlobUrl(cover?.fileRef);
+  const items: ViewerFile[] = [
+    ...photos.map((p) => ({ name: p.name, kind: 'image' as const, load: () => fetchFileBlob(p.fileRef) })),
+    ...videos.map((v) => ({ name: v.name, kind: 'video' as const, load: () => fetchFileBlob(v.fileRef) })),
+  ];
+  const openAt = (i: number) => {
+    if (items.length) openFileViewer(items, i);
+    else onGoFiles?.();
+  };
   return (
     <Box
-      onClick={() => void openFull()}
-      title={name}
+      onClick={() => openAt(0)}
+      role="button"
+      aria-label={items.length ? 'Open gallery' : 'Add photos from the Files tab'}
+      title={items.length ? 'Open gallery' : 'Add photos from the Files tab'}
       sx={{
-        width: 132,
-        height: 92,
-        borderRadius: 2,
+        position: 'relative',
+        height: { xs: 190, sm: 240, md: 280 },
+        borderRadius: 3,
         overflow: 'hidden',
-        flexShrink: 0,
         cursor: 'pointer',
-        bgcolor: 'action.hover',
+        mb: 1.5,
+        background: 'linear-gradient(135deg, #1E7A46 0%, #35996B 100%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
       {url ? (
-        <Box component="img" src={url} alt={name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        <Box
+          component="img"
+          src={url}
+          alt={cover?.name || 'Photo'}
+          sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+        />
       ) : (
-        <Box component="span" sx={{ fontSize: 26, opacity: 0.6 }}>
-          🖼️
+        <Box component="span" sx={{ fontSize: 56, opacity: 0.9 }}>
+          {photos.length === 0 && videos.length > 0 ? '🎬' : fallbackIcon}
         </Box>
       )}
-    </Box>
-  );
-}
-
-/** Horizontal photo strip + video links; hidden when there is no media. */
-export function PhotoStrip({
-  photos,
-  videos,
-  onGoFiles,
-}: {
-  photos: { fileRef: string; name: string }[];
-  videos: { fileRef: string; name: string }[];
-  onGoFiles?: () => void;
-}) {
-  if (photos.length === 0 && videos.length === 0) return null;
-  return (
-    <Box sx={{ mb: 2 }}>
-      <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 0.5 }}>
-        {photos.map((p) => (
-          <BlobThumb key={p.fileRef} fileRef={p.fileRef} name={p.name} />
-        ))}
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 0.5, flexWrap: 'wrap' }}>
-        {videos.map((v) => (
-          <Link
-            key={v.fileRef}
-            component="button"
-            variant="caption"
-            onClick={() => void fetchFileBlob(v.fileRef).then(openBlob).catch(() => undefined)}
+      <Box sx={{ position: 'absolute', left: 16, bottom: 14, display: 'flex', gap: 1.25 }}>
+        {photos.length > 0 && (
+          <Box
+            sx={heroChipSx}
+            onClick={(e) => {
+              e.stopPropagation();
+              openAt(0);
+            }}
           >
-            🎬 {v.name}
-          </Link>
-        ))}
-        {onGoFiles && (
-          <Link component="button" variant="caption" onClick={onGoFiles}>
-            All files ›
-          </Link>
+            📷 {photos.length} Photo{photos.length !== 1 ? 's' : ''}
+          </Box>
+        )}
+        {videos.length > 0 && (
+          <Box
+            sx={heroChipSx}
+            onClick={(e) => {
+              e.stopPropagation();
+              openAt(photos.length);
+            }}
+          >
+            🎬 {videos.length > 1 ? `${videos.length} Videos` : 'Video'}
+          </Box>
+        )}
+        {photos.length === 0 && videos.length === 0 && onGoFiles && (
+          <Box
+            sx={heroChipSx}
+            onClick={(e) => {
+              e.stopPropagation();
+              onGoFiles();
+            }}
+          >
+            📷 Add photos ›
+          </Box>
         )}
       </Box>
     </Box>

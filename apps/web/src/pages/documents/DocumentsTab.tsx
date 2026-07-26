@@ -41,6 +41,7 @@ import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { sampleDocuments, sampleParcels, samplePassbooks } from '@pattadar/core';
 import { apiFetch, gql } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
+import { openFileViewer } from '../../components/FileViewer';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { fmtLocal } from '../../lib/format';
@@ -60,7 +61,6 @@ import {
   fetchFileBlob,
   fetchNodeNames,
   nestUnderPattadar,
-  openBlob,
   trashDocuments,
   uploadToDrive,
 } from './storage';
@@ -247,13 +247,23 @@ export function DocumentsTab({
   }, [rows, family, search]);
 
   // ── preview / download ────────────────────────────────────────────────
-  const openFile = async (r: Row) => {
+  // Preview opens the in-portal FileViewer over the filtered list (←/→
+  // navigation), starting at the clicked row — never a new tab.
+  const openFile = (r: Row) => {
     if (!r.fileRef) return;
-    try {
-      openBlob(await fetchFileBlob(r.fileRef));
-    } catch {
-      onToast('Could not open file', 'error');
-    }
+    const viewable = shown.filter((x) => x.fileRef);
+    openFileViewer(
+      viewable.map((x) => ({
+        name: x.name,
+        kind:
+          x.docType === 'photo' ? ('image' as const) : x.docType === 'video' ? ('video' as const) : undefined,
+        load: () => fetchFileBlob(x.fileRef),
+      })),
+      Math.max(
+        0,
+        viewable.findIndex((x) => x.id === r.id),
+      ),
+    );
   };
   const downloadFile = async (r: Row) => {
     if (!r.fileRef) return;
@@ -560,7 +570,7 @@ export function DocumentsTab({
                     <TableCell>
                       <Box
                         sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: r.fileRef ? 'pointer' : 'default' }}
-                        onClick={() => void openFile(r)}
+                        onClick={() => openFile(r)}
                       >
                         <Box sx={{ color: 'text.secondary', display: 'flex' }}>{docIcon(r.docType)}</Box>
                         <Typography variant="body2" sx={{ fontWeight: 500 }}>
@@ -603,7 +613,7 @@ export function DocumentsTab({
       <Menu anchorEl={menuFor?.el} open={!!menuFor} onClose={() => setMenuFor(null)}>
         <MenuItem
           onClick={() => {
-            if (menuFor) void openFile(menuFor.row);
+            if (menuFor) openFile(menuFor.row);
             setMenuFor(null);
           }}
         >

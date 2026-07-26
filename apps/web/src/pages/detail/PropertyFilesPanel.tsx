@@ -45,6 +45,7 @@ import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { sampleDocuments } from '@pattadar/core';
 import { apiFetch, gql } from '../../api/client';
+import { openFileViewer } from '../../components/FileViewer';
 import { useBlobUrl } from '../../components/holdingCards';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
@@ -58,7 +59,6 @@ import {
   fetchFileBlob,
   fetchNodeNames,
   nestUnderPattadar,
-  openBlob,
   trashDocuments,
   uploadToDrive,
 } from '../documents/storage';
@@ -228,13 +228,22 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
   );
 
   // ── preview / download ────────────────────────────────────────────────
-  const openFile = async (r: Row) => {
+  // Preview opens the in-portal FileViewer over every file in the panel
+  // (←/→ navigation), starting at the clicked row — never a new tab.
+  const openFile = (r: Row) => {
     if (!r.fileRef) return;
-    try {
-      openBlob(await fetchFileBlob(r.fileRef));
-    } catch {
-      notify('Could not open file', 'error');
-    }
+    const viewable = rows.filter((x) => x.fileRef);
+    openFileViewer(
+      viewable.map((x) => ({
+        name: x.name,
+        kind: isImageDoc(x) ? ('image' as const) : x.docType === 'video' ? ('video' as const) : undefined,
+        load: () => fetchFileBlob(x.fileRef),
+      })),
+      Math.max(
+        0,
+        viewable.findIndex((x) => x.id === r.id),
+      ),
+    );
   };
   const downloadFile = async (r: Row) => {
     if (!r.fileRef) return;
@@ -452,11 +461,11 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
                   <TableRow key={r.id} hover>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <FileThumb doc={r} name={r.name} onOpen={() => void openFile(r)} />
+                        <FileThumb doc={r} name={r.name} onOpen={() => openFile(r)} />
                         <Typography
                           variant="body2"
                           sx={{ fontWeight: 500, cursor: r.fileRef ? 'pointer' : 'default' }}
-                          onClick={() => void openFile(r)}
+                          onClick={() => openFile(r)}
                         >
                           {r.name}
                         </Typography>
@@ -494,7 +503,7 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
       <Menu anchorEl={menuFor?.el} open={!!menuFor} onClose={() => setMenuFor(null)}>
         <MenuItem
           onClick={() => {
-            if (menuFor) void openFile(menuFor.row);
+            if (menuFor) openFile(menuFor.row);
             setMenuFor(null);
           }}
         >

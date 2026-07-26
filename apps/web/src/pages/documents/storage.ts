@@ -63,10 +63,8 @@ export async function fetchNodeNames(refs_in: string[]): Promise<Record<string, 
   return Object.fromEntries(entries.filter(Boolean) as [string, string][]);
 }
 
-/** Open a blob in a new tab (preview). */
-export function openBlob(blob: Blob): void {
-  window.open(URL.createObjectURL(blob), '_blank');
-}
+// (Previews go through components/FileViewer.tsx — portal content NEVER
+// opens a new tab; the old openBlob new-tab helper is gone.)
 
 /** Trigger a named download for a blob. */
 export function downloadBlob(blob: Blob, name: string): void {

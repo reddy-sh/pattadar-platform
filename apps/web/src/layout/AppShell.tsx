@@ -46,6 +46,7 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import { gold, green } from '@pattadar/tokens';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
+import { FileViewerHost } from '../components/FileViewer';
 
 const DRAWER_WIDTH = 252;
 
@@ -309,6 +310,9 @@ export function AppShell() {
 
       {/* Assistant panel — services/assistant chat surface (SSE streaming). */}
       <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+
+      {/* In-portal file viewer — the one place portal files are previewed. */}
+      <FileViewerHost />
     </Box>
   );
 }
