@@ -237,9 +237,8 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Overview"
         title={`${greet}, ${d.meName}`}
-        subtitle="Here's everything you own, in one place. మీ భూమి, ఒకే చోట."
+        subtitle="Here's everything you own, in one place."
         sample={isSample}
       />
 
