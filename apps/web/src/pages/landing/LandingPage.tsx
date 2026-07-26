@@ -32,7 +32,12 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
+import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import SquareFootOutlinedIcon from '@mui/icons-material/SquareFootOutlined';
 import StraightenOutlinedIcon from '@mui/icons-material/StraightenOutlined';
@@ -98,25 +103,45 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: <DashboardOutlinedIcon fontSize="large" />,
-    title: 'Land portfolio dashboard',
-    body: 'See all your parcels, passbooks and properties in one place, with values and health at a glance.',
+    title: 'A living land portfolio',
+    body: 'Every parcel, passbook and property in one dashboard — extents, acquisition cost, guideline values and four health rings that show records, succession, tax and family verification at a glance.',
     wide: true,
   },
   {
     icon: <DocumentScannerOutlinedIcon fontSize="large" />,
-    title: 'AI deed & passbook reading',
-    body: 'Upload a photo of a land deed or pattadar passbook and the details are read and filled in for you.',
+    title: 'AI reading, in two languages',
+    body: 'Photograph a passbook, deed or Aadhaar card — English or Telugu — and the khata, survey numbers, extents and parties are read and filled in. You approve every detail before it is saved.',
   },
   {
     icon: <FolderOutlinedIcon fontSize="large" />,
-    title: 'Documents drive',
-    body: 'Keep deeds, passbooks and receipts safe and organised, ready whenever you need them.',
+    title: 'A real documents drive',
+    body: 'Upload anything — the type is detected automatically and filed with the right land. Versions kept, trash recoverable, and every file opens in-portal — you never leave Pattadar.',
   },
   {
     icon: <Diversity3OutlinedIcon fontSize="large" />,
-    title: 'Family groups & heirs',
-    body: 'Invite family members, record heirs, and verify each person with a secure link.',
+    title: 'Family, verified — not just listed',
+    body: 'Typed groups for families, partnerships and companies. Heirs carry shares, minors get guardians, Aadhaar stays masked, and every member confirms through a secure link on WhatsApp, SMS or email.',
     wide: true,
+  },
+  {
+    icon: <HealthAndSafetyOutlinedIcon fontSize="large" />,
+    title: 'The inactivity safeguard',
+    body: 'If the head of the family goes quiet for months, Pattadar alerts your chosen people in priority order — so the records never die with a phone.',
+  },
+  {
+    icon: <TravelExploreOutlinedIcon fontSize="large" />,
+    title: 'Boundaries on a live map',
+    body: 'See each parcel on the satellite map, draw its boundary and measure area and side lengths — your land, exactly where it is.',
+  },
+  {
+    icon: <CalculateOutlinedIcon fontSize="large" />,
+    title: 'AP-IGRS tools built in',
+    body: 'Stamp-duty calculator on real AP rates, the SRO office finder, guideline market values and land-unit conversion — acres, cents and guntas.',
+  },
+  {
+    icon: <FactCheckOutlinedIcon fontSize="large" />,
+    title: 'Auditable, exportable, yours',
+    body: 'Every action lands in an audit log. Any table exports to branded PDF, Excel or CSV — your records leave with you, never locked in.',
   },
 ];
 
@@ -183,6 +208,7 @@ function Reveal({ children }: { children: ReactNode }) {
 const NAV_LINKS: [string, string][] = [
   ['About', 'story'],
   ['Features', 'features'],
+  ['Pattadar AI', 'ai'],
   ['How it works', 'how'],
   ['6 Pillars', 'pillars'],
   ['Services', 'services'],
@@ -643,6 +669,80 @@ export function LandingPage() {
             </Box>
           ))}
         </Box>
+      </Container>
+
+      {/* ── Pattadar AI Assistant — spotlight ────────────────────────── */}
+      <Container id="ai" maxWidth="lg" component="section" sx={{ py: { xs: 7, md: 9 }, scrollMarginTop: 80 }}>
+        <Reveal>
+        <Typography component="p" sx={sectionEyebrowSx}>
+          Pattadar AI
+        </Typography>
+        <Typography variant="h4" component="h2" sx={sectionTitleSx}>
+          An assistant that knows your land
+        </Typography>
+        <Typography variant="body1" sx={{ textAlign: 'center', color: INK_DIM, maxWidth: 660, mx: 'auto', mb: 5 }}>
+          Ask in plain words — the Pattadar AI Assistant answers from your own records, and can even
+          open the right page or record for you. No jargon, ever: it speaks the way your family does.
+        </Typography>
+        <Box sx={{ display: 'grid', gap: 3, alignItems: 'center', gridTemplateColumns: { xs: '1fr', md: '5fr 6fr' } }}>
+          <Box>
+            {[
+              ['Answers from your records', 'It reads your portfolio — parcels, passbooks, documents, family — and answers about YOUR land, not generic advice.'],
+              ['Acts, not just talks', 'Ask it to find a record and it opens the page, applies the filter and takes you there.'],
+              ['Plain language by rule', 'Technical talk is deliberately kept away from you — answers come in words a farming family uses.'],
+            ].map(([t, b]) => (
+              <Box key={t} sx={{ display: 'flex', gap: 1.5, mb: 2.5 }}>
+                <SmartToyOutlinedIcon sx={{ color: BLUE, mt: 0.3 }} />
+                <Box>
+                  <Typography variant="h6" component="h3" sx={{ color: INK, mb: 0.5 }}>
+                    {t}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: INK_DIM }}>
+                    {b}
+                  </Typography>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+          {/* sample conversation in a glow frame — honestly labeled */}
+          <Box
+            sx={{
+              borderRadius: '20px',
+              p: '1px',
+              background: `linear-gradient(135deg, rgba(100,181,246,0.5), rgba(255,255,255,0.08) 45%, rgba(25,118,210,0.4))`,
+            }}
+          >
+            <Box sx={{ borderRadius: '19px', background: '#0d0d13', p: { xs: 2.5, md: 3 } }}>
+              <Typography variant="overline" sx={{ color: BLUE, letterSpacing: 1.6 }}>
+                Assistant · sample conversation
+              </Typography>
+              <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                <Box sx={{ alignSelf: 'flex-end', maxWidth: '85%', px: 1.75, py: 1, borderRadius: '14px 14px 4px 14px', background: 'rgba(25,118,210,0.35)', border: '1px solid rgba(100,181,246,0.35)' }}>
+                  <Typography variant="body2" sx={{ color: INK }}>
+                    Which of my parcels is missing a registered deed?
+                  </Typography>
+                </Box>
+                <Box sx={{ alignSelf: 'flex-start', maxWidth: '90%', px: 1.75, py: 1, borderRadius: '14px 14px 14px 4px', background: SURFACE, border: `1px solid ${BORDER}` }}>
+                  <Typography variant="body2" sx={{ color: INK_DIM }}>
+                    Two parcels have no deed on file — Survey 87/1B (Krishna) and Survey 456/3
+                    (Kurnool). Shall I open them so you can upload the deeds?
+                  </Typography>
+                </Box>
+                <Box sx={{ alignSelf: 'flex-end', maxWidth: '85%', px: 1.75, py: 1, borderRadius: '14px 14px 4px 14px', background: 'rgba(25,118,210,0.35)', border: '1px solid rgba(100,181,246,0.35)' }}>
+                  <Typography variant="body2" sx={{ color: INK }}>
+                    Yes, open the Krishna one.
+                  </Typography>
+                </Box>
+                <Box sx={{ alignSelf: 'flex-start', maxWidth: '90%', px: 1.75, py: 1, borderRadius: '14px 14px 14px 4px', background: SURFACE, border: `1px solid ${BORDER}` }}>
+                  <Typography variant="body2" sx={{ color: INK_DIM }}>
+                    Opening Survey 87/1B now — the Files section is ready for the deed upload. 📄
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+        </Reveal>
       </Container>
 
       {/* ── How it works ─────────────────────────────────────────────── */}
