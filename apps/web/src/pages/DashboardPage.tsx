@@ -28,7 +28,9 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { formatArea, formatDateTime, formatINRCompact } from '@pattadar/core';
+import { openFileViewer } from '../components/FileViewer';
 import { PageHeader } from '../components/PageHeader';
 import { HeaderSkeleton, HeroSkeleton, StatRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { useDashboard } from '../data/hooks';
@@ -40,6 +42,7 @@ import {
   taxCompliance,
 } from '../data/portfolio';
 import type { DashParcel } from '../data/portfolio';
+import { fetchFileBlob, isStorageRef } from './documents/storage';
 
 /* Dark hero island — light ink for every child, in BOTH color modes. */
 const heroSx = {
@@ -93,6 +96,15 @@ export function DashboardPage() {
 
   const villageOf = new Map(d.passbooks.map((b) => [b.id, b.village || '—']));
   const withDoc = new Set(d.documents.map((doc) => doc.parcelId).filter(Boolean));
+  const viewableByParcel = new Map<string, { name: string; load: () => Promise<Blob> }[]>();
+  for (const doc of d.documents) {
+    if (!doc.parcelId || !doc.fileRef || !isStorageRef(doc.fileRef)) continue;
+    if (!viewableByParcel.has(doc.parcelId)) viewableByParcel.set(doc.parcelId, []);
+    viewableByParcel.get(doc.parcelId)!.push({
+      name: doc.docType || 'Document',
+      load: () => fetchFileBlob(doc.fileRef),
+    });
+  }
   const byVillage = new Map<string, DashParcel[]>();
   for (const p of d.parcels) {
     const v = villageOf.get(p.passbookId) || '—';
@@ -175,32 +187,51 @@ export function DashboardPage() {
       </>
     );
 
-  const parcelRow = (p: DashParcel) => (
-    <Box
-      key={p.id}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1.5,
-        py: 1,
-        px: 0.5,
-        borderBottom: '1px dashed',
-        borderColor: 'divider',
-        '&:last-child': { borderBottom: 0 },
-      }}
-    >
-      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 64 }}>
-        Sy {p.surveyNo}
-      </Typography>
-      <Typography variant="body2">Farmland</Typography>
-      {!withDoc.has(p.id) && (
-        <Chip size="small" label="deed missing" color="warning" variant="outlined" />
-      )}
-      <Typography variant="body2" className="tnum" sx={{ ml: 'auto', fontWeight: 600 }}>
-        {formatArea(Number(p.extent) || 0)}
-      </Typography>
-    </Box>
-  );
+  const parcelRow = (p: DashParcel) => {
+    const files = viewableByParcel.get(p.id) || [];
+    return (
+      <Box
+        key={p.id}
+        onClick={() => navigate(`/app/parcels/${p.id}`)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          py: 1,
+          px: 0.5,
+          borderBottom: '1px dashed',
+          borderColor: 'divider',
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'action.hover' },
+          '&:last-child': { borderBottom: 0 },
+        }}
+      >
+        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 64 }}>
+          Sy {p.surveyNo}
+        </Typography>
+        <Typography variant="body2">Farmland</Typography>
+        {files.length > 0 ? (
+          /* In-portal preview of this parcel's files — never a new tab. */
+          <Chip
+            size="small"
+            icon={<VisibilityOutlinedIcon />}
+            label={`Preview ${files.length > 1 ? `(${files.length})` : ''}`.trim()}
+            variant="outlined"
+            color="primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              openFileViewer(files.map((f) => ({ name: `${f.name} · Sy ${p.surveyNo}`, load: f.load })));
+            }}
+          />
+        ) : (
+          !withDoc.has(p.id) && <Chip size="small" label="deed missing" color="warning" variant="outlined" />
+        )}
+        <Typography variant="body2" className="tnum" sx={{ ml: 'auto', fontWeight: 600 }}>
+          {formatArea(Number(p.extent) || 0)}
+        </Typography>
+      </Box>
+    );
+  };
 
   const villageHeader = (name: string, parcels: DashParcel[], open: boolean) => (
     <Box
@@ -458,6 +489,7 @@ export function DashboardPage() {
                 {d.properties.map((p) => (
                   <Box
                     key={p.id}
+                    onClick={() => navigate(`/app/properties/${p.id}`)}
                     sx={{
                       display: 'flex',
                       alignItems: 'center',
@@ -466,6 +498,8 @@ export function DashboardPage() {
                       p: 1.5,
                       borderRadius: 2,
                       bgcolor: 'rgba(25, 118, 210, 0.05)',
+                      cursor: 'pointer',
+                      '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.1)' },
                     }}
                   >
                     <Box sx={{ fontSize: 22 }}>🏠</Box>
