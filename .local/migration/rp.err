@@ -1,0 +1,4 @@
+psql:/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.local/migration/pattadar.sql:80: ERROR:  extension "vectorscale" is not available
+DETAIL:  Could not open extension control file "/rdsdbbin/postgres-17.9.R2/share/extension/vectorscale.control": No such file or directory.
+HINT:  The extension must first be installed on the system where PostgreSQL is running.
+psql:/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.local/migration/pattadar.sql:87: ERROR:  extension "vectorscale" does not exist

@@ -107,7 +107,7 @@ resource "aws_security_group" "rds" {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [aws_security_group.gateway.id]
+    security_groups = [aws_security_group.gateway.id, aws_security_group.assistant.id]
   }
 
   ingress {

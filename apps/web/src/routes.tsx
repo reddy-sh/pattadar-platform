@@ -103,6 +103,7 @@ export const router = createBrowserRouter([
   { path: '/terms', element: suspended(TermsPage) },
   { path: '/auth/callback', element: suspended(AuthCallbackPage) },
   { path: '/verify/:token', element: suspended(VerifyPage) },
+  { path: '/active/:token', element: suspended(VerifyPage) },
   {
     path: '/app',
     element: <RequireAuth>{suspended(AppShell)}</RequireAuth>,
