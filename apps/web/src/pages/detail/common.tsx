@@ -12,17 +12,13 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
-import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
-import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { gql } from '../../api/client';
 import { avaColor, fmtLocal } from '../../lib/format';
 import { useBlobUrl } from '../../components/holdingCards';
-import { downloadBlob, fetchFileBlob, fetchNodeNames, openBlob } from '../documents/storage';
+import { fetchFileBlob, openBlob } from '../documents/storage';
 
 // ── tiny display helpers (ported from source) ────────────────────────────
 
@@ -293,7 +289,9 @@ export function AuditTrailPanel({ target }: { target: string }) {
   );
 }
 
-// ── linked documents (My Drive preview/download) ─────────────────────────
+// ── linked documents ─────────────────────────────────────────────────────
+// (The read-only DocumentsList lived here until the Files tabs gained the
+// full upload panel — see PropertyFilesPanel.tsx.)
 
 export interface LinkedDoc {
   id: string;
@@ -301,110 +299,6 @@ export interface LinkedDoc {
   fileRef: string;
   tags?: string;
   createdAt?: string;
-}
-
-const DOC_ICON: Record<string, string> = {
-  sale_deed: '📜',
-  gift_deed: '📜',
-  partition_deed: '📜',
-  settlement_deed: '📜',
-  passbook: '📗',
-  ror_1b: '📄',
-  ec: '📄',
-  fmb: '📐',
-  tax_receipt: '🧾',
-  map: '🗺️',
-  legal_heir: '📄',
-  court_order: '⚖️',
-  photo: '🖼️',
-  video: '🎬',
-};
-
-/** File rows with resolved My Drive names + preview / download actions. */
-export function DocumentsList({ docs, emptyText }: { docs: LinkedDoc[]; emptyText: string }) {
-  const [names, setNames] = useState<Record<string, string>>({});
-  useEffect(() => {
-    const refs = Array.from(new Set(docs.map((d) => d.fileRef).filter(Boolean)));
-    if (!refs.length) {
-      setNames({});
-      return;
-    }
-    let cancelled = false;
-    void fetchNodeNames(refs).then((m) => {
-      if (!cancelled) setNames(m);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [docs]);
-
-  const act = useCallback(async (d: LinkedDoc, mode: 'preview' | 'download', name: string) => {
-    try {
-      const blob = await fetchFileBlob(d.fileRef);
-      if (mode === 'preview') openBlob(blob);
-      else downloadBlob(blob, name);
-    } catch {
-      /* storage unreachable — buttons are best-effort */
-    }
-  }, []);
-
-  if (docs.length === 0)
-    return (
-      <Typography variant="body2" color="text.secondary">
-        {emptyText}
-      </Typography>
-    );
-  return (
-    <Box>
-      {docs.map((d) => {
-        const name = names[d.fileRef] || String(d.docType || 'document').replace(/_/g, ' ');
-        return (
-          <Box
-            key={d.id}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              py: 0.75,
-              borderBottom: '1px solid',
-              borderColor: 'divider',
-            }}
-          >
-            <Box component="span" sx={{ fontSize: 18 }}>
-              {DOC_ICON[d.docType] || '📄'}
-            </Box>
-            <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-              <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
-                {name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {String(d.docType || 'other').replace(/_/g, ' ')}
-                {d.createdAt ? ` · ${fmtLocal(d.createdAt, { dateOnly: true })}` : ''}
-              </Typography>
-            </Box>
-            {d.fileRef ? (
-              <>
-                <Tooltip title="Preview">
-                  <IconButton size="small" onClick={() => void act(d, 'preview', name)} aria-label="Preview">
-                    <VisibilityOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Download">
-                  <IconButton size="small" onClick={() => void act(d, 'download', name)} aria-label="Download">
-                    <DownloadOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            ) : (
-              <Typography variant="caption" color="text.secondary">
-                no file
-              </Typography>
-            )}
-          </Box>
-        );
-      })}
-    </Box>
-  );
 }
 
 // ── photo strip (source's ParcelPhotosSection, MUI edition) ──────────────

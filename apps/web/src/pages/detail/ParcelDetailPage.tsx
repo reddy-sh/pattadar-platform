@@ -54,7 +54,6 @@ import { fmtLocal } from '../../lib/format';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
 import {
   AuditTrailPanel,
-  DocumentsList,
   Field,
   FieldGrid,
   NotFoundCard,
@@ -66,6 +65,7 @@ import {
   money,
 } from './common';
 import type { LinkedDoc } from './common';
+import { PropertyFilesPanel } from './PropertyFilesPanel';
 
 // ── data shapes (field names verbatim from the source query) ─────────────
 
@@ -960,7 +960,11 @@ export function ParcelDetailPage() {
 
   const filesTab = (
     <Box>
-      <DocumentsList docs={[...photos.map((ph, i) => ({ id: `photo-${i}`, docType: 'photo', fileRef: ph.fileRef })), ...fileDocs]} emptyText="No documents linked to this parcel yet — upload from the Documents section." />
+      {/* Full upload panel (source parity: parcel 360 FilesPanel). Uploads are
+          filed My Drive / Pattadar / Passbook <ref> / Parcel <ref>. */}
+      <PropertyFilesPanel
+        scope={{ kind: 'parcel', parcelId: id, passbookRef: p.passbookRef, parcelLabel: p.ref || p.surveyNo }}
+      />
       {data.deeds.length > 0 && (
         <Box sx={{ mt: 2 }}>
           <Typography sx={{ fontWeight: 600, fontSize: 13, mb: 0.5 }}>Registered documents</Typography>

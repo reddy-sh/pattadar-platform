@@ -46,7 +46,6 @@ import { deleteProperty } from '../../data/pattadarActions';
 import { attributeFieldsFor, propertyTypeDef } from '../holdings/propertyTypes';
 import {
   AuditTrailPanel,
-  DocumentsList,
   Field,
   FieldGrid,
   NotFoundCard,
@@ -59,6 +58,7 @@ import {
   money,
 } from './common';
 import type { LinkedDoc } from './common';
+import { PropertyFilesPanel } from './PropertyFilesPanel';
 
 // Field selection verbatim from the source PropertyDetailView (+ groupId so
 // the Family / group row resolves — the API returns it for properties).
@@ -715,9 +715,7 @@ export function PropertyDetailPage() {
       </Tabs>
       {tab === 'overview' && overview}
       {tab === 'map' && mapTab}
-      {tab === 'files' && (
-        <DocumentsList docs={data.docs} emptyText="No documents linked to this property yet — upload from the Documents section." />
-      )}
+      {tab === 'files' && <PropertyFilesPanel scope={{ kind: 'property', propertyId: id }} />}
       {tab === 'owners' && ownersTab}
       {tab === 'notes' && <NotesPanel entityType="property" entityId={id} />}
       {tab === 'audit' && <AuditTrailPanel target={id} />}

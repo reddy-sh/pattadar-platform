@@ -55,6 +55,7 @@ import {
   labelOfType,
 } from './docTypes';
 import {
+  STORAGE_OFFLINE_MSG,
   downloadBlob,
   fetchFileBlob,
   fetchNodeNames,
@@ -266,7 +267,7 @@ export function DocumentsTab({
   // ── upload + background AI classification (FilesPanel pipeline) ───────
   const uploadOne = async (file: File, notify = true) => {
     const nodeId = await uploadToDrive(file);
-    if (!nodeId) throw new Error('upload failed');
+    if (!nodeId) throw new Error('storage-offline');
     // Videos are typed directly (the AI classifier only reads documents/images);
     // everything else lands as "other" and is reclassified in the background.
     const isVideo = String(file.type || '').startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name || '');
@@ -335,15 +336,22 @@ export function DocumentsTab({
       return;
     }
     setUploading(true);
+    let done = 0;
     for (const f of batch) {
       try {
         await uploadOne(f, batch.length === 1);
-      } catch {
+        done += 1;
+      } catch (err) {
+        // Storage gateway unreachable (local dev) — one clear message, stop the batch.
+        if (err instanceof Error && err.message === 'storage-offline') {
+          onToast(STORAGE_OFFLINE_MSG, 'info');
+          break;
+        }
         onToast(`Upload failed${f?.name ? ` — ${f.name}` : ''}`, 'error');
       }
     }
     setUploading(false);
-    if (batch.length > 1) onToast(`${batch.length} files uploaded`, 'success');
+    if (done > 1) onToast(`${done} files uploaded`, 'success');
   };
 
   // ── link / reclassify / create-parcel actions ─────────────────────────

@@ -10,7 +10,8 @@
  * that khata; ?group=<groupId> pre-filters by family; ?tab=properties opens
  * the Properties tab (the old /app/properties route redirects here).
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
@@ -54,6 +55,7 @@ import { ExportMenu } from '../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../export/ExportMenu';
 import { useHoldings } from '../data/hooks';
 import { deleteParcel, deleteProperty } from '../data/pattadarActions';
+import { STORAGE_OFFLINE_MSG, uploadCoverPhoto } from './documents/storage';
 import { AddParcelDialog } from './holdings/AddParcelDialog';
 import { AddPropertyDialog } from './holdings/AddPropertyDialog';
 import { LocationDialog } from './holdings/LocationDialog';
@@ -132,6 +134,10 @@ export function LandPropertiesPage() {
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: Holding } | null>(null);
+  // Hidden picker behind the "Add / Change cover photo" card action
+  // (source parity: useCoverUpload in AllHoldingsView / PropertiesView).
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const coverTargetRef = useRef<{ kind: 'parcel' | 'property'; id: string } | null>(null);
 
   const notify = (msg: string, severity: Toast['severity'] = 'success') => setToast({ msg, severity });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['pattadar'] });
@@ -306,12 +312,36 @@ export function LandPropertiesPage() {
     }
   };
 
+  const onCoverFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const target = coverTargetRef.current;
+    if (!file || !target) return;
+    const res = await uploadCoverPhoto(
+      file,
+      target.kind === 'property' ? { propertyId: target.id } : { parcelId: target.id },
+    );
+    if (res === 'ok') {
+      notify('Cover photo updated');
+      refresh();
+    } else if (res === 'storage') notify(STORAGE_OFFLINE_MSG, 'info');
+    else notify("Couldn't upload the photo — try again", 'error');
+  };
+
   // Parcels open the parcel 360, properties the property detail (source parity).
   const openDetail = (h: Holding) =>
     navigate(`/app/${h.kind === 'parcel' ? 'parcels' : 'properties'}/${h.id}`);
 
   const rowActions = (h: Holding) => [
     { key: 'open', label: 'Open', onClick: () => openDetail(h) },
+    {
+      key: 'cover',
+      label: h.cover ? 'Change cover photo' : 'Add cover photo',
+      onClick: () => {
+        coverTargetRef.current = { kind: h.kind, id: h.id };
+        coverInputRef.current?.click();
+      },
+    },
     {
       key: 'stake',
       label: 'My stake…',
@@ -765,6 +795,9 @@ export function LandPropertiesPage() {
       />
       <StakeDialog target={stakeTarget} onClose={() => setStakeTarget(null)} onDone={refresh} notify={notify} />
       <LocationDialog target={locTarget} onClose={() => setLocTarget(null)} onDone={refresh} notify={notify} />
+
+      {/* Hidden picker for the cover-photo card action. */}
+      <input ref={coverInputRef} type="file" accept="image/*" hidden onChange={(e) => void onCoverFile(e)} />
 
       <Snackbar open={Boolean(toast)} autoHideDuration={4000} onClose={() => setToast(null)}>
         <Alert severity={toast?.severity ?? 'success'} onClose={() => setToast(null)}>

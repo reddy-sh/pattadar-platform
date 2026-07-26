@@ -7,6 +7,13 @@
  */
 import { apiFetch, gql } from '../../api/client';
 
+/**
+ * The one clear message every upload surface shows when the storage gateway
+ * is unreachable (local dev has no cloud storage) — never N error toasts.
+ */
+export const STORAGE_OFFLINE_MSG =
+  'File storage runs on the cloud gateway — uploads work on pattadar.com; local preview shows metadata only';
+
 /** Upload a file to My Drive (appId=pattadar). Returns the node id or ''. */
 export async function uploadToDrive(file: File): Promise<string> {
   try {
@@ -63,6 +70,53 @@ export function downloadBlob(blob: Blob, name: string): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/**
+ * Create a `documents` row linked to a parcel / passbook / property (the
+ * exact createDocument call the rhub FilesPanel makes). Returns the new
+ * document id or '' on failure.
+ */
+export async function createDocumentRow(
+  target: { parcelId?: string; passbookId?: string; propertyId?: string },
+  fields: { docType: string; fileRef: string; tags?: string; source?: string },
+): Promise<string> {
+  try {
+    const r = await gql<{ createDocument: { id: string } | null }>(
+      'mutation($parcelId:String!,$passbookId:String!,$propertyId:String!,$docType:String!,$fileRef:String!,$docNo:String!,$sroCode:String!,$regYear:String!,$source:String!,$tags:String!){ createDocument(parcelId:$parcelId,passbookId:$passbookId,propertyId:$propertyId,docType:$docType,fileRef:$fileRef,docNo:$docNo,sroCode:$sroCode,regYear:$regYear,source:$source,tags:$tags){ id } }',
+      {
+        parcelId: target.parcelId || '',
+        passbookId: target.passbookId || '',
+        propertyId: target.propertyId || '',
+        docType: fields.docType,
+        fileRef: fields.fileRef,
+        docNo: '',
+        sroCode: '',
+        regYear: '',
+        source: fields.source || 'upload',
+        tags: fields.tags || '',
+      },
+    );
+    return r?.createDocument?.id || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Upload an image → My Drive → create a "photo" document on the parcel or
+ * property — the grids/galleries treat the newest photo as the cover.
+ * (Port of rhub shared.ts uploadCoverPhoto.) Returns 'storage' when My
+ * Drive is unreachable so callers can show STORAGE_OFFLINE_MSG.
+ */
+export async function uploadCoverPhoto(
+  file: File,
+  target: { parcelId?: string; propertyId?: string },
+): Promise<'ok' | 'storage' | 'error'> {
+  const nodeId = await uploadToDrive(file);
+  if (!nodeId) return 'storage';
+  const id = await createDocumentRow(target, { docType: 'photo', fileRef: nodeId, tags: 'photo' });
+  return id ? 'ok' : 'error';
 }
 
 /**
