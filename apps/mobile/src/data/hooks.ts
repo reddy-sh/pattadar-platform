@@ -5,8 +5,11 @@
  * staleTime 30s, no retries. Query documents come from @pattadar/core.
  */
 import {
+  CREATE_PARCEL_MUTATION,
+  CREATE_PASSBOOK_MUTATION,
   DASHBOARD_QUERY,
   DELETE_INVITATION_MUTATION,
+  UPDATE_PARCEL_PRICE_MUTATION,
   GROUPS_QUERY,
   GROUP_MEMBERS_QUERY,
   HOLDINGS_QUERY,
@@ -224,6 +227,63 @@ export function useInvitationActions() {
     onSuccess: invalidate,
   });
   return { setStatus, remove };
+}
+
+// --- create flows ------------------------------------------------------------
+
+export interface NewPassbook {
+  pattadarNo: string;
+  ownerName: string;
+  fatherHusbandName: string;
+  state: string;
+  district: string;
+  mandal: string;
+  village: string;
+}
+
+export interface NewParcel {
+  passbookId: string;
+  surveyNo: string;
+  subdivision: string;
+  /** Canonical decimal acres (caller converts via toAcres). */
+  extent: number;
+  /** The user's chosen unit key — provenance only, web parity. */
+  unit: string;
+  classification: string;
+  acquisitionSource: string;
+  parentParcelId: string;
+  source: string;
+}
+
+export function useCreateFlows() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['pattadar', 'dashboard'] });
+    qc.invalidateQueries({ queryKey: ['pattadar', 'holdings'] });
+  };
+
+  const createPassbook = useMutation({
+    mutationFn: (v: NewPassbook) =>
+      api.gql<{ createPassbook: { id: string } | null }>(CREATE_PASSBOOK_MUTATION, {
+        ...v,
+        groupId: '',
+      }),
+    onSuccess: invalidate,
+  });
+
+  const createParcel = useMutation({
+    mutationFn: (v: NewParcel) =>
+      api.gql<{ createParcel: { id: string } | null }>(CREATE_PARCEL_MUTATION, { ...v }),
+    onSuccess: invalidate,
+  });
+
+  const setParcelPrice = useMutation({
+    mutationFn: (v: { id: string; purchasePrice: number }) =>
+      api.gql<{ updateParcel: { id: string } | null }>(UPDATE_PARCEL_PRICE_MUTATION, v),
+    onSuccess: invalidate,
+  });
+
+  return { createPassbook, createParcel, setParcelPrice };
 }
 
 // --- verify (public) ---------------------------------------------------------

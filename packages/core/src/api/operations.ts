@@ -67,3 +67,16 @@ export const VERIFY_BENEFICIARY_MUTATION = `mutation($token: String!) { verifyBe
 
 /** Server-side invite fan-out (email/WhatsApp/SMS via notify seam). */
 export const INVITE_MEMBER_MUTATION = `mutation($id:String!){ inviteMember(id:$id){ id } }`;
+
+// --- create mutations (API convention: every arg required; '' for unused) ----
+
+export const CREATE_PASSBOOK_MUTATION = `mutation($pattadarNo: String!, $state: String!, $district: String!, $mandal: String!, $village: String!, $ownerName: String!, $fatherHusbandName: String!, $groupId: String!) {
+  createPassbook(pattadarNo: $pattadarNo, state: $state, district: $district, mandal: $mandal, village: $village, ownerName: $ownerName, fatherHusbandName: $fatherHusbandName, groupId: $groupId) { id }
+}`;
+
+export const CREATE_PARCEL_MUTATION = `mutation($passbookId: String!, $surveyNo: String!, $subdivision: String!, $extent: Float!, $unit: String!, $classification: String!, $acquisitionSource: String!, $parentParcelId: String!, $source: String!) {
+  createParcel(passbookId: $passbookId, surveyNo: $surveyNo, subdivision: $subdivision, extent: $extent, unit: $unit, classification: $classification, acquisitionSource: $acquisitionSource, parentParcelId: $parentParcelId, source: $source) { id }
+}`;
+
+/** Web parity: cost-per-acre is stored only as the derived total price. */
+export const UPDATE_PARCEL_PRICE_MUTATION = `mutation($id: String!, $purchasePrice: Float!) { updateParcel(id: $id, purchasePrice: $purchasePrice) { id } }`;

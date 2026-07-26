@@ -1,6 +1,8 @@
 export { createGraphQLClient } from './api/client';
 export type { GraphQLClient, GraphQLClientConfig, HeadersProvider } from './api/client';
 export {
+  CREATE_PARCEL_MUTATION,
+  CREATE_PASSBOOK_MUTATION,
   DASHBOARD_QUERY,
   DELETE_INVITATION_MUTATION,
   GROUPS_QUERY,
@@ -10,6 +12,7 @@ export {
   INVITATIONS_QUERY,
   INVITE_MEMBER_MUTATION,
   UPDATE_INVITATION_STATUS_MUTATION,
+  UPDATE_PARCEL_PRICE_MUTATION,
   VERIFY_BENEFICIARY_MUTATION,
 } from './api/operations';
 export { assetGainPct, parcelValue, propertyValue, splitShares, totalLoans } from './portfolio/value';

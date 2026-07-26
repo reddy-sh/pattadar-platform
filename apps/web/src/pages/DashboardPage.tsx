@@ -624,8 +624,12 @@ export function DashboardPage() {
         ))}
       </Box>
 
+      {/* ── Everything below is data-driven — nothing renders until the
+          portfolio has content (no hollow sections on first run). ── */}
+      {!firstRun && (
+      <>
       {/* ── Health rings ────────────────────────────────────────────── */}
-      {!firstRun && rings.length > 0 && (
+      {rings.length > 0 && (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: `repeat(${rings.length}, 1fr)` }, gap: 1.5, mb: 2.5 }}>
           {rings.map((r) => (
             <HealthRing key={r.title} pct={r.pct} color={r.color} title={r.title} gap={r.gap} onClick={() => navigate(r.go)} />
@@ -961,6 +965,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </Box>
+      </>
+      )}
     </>
   );
 }

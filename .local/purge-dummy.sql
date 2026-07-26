@@ -15,6 +15,8 @@ DELETE FROM family_members WHERE coalesce(owner_user_id,'') <> 'sankara.telukutl
 DELETE FROM groups WHERE owner_user_id <> 'sankara.telukutla' OR name = 'zz-test-delete';
 DELETE FROM family_notifiers WHERE group_id NOT IN (SELECT id FROM groups);
 DELETE FROM inactivity_escalations WHERE group_id NOT IN (SELECT id FROM groups);
+DELETE FROM service_requests;  -- 'Site photos / Repair / Boundary survey' dashboard seeds
+DELETE FROM invitations WHERE scope_id NOT IN (SELECT id FROM parcels);
 COMMIT;
 SELECT 'passbooks' t, count(*) FROM passbooks
 UNION ALL SELECT 'parcels', count(*) FROM parcels
