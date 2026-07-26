@@ -1,14 +1,13 @@
 /**
- * API client seam for the Pattadar web-next app.
- *
- * Ported (partial) from apps/web/src/api/client.ts for task B3: only the
- * token-provider seam that src/auth/AuthProvider.tsx needs at compile time
- * (`GetAccessToken` / `setAccessTokenProvider` / `apiFetch`). The GraphQL
- * helpers (`gql`, GRAPHQL_PATH) are out of scope here — a later task ports
- * the full client and extends this file.
+ * API client for the Pattadar web-next app.
  *
  * All paths are GATEWAY-RELATIVE ('/api/...'): the browser never talks to a
- * service host directly.
+ * service host directly. In AWS, CloudFront routes '/api' to the ALB/gateway;
+ * in local dev, the dev-only proxy route (src/app/api/gateway/[...path]/route.ts)
+ * forwards '/api/gateway/...' to the slim gateway / pattadar API on
+ * localhost:8082 / :8080 (Next rewrites can't inject headers, so a route
+ * handler stands in for the old Vite proxy). Keeping paths relative means one
+ * bundle works in both environments with no runtime configuration.
  */
 
 export type GetAccessToken = () => Promise<string | null>;
@@ -29,4 +28,25 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
   return fetch(path, { ...init, headers });
+}
+
+const GRAPHQL_PATH = '/api/gateway/pattadar/graphql';
+
+interface GraphQLResponse<T> {
+  data?: T;
+  errors?: Array<{ message: string }>;
+}
+
+/** POST a GraphQL query to the pattadar service via the gateway. */
+export async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+  const res = await apiFetch(GRAPHQL_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(`GraphQL HTTP ${res.status}`);
+  const body = (await res.json()) as GraphQLResponse<T>;
+  if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
+  if (body.data === undefined) throw new Error('GraphQL response had no data');
+  return body.data;
 }

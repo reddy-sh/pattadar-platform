@@ -2,7 +2,7 @@
 const nextConfig = {
   output: 'standalone',
   // Workspace source packages shipped as raw TS.
-  transpilePackages: ['@pattadar/tokens'],
+  transpilePackages: ['@pattadar/tokens', '@pattadar/core'],
   redirects: async () => [
     { source: '/app/properties', destination: '/app/parcels?tab=properties', permanent: false },
     { source: '/app/deeds', destination: '/app/documents', permanent: false },

@@ -10,6 +10,7 @@ import ThemeProvider from 'src/theme';
 import { primaryFont } from 'src/theme/typography';
 
 import { AuthProvider } from 'src/auth/AuthProvider';
+import { QueryProvider } from 'src/lib/QueryProvider';
 import ProgressBar from 'src/components/progress-bar';
 import { MotionLazy } from 'src/components/animate/motion-lazy';
 import SnackbarProvider from 'src/components/snackbar/snackbar-provider';
@@ -63,7 +64,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <SnackbarProvider>
                 <SettingsDrawer />
                 <ProgressBar />
-                <AuthProvider>{children}</AuthProvider>
+                <QueryProvider>
+                  <AuthProvider>{children}</AuthProvider>
+                </QueryProvider>
               </SnackbarProvider>
             </MotionLazy>
           </ThemeProvider>

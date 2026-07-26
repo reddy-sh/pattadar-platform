@@ -16,6 +16,13 @@ set -euo pipefail
 
 PLATFORM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RHUB_API_DIR="${RHUB_API_DIR:-$PLATFORM_DIR/services/api}"
+
+# WEB_NEXT=1 ./scripts/start-local.sh  — serve web-next (Next.js, :5273) instead
+# of the vite web app (:5173). The API's APP_PUBLIC_URL (invite/verify links)
+# follows whichever web head is actually running.
+WEB_NEXT="${WEB_NEXT:-0}"
+WEB_PUBLIC_PORT=5173
+[ "$WEB_NEXT" = "1" ] && WEB_PUBLIC_PORT=5273
 VENV="$PLATFORM_DIR/.local/api-venv"
 GW_VENV="$PLATFORM_DIR/.local/gateway-venv"
 API_LOG="$PLATFORM_DIR/.local/api.log"
@@ -61,7 +68,7 @@ echo "» starting api on http://localhost:8080 (log: .local/api.log)"
   cd "$RHUB_API_DIR"
   APP_PG_DSN="host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
-  APP_PUBLIC_URL="http://localhost:5173" \
+  APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \
   "$VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8080 >"$API_LOG" 2>&1
 ) &
 API_PID=$!
@@ -150,11 +157,19 @@ PYEOF
 # --- web (Vite: graphql -> :8080, storage/admin -> :8082) --------------------
 cd "$PLATFORM_DIR"
 bun install
-echo "» starting web on http://localhost:5173  (Ctrl-C stops everything)"
-# REAL sign-in, exactly like pattadar.com — no mock mode.
-VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
-VITE_COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
-VITE_COGNITO_DOMAIN="auth.pattadar.com" \
-VITE_SOCIAL_PROVIDERS="Google" \
-VITE_GATEWAY_PROXY_TARGET="http://localhost:8082" \
-bun run dev:web
+if [ "$WEB_NEXT" = "1" ]; then
+  echo "» starting web-next on http://localhost:5273  (Ctrl-C stops everything)"
+  DEV_API_TARGET="http://localhost:8080" \
+  DEV_GATEWAY_TARGET="http://localhost:8082" \
+  DEV_USER_ID="sankara.telukutla" \
+  bun run --filter @pattadar/web-next dev:local
+else
+  echo "» starting web on http://localhost:5173  (Ctrl-C stops everything)"
+  # REAL sign-in, exactly like pattadar.com — no mock mode.
+  VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
+  VITE_COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
+  VITE_COGNITO_DOMAIN="auth.pattadar.com" \
+  VITE_SOCIAL_PROVIDERS="Google" \
+  VITE_GATEWAY_PROXY_TARGET="http://localhost:8082" \
+  bun run dev:web
+fi
