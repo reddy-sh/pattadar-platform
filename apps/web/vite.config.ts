@@ -6,8 +6,8 @@ import react from '@vitejs/plugin-react';
 // own API instance and never touch the founder's dev stack on :8080.
 const apiTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8080';
 // DEV-ONLY: the local gateway (services/gateway run by start-local.sh) serves
-// storage + admin on :8081, backed by MinIO + the local pattadar_hub DB.
-const gatewayTarget = process.env.VITE_GATEWAY_PROXY_TARGET || 'http://localhost:8081';
+// storage + admin on :8082, backed by MinIO + the local pattadar_hub DB.
+const gatewayTarget = process.env.VITE_GATEWAY_PROXY_TARGET || 'http://localhost:8082';
 
 export default defineConfig({
   // amazon-cognito-identity-js references Node's `global` at runtime;

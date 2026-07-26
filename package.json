@@ -13,6 +13,7 @@
   "scripts": {
     "build": "bun run --filter '@pattadar/*' build",
     "typecheck": "bun run --filter '@pattadar/*' typecheck",
-    "dev:web": "bun run --filter @pattadar/web dev"
+    "dev:web": "bun run --filter @pattadar/web dev",
+    "dev:mobile": "./scripts/start-mobile.sh"
   }
 }

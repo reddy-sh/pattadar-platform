@@ -4,11 +4,13 @@
 # metadata DB, real Cognito token validation — no auth bypass anywhere)
 # + web dev server (Vite, hot reload). NO deploys.
 #
-#   ./scripts/start-local.sh   # api :8080, gateway :8081, minio :9000, web :5173
+#   ./scripts/start-local.sh   # api :8080, gateway :8082, minio :9000, web :5173
 #
-# Sign in on localhost with your REAL pattadar.com email/password — storage
-# uploads, preview and delete then work exactly like the cloud, but bytes stay
-# in .local/minio-data. Stops api+gateway on Ctrl-C (MinIO container stays).
+# REAL application, locally: sign in with your pattadar.com account (email/
+# password or Google) — auth, uploads, preview, delete all work exactly like
+# the cloud; bytes stay in .local/minio-data. NO mock mode: if Docker/MinIO/
+# gateway cannot start, this script FAILS instead of degrading.
+# Stops api+gateway on Ctrl-C (MinIO container stays).
 # Logs: .local/api.log, .local/gateway.log
 set -euo pipefail
 
@@ -73,8 +75,7 @@ done
 curl -fsS http://localhost:8080/health >/dev/null && echo "» api healthy ✓ (your real data: 88 parcels, 11 passbooks)"
 
 # --- storage: MinIO container + local pattadar_hub DB + the real gateway -----
-GATEWAY_UP=0
-if docker info >/dev/null 2>&1; then
+docker info >/dev/null 2>&1 || { echo "Docker is not running — start Docker Desktop first (storage needs the MinIO container)"; exit 1; }
   if [ -n "$(docker ps -q -f name="^${MINIO_NAME}$")" ]; then
     echo "» minio already running ✓"
   elif [ -n "$(docker ps -aq -f name="^${MINIO_NAME}$")" ]; then
@@ -121,7 +122,7 @@ PYEOF
     sleep 1
   done
 
-  echo "» starting gateway on http://localhost:8081 (log: .local/gateway.log)"
+  echo "» starting gateway on http://localhost:8082 (log: .local/gateway.log)"
   (
     cd "$PLATFORM_DIR/services/gateway"
     PG_HOST=localhost PG_PORT=5432 PG_USER=rhub PG_PASSWORD="$PGPASSWORD" PG_DATABASE="$GW_DB" \
@@ -130,31 +131,30 @@ PYEOF
     AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin AWS_REGION=ap-south-1 \
     COGNITO_USER_POOL_ID="$COGNITO_USER_POOL_ID" COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
     API_BASE_URL="http://localhost:8080" \
-    "$GW_VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8081 >"$GW_LOG" 2>&1
+    "$GW_VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8082 >"$GW_LOG" 2>&1
   ) &
   GW_PID=$!
   trap 'echo; echo "» stopping api + gateway"; kill $API_PID $GW_PID 2>/dev/null || true' EXIT INT TERM
 
+  GATEWAY_UP=0
   for i in $(seq 1 30); do
-    curl -fsS http://localhost:8081/health >/dev/null 2>&1 && GATEWAY_UP=1 && break
-    kill -0 $GW_PID 2>/dev/null || { echo "gateway failed — tail .local/gateway.log:"; tail -20 "$GW_LOG"; break; }
+    curl -fsS http://localhost:8082/health >/dev/null 2>&1 && GATEWAY_UP=1 && break
+    kill -0 $GW_PID 2>/dev/null || break
     sleep 1
   done
-  [ "$GATEWAY_UP" = 1 ] && echo "» gateway healthy ✓ (uploads/preview work locally — sign in with your real account)"
-else
-  echo "» Docker not running — storage stays cloud-only this session (metadata-only preview)"
-fi
+  if [ "$GATEWAY_UP" != 1 ]; then
+    echo "gateway FAILED to start — tail .local/gateway.log:"; tail -20 "$GW_LOG"; exit 1
+  fi
+  echo "» gateway healthy ✓ (real auth + real uploads, locally)"
 
-# --- web (Vite: graphql -> :8080, storage/admin -> :8081) --------------------
+# --- web (Vite: graphql -> :8080, storage/admin -> :8082) --------------------
 cd "$PLATFORM_DIR"
 bun install
 echo "» starting web on http://localhost:5173  (Ctrl-C stops everything)"
-if [ "$GATEWAY_UP" = 1 ]; then
-  # Real Cognito sign-in locally so storage carries a real Bearer token.
-  VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
-  VITE_COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
-  VITE_COGNITO_DOMAIN="auth.pattadar.com" \
-  bun run dev:web
-else
-  bun run dev:web
-fi
+# REAL sign-in, exactly like pattadar.com — no mock mode.
+VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
+VITE_COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
+VITE_COGNITO_DOMAIN="auth.pattadar.com" \
+VITE_SOCIAL_PROVIDERS="Google" \
+VITE_GATEWAY_PROXY_TARGET="http://localhost:8082" \
+bun run dev:web
