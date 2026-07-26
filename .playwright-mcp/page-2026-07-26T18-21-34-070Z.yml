@@ -1,0 +1,267 @@
+- generic [ref=e423]:
+  - generic [ref=e428]:
+    - generic [ref=e429]:
+      - generic [ref=e573]:
+        - generic [ref=e578]:
+          - generic [ref=e579]:
+            - img: 󱘲
+          - alert [ref=e580]: Showing sample data — the API is unreachable.
+        - generic [ref=e581]: Namaste, Sankara
+        - generic [ref=e584]:
+          - generic [ref=e585]: Portfolio value · guideline basis
+          - generic [ref=e586]: ₹5,92,97,000
+          - generic [ref=e590]: Farmland 38% · Properties 62%
+          - generic [ref=e591]: "Net of ₹6,00,000 loans: ₹5,86,97,000"
+        - generic [ref=e592]:
+          - generic [ref=e595]:
+            - generic [ref=e596]: Total extent
+            - generic [ref=e597]: 10 Acres 85 Cents
+          - generic [ref=e600]:
+            - generic [ref=e601]: Passbooks
+            - generic [ref=e602]: "3"
+          - generic [ref=e605]:
+            - generic [ref=e606]: Parcels
+            - generic [ref=e607]: "6"
+          - generic [ref=e610]:
+            - generic [ref=e611]: Documents
+            - generic [ref=e612]: "7"
+          - generic [ref=e615]:
+            - generic [ref=e616]: Family groups
+            - generic [ref=e617]: "2"
+          - generic [ref=e620]:
+            - generic [ref=e621]: Beneficiaries
+            - generic [ref=e622]: "3"
+        - generic [ref=e625]:
+          - generic [ref=e626]: Recent activity
+          - generic [ref=e630]:
+            - generic [ref=e631]: Uploaded a document · Tax receipt linked to Sy 87/1B
+            - generic [ref=e632]: sankara.telukutla · 22/07/2026 11:35
+          - generic [ref=e637]:
+            - generic [ref=e638]: Sent an invitation · Son — Telukutla Family
+            - generic [ref=e639]: sankara.telukutla · 16/07/2026 10:41
+          - generic [ref=e644]:
+            - generic [ref=e645]: Set a parcel's location · Location pin set near Orvakal quarry road
+            - generic [ref=e646]: sankara.telukutla · 14/07/2026 17:02
+          - generic [ref=e651]:
+            - generic [ref=e652]: Added a parcel · Added from deed upload
+            - generic [ref=e653]: sankara.telukutla · 08/07/2026 09:15
+          - generic [ref=e658]:
+            - generic [ref=e659]: Added a note · Kharif sowing completed
+            - generic [ref=e660]: lakshmi.telukutla · 05/07/2026 19:44
+          - generic [ref=e665]:
+            - generic [ref=e666]: Added a document · Sale deed classified automatically
+            - generic [ref=e667]: sankara.telukutla · 02/07/2026 12:30
+      - generic [ref=e433]:
+        - generic [ref=e434]:
+          - generic [ref=e435]: Holdings
+          - generic [ref=e436]:
+            - generic [ref=e437]:
+              - button "search" [disabled]:
+                - img: 󰍉
+            - search "Search survey no, owner, village…" [ref=e438]
+            - button "clear" [ref=e440] [cursor=pointer]:
+              - img: 󰅖
+          - generic [ref=e441]:
+            - button "All" [ref=e443] [cursor=pointer]
+            - button "Land" [ref=e447] [cursor=pointer]
+            - button "Props" [ref=e451] [cursor=pointer]
+            - button "Khata" [ref=e455] [cursor=pointer]
+        - generic [ref=e462]:
+          - generic [ref=e463]:
+            - img: 󱘲
+          - alert [ref=e464]: Showing sample data — the API is unreachable.
+        - generic [ref=e467]:
+          - generic [ref=e672] [cursor=pointer]:
+            - generic [ref=e673]:
+              - generic [ref=e674]: 🏢 Sy 123/2A/2A
+              - generic [ref=e675]:
+                - button "non-agri" [disabled]
+              - button [ref=e680]:
+                - img: 󰇙
+            - generic [ref=e681]: Sankara Reddy Telukutla
+            - generic [ref=e682]: Kantheru, Tadikonda, Guntur · Khata 104512 · 👪 Telukutla Family
+            - generic [ref=e683]:
+              - generic [ref=e684]: 2 Acres 50 Cents
+              - generic [ref=e685]: ₹62,50,000
+            - generic [ref=e687]:
+              - button "owned" [disabled]
+          - generic [ref=e694] [cursor=pointer]:
+            - generic [ref=e695]:
+              - generic [ref=e696]: 🏢 Sy 87/1B/1B
+              - generic [ref=e697]:
+                - button "non-agri" [disabled]
+              - button [ref=e702]:
+                - img: 󰇙
+            - generic [ref=e703]: Sankara Reddy Telukutla
+            - generic [ref=e704]: Kantheru, Tadikonda, Guntur · Khata 104512 · 👪 Telukutla Family
+            - generic [ref=e705]:
+              - generic [ref=e706]: 2 Acres 35 Cents
+              - generic [ref=e707]: ₹41,00,000
+            - generic [ref=e709]:
+              - button "owned" [disabled]
+          - generic [ref=e716] [cursor=pointer]:
+            - generic [ref=e717]:
+              - generic [ref=e718]: 🏢 Sy 456/3/3
+              - generic [ref=e719]:
+                - button "non-agri" [disabled]
+              - button [ref=e724]:
+                - img: 󰇙
+            - generic [ref=e725]: Sankara Reddy Telukutla
+            - generic [ref=e726]: Kesarapalle, Gannavaram, Krishna · Khata 208934 · 👪 Telukutla Family
+            - generic [ref=e727]:
+              - generic [ref=e728]: 1 Acre 40 Cents
+              - generic [ref=e729]: ₹45,50,000
+            - generic [ref=e731]:
+              - button "owned" [disabled]
+          - generic [ref=e738] [cursor=pointer]:
+            - generic [ref=e739]:
+              - generic [ref=e740]: 🏢 Sy 212/2/2
+              - generic [ref=e741]:
+                - button "non-agri" [disabled]
+              - button [ref=e746]:
+                - img: 󰇙
+            - generic [ref=e747]: Joint — Telukutla family
+            - generic [ref=e748]: Kesarapalle, Gannavaram, Krishna · Khata 208934 · 👪 Telukutla Family
+            - generic [ref=e749]:
+              - generic [ref=e750]: 1 Acre 20 Cents
+              - generic [ref=e751]: ₹38,00,000
+            - generic [ref=e753]:
+              - button "Litigation" [disabled]
+          - generic [ref=e760] [cursor=pointer]:
+            - generic [ref=e761]:
+              - generic [ref=e762]: 🏢 Sy 45/1A/1A
+              - generic [ref=e763]:
+                - button "non-agri" [disabled]
+              - button [ref=e768]:
+                - img: 󰇙
+            - generic [ref=e769]: Sankara Reddy Telukutla
+            - generic [ref=e770]: Nannur, Orvakal, Kurnool · Khata 301276 · 👪 Sri Venkateswara Agro Partners
+            - generic [ref=e771]:
+              - generic [ref=e772]: 2 Acres
+              - generic [ref=e773]: ₹21,00,000
+            - generic [ref=e775]:
+              - button "owned" [disabled]
+          - generic [ref=e782] [cursor=pointer]:
+            - generic [ref=e783]:
+              - generic [ref=e784]: 🏢 Sy 318/4B/4B
+              - generic [ref=e785]:
+                - button "non-agri" [disabled]
+              - button [ref=e790]:
+                - img: 󰇙
+            - generic [ref=e791]: Sankara Reddy Telukutla
+            - generic [ref=e792]: Nannur, Orvakal, Kurnool · Khata 301276 · 👪 Sri Venkateswara Agro Partners
+            - generic [ref=e793]:
+              - generic [ref=e794]: 1 Acre 40 Cents
+              - generic [ref=e795]: ₹16,50,000
+            - generic [ref=e797]:
+              - button "owned" [disabled]
+          - generic [ref=e804] [cursor=pointer]:
+            - generic [ref=e805]:
+              - generic [ref=e806]: 🏢 Amaravati layout plot
+              - generic [ref=e807]:
+                - button "Open Plot / Site" [disabled]
+              - button [ref=e812]:
+                - img: 󰇙
+            - generic [ref=e813]: —
+            - generic [ref=e814]: Amaravati, Guntur
+            - generic [ref=e815]:
+              - generic [ref=e816]: 267 sqyd
+              - generic [ref=e817]: ₹42,72,000
+            - generic [ref=e819]:
+              - button "owned" [disabled]
+          - generic [ref=e826] [cursor=pointer]:
+            - generic [ref=e827]:
+              - generic [ref=e828]: 🏢 Sunrise Heights, 3BHK
+              - generic [ref=e829]:
+                - button "Flat / Apartment" [disabled]
+              - button [ref=e834]:
+                - img: 󰇙
+            - generic [ref=e835]: —
+            - generic [ref=e836]: Vijayawada, Krishna
+            - generic [ref=e837]:
+              - generic [ref=e838]: 1650 sqft
+              - generic [ref=e839]: ₹90,75,000
+            - generic [ref=e841]:
+              - button "owned" [disabled]
+          - generic [ref=e848] [cursor=pointer]:
+            - generic [ref=e849]:
+              - generic [ref=e850]: 🏢 Brodipet shop building
+              - generic [ref=e851]:
+                - button "Commercial Building" [disabled]
+              - button [ref=e856]:
+                - img: 󰇙
+            - generic [ref=e857]: —
+            - generic [ref=e858]: Guntur, Guntur
+            - generic [ref=e859]:
+              - generic [ref=e860]: 133 sqyd
+              - generic [ref=e861]: ₹1,25,00,000
+            - generic [ref=e863]:
+              - button "owned" [disabled]
+          - generic [ref=e870] [cursor=pointer]:
+            - generic [ref=e871]:
+              - generic [ref=e872]: 🏢 Family house, Brodipet
+              - generic [ref=e873]:
+                - button "Independent House" [disabled]
+              - button [active] [ref=e878]:
+                - img: 󰇙
+            - generic [ref=e879]: —
+            - generic [ref=e880]: Guntur, Guntur
+            - generic [ref=e881]:
+              - generic [ref=e882]: 200 sqyd
+              - generic [ref=e883]: ₹1,10,00,000
+            - generic [ref=e885]:
+              - button "owned" [disabled]
+      - generic [ref=e516]:
+        - generic [ref=e517]: Family & groups
+        - generic [ref=e522]:
+          - generic [ref=e523]:
+            - img: 󱘲
+          - alert [ref=e524]: Showing sample data — the API is unreachable.
+        - button [ref=e527] [cursor=pointer]:
+          - generic:
+            - generic:
+              - img: 󰡉
+            - generic:
+              - generic: Telukutla Family
+              - generic: 6 members · 4 holdings · 7 Acres 45 Cents
+            - generic:
+              - img: 󰅀
+        - button [ref=e530] [cursor=pointer]:
+          - generic:
+            - generic:
+              - img: 󱈘
+            - generic:
+              - generic: Sri Venkateswara Agro Partners
+              - generic: 3 members · 2 holdings · 3 Acres 40 Cents
+            - generic:
+              - img: 󰅀
+    - tablist [ref=e532]:
+      - tab "󰨝 󰨝 Dashboard" [ref=e534] [cursor=pointer]:
+        - generic [ref=e535]:
+          - generic [ref=e536]: 󰨝
+          - generic [ref=e538]: 󰨝
+        - generic [ref=e540]: Dashboard
+      - tab "󰔉 󰔉 Holdings" [selected] [ref=e542] [cursor=pointer]:
+        - generic [ref=e543]:
+          - generic [ref=e544]: 󰔉
+          - generic [ref=e546]: 󰔉
+        - generic [ref=e548]: Holdings
+      - tab "󰭘 󰭘 Family" [ref=e550] [cursor=pointer]:
+        - generic [ref=e551]:
+          - generic [ref=e552]: 󰭘
+          - generic [ref=e554]: 󰭘
+        - generic [ref=e556]: Family
+      - tab "󰇰 󰇰 Invites" [ref=e558] [cursor=pointer]:
+        - generic [ref=e559]:
+          - generic [ref=e560]: 󰇰
+          - generic [ref=e562]: 󰇰
+        - generic [ref=e564]: Invites
+  - generic:
+    - generic:
+      - button
+      - button [ref=e565]:
+        - button [ref=e566] [cursor=pointer]:
+          - generic:
+            - generic:
+              - generic:
+                - img: 󰐕

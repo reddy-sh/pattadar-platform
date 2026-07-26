@@ -49,6 +49,8 @@ function HoldingCard({
 }) {
   const theme = useTheme();
   const [menu, setMenu] = useState(false);
+  const openDetail = () =>
+    router.push({ pathname: '/holding/[id]', params: { id: h.id, kind: h.kind } });
   // Web-parity semantics: litigation and 'disputed' are danger, 'sold' is
   // muted, 'for-sale' is an active-listing accent, owned/unknown is calm.
   const statusColor =
@@ -60,7 +62,7 @@ function HoldingCard({
           ? theme.colors.tertiary
           : theme.colors.primary;
   return (
-    <Card mode="outlined" style={styles.card}>
+    <Card mode="outlined" style={styles.card} onPress={openDetail}>
       <Card.Content style={styles.cardContent}>
         <View style={styles.titleRow}>
           <Text variant="titleMedium" style={styles.title} numberOfLines={1}>
@@ -375,6 +377,7 @@ export default function HoldingsScreen() {
           }
         />
       )}
+      {focused && (
       <Portal>
         <Dialog visible={confirm !== null} onDismiss={() => !deleting && setConfirm(null)}>
           <Dialog.Title>Delete {confirm?.label}?</Dialog.Title>
@@ -402,9 +405,9 @@ export default function HoldingsScreen() {
         </Dialog>
         <FAB.Group
           open={fabOpen}
-          visible={focused}
+          visible
           icon={fabOpen ? 'close' : 'plus'}
-          style={styles.fab}
+          style={[styles.fab, { pointerEvents: 'box-none' }]}
           onStateChange={({ open }) => setFabOpen(open)}
           actions={[
             {
@@ -425,6 +428,7 @@ export default function HoldingsScreen() {
           ]}
         />
       </Portal>
+      )}
     </SafeAreaView>
   );
 }

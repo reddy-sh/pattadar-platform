@@ -384,11 +384,23 @@ export function LandingPage() {
               <Typography variant="overline" sx={{ color: BLUE, letterSpacing: 1.6 }}>
                 Land portfolio · sample
               </Typography>
-              <Typography variant="h4" component="p" sx={{ color: INK, my: 0.5, fontWeight: 700 }} className="tnum">
-                ₹2,84,50,000
+              <Typography variant="caption" sx={{ color: INK_FAINT, display: 'block', mt: 1 }}>
+                Acquisition cost
               </Typography>
-              <Typography variant="body2" sx={{ color: INK_DIM, mb: 2.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, flexWrap: 'wrap', my: 0.5 }}>
+                <Typography variant="h4" component="p" sx={{ color: INK, fontWeight: 700 }} className="tnum">
+                  ₹2,84,50,000
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#6fcf97', fontWeight: 600 }}>
+                  ↑ 10% since purchase · guideline basis
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ color: INK_DIM }}>
                 12 parcels · 3 passbooks · 2 properties
+              </Typography>
+              <Typography variant="caption" sx={{ color: INK_FAINT, display: 'block', mt: 0.5, mb: 2.5 }}>
+                True market value is hard to know in India — Pattadar tracks what you paid and the
+                official guideline value, honestly.
               </Typography>
               <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' } }}>
                 {[

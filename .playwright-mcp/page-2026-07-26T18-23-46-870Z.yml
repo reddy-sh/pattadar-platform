@@ -1,0 +1,20 @@
+- generic [ref=f1e9]:
+  - generic [ref=f1e14]:
+    - generic [ref=f1e15]:
+      - generic [ref=f1e16]: Holdings
+      - generic [ref=f1e17]:
+        - generic [ref=f1e18]:
+          - button "search" [disabled]
+        - search "Search survey no, owner, village…" [ref=f1e19]
+        - button "clear" [ref=f1e21] [cursor=pointer]
+      - generic [ref=f1e22]:
+        - button "All" [ref=f1e24] [cursor=pointer]
+        - button "Land" [ref=f1e28] [cursor=pointer]
+        - button "Props" [ref=f1e32] [cursor=pointer]
+        - button "Khata" [ref=f1e36] [cursor=pointer]
+    - progressbar [ref=f1e40]
+  - tablist [ref=f1e55]:
+    - tab "Dashboard" [ref=f1e57] [cursor=pointer]
+    - tab "Holdings" [selected] [ref=f1e63] [cursor=pointer]
+    - tab "Family" [ref=f1e69] [cursor=pointer]
+    - tab "Invites" [ref=f1e75] [cursor=pointer]

@@ -1,0 +1,72 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e86]:
+    - generic [ref=f1e88]:
+      - button "Back" [ref=f1e90] [cursor=pointer]:
+        - generic [ref=f1e92]:
+          - img: 󰁍
+      - heading "Sy 123/2A/2A" [level=1] [ref=f1e93]
+    - generic [ref=f1e95]:
+      - generic [ref=f1e96]:
+        - generic [ref=f1e97]:
+          - button "Non-agricultural" [disabled]
+        - generic [ref=f1e100]:
+          - button "owned" [disabled]
+      - generic [ref=f1e105]:
+        - generic [ref=f1e106]: Holding
+        - generic [ref=f1e107]:
+          - generic [ref=f1e108]: Owner
+          - generic [ref=f1e109]: Sankara Reddy Telukutla
+        - generic [ref=f1e110]:
+          - generic [ref=f1e111]: Location
+          - generic [ref=f1e112]: Kantheru, Tadikonda, Guntur
+        - generic [ref=f1e113]:
+          - generic [ref=f1e114]: Khata
+          - generic [ref=f1e115]: "104512"
+        - generic [ref=f1e116]:
+          - generic [ref=f1e117]: Extent
+          - generic [ref=f1e118]: 2 Acres 50 Cents
+        - generic [ref=f1e119]:
+          - generic [ref=f1e120]: Reference
+          - generic [ref=f1e121]: LP-0001
+      - generic [ref=f1e124]:
+        - generic [ref=f1e125]: Value
+        - generic [ref=f1e126]:
+          - generic [ref=f1e127]: Market value
+          - generic [ref=f1e128]: ₹62,50,000
+        - generic [ref=f1e129]:
+          - generic [ref=f1e130]: Guideline value
+          - generic [ref=f1e131]: ₹52,00,000
+        - generic [ref=f1e132]:
+          - generic [ref=f1e133]: Purchase price
+          - generic [ref=f1e134]: ₹37,50,000
+        - generic [ref=f1e135]:
+          - generic [ref=f1e136]: Purchased on
+          - generic [ref=f1e137]: 14/06/2018
+        - generic [ref=f1e138]:
+          - generic [ref=f1e139]: Gain since purchase
+          - generic [ref=f1e140]: +67%
+      - generic [ref=f1e143]:
+        - generic [ref=f1e144]: Registration & compliance
+        - generic [ref=f1e145]:
+          - generic [ref=f1e146]: Reg. doc no
+          - generic [ref=f1e147]: 6950/2018
+        - generic [ref=f1e148]:
+          - generic [ref=f1e149]: SRO
+          - generic [ref=f1e150]: Mangalagiri
+        - generic [ref=f1e151]:
+          - generic [ref=f1e152]: Reg. date
+          - generic [ref=f1e153]: 14/06/2018
+        - generic [ref=f1e154]:
+          - generic [ref=f1e155]: EC status
+          - generic [ref=f1e156]: Nil encumbrance
+        - generic [ref=f1e157]:
+          - generic [ref=f1e158]: EC date
+          - generic [ref=f1e159]: 10/12/2025
+        - generic [ref=f1e160]:
+          - generic [ref=f1e161]: Tax paid up to
+          - generic [ref=f1e162]: 31/03/2027
+      - generic [ref=f1e164]: Added 14/11/2025 · manage documents and more details on pattadar.com
+  - button "2 <button> cannot contain a nested <button" [ref=f1e166] [cursor=pointer]:
+    - generic [ref=f1e167]: "2"
+    - generic [ref=f1e169]: <button> cannot contain a nested <button
+    - button [ref=f1e170]
