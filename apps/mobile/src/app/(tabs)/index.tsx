@@ -19,8 +19,17 @@ function firstName(name: string | undefined): string {
   return (name || '').split(/[@\s.]/)[0];
 }
 import { useQueryClient } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Banner, Card, Divider, Text, useTheme } from 'react-native-paper';
+import {
+  ActivityIndicator,
+  Banner,
+  Button,
+  Card,
+  Divider,
+  Text,
+  useTheme,
+} from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useDashboard } from '@/data/hooks';
@@ -101,20 +110,25 @@ export default function DashboardScreen() {
                 🌾 Start your land record
               </Text>
               <Text variant="bodyMedium">
-                1. Sign in at pattadar.com and upload your pattadar passbook or a
-                registered deed.
+                Photograph your pattadar passbook — AI extraction reads it and
+                creates your khata and parcels automatically. Or enter them by
+                hand.
               </Text>
-              <Text variant="bodyMedium">
-                2. AI extraction reads it and creates your parcels and khata
-                automatically.
-              </Text>
-              <Text variant="bodyMedium">
-                3. Pull down to refresh here — your portfolio appears on this
-                dashboard.
-              </Text>
+              <View style={styles.getStartedButtons}>
+                <Button
+                  mode="contained"
+                  icon="camera-plus-outline"
+                  onPress={() => router.push('/add-khata')}
+                >
+                  Scan passbook
+                </Button>
+                <Button mode="outlined" onPress={() => router.push('/add-khata')}>
+                  Enter manually
+                </Button>
+              </View>
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Scanning documents with your phone camera is coming to this app
-                soon.
+                You can also upload documents at pattadar.com — everything shows
+                up here.
               </Text>
             </Card.Content>
           </Card>
@@ -246,4 +260,5 @@ const styles = StyleSheet.create({
   activityAction: { fontWeight: '600' },
   getStarted: { gap: tokens.spacing.sm },
   getStartedTitle: { fontWeight: '700' },
+  getStartedButtons: { flexDirection: 'row', gap: tokens.spacing.sm, flexWrap: 'wrap' },
 });

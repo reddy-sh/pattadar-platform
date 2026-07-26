@@ -53,7 +53,14 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pattadar uses your photos to read passbooks and land documents.",
+          "cameraPermission": "Pattadar uses the camera to photograph passbooks and land documents."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

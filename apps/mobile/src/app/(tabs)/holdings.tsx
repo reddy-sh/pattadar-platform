@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import {
@@ -6,6 +7,8 @@ import {
   Banner,
   Card,
   Chip,
+  FAB,
+  Portal,
   Searchbar,
   SegmentedButtons,
   Text,
@@ -82,6 +85,16 @@ export default function HoldingsScreen() {
   const { data: result, isLoading, isRefetching } = useHoldings();
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');
+  const [fabOpen, setFabOpen] = useState(false);
+  // Portal renders at the app root, so the FAB must hide when this tab loses
+  // focus — otherwise it floats over every other screen.
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
 
   const allRows = useMemo(() => (result ? normalizeHoldings(result.data) : []), [result]);
   const holdings = useMemo(() => {
@@ -150,10 +163,9 @@ export default function HoldingsScreen() {
                   🌾 No holdings yet
                 </Text>
                 <Text variant="bodyMedium" style={styles.emptyBody}>
-                  Upload your pattadar passbook or a registered deed at
-                  pattadar.com — AI extraction creates your parcels and khata
-                  automatically, and they appear here. Scanning with your phone
-                  camera is coming to this app soon.
+                  Tap + below to scan your pattadar passbook or add a khata and
+                  parcels by hand — AI extraction reads the photo and fills
+                  everything in.
                 </Text>
               </View>
             ) : (
@@ -164,6 +176,32 @@ export default function HoldingsScreen() {
           }
         />
       )}
+      <Portal>
+        <FAB.Group
+          open={fabOpen}
+          visible
+          icon={fabOpen ? 'close' : 'plus'}
+          style={styles.fab}
+          onStateChange={({ open }) => setFabOpen(open)}
+          actions={[
+            {
+              icon: 'camera-plus-outline',
+              label: 'Scan passbook',
+              onPress: () => router.push('/add-khata'),
+            },
+            {
+              icon: 'book-plus-outline',
+              label: 'New khata',
+              onPress: () => router.push('/add-khata'),
+            },
+            {
+              icon: 'map-marker-plus-outline',
+              label: 'New parcel',
+              onPress: () => router.push('/add-parcel'),
+            },
+          ]}
+        />
+      </Portal>
     </SafeAreaView>
   );
 }
@@ -195,4 +233,5 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontWeight: '700' },
   emptyBody: { textAlign: 'center' },
+  fab: { paddingBottom: 80 },
 });

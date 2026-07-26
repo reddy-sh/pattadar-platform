@@ -50,11 +50,11 @@ export default function AddKhataScreen() {
 
   const runImport = async (pick: () => Promise<ImagePicker.ImagePickerResult>) => {
     setImportError('');
-    const res = await pick();
-    if (res.canceled || !res.assets?.[0]) return;
-    const a = res.assets[0];
-    setReading(true);
     try {
+      const res = await pick();
+      if (res.canceled || !res.assets?.[0]) return;
+      const a = res.assets[0];
+      setReading(true);
       const r = await importPassbookImage(
         a.uri,
         a.fileName ?? 'passbook.jpg',
@@ -72,7 +72,12 @@ export default function AddKhataScreen() {
       }));
       setParcels(r.parcels);
     } catch (e) {
-      setImportError(e instanceof Error ? e.message : 'Could not read the document');
+      const msg = e instanceof Error ? e.message : 'Could not read the document';
+      setImportError(
+        /camera|permission/i.test(msg)
+          ? 'Camera is not available here — use Photos instead.'
+          : msg,
+      );
     } finally {
       setReading(false);
     }

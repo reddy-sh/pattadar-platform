@@ -455,24 +455,41 @@ export function DashboardPage() {
       {/* ── Gold-glass hero ─────────────────────────────────────────── */}
       <GlassCard tone="gold" sx={{ mb: 2.5 }}>
         {firstRun ? (
-          <Box>
+          /* First run = upload only. The classifier reads whatever comes in
+             and routes it — the user never has to decide what to create. */
+          <Box sx={{ maxWidth: 720 }}>
             <Typography variant="h6" component="p">
-              Welcome{d.meName ? `, ${d.meName}` : ''} — let&apos;s set up your land portfolio
+              Welcome{d.meName ? `, ${d.meName}` : ''} — start with one upload
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-              Three small steps and this page comes to life.
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Take a photo of your pattadar passbook or sale deed, or upload a PDF — English or
+              Telugu. Pattadar reads it and does the rest:
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Box component="ul" sx={{ my: 1.5, pl: 2.5, '& li': { mb: 0.75 } }}>
+              <Typography component="li" variant="body2">
+                <b>Passbook, Meebhoomi or 1-B</b> — your khata, owner details and every land parcel
+                are created for you.
+              </Typography>
+              <Typography component="li" variant="body2">
+                <b>Sale deed</b> — survey numbers, extents and registration details are read into a
+                parcel record.
+              </Typography>
+              <Typography component="li" variant="body2">
+                <b>EC, tax receipts and photos</b> — recognised, named and filed with the land they
+                belong to.
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
               <Button variant="contained" onClick={() => navigate('/app/passbooks')}>
-                1 · Create your first passbook
+                Upload your passbook
               </Button>
-              <Button variant="outlined" onClick={() => navigate('/app/parcels')}>
-                2 · Add a parcel or property
-              </Button>
-              <Button variant="outlined" onClick={() => navigate('/app/documents')}>
-                3 · Upload your deed
+              <Button variant="text" onClick={() => navigate('/app/documents')}>
+                or upload a deed / other documents
               </Button>
             </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+              Everything stays in your own secure drive — nothing is shared unless you share it.
+            </Typography>
           </Box>
         ) : (
           <Box>
@@ -599,7 +616,8 @@ export function DashboardPage() {
         )}
       </GlassCard>
 
-      {/* ── Quick actions ───────────────────────────────────────────── */}
+      {/* ── Quick actions (hidden on first run — upload is the one door) ── */}
+      {!firstRun && (
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr', lg: 'repeat(6, 1fr)' }, gap: 1.5, mb: 2.5 }}>
         {quickActions.map((a) => (
           <Card
@@ -623,6 +641,7 @@ export function DashboardPage() {
           </Card>
         ))}
       </Box>
+      )}
 
       {/* ── Everything below is data-driven — nothing renders until the
           portfolio has content (no hollow sections on first run). ── */}
