@@ -1,7 +1,9 @@
 /**
  * Documents — both tabs, rows with type chips, row Open goes through the
- * in-portal FileViewer (NEVER a tab), the deed expander shows fees, and the
- * deed-import dialog opens with its AI upload panel.
+ * in-portal FileViewer (NEVER a tab), checkbox multi-select + bulk delete
+ * through one confirm dialog (seeded disposable rows, left clean), the deed
+ * expander shows fees, and the deed-import dialog opens with its AI upload
+ * panel.
  */
 import { expect, gql, openApp, test, uxCheck } from '../helpers/fixtures';
 
@@ -30,8 +32,9 @@ test('row Open goes through the FileViewer dialog — never a tab', async ({ pag
   await openApp(page, '/app/documents');
   await expect.poll(() => page.locator('tbody tr').count()).toBeGreaterThan(0);
 
-  // Click the first row's name cell (rows with a fileRef open the viewer).
-  await page.locator('tbody tr td').first().click();
+  // Click the first row's NAME cell (td 0 is now the selection checkbox;
+  // selection is checkbox-only — a name click still opens the viewer).
+  await page.locator('tbody tr').first().locator('td').nth(1).click();
   const viewer = page.getByRole('dialog');
   await expect(viewer, 'the in-portal FileViewer must open').toBeVisible();
   await expect(viewer.getByRole('button', { name: 'Download' })).toBeVisible();
@@ -41,6 +44,52 @@ test('row Open goes through the FileViewer dialog — never a tab', async ({ pag
   await uxCheck(page, 'documents:viewer');
   await viewer.getByRole('button', { name: 'Close viewer' }).click();
   await expect(viewer).toBeHidden();
+});
+
+test('documents: multi-select and bulk delete', async ({ page, request }) => {
+  // Seed 2 disposable metadata-only documents (no storage file behind them).
+  const mk = async (docNo: string) =>
+    (
+      await gql<{ createDocument: { id: string } }>(
+        request,
+        'mutation($docNo: String!) { createDocument(parcelId:"", passbookId:"", docType:"other", fileRef:"", docNo:$docNo, sroCode:"", regYear:"", source:"e2e", tags:"") { id } }',
+        { docNo },
+      )
+    ).createDocument.id;
+  const idA = await mk('E2E BULK A');
+  const idB = await mk('E2E BULK B');
+  try {
+    await openApp(page, '/app/documents');
+    // Narrow to the seeded rows, then select them via their checkboxes only.
+    await page.getByPlaceholder('Search documents…').fill('E2E BULK');
+    await expect(page.locator('tbody tr')).toHaveCount(2);
+    await page.getByRole('checkbox', { name: 'Select E2E BULK A' }).check();
+    await page.getByRole('checkbox', { name: 'Select E2E BULK B' }).check();
+
+    // The contextual selection toolbar swaps in.
+    await expect(page.getByText('2 selected')).toBeVisible();
+    await uxCheck(page, 'documents:bulk-select');
+
+    // Bulk delete goes through ONE confirm dialog.
+    await page.getByRole('button', { name: 'Delete' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Delete 2 documents?')).toBeVisible();
+    await expect(dialog.getByText('Files move to My Drive Trash.')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Delete' }).click();
+
+    // One summary snackbar; both rows gone from the table AND the server.
+    await expect(page.getByText('2 deleted')).toBeVisible();
+    await expect(page.locator('tbody tr')).toHaveCount(0);
+    const after = await gql<DocsData>(request, 'query { documents { id fileRef docType } }');
+    const ids = after.documents.map((x) => x.id);
+    expect(ids).not.toContain(idA);
+    expect(ids).not.toContain(idB);
+  } finally {
+    // Leave the dataset clean even if an assertion failed mid-flight
+    // (deleteDocument of an already-deleted id just returns false).
+    await gql(request, 'mutation($id: String!) { deleteDocument(id: $id) }', { id: idA });
+    await gql(request, 'mutation($id: String!) { deleteDocument(id: $id) }', { id: idB });
+  }
 });
 
 test('registered deeds: expander reveals the fee breakup', async ({ page }) => {

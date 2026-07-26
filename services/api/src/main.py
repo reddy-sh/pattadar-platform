@@ -2040,11 +2040,14 @@ class Mutation:
     async def delete_document(self, info: strawberry.Info, id: str) -> bool:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
+            # Ownership must mirror the `documents` query exactly — unlinked
+            # uploads (parcel_id='' etc.) are owned via owner_user_id and were
+            # previously undeletable because that arm was missing here.
             cur = await conn.execute(
-                "SELECT parcel_id, passbook_id, doc_no FROM documents WHERE id=%s AND (parcel_id IN "
+                "SELECT parcel_id, passbook_id, doc_no FROM documents WHERE id=%s AND (owner_user_id=%s OR parcel_id IN "
                 "(SELECT id FROM parcels WHERE passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s)) "
                 "OR passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s) "
-                "OR property_id IN (SELECT id FROM properties WHERE owner_user_id=%s))", (id, uid, uid, uid))
+                "OR property_id IN (SELECT id FROM properties WHERE owner_user_id=%s))", (id, uid, uid, uid, uid))
             owned = await cur.fetchone()
             if not owned:
                 return False

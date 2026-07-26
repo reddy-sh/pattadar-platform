@@ -7,13 +7,14 @@
  * (linkDocumentPassbook) actions, delete, CSV/Excel/PDF export and the
  * Register-a-Deed import dialog.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Collapse from '@mui/material/Collapse';
@@ -23,6 +24,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
+import LinearProgress from '@mui/material/LinearProgress';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -33,16 +36,16 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { formatINR, parseISOToDisplay, sampleRegisteredDocuments } from '@pattadar/core';
 import type { RegisteredDocument } from '@pattadar/core';
 import { gql } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
 import { TableSkeleton } from '../../components/Skeletons';
-import { stickyHeadSx } from '../../components/tableSx';
+import { selectionBarSx, stickyHeadSx } from '../../components/tableSx';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { fmtLocal } from '../../lib/format';
@@ -313,10 +316,73 @@ export function RegisteredDeedsTab({
   const [open, setOpen] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<RegisteredDocument | null>(null);
+  // ── multi-select: checkbox-only (row click keeps toggling the expander) ─
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
+  const [menuFor, setMenuFor] = useState<{ el: HTMLElement; row: RegisteredDocument } | null>(null);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['pattadar', 'registered-documents'] });
     void queryClient.invalidateQueries({ queryKey: ['pattadar', 'documents-full'] });
+  };
+
+  // Selection only ever spans the rows currently listed.
+  useEffect(() => {
+    setSelected((prev) => {
+      const ids = new Set(data.deeds.map((r) => r.id));
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [data.deeds]);
+
+  // Esc clears the selection — overlays (dialogs / menus) keep their own Esc.
+  useEffect(() => {
+    if (selected.size === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('.MuiDialog-root, .MuiPopover-root')) return;
+      setSelected(new Set());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected.size]);
+
+  const allSelected = data.deeds.length > 0 && data.deeds.every((r) => selected.has(r.id));
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(data.deeds.map((r) => r.id)));
+  const toggleRow = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const bulkDelete = async () => {
+    const targets = data.deeds.filter((r) => selected.has(r.id));
+    setConfirmBulk(false);
+    if (!targets.length) return;
+    setBulk({ done: 0, total: targets.length });
+    let ok = 0;
+    for (const r of targets) {
+      try {
+        const res = await gql<{ deleteRegisteredDocument: boolean }>(
+          'mutation($id: String!) { deleteRegisteredDocument(id: $id) }',
+          { id: r.id },
+        );
+        if (res?.deleteRegisteredDocument) ok += 1;
+      } catch {
+        /* counted in the summary */
+      }
+      setBulk((b) => (b ? { ...b, done: b.done + 1 } : b));
+    }
+    setBulk(null);
+    setSelected(new Set());
+    refresh();
+    const failed = targets.length - ok;
+    if (failed === 0) onToast(`${ok} deleted`, 'success');
+    else onToast(`${ok} deleted, ${failed} failed — the server could not delete them`, 'error');
   };
 
   const doDelete = async () => {
@@ -353,17 +419,49 @@ export function RegisteredDeedsTab({
 
   return (
     <>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1.5 }}>
-        <ExportMenu filename="pattadar-registered-deeds" brand={exportBrand} cols={exportCols} rows={data.deeds} />
-        {/* One filled action per region: the empty state owns it when the list is empty. */}
-        <Button
-          variant={data.deeds.length === 0 ? 'tonal' : 'contained'}
-          startIcon={<AddIcon />}
-          onClick={() => setImportOpen(true)}
-        >
-          Register a Deed
-        </Button>
-      </Box>
+      {/* Contextual selection toolbar — swaps in over the actions toolbar. */}
+      {selected.size > 0 ? (
+        <Box sx={selectionBarSx}>
+          {bulk ? (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                Deleting {Math.min(bulk.done + 1, bulk.total)} of {bulk.total}…
+              </Typography>
+              <LinearProgress
+                color="inherit"
+                variant="determinate"
+                value={(bulk.done / bulk.total) * 100}
+                sx={{ flexGrow: 1, mx: 2, borderRadius: 1 }}
+              />
+            </>
+          ) : (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                {selected.size} selected
+              </Typography>
+              <Box sx={{ flexGrow: 1 }} />
+              <Button color="error" onClick={() => setConfirmBulk(true)}>
+                Delete
+              </Button>
+              <Button color="inherit" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+            </>
+          )}
+        </Box>
+      ) : (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1.5 }}>
+          <ExportMenu filename="pattadar-registered-deeds" brand={exportBrand} cols={exportCols} rows={data.deeds} />
+          {/* One filled action per region: the empty state owns it when the list is empty. */}
+          <Button
+            variant={data.deeds.length === 0 ? 'tonal' : 'contained'}
+            startIcon={<AddIcon />}
+            onClick={() => setImportOpen(true)}
+          >
+            Register a Deed
+          </Button>
+        </Box>
+      )}
 
       {data.deeds.length === 0 ? (
         <Card>
@@ -384,6 +482,16 @@ export function RegisteredDeedsTab({
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox" sx={{ width: 44 }}>
+                    <Checkbox
+                      size="small"
+                      checked={allSelected}
+                      indeterminate={selected.size > 0 && !allSelected}
+                      disabled={isSample}
+                      onChange={toggleAll}
+                      slotProps={{ input: { 'aria-label': 'Select all registered deeds' } }}
+                    />
+                  </TableCell>
                   <TableCell sx={{ width: 40 }} />
                   <TableCell>Doc ID</TableCell>
                   <TableCell>Type</TableCell>
@@ -400,7 +508,21 @@ export function RegisteredDeedsTab({
               <TableBody>
                 {data.deeds.map((r) => (
                   <Fragment key={r.id}>
-                    <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setOpen(open === r.id ? null : r.id)}>
+                    <TableRow
+                      hover
+                      selected={selected.has(r.id)}
+                      sx={{ cursor: 'pointer' }}
+                      onClick={() => setOpen(open === r.id ? null : r.id)}
+                    >
+                      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          size="small"
+                          checked={selected.has(r.id)}
+                          disabled={isSample}
+                          onChange={() => toggleRow(r.id)}
+                          slotProps={{ input: { 'aria-label': `Select deed ${r.ref}` } }}
+                        />
+                      </TableCell>
                       <TableCell>
                         <IconButton size="small" aria-label="Expand deed">
                           {open === r.id ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
@@ -434,20 +556,22 @@ export function RegisteredDeedsTab({
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtLocal(r.createdAt, { dateOnly: true })}</TableCell>
                       <TableCell align="right">
+                        {/* ALWAYS visible ⋮ — same pattern as All documents. */}
                         <IconButton
                           size="small"
-                          aria-label={`Delete deed ${r.ref}`}
+                          aria-label={`Row actions for ${r.ref}`}
+                          disabled={isSample}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setConfirmDelete(r);
+                            setMenuFor({ el: e.currentTarget, row: r });
                           }}
                         >
-                          <DeleteOutlineIcon fontSize="small" />
+                          <MoreVertIcon fontSize="small" />
                         </IconButton>
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={11} sx={{ p: 0, border: 0 }}>
+                      <TableCell colSpan={12} sx={{ p: 0, border: 0 }}>
                         <Collapse in={open === r.id} unmountOnExit>
                           <DeedExpanded deed={r} passbooks={data.passbooks} onToast={onToast} onChanged={refresh} />
                         </Collapse>
@@ -467,6 +591,33 @@ export function RegisteredDeedsTab({
       )}
 
       <DeedImportDialog open={importOpen} onClose={() => setImportOpen(false)} onSaved={refresh} onToast={onToast} />
+
+      {/* Row actions menu (⋮) */}
+      <Menu anchorEl={menuFor?.el} open={!!menuFor} onClose={() => setMenuFor(null)}>
+        <MenuItem
+          sx={{ color: 'error.main' }}
+          onClick={() => {
+            if (menuFor) setConfirmDelete(menuFor.row);
+            setMenuFor(null);
+          }}
+        >
+          Delete
+        </MenuItem>
+      </Menu>
+
+      {/* Bulk delete confirm — ONE dialog for the whole selection. */}
+      <Dialog open={confirmBulk} onClose={() => setConfirmBulk(false)}>
+        <DialogTitle>{`Delete ${selected.size} registered ${selected.size === 1 ? 'deed' : 'deeds'}?`}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>This cannot be undone.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmBulk(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => void bulkDelete()}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)}>
         <DialogTitle>Delete this registered deed?</DialogTitle>

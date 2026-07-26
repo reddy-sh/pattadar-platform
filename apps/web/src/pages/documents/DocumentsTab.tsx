@@ -6,12 +6,13 @@
  * link-to-khata, "Create parcel from this deed", change-type, and the trash
  * flow (storage node DELETE + document row removal).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -20,6 +21,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
+import LinearProgress from '@mui/material/LinearProgress';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Table from '@mui/material/Table';
@@ -42,7 +44,7 @@ import { sampleDocuments, sampleParcels, samplePassbooks } from '@pattadar/core'
 import { apiFetch, gql } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
 import { TableSkeleton } from '../../components/Skeletons';
-import { stickyHeadSx } from '../../components/tableSx';
+import { selectionBarSx, stickyHeadSx } from '../../components/tableSx';
 import { openFileViewer } from '../../components/FileViewer';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
@@ -63,7 +65,7 @@ import {
   fetchFileBlob,
   fetchNodeNames,
   nestUnderPattadar,
-  trashDocuments,
+  trashDocument,
   uploadToDrive,
 } from './storage';
 
@@ -184,6 +186,11 @@ export function DocumentsTab({
   const [picker, setPicker] = useState<{ mode: PickerMode; row: Row; sel: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Row | null>(null);
   const [busy, setBusy] = useState(false);
+  // ── multi-select: checkbox-only (row click keeps opening the viewer) ──
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulk, setBulk] = useState<{ mode: 'delete' | 'download'; done: number; total: number } | null>(null);
+  const lastToggled = useRef<string | null>(null);
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['pattadar', 'documents-full'] });
 
@@ -247,6 +254,55 @@ export function DocumentsTab({
       return true;
     });
   }, [rows, family, search]);
+
+  // Selection only ever spans the rows currently shown — filtering away a
+  // selected row deselects it, so bulk actions never touch hidden rows.
+  useEffect(() => {
+    setSelected((prev) => {
+      const shownIds = new Set(shown.map((r) => r.id));
+      const next = new Set([...prev].filter((id) => shownIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [shown]);
+
+  // Esc clears the selection — but only when no overlay (dialog / menu /
+  // viewer) is open, so overlays keep owning their own Esc.
+  useEffect(() => {
+    if (selected.size === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('.MuiDialog-root, .MuiPopover-root')) return;
+      setSelected(new Set());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected.size]);
+
+  const allShownSelected = shown.length > 0 && shown.every((r) => selected.has(r.id));
+  const toggleAll = () => {
+    setSelected(allShownSelected ? new Set() : new Set(shown.map((r) => r.id)));
+    lastToggled.current = null;
+  };
+  const toggleRow = (r: Row, shiftKey: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const ids = shown.map((x) => x.id);
+      const a = lastToggled.current ? ids.indexOf(lastToggled.current) : -1;
+      const b = ids.indexOf(r.id);
+      if (shiftKey && a !== -1 && b !== -1 && a !== b) {
+        // Shift-click extends the last toggle across the visible range.
+        const on = !prev.has(r.id);
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        for (let i = lo; i <= hi; i += 1) {
+          if (on) next.add(ids[i]);
+          else next.delete(ids[i]);
+        }
+      } else if (next.has(r.id)) next.delete(r.id);
+      else next.add(r.id);
+      return next;
+    });
+    lastToggled.current = r.id;
+  };
 
   // ── preview / download ────────────────────────────────────────────────
   // Preview opens the in-portal FileViewer over the filtered list (←/→
@@ -442,10 +498,57 @@ export function DocumentsTab({
 
   const doDelete = async () => {
     if (!confirmDelete) return;
-    await trashDocuments([{ id: confirmDelete.id, fileRef: confirmDelete.fileRef }]);
-    onToast('Document deleted', 'success');
+    // Honest outcome: the toast reports what the row delete actually did —
+    // the My-Drive trash move stays best-effort and never mislabels it.
+    const res = await trashDocument({ id: confirmDelete.id, fileRef: confirmDelete.fileRef });
+    if (res.ok) onToast('Document deleted', 'success');
+    else onToast(`Could not delete the document — ${res.reason}`, 'error');
     setConfirmDelete(null);
     refresh();
+  };
+
+  // ── bulk actions over the checkbox selection ──────────────────────────
+  const bulkDelete = async () => {
+    const targets = shown.filter((r) => selected.has(r.id));
+    setConfirmBulk(false);
+    if (!targets.length) return;
+    setBulk({ mode: 'delete', done: 0, total: targets.length });
+    let ok = 0;
+    let reason = '';
+    for (const r of targets) {
+      const res = await trashDocument({ id: r.id, fileRef: r.fileRef });
+      if (res.ok) ok += 1;
+      else reason = reason || res.reason;
+      setBulk((b) => (b ? { ...b, done: b.done + 1 } : b));
+    }
+    setBulk(null);
+    setSelected(new Set());
+    refresh();
+    const failed = targets.length - ok;
+    if (failed === 0) onToast(`${ok} deleted`, 'success');
+    else onToast(`${ok} deleted, ${failed} failed — ${reason}`, 'error');
+  };
+
+  const bulkDownload = async () => {
+    const targets = shown.filter((r) => selected.has(r.id) && r.fileRef);
+    if (!targets.length) {
+      onToast('The selected rows have no stored files to download', 'info');
+      return;
+    }
+    setBulk({ mode: 'download', done: 0, total: targets.length });
+    let ok = 0;
+    for (const r of targets) {
+      try {
+        downloadBlob(await fetchFileBlob(r.fileRef), r.name);
+        ok += 1;
+      } catch {
+        /* counted in the summary */
+      }
+      setBulk((b) => (b ? { ...b, done: b.done + 1 } : b));
+    }
+    setBulk(null);
+    if (ok === targets.length) onToast(`${ok} ${ok === 1 ? 'file' : 'files'} downloaded`, 'success');
+    else onToast(`${ok} downloaded, ${targets.length - ok} failed — the file storage could not be reached`, 'error');
   };
 
   const pickerOk = async () => {
@@ -498,53 +601,91 @@ export function DocumentsTab({
 
   return (
     <>
-      {/* Toolbar: family chips + search + upload + export */}
-      <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-        {FAMILIES.map((f) => (
-          <Chip
-            key={f}
-            size="small"
-            label={f}
-            color={family === f ? 'primary' : 'default'}
-            variant={family === f ? 'filled' : 'outlined'}
-            onClick={() => setFamily(f)}
-          />
-        ))}
-        <Box sx={{ flexGrow: 1 }} />
-        <TextField
-          size="small"
-          placeholder="Search documents…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-        <Button component="label" variant="contained" startIcon={<UploadFileOutlinedIcon />} disabled={uploading}>
-          {uploading ? 'Uploading…' : 'Upload'}
-          <input
-            type="file"
-            hidden
-            multiple
-            accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov,.webm,image/*,video/*"
-            onChange={(e) => {
-              const files = Array.from(e.target.files ?? []);
-              if (files.length) void uploadBatch(files);
-              e.target.value = '';
-            }}
-          />
-        </Button>
-        <ExportMenu filename="pattadar-documents" brand={exportBrand} cols={exportCols} rows={shown} />
-      </Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-        PDF / JPG / PNG / MP4 · up to 10 files, 1 GB per upload · type is detected automatically
-      </Typography>
+      {/* Contextual selection toolbar — swaps in over the filter toolbar. */}
+      {selected.size > 0 ? (
+        <Box sx={selectionBarSx}>
+          {bulk ? (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                {bulk.mode === 'delete' ? 'Deleting' : 'Downloading'} {Math.min(bulk.done + 1, bulk.total)} of{' '}
+                {bulk.total}…
+              </Typography>
+              <LinearProgress
+                color="inherit"
+                variant="determinate"
+                value={(bulk.done / bulk.total) * 100}
+                sx={{ flexGrow: 1, mx: 2, borderRadius: 1 }}
+              />
+            </>
+          ) : (
+            <>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                {selected.size} selected
+              </Typography>
+              <Box sx={{ flexGrow: 1 }} />
+              <Button color="error" onClick={() => setConfirmBulk(true)}>
+                Delete
+              </Button>
+              <Button color="inherit" onClick={() => void bulkDownload()}>
+                Download
+              </Button>
+              <Button color="inherit" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+            </>
+          )}
+        </Box>
+      ) : (
+        <>
+          {/* Toolbar: family chips + search + upload + export */}
+          <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+            {FAMILIES.map((f) => (
+              <Chip
+                key={f}
+                size="small"
+                label={f}
+                color={family === f ? 'primary' : 'default'}
+                variant={family === f ? 'filled' : 'outlined'}
+                onClick={() => setFamily(f)}
+              />
+            ))}
+            <Box sx={{ flexGrow: 1 }} />
+            <TextField
+              size="small"
+              placeholder="Search documents…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <Button component="label" variant="contained" startIcon={<UploadFileOutlinedIcon />} disabled={uploading}>
+              {uploading ? 'Uploading…' : 'Upload'}
+              <input
+                type="file"
+                hidden
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png,.mp4,.mov,.webm,image/*,video/*"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length) void uploadBatch(files);
+                  e.target.value = '';
+                }}
+              />
+            </Button>
+            <ExportMenu filename="pattadar-documents" brand={exportBrand} cols={exportCols} rows={shown} />
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            PDF / JPG / PNG / MP4 · up to 10 files, 1 GB per upload · type is detected automatically
+          </Typography>
+        </>
+      )}
 
       {shown.length === 0 ? (
         <Card>
@@ -560,6 +701,16 @@ export function DocumentsTab({
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox" sx={{ width: 44 }}>
+                    <Checkbox
+                      size="small"
+                      checked={allShownSelected}
+                      indeterminate={selected.size > 0 && !allShownSelected}
+                      disabled={isSample}
+                      onChange={toggleAll}
+                      slotProps={{ input: { 'aria-label': 'Select all documents' } }}
+                    />
+                  </TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Linked to</TableCell>
@@ -571,7 +722,16 @@ export function DocumentsTab({
               </TableHead>
               <TableBody>
                 {shown.map((r) => (
-                  <TableRow key={r.id} hover>
+                  <TableRow key={r.id} hover selected={selected.has(r.id)}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={selected.has(r.id)}
+                        disabled={isSample}
+                        onChange={(e) => toggleRow(r, (e.nativeEvent as MouseEvent).shiftKey === true)}
+                        slotProps={{ input: { 'aria-label': `Select ${r.name}` } }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Box
                         sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: r.fileRef ? 'pointer' : 'default' }}
@@ -597,10 +757,11 @@ export function DocumentsTab({
                     <TableCell>{r.source || '—'}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtLocal(r.createdAt)}</TableCell>
                     <TableCell align="right">
+                      {/* ALWAYS visible — the hover-reveal pattern hid the only
+                          way to reach Delete, so ⋮ is permanent. */}
                       <IconButton
-                        className="rowActions"
                         size="small"
-                        aria-label={`Actions for ${r.name}`}
+                        aria-label={`Row actions for ${r.name}`}
                         disabled={isSample}
                         onClick={(e) => setMenuFor({ el: e.currentTarget, row: r })}
                       >
@@ -706,6 +867,20 @@ export function DocumentsTab({
           <Button onClick={() => setPicker(null)}>Cancel</Button>
           <Button variant="contained" disabled={!picker?.sel || busy} onClick={() => void pickerOk()}>
             OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk delete confirm — ONE dialog for the whole selection. */}
+      <Dialog open={confirmBulk} onClose={() => setConfirmBulk(false)}>
+        <DialogTitle>{`Delete ${selected.size} ${selected.size === 1 ? 'document' : 'documents'}?`}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>Files move to My Drive Trash.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmBulk(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => void bulkDelete()}>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

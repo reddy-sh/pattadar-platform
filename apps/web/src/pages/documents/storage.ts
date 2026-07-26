@@ -125,6 +125,35 @@ export async function uploadCoverPhoto(
   return id ? 'ok' : 'error';
 }
 
+/** Outcome of one document trash: `ok` reflects ONLY the GraphQL row delete —
+ * the My-Drive soft-delete stays best-effort (absent locally) and must never
+ * block or mislabel the result. `reason` is plain-language, for toasts. */
+export interface TrashResult {
+  ok: boolean;
+  reason: string;
+}
+
+/** Trash one document: best-effort storage soft-delete + the row delete. */
+export async function trashDocument(doc: { id: string; fileRef?: string }): Promise<TrashResult> {
+  if (isStorageRef(doc.fileRef)) {
+    try {
+      await apiFetch(`/api/gateway/storage/nodes/${doc.fileRef}`, { method: 'DELETE' });
+    } catch {
+      /* best-effort */
+    }
+  }
+  try {
+    const r = await gql<{ deleteDocument: boolean }>('mutation($id:String!){ deleteDocument(id:$id) }', {
+      id: doc.id,
+    });
+    return r?.deleteDocument
+      ? { ok: true, reason: '' }
+      : { ok: false, reason: 'the record could not be found' };
+  } catch {
+    return { ok: false, reason: 'the server could not be reached' };
+  }
+}
+
 /**
  * Deleting a document also moves its My Drive file to Trash (soft-delete via
  * the storage API) and removes the document row. Best-effort — a failed
