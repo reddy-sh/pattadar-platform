@@ -54,7 +54,7 @@ def _num(v, default=0.0) -> float:
 
 DSN = os.getenv(
     "APP_PG_DSN",
-    "host=pg-proxy.platform.svc.cluster.local port=15432 dbname=pattadar user=rhub password=rhub-dev-pwd",
+    "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd",
 )
 
 pool = AsyncConnectionPool(

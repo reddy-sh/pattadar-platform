@@ -19,7 +19,7 @@ import * as path from 'node:path';
 const PLATFORM_DIR = path.resolve(__dirname, '../..');
 const RHUB_API_DIR =
   process.env.RHUB_API_DIR ||
-  path.join(os.homedir(), 'reddy.sh/projects/rhub/api/services/apps/pattadar');
+  path.join(PLATFORM_DIR, 'services/api');
 const UVICORN = path.join(PLATFORM_DIR, '.local/api-venv/bin/uvicorn');
 const BUN = process.env.BUN_BIN || path.join(os.homedir(), '.bun/bin/bun');
 

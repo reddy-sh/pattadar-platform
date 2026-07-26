@@ -27,7 +27,7 @@ _SCHEMA_LOCK_KEY = 7_312_2026_01
 def _conninfo() -> str:
     host = os.getenv("PG_HOST", "localhost")
     port = os.getenv("PG_PORT", "5432")
-    user = os.getenv("PG_USER", "rhub")
+    user = os.getenv("PG_USER", "rhub")  # local host-Postgres user; AWS task defs always override via env
     password = os.getenv("PG_PASSWORD", "")
     database = os.getenv("PG_DATABASE", "hub")
     return f"host={host} port={port} dbname={database} user={user} password={password}"

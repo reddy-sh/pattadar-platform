@@ -15,7 +15,7 @@
 set -euo pipefail
 
 PLATFORM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RHUB_API_DIR="${RHUB_API_DIR:-$HOME/reddy.sh/projects/rhub/api/services/apps/pattadar}"
+RHUB_API_DIR="${RHUB_API_DIR:-$PLATFORM_DIR/services/api}"
 VENV="$PLATFORM_DIR/.local/api-venv"
 GW_VENV="$PLATFORM_DIR/.local/gateway-venv"
 API_LOG="$PLATFORM_DIR/.local/api.log"
