@@ -6,7 +6,7 @@ export function VerifyPage() {
   const { token } = useParams();
   return (
     <>
-      <Typography variant="h2">Verify membership</Typography>
+      <Typography variant="h4">Verify membership</Typography>
       <Typography color="text.secondary">
         Token-based beneficiary verification landing (token: {token ?? 'missing'}); rebuilt from
         rhub VerifyView / verifyBeneficiary mutation.

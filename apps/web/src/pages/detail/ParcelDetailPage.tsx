@@ -992,7 +992,7 @@ export function ParcelDetailPage() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           {/* The record page's single <h1>. */}
-          <Typography variant="h3" component="h1">
+          <Typography variant="h6" component="h1">
             Survey {p.surveyNo}
             {sub}
           </Typography>

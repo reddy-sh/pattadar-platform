@@ -16,7 +16,7 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
       {icon && (
         <Box sx={{ color: 'text.disabled', mb: 1.5, '& svg': { fontSize: 44 } }}>{icon}</Box>
       )}
-      <Typography variant="h4" component="p" sx={{ mb: 0.75 }}>
+      <Typography variant="h6" component="p" sx={{ mb: 0.75 }}>
         {title}
       </Typography>
       {description && (

@@ -46,7 +46,7 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
         sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', py: { xs: 4, sm: 6 } }}
       >
         <Paper variant="outlined" sx={{ p: { xs: 3, sm: 4 }, width: '100%' }}>
-          <Typography variant="h2" component="h1" gutterBottom>
+          <Typography variant="h4" component="h1" gutterBottom>
             {title}
           </Typography>
           {subtitle && (

@@ -133,7 +133,7 @@ export function ProfilePage() {
                 {(me.name || me.id || '?').slice(0, 1).toUpperCase()}
               </Avatar>
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="h4" component="h2">
+                <Typography variant="h6" component="h2">
                   {me.name || '—'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
@@ -157,7 +157,7 @@ export function ProfilePage() {
         {/* ── Preferences & Consent ────────────────────────────────── */}
         <Card>
           <CardContent>
-            <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
+            <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
               Preferences & Consent
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 }}>

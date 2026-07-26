@@ -45,7 +45,7 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
 import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import { brand, gold } from '@pattadar/tokens';
+import { brand } from '@pattadar/tokens';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 import { FileViewerHost } from '../components/FileViewer';
@@ -176,9 +176,9 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                       width: 7,
                       height: 7,
                       borderRadius: '50%',
-                      bgcolor: gold[600],
+                      bgcolor: brand[600],
                       flexShrink: 0,
-                      ...t.applyStyles('dark', { bgcolor: gold[300] }),
+                      ...t.applyStyles('dark', { bgcolor: brand[300] }),
                     })}
                   />
                 )}
@@ -248,8 +248,8 @@ export function AppShell() {
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                bgcolor: gold[500],
-                ...t.applyStyles('dark', { bgcolor: gold[300] }),
+                bgcolor: brand[500],
+                ...t.applyStyles('dark', { bgcolor: brand[300] }),
               })}
             />
           </Box>

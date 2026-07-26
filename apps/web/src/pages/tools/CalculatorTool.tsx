@@ -51,7 +51,7 @@ function AreaResult({ acres, title }: { acres: number; title?: string }) {
         <Typography variant="overline" color="text.secondary">
           {title || 'Area'}
         </Typography>
-        <Typography variant="h3" component="p" sx={{ mb: 1 }}>
+        <Typography variant="h6" component="p" sx={{ mb: 1 }}>
           {formatArea(acres)}
         </Typography>
         <Divider sx={{ mb: 1 }} />
@@ -232,7 +232,7 @@ function FencingTab({ perimeterFt }: { perimeterFt: number }) {
             <Typography variant="overline" color="text.secondary">
               Posts
             </Typography>
-            <Typography variant="h3" component="p">
+            <Typography variant="h6" component="p">
               {r.posts}
             </Typography>
           </Box>
@@ -240,7 +240,7 @@ function FencingTab({ perimeterFt }: { perimeterFt: number }) {
             <Typography variant="overline" color="text.secondary">
               Wire length (ft)
             </Typography>
-            <Typography variant="h3" component="p">
+            <Typography variant="h6" component="p">
               {round2(r.wire).toLocaleString('en-IN')}
             </Typography>
           </Box>
@@ -248,7 +248,7 @@ function FencingTab({ perimeterFt }: { perimeterFt: number }) {
             <Typography variant="overline" color="text.secondary">
               Est. cost
             </Typography>
-            <Typography variant="h3" component="p">
+            <Typography variant="h6" component="p">
               {r.cost > 0 ? `₹${round2(r.cost).toLocaleString('en-IN')}` : '—'}
             </Typography>
           </Box>
@@ -302,7 +302,7 @@ export function CalculatorTool() {
   };
   return (
     <>
-      <Typography variant="h4" component="h2">
+      <Typography variant="h6" component="h2">
         Area Calculator
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>

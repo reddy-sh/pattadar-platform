@@ -258,13 +258,11 @@ export type GlassToneName = keyof typeof glass.light;
 
 export const typography = {
   /**
-   * Inter, SELF-HOSTED (apps/web imports @fontsource-variable/inter — the
-   * founder rule: nothing loads from third-party URLs). 'InterVariable' /
-   * 'Inter Variable' cover both registered spellings of the variable face;
-   * static 'Inter' and the system stack are fallbacks only.
+   * Roboto — the MUI default font, SELF-HOSTED (apps/web imports
+   * @fontsource/roboto — the founder rule: nothing loads from third-party
+   * URLs).
    */
-  fontFamily:
-    "'InterVariable', 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  fontFamily: "'Roboto', 'Helvetica', 'Arial', sans-serif",
   fontFamilyMono:
     "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
   size: {

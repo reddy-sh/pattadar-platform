@@ -96,7 +96,7 @@ export function StampDutyTool() {
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
       <Card>
         <CardContent>
-          <Typography variant="h4" component="h2" sx={{ mb: 2 }}>
+          <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
             Stamp Duty & Fee Calculator
           </Typography>
           <Autocomplete
@@ -154,7 +154,7 @@ export function StampDutyTool() {
       {result ? (
         <Card>
           <CardContent>
-            <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
+            <Typography variant="h6" component="h2" sx={{ mb: 1.5 }}>
               Duty & Fee Breakup
             </Typography>
             {line('Deed Type', result.deedType.replace(/_/g, ' '))}

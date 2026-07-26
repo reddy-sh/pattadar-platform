@@ -300,7 +300,7 @@ export function EmptyLanding({
   return (
     <Card sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', py: 9, px: 3 }}>
       <Box sx={{ fontSize: 56, lineHeight: 1 }}>{icon}</Box>
-      <Typography variant="h4" component="p" sx={{ mt: 2, mb: 1 }}>
+      <Typography variant="h6" component="p" sx={{ mt: 2, mb: 1 }}>
         {title}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 460 }}>

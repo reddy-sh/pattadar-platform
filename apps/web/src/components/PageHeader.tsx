@@ -20,7 +20,7 @@ interface PageHeaderProps {
    * section scaffolds pass 'h2'/'h3' with the smaller variant.
    */
   component?: ElementType;
-  /** Visual size — 'h2' page headline (default) or 'h3' section title. */
+  /** Visual size — 'h2' page headline (h4 scale) or 'h3' section title (h6 scale). */
   variant?: 'h2' | 'h3';
 }
 
@@ -56,7 +56,7 @@ export function PageHeader({
           </Typography>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
-          <Typography variant={variant} component={component}>
+          <Typography variant={variant === 'h2' ? 'h4' : 'h6'} component={component}>
             {title}
           </Typography>
           {titleChips}

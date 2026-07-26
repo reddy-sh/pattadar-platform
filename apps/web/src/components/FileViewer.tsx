@@ -1,6 +1,6 @@
 /**
  * In-portal file viewer — HARD RULE: portal content NEVER opens a new tab.
- * A full-screen MUI Dialog (dark surface, gold-accent close) that renders
+ * A full-screen MUI Dialog (dark surface) that renders
  * images, PDFs (iframe over a blob URL) and video inline; anything else
  * shows "Download to view". Lists get ←/→ navigation (buttons + arrow keys)
  * and Download always saves via an anchor `download` attribute.
@@ -20,7 +20,6 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
-import { gold } from '@pattadar/tokens';
 
 export type ViewerKind = 'image' | 'pdf' | 'video' | 'other';
 
@@ -158,7 +157,7 @@ export function FileViewerHost() {
       }}
       slotProps={{ paper: { sx: { bgcolor: '#141414', color: '#fff' } } }}
     >
-      {/* Top bar — filename, counter, Download, gold close. */}
+      {/* Top bar — filename, counter, Download, close. */}
       <Box
         sx={{
           display: 'flex',
@@ -188,7 +187,7 @@ export function FileViewerHost() {
         >
           Download
         </Button>
-        <IconButton onClick={close} aria-label="Close viewer" sx={{ color: gold[400], flexShrink: 0 }}>
+        <IconButton onClick={close} aria-label="Close viewer" sx={{ color: '#fff', flexShrink: 0 }}>
           <CloseIcon />
         </IconButton>
       </Box>
@@ -205,7 +204,7 @@ export function FileViewerHost() {
           overflow: 'hidden',
         }}
       >
-        {cur.state === 'loading' && <CircularProgress sx={{ color: gold[400] }} aria-label="Loading file" />}
+        {cur.state === 'loading' && <CircularProgress sx={{ color: '#fff' }} aria-label="Loading file" />}
         {cur.state === 'error' && (
           <Box sx={{ textAlign: 'center', px: 3 }}>
             <Typography sx={{ fontSize: 40 }}>⚠️</Typography>

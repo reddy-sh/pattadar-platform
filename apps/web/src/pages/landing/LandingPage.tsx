@@ -102,7 +102,7 @@ export function LandingPage() {
             sx={{
               flexGrow: 1,
               fontWeight: 700,
-              background: 'linear-gradient(120deg, #1976d2 20%, #c9a227 80%)',
+              background: 'linear-gradient(120deg, #1976d2 0%, #1976d2 100%)',
               backgroundClip: 'text',
               WebkitBackgroundClip: 'text',
               color: 'transparent',
@@ -121,10 +121,10 @@ export function LandingPage() {
         component="section"
         sx={{
           background:
-            'radial-gradient(1400px 620px at 50% -12%, rgba(231,199,102,0.32), transparent 62%), radial-gradient(700px 300px at 85% 105%, rgba(201,162,39,0.22), transparent 70%), linear-gradient(160deg, #0a2540 0%, #144e8c 62%, #0d3a6b 100%)',
+            'linear-gradient(160deg, #1565c0 0%, #1976d2 100%)',
           color: '#f5f8fc',
-          borderBottom: '1px solid rgba(201,162,39,0.55)',
-          boxShadow: 'inset 0 -24px 48px -32px rgba(201,162,39,0.45)',
+          borderBottom: '1px solid rgba(255,255,255,0.12)',
+          boxShadow: 'none',
         }}
       >
         <Container maxWidth="md" sx={{ textAlign: 'center', py: { xs: 9, md: 13 } }}>
@@ -137,10 +137,10 @@ export function LandingPage() {
               py: 0.5,
               mb: 3,
               borderRadius: 999,
-              border: '1px solid rgba(231,199,102,0.55)',
-              background: 'linear-gradient(135deg, rgba(231,199,102,0.16), rgba(201,162,39,0.08))',
+              border: '1px solid rgba(255,255,255,0.4)',
+              background: 'rgba(255,255,255,0.10)',
               backdropFilter: 'blur(8px)',
-              color: '#e7c766',
+              color: '#bbdefb',
               fontSize: 13,
               letterSpacing: 1.2,
               textTransform: 'uppercase',
@@ -148,7 +148,7 @@ export function LandingPage() {
           >
             Land · Records · Family
           </Box>
-          <Typography variant="h1" component="h1" gutterBottom sx={{ color: 'inherit' }}>
+          <Typography variant="h2" component="h1" gutterBottom sx={{ color: 'inherit' }}>
             Your family's land records, in one secure place
           </Typography>
           <Typography variant="body1" sx={{ maxWidth: 640, mx: 'auto', mb: 4, color: 'rgba(244,248,244,0.82)' }}>
@@ -164,12 +164,12 @@ export function LandingPage() {
               py: 1.5,
               fontSize: '1.05rem',
               color: '#1c1b16',
-              background: 'linear-gradient(135deg, #e7c766 0%, #c9a227 55%, #b8860b 100%)',
+              background: '#fff',
               border: '1px solid rgba(244,248,244,0.35)',
-              boxShadow: '0 6px 24px rgba(201,162,39,0.35), inset 0 1px 0 rgba(255,255,255,0.4)',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.25)',
               '&:hover': {
                 background: 'linear-gradient(135deg, #f0d47e 0%, #d4ad33 55%, #c2900f 100%)',
-                boxShadow: '0 8px 28px rgba(201,162,39,0.45), inset 0 1px 0 rgba(255,255,255,0.5)',
+                boxShadow: '0 8px 28px rgba(0,0,0,0.3)',
               },
             }}
           >
@@ -184,11 +184,11 @@ export function LandingPage() {
           <Typography
             variant="overline"
             component="p"
-            sx={{ textAlign: 'center', color: '#b8860b', letterSpacing: 2, mb: 0.5 }}
+            sx={{ textAlign: 'center', color: 'primary.main', letterSpacing: 2, mb: 0.5 }}
           >
             Everything in one place
           </Typography>
-          <Typography variant="h2" component="h2" sx={{ textAlign: 'center', mb: 4 }}>
+          <Typography variant="h4" component="h2" sx={{ textAlign: 'center', mb: 4 }}>
             What you can do
           </Typography>
           <Box
@@ -212,13 +212,13 @@ export function LandingPage() {
                     position: 'absolute',
                     inset: '0 0 auto 0',
                     height: 3,
-                    background: 'linear-gradient(90deg, transparent, #c9a227, transparent)',
+                    background: 'linear-gradient(90deg, transparent, #1976d2, transparent)',
                     opacity: 0,
                     transition: 'opacity .25s',
                   },
                   '&:hover': {
-                    borderColor: 'rgba(201,162,39,0.6)',
-                    boxShadow: '0 10px 30px -12px rgba(201,162,39,0.35)',
+                    borderColor: 'rgba(25,118,210,0.5)',
+                    boxShadow: '0 10px 30px -12px rgba(25,118,210,0.3)',
                     transform: 'translateY(-2px)',
                     '&::before': { opacity: 1 },
                   },
@@ -226,7 +226,7 @@ export function LandingPage() {
               >
                 <CardContent>
                   {f.icon}
-                  <Typography variant="h4" component="h3" sx={{ mt: 1.5, mb: 1 }}>
+                  <Typography variant="h6" component="h3" sx={{ mt: 1.5, mb: 1 }}>
                     {f.title}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
@@ -242,10 +242,10 @@ export function LandingPage() {
 
       {/* How it works — three gold steps */}
       <Container maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 } }}>
-        <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: '#b8860b', letterSpacing: 2, mb: 0.5 }}>
+        <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: 'primary.main', letterSpacing: 2, mb: 0.5 }}>
           Three simple steps
         </Typography>
-        <Typography variant="h2" component="h2" sx={{ textAlign: 'center', mb: 5 }}>
+        <Typography variant="h4" component="h2" sx={{ textAlign: 'center', mb: 5 }}>
           How Pattadar works
         </Typography>
         <Box sx={{ display: 'grid', gap: 4, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
@@ -272,13 +272,13 @@ export function LandingPage() {
                   width: 56, height: 56, mx: 'auto', mb: 2, borderRadius: '50%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 24, fontWeight: 700, color: '#1c1b16',
-                  background: 'linear-gradient(135deg, #e7c766 0%, #c9a227 60%, #b8860b 100%)',
-                  boxShadow: '0 6px 18px rgba(201,162,39,0.35), inset 0 1px 0 rgba(255,255,255,0.5)',
+                  background: 'linear-gradient(135deg, #42a5f5 0%, #1976d2 60%, #1565c0 100%)',
+                  boxShadow: '0 6px 18px rgba(25,118,210,0.35)',
                 }}
               >
                 {step.n}
               </Box>
-              <Typography variant="h4" component="h3" sx={{ mb: 1 }}>{step.title}</Typography>
+              <Typography variant="h6" component="h3" sx={{ mb: 1 }}>{step.title}</Typography>
               <Typography variant="body2" color="text.secondary">{step.body}</Typography>
             </Box>
           ))}
@@ -289,10 +289,10 @@ export function LandingPage() {
       {/* 6 Pillars — domain authority from the AP revenue system */}
       <Box component="section" sx={{ bgcolor: 'background.paper', py: { xs: 6, md: 8 } }}>
         <Container maxWidth="lg">
-          <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: '#b8860b', letterSpacing: 2, mb: 0.5 }}>
+          <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: 'primary.main', letterSpacing: 2, mb: 0.5 }}>
             Built on how AP land records actually work
           </Typography>
-          <Typography variant="h2" component="h2" sx={{ textAlign: 'center', mb: 1.5 }}>
+          <Typography variant="h4" component="h2" sx={{ textAlign: 'center', mb: 1.5 }}>
             The 6 pillars of your land record
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', maxWidth: 680, mx: 'auto', mb: 5 }}>
@@ -311,12 +311,12 @@ export function LandingPage() {
               <Card key={p.title} variant="outlined" sx={{ height: '100%', position: 'relative' }}>
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                    <Box sx={{ color: '#b8860b', display: 'flex' }}>{p.icon}</Box>
-                    <Typography variant="caption" sx={{ color: '#b8860b', fontWeight: 700, letterSpacing: 1 }}>
+                    <Box sx={{ color: 'primary.main', display: 'flex' }}>{p.icon}</Box>
+                    <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 700, letterSpacing: 1 }}>
                       {'0' + (i + 1)}
                     </Typography>
                   </Box>
-                  <Typography variant="h4" component="h3" sx={{ mb: 1 }}>{p.title}</Typography>
+                  <Typography variant="h6" component="h3" sx={{ mb: 1 }}>{p.title}</Typography>
                   <Typography variant="body2" color="text.secondary">{p.body}</Typography>
                 </CardContent>
               </Card>
@@ -330,10 +330,10 @@ export function LandingPage() {
         <Container maxWidth="lg">
           <Box sx={{ display: 'grid', gap: 5, alignItems: 'center', gridTemplateColumns: { xs: '1fr', md: '5fr 6fr' } }}>
             <Box sx={{ color: '#f5f8fc' }}>
-              <Typography variant="overline" component="p" sx={{ color: '#e7c766', letterSpacing: 2, mb: 0.5 }}>
+              <Typography variant="overline" component="p" sx={{ color: '#bbdefb', letterSpacing: 2, mb: 0.5 }}>
                 Your land, at a glance
               </Typography>
-              <Typography variant="h2" component="h2" sx={{ color: 'inherit', mb: 2 }}>
+              <Typography variant="h4" component="h2" sx={{ color: 'inherit', mb: 2 }}>
                 A living portfolio, not a pile of papers
               </Typography>
               <Typography variant="body1" sx={{ color: 'rgba(244,248,244,0.85)', mb: 2 }}>
@@ -342,27 +342,27 @@ export function LandingPage() {
               </Typography>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 {['Parcels', 'Passbooks', 'Properties', 'Documents', 'Family'].map((c) => (
-                  <Chip key={c} label={c} size="small" sx={{ color: '#e7c766', borderColor: 'rgba(231,199,102,0.5)', bgcolor: 'rgba(231,199,102,0.08)' }} variant="outlined" />
+                  <Chip key={c} label={c} size="small" sx={{ color: '#bbdefb', borderColor: 'rgba(255,255,255,0.4)', bgcolor: 'rgba(255,255,255,0.08)' }} variant="outlined" />
                 ))}
               </Box>
             </Box>
             <Box
               sx={{
                 borderRadius: 4,
-                border: '1px solid rgba(231,199,102,0.5)',
+                border: '1px solid rgba(255,255,255,0.25)',
                 background:
-                  'radial-gradient(420px 200px at 85% -10%, rgba(231,199,102,0.22), transparent 65%), linear-gradient(135deg, rgba(8,32,24,0.72), rgba(15,81,50,0.45))',
+                  'linear-gradient(135deg, rgba(10,37,64,0.72), rgba(13,58,107,0.45))',
                 backdropFilter: 'blur(14px)',
                 WebkitBackdropFilter: 'blur(14px)',
                 boxShadow:
-                  'inset 0 1px 0 rgba(244,248,244,0.25), 0 18px 48px -20px rgba(0,0,0,0.5), 0 8px 32px -16px rgba(201,162,39,0.35)',
+                  '0 18px 48px -20px rgba(0,0,0,0.5)',
               }}
             >
               <Box sx={{ p: { xs: 2.5, md: 3 } }}>
-                <Typography variant="overline" sx={{ color: '#e7c766', letterSpacing: 1.5 }}>
+                <Typography variant="overline" sx={{ color: '#bbdefb', letterSpacing: 1.5 }}>
                   Land portfolio · sample
                 </Typography>
-                <Typography variant="h2" component="p" sx={{ color: '#f5f8fc', my: 0.5 }}>
+                <Typography variant="h4" component="p" sx={{ color: '#f5f8fc', my: 0.5 }}>
                   ₹2,84,50,000
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'rgba(244,248,244,0.75)', mb: 2 }}>
@@ -390,10 +390,10 @@ export function LandingPage() {
 
       {/* Revenue issues by transaction stage */}
       <Container maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 } }}>
-        <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: '#b8860b', letterSpacing: 2, mb: 0.5 }}>
+        <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: 'primary.main', letterSpacing: 2, mb: 0.5 }}>
           Solutions for common revenue issues
         </Typography>
-        <Typography variant="h2" component="h2" sx={{ textAlign: 'center', mb: 1.5 }}>
+        <Typography variant="h4" component="h2" sx={{ textAlign: 'center', mb: 1.5 }}>
           With you at every stage
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', maxWidth: 660, mx: 'auto', mb: 5 }}>
@@ -408,10 +408,10 @@ export function LandingPage() {
           ].map((c, i) => (
             <Card key={c.stage} variant="outlined" sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="caption" sx={{ color: '#b8860b', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase' }}>
                   Stage {i + 1}
                 </Typography>
-                <Typography variant="h4" component="h3" sx={{ mt: 0.5, mb: 1 }}>{c.stage}</Typography>
+                <Typography variant="h6" component="h3" sx={{ mt: 0.5, mb: 1 }}>{c.stage}</Typography>
                 <Typography variant="body2" color="text.secondary">{c.body}</Typography>
               </CardContent>
             </Card>
@@ -424,15 +424,15 @@ export function LandingPage() {
         <Box
           sx={{
             borderRadius: 4, px: { xs: 3, md: 6 }, py: { xs: 4, md: 5 },
-            border: '1px solid rgba(201,162,39,0.45)',
-            background: 'linear-gradient(135deg, rgba(231,199,102,0.14), rgba(201,162,39,0.05))',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.35), 0 12px 40px -18px rgba(201,162,39,0.4)',
+            border: '1px solid rgba(25,118,210,0.35)',
+            background: 'rgba(25,118,210,0.06)',
+            boxShadow: '0 12px 40px -18px rgba(0,0,0,0.2)',
           }}
         >
-          <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 40, color: '#b8860b', mb: 1 }} />
-          <Typography variant="h3" component="h2" sx={{ mb: 1 }}>
+          <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+          <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
             Pattadar Wallet
-            <Chip label="Coming soon" size="small" sx={{ ml: 1.5, color: '#1c1b16', background: 'linear-gradient(135deg, #e7c766, #c9a227)', fontWeight: 600 }} />
+            <Chip label="Coming soon" size="small" color="primary" sx={{ ml: 1.5, fontWeight: 600 }} />
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 560, mx: 'auto' }}>
             Pay stamp duty, registration fees and family expenses from one secure balance — with every
@@ -445,10 +445,10 @@ export function LandingPage() {
       {/* Services roadmap — the old vision, honestly labeled */}
       <Box component="section" sx={{ bgcolor: 'background.paper', py: { xs: 6, md: 8 } }}>
         <Container maxWidth="lg">
-          <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: '#b8860b', letterSpacing: 2, mb: 0.5 }}>
+          <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: 'primary.main', letterSpacing: 2, mb: 0.5 }}>
             Beyond record-keeping
           </Typography>
-          <Typography variant="h2" component="h2" sx={{ textAlign: 'center', mb: 5 }}>
+          <Typography variant="h4" component="h2" sx={{ textAlign: 'center', mb: 5 }}>
             Services we're building next
           </Typography>
           <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' } }}>
@@ -460,8 +460,8 @@ export function LandingPage() {
             ].map((sv) => (
               <Card key={sv.title} variant="outlined" sx={{ height: '100%' }}>
                 <CardContent>
-                  <Chip label="On the roadmap" size="small" variant="outlined" sx={{ mb: 1.5, color: '#b8860b', borderColor: 'rgba(201,162,39,0.5)' }} />
-                  <Typography variant="h4" component="h3" sx={{ mb: 1 }}>{sv.title}</Typography>
+                  <Chip label="On the roadmap" size="small" variant="outlined" sx={{ mb: 1.5, color: 'primary.main', borderColor: 'rgba(25,118,210,0.5)' }} />
+                  <Typography variant="h6" component="h3" sx={{ mb: 1 }}>{sv.title}</Typography>
                   <Typography variant="body2" color="text.secondary">{sv.body}</Typography>
                 </CardContent>
               </Card>
@@ -473,10 +473,10 @@ export function LandingPage() {
       {/* FAQ — plain language, honest answers */}
       <Box component="section" sx={{ bgcolor: 'background.paper', py: { xs: 6, md: 8 } }}>
         <Container maxWidth="md">
-          <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: '#b8860b', letterSpacing: 2, mb: 0.5 }}>
+          <Typography variant="overline" component="p" sx={{ textAlign: 'center', color: 'primary.main', letterSpacing: 2, mb: 0.5 }}>
             Common questions
           </Typography>
-          <Typography variant="h2" component="h2" sx={{ textAlign: 'center', mb: 4 }}>
+          <Typography variant="h4" component="h2" sx={{ textAlign: 'center', mb: 4 }}>
             Asked by families like yours
           </Typography>
           {[
@@ -487,7 +487,7 @@ export function LandingPage() {
             ['What does it cost?', 'The pilot is free for invited families. Pricing for later will be announced well in advance — nothing is charged silently.'],
           ].map(([q, a]) => (
             <Accordion key={q} disableGutters elevation={0} sx={{ border: 1, borderColor: 'divider', '&:not(:last-child)': { mb: 1 }, '&::before': { display: 'none' }, borderRadius: 2, overflow: 'hidden' }}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: '#b8860b' }} />}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'primary.main' }} />}>
                 <Typography variant="body1" sx={{ fontWeight: 600 }}>{q}</Typography>
               </AccordionSummary>
               <AccordionDetails>
@@ -499,9 +499,9 @@ export function LandingPage() {
       </Box>
 
       {/* Final CTA — emerald band */}
-      <Box component="section" sx={{ background: 'radial-gradient(900px 380px at 50% 120%, rgba(231,199,102,0.25), transparent 65%), linear-gradient(160deg, #0d3a6b 0%, #0a2540 100%)', py: { xs: 7, md: 9 }, textAlign: 'center' }}>
+      <Box component="section" sx={{ background: 'linear-gradient(160deg, #0d3a6b 0%, #0a2540 100%)', py: { xs: 7, md: 9 }, textAlign: 'center' }}>
         <Container maxWidth="sm">
-          <Typography variant="h2" component="h2" sx={{ color: '#f5f8fc', mb: 1.5 }}>
+          <Typography variant="h4" component="h2" sx={{ color: '#f5f8fc', mb: 1.5 }}>
             Your family's land deserves this care
           </Typography>
           <Typography variant="body1" sx={{ color: 'rgba(244,248,244,0.8)', mb: 3.5 }}>
@@ -511,9 +511,9 @@ export function LandingPage() {
             variant="contained" size="large" onClick={startSignIn}
             sx={{
               px: 5, py: 1.5, fontSize: '1.05rem', color: '#1c1b16',
-              background: 'linear-gradient(135deg, #e7c766 0%, #c9a227 55%, #b8860b 100%)',
+              background: '#fff',
               border: '1px solid rgba(244,248,244,0.35)',
-              boxShadow: '0 6px 24px rgba(201,162,39,0.35), inset 0 1px 0 rgba(255,255,255,0.4)',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.25)',
               '&:hover': { background: 'linear-gradient(135deg, #f0d47e 0%, #d4ad33 55%, #c2900f 100%)' },
             }}
           >
@@ -527,8 +527,8 @@ export function LandingPage() {
         component="section"
         sx={{
           background: 'linear-gradient(160deg, #0a2540 0%, #0d3a6b 100%)',
-          borderTop: '1px solid rgba(201,162,39,0.45)',
-          borderBottom: '1px solid rgba(201,162,39,0.45)',
+          borderTop: '1px solid rgba(255,255,255,0.12)',
+          borderBottom: '1px solid rgba(255,255,255,0.12)',
         }}
       >
         <Container maxWidth="lg" sx={{ py: { xs: 3.5, md: 4.5 } }}>
@@ -548,7 +548,7 @@ export function LandingPage() {
                   alignItems: 'center',
                   gap: 1,
                   color: 'rgba(244,248,244,0.92)',
-                  '& svg': { color: '#e7c766' },
+                  '& svg': { color: '#bbdefb' },
                 }}
               >
                 {item.icon}

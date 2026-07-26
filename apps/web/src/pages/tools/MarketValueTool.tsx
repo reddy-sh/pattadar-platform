@@ -101,7 +101,7 @@ export function MarketValueTool() {
                   label={r.classification}
                   sx={{ mb: 1 }}
                 />
-                <Typography variant="h4" component="p">
+                <Typography variant="h6" component="p">
                   ₹{formatNumberIN(r.ratePerUnit)}
                   <Typography component="span" variant="body2" color="text.secondary">
                     {' '}

@@ -1,28 +1,25 @@
 /**
- * Industry-standard MUI theme derived from @pattadar/tokens — Material Design 3
- * role mapping over the neutral brand palette (2026-07-26; green theme removed).
+ * STOCK Material UI theme (founder decision 2026-07-26: the default MUI look
+ * — font, colors, everything — per mui.com/material-ui/customization/dark-mode).
+ * Default palette, default Roboto type scale, default shape/elevation; dark
+ * mode is MUI's built-in dark color scheme.
  *
  * CSS theme variables are enabled with a CLASS colour-scheme selector so both
  * schemes ship in one stylesheet AND `useColorScheme().setMode` works (the
- * default 'media' selector makes setMode a no-op). Toggling: any component
- * calls `useColorScheme()` and sets mode 'light' | 'dark' | 'system'.
+ * default 'media' selector makes setMode a no-op).
  *
- * M3 mapping:
- *  - primary blue + primaryContainer (selected states, tonal buttons)
- *  - secondary gold — RESERVED: wallet, hero glass, premium accents
- *  - warning orange stays reserved (tax/EC)
- *  - state layers: hover 8%, focus/pressed 12%
- *  - shape: 12 default · 16 cards · 20 dialogs · full pills/chips/buttons
- *  - motion: 200ms standard / 250ms emphasized on cubic-bezier(0.2, 0, 0, 1)
- *  - focus-visible: 2px primary ring, 2px offset, everywhere
+ * The ONLY additions to the default theme are functional seams existing pages
+ * rely on, with every colour derived from the DEFAULT palette:
+ *  - `palette.primary.container` / `.onContainer` (selected fills across pages)
+ *  - the 'tonal' Button variant
+ *  - `.tnum` and `.rowActions` utility classes + prefers-reduced-motion guard
+ *  - bottom-center snackbars
  */
 import { createTheme } from '@mui/material/styles';
-import { motion, radii, schemes, typography } from '@pattadar/tokens';
-import type { ColorScheme } from '@pattadar/tokens';
 
 declare module '@mui/material/styles' {
   interface PaletteColor {
-    /** M3 container role (soft fill for selected states / tonal surfaces). */
+    /** Soft container fill for selected states / tonal surfaces. */
     container?: string;
     /** Readable text/icon colour on `container`. */
     onContainer?: string;
@@ -35,122 +32,45 @@ declare module '@mui/material/styles' {
 
 declare module '@mui/material/Button' {
   interface ButtonPropsVariantOverrides {
-    /** M3 filled-tonal button — primaryContainer fill, quiet emphasis. */
+    /** Filled-tonal button — soft primary fill, quiet emphasis. */
     tonal: true;
   }
 }
 
-/** Map one token scheme onto a MUI palette (M3 roles included). */
-function palette(s: ColorScheme, mode: 'light' | 'dark') {
-  return {
-    palette: {
-      primary: {
-        main: s.primary,
-        dark: s.primaryActive,
-        contrastText: s.onPrimary,
-        container: s.primaryContainer,
-        onContainer: s.onPrimaryContainer,
-      },
-      secondary: {
-        main: s.accent,
-        container: s.accentContainer,
-        onContainer: s.onAccentContainer,
-      },
-      success: { main: s.success },
-      warning: { main: s.warning },
-      error: { main: s.error },
-      info: { main: s.info },
-      background: { default: s.background, paper: s.surface },
-      text: {
-        primary: s.textPrimary,
-        secondary: s.textSecondary,
-        disabled: s.textDisabled,
-      },
-      divider: s.border,
-      // M3 state layers: hover 8%, focus/pressed/selected 12% — neutral.
-      action: {
-        hover: mode === 'light' ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.08)',
-        selected: mode === 'light' ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.14)',
-        hoverOpacity: 0.08,
-        focusOpacity: 0.12,
-        selectedOpacity: 0.12,
-        activatedOpacity: 0.12,
-      },
-    },
-  };
-}
-
+// Default MUI primary anchors (light #1976d2 / dark #90caf9) — restated here
+// only to build the container fills; `main` stays the default value.
 export const theme = createTheme({
   cssVariables: { colorSchemeSelector: 'class' },
   colorSchemes: {
-    light: palette(schemes.light, 'light'),
-    dark: palette(schemes.dark, 'dark'),
-  },
-  // M3 motion tokens: standard 200ms / emphasized 250ms, one decelerate curve.
-  transitions: {
-    duration: {
-      shortest: 100,
-      shorter: 150,
-      short: motion.duration.standard,
-      standard: motion.duration.standard,
-      complex: motion.duration.emphasized,
-      enteringScreen: motion.duration.standard,
-      leavingScreen: 150,
+    light: {
+      palette: {
+        primary: {
+          main: '#1976d2',
+          container: 'rgba(25, 118, 210, 0.08)',
+          onContainer: '#1565c0',
+        },
+      },
     },
-    easing: {
-      easeInOut: motion.easing,
-      easeOut: 'cubic-bezier(0, 0, 0, 1)',
-      easeIn: 'cubic-bezier(0.3, 0, 1, 1)',
-      sharp: 'cubic-bezier(0.4, 0, 0.6, 1)',
+    dark: {
+      palette: {
+        primary: {
+          main: '#90caf9',
+          container: 'rgba(144, 202, 249, 0.16)',
+          onContainer: '#90caf9',
+        },
+      },
     },
-  },
-  typography: {
-    fontFamily: typography.fontFamily,
-    fontSize: typography.size.md,
-    // Display — landing hero only.
-    h1: { fontSize: typography.size.display, fontWeight: typography.weight.bold, letterSpacing: '-0.02em' },
-    // Headline — page titles: 28px / 700.
-    h2: { fontSize: 28, fontWeight: typography.weight.bold, letterSpacing: '-0.01em', lineHeight: 1.25 },
-    // Titles — card/section titles: 20 / 17, 600.
-    h3: { fontSize: 20, fontWeight: typography.weight.semibold, lineHeight: 1.3 },
-    h4: { fontSize: 17, fontWeight: typography.weight.semibold, lineHeight: 1.35 },
-    h5: { fontSize: typography.size.md, fontWeight: typography.weight.semibold },
-    h6: { fontSize: typography.size.md, fontWeight: typography.weight.semibold },
-    subtitle1: { fontSize: typography.size.md, fontWeight: typography.weight.medium },
-    subtitle2: { fontSize: typography.size.sm, fontWeight: typography.weight.medium },
-    body1: { fontSize: typography.size.md, lineHeight: 1.55 },
-    body2: { fontSize: typography.size.sm, lineHeight: 1.55 },
-    caption: { fontSize: typography.size.xs },
-    // Label — eyebrows, table headers: 12 / 600 / +1 tracking.
-    overline: {
-      fontSize: 12,
-      fontWeight: typography.weight.semibold,
-      letterSpacing: '0.08em',
-      textTransform: 'uppercase' as const,
-      lineHeight: 1.6,
-    },
-    button: { textTransform: 'none' as const, fontWeight: typography.weight.semibold },
-  },
-  shape: {
-    borderRadius: radii.lg, // 12 default
   },
   components: {
     MuiCssBaseline: {
-      styleOverrides: (t) => ({
-        // Global focus-visible: the 2px primary ring, 2px offset.
-        ':focus-visible': {
-          outline: `2px solid ${t.vars.palette.primary.main}`,
-          outlineOffset: '2px',
-        },
-        // MUI fields draw their own focused border — no inner double ring.
-        '.MuiInputBase-input:focus-visible': { outline: 'none' },
+      styleOverrides: {
         // Tabular numerals for stat figures.
         '.tnum': {
           fontVariantNumeric: 'tabular-nums',
           fontFeatureSettings: '"tnum"',
         },
         // Row actions reveal on hover/focus — always visible on touch.
-        '.rowActions': { opacity: 0, transition: `opacity 150ms ${motion.easing}` },
+        '.rowActions': { opacity: 0, transition: 'opacity 150ms ease' },
         '@media (hover: none)': { '.rowActions': { opacity: 1 } },
         '@media (prefers-reduced-motion: reduce)': {
           '*, *::before, *::after': {
@@ -159,33 +79,9 @@ export const theme = createTheme({
             transitionDuration: '0.01ms !important',
           },
         },
-      }),
-    },
-    MuiButtonBase: {
-      styleOverrides: {
-        root: ({ theme: t }) => ({
-          '&.Mui-focusVisible': {
-            outline: `2px solid ${t.vars.palette.primary.main}`,
-            outlineOffset: 2,
-          },
-        }),
       },
     },
     MuiButton: {
-      defaultProps: { disableElevation: true },
-      styleOverrides: {
-        root: {
-          textTransform: 'none',
-          borderRadius: radii.pill, // M3 full-rounded buttons
-          minHeight: 40,
-          paddingLeft: 20,
-          paddingRight: 20,
-        },
-        sizeSmall: { minHeight: 32, paddingLeft: 14, paddingRight: 14 },
-        sizeLarge: { minHeight: 48, paddingLeft: 24, paddingRight: 24 },
-        startIcon: { marginRight: 8 },
-        endIcon: { marginLeft: 8 },
-      },
       variants: [
         {
           props: { variant: 'tonal' },
@@ -193,10 +89,10 @@ export const theme = createTheme({
             backgroundColor: t.vars.palette.primary.container,
             color: t.vars.palette.primary.onContainer,
             '&:hover': {
-              backgroundColor: `color-mix(in srgb, ${t.vars.palette.primary.main} 8%, ${t.vars.palette.primary.container})`,
+              backgroundColor: `color-mix(in srgb, ${t.vars.palette.primary.main} 16%, transparent)`,
             },
             '&:active': {
-              backgroundColor: `color-mix(in srgb, ${t.vars.palette.primary.main} 12%, ${t.vars.palette.primary.container})`,
+              backgroundColor: `color-mix(in srgb, ${t.vars.palette.primary.main} 24%, transparent)`,
             },
             '&.Mui-disabled': {
               backgroundColor: t.vars.palette.action.disabledBackground,
@@ -205,54 +101,6 @@ export const theme = createTheme({
           }),
         },
       ],
-    },
-    MuiCard: {
-      defaultProps: { elevation: 0 },
-      styleOverrides: {
-        root: ({ theme: t }) => ({
-          borderRadius: radii.xl, // 16 — M3 card shape
-          border: `1px solid ${t.vars.palette.divider}`,
-          backgroundImage: 'none',
-          // Surface tint (not shadow) marks the resting card.
-          backgroundColor: t.vars.palette.background.paper,
-        }),
-      },
-    },
-    MuiChip: {
-      styleOverrides: {
-        root: ({ theme: t, ownerState }) => ({
-          fontWeight: 500,
-          ...(ownerState.variant !== 'outlined' &&
-          ownerState.color &&
-          ownerState.color !== 'default'
-            ? {
-                // M3 tonal status chips: container fill + readable on-colour.
-                backgroundColor: `color-mix(in srgb, ${t.vars.palette[ownerState.color].main} 16%, transparent)`,
-                color: `color-mix(in srgb, ${t.vars.palette[ownerState.color].main} 78%, ${t.vars.palette.text.primary})`,
-                // Clickable tonal chips deepen the container on hover (8% layer).
-                ...(ownerState.onClick || ownerState.clickable
-                  ? {
-                      '&:hover': {
-                        backgroundColor: `color-mix(in srgb, ${t.vars.palette[ownerState.color].main} 26%, transparent)`,
-                      },
-                    }
-                  : {}),
-              }
-            : {}),
-        }),
-        sizeSmall: { height: 24 },
-        sizeMedium: { height: 32 },
-      },
-    },
-    MuiDialog: {
-      styleOverrides: {
-        paper: {
-          borderRadius: radii.xxl, // 20 — M3 dialog shape
-          '&.MuiDialog-paperFullScreen': { borderRadius: 0 },
-        },
-        // The M3 "standard" dialog width.
-        paperWidthSm: { maxWidth: 560 },
-      },
     },
     MuiSnackbar: {
       defaultProps: {
@@ -263,47 +111,6 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           '&:hover .rowActions, &:focus-within .rowActions': { opacity: 1 },
-        },
-      },
-    },
-    MuiTableCell: {
-      styleOverrides: {
-        root: { padding: '14px 16px' },
-        head: ({ theme: t }) => ({
-          // Table headers wear the M3 label (overline) style.
-          fontWeight: typography.weight.semibold,
-          fontSize: 12,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-          color: t.vars.palette.text.secondary,
-          whiteSpace: 'nowrap',
-        }),
-        // 52px list rows (20px line + 2×15 padding + border).
-        sizeSmall: { padding: '15px 12px' },
-        paddingNone: { padding: 0 },
-      },
-    },
-    MuiTooltip: {
-      defaultProps: { arrow: true },
-    },
-    // Interactive text = primary.main with underline on hover only.
-    MuiLink: {
-      defaultProps: { underline: 'hover' },
-    },
-    MuiListItemButton: {
-      styleOverrides: {
-        root: { borderRadius: radii.lg },
-      },
-    },
-    MuiListSubheader: {
-      styleOverrides: {
-        root: {
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          lineHeight: '32px',
-          backgroundColor: 'transparent',
         },
       },
     },

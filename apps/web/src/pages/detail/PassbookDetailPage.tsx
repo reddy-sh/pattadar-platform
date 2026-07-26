@@ -428,7 +428,7 @@ export function PassbookDetailPage() {
           <Box sx={{ flex: 1, minWidth: 220 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               {/* The record page's single <h1>. */}
-              <Typography variant="h3" component="h1">
+              <Typography variant="h6" component="h1">
                 {pb.ownerName || '(owner not set)'}
               </Typography>
               <Chip size="small" color="info" label={`Khata ${pb.pattadarNo}`} />

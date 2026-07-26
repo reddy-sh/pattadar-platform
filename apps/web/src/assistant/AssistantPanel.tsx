@@ -22,7 +22,7 @@ import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import { brand, gold } from '@pattadar/tokens';
+import { brand } from '@pattadar/tokens';
 import { apiFetch } from '../api/client';
 
 const ASSISTANT_BASE = '/api/gateway/assistant/api';
@@ -227,13 +227,13 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
             px: 2,
             py: 1.5,
             borderBottom: 2,
-            borderColor: gold[500],
+            borderColor: brand[500],
           }}
         >
           <SmartToyOutlinedIcon
             sx={(t) => ({ color: brand[700], ...t.applyStyles('dark', { color: brand[300] }) })}
           />
-          <Typography variant="h6" sx={{ fontWeight: 700, flexGrow: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>
             Assistant
           </Typography>
           <Box
@@ -241,8 +241,8 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
               width: 7,
               height: 7,
               borderRadius: '50%',
-              bgcolor: gold[500],
-              ...t.applyStyles('dark', { bgcolor: gold[300] }),
+              bgcolor: brand[500],
+              ...t.applyStyles('dark', { bgcolor: brand[300] }),
             })}
           />
           <IconButton aria-label="Close assistant" onClick={onClose} size="small">
@@ -319,7 +319,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
                     m.text ? (
                       <MarkdownLite text={m.text} />
                     ) : (
-                      <CircularProgress size={14} sx={{ color: gold[600], my: 0.5 }} />
+                      <CircularProgress size={14} sx={{ color: brand[600], my: 0.5 }} />
                     )
                   ) : (
                     m.text

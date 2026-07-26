@@ -142,7 +142,7 @@ export function GroupDetail({ group, notify }: { group: Group; notify: Notify })
         </Box>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Typography variant="h4" component="h2" noWrap>
+            <Typography variant="h6" component="h2" noWrap>
               {group.name}
             </Typography>
             <Chip size="small" variant="outlined" label={def.label} />

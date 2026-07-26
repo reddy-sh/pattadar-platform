@@ -456,7 +456,7 @@ export function DashboardPage() {
       <GlassCard tone="gold" sx={{ mb: 2.5 }}>
         {firstRun ? (
           <Box>
-            <Typography variant="h3" component="p">
+            <Typography variant="h6" component="p">
               Welcome{d.meName ? `, ${d.meName}` : ''} — let&apos;s set up your land portfolio
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
@@ -636,7 +636,7 @@ export function DashboardPage() {
       {/* ── Category holdings + attention ───────────────────────────── */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 1.5, mb: 2.5 }}>
         <Box>
-          <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
+          <Typography variant="h6" component="h2" sx={{ mb: 1.5 }}>
             Top holdings
           </Typography>
           <Box
@@ -739,7 +739,7 @@ export function DashboardPage() {
 
         <Card sx={{ alignSelf: 'start' }}>
           <CardContent>
-            <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
+            <Typography variant="h6" component="h2" sx={{ mb: 1.5 }}>
               Needs attention
             </Typography>
             {attention.map((a, i) => (
@@ -786,7 +786,7 @@ export function DashboardPage() {
           {d.parcels.length > 0 && (
             <Card>
               <CardContent>
-                <Typography variant="h4" component="h2" sx={{ mb: 0.5 }}>
+                <Typography variant="h6" component="h2" sx={{ mb: 0.5 }}>
                   Farmland by village
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
@@ -822,7 +822,7 @@ export function DashboardPage() {
           {cities.length > 0 && (
             <Card>
               <CardContent>
-                <Typography variant="h4" component="h2" sx={{ mb: 0.5 }}>
+                <Typography variant="h6" component="h2" sx={{ mb: 0.5 }}>
                   Properties by city
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
@@ -850,7 +850,7 @@ export function DashboardPage() {
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.5 }}>
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
-            <Typography variant="h4" component="h2">
+            <Typography variant="h6" component="h2">
               Service requests
             </Typography>
             <Typography variant="caption" color="text.secondary">
@@ -901,7 +901,7 @@ export function DashboardPage() {
         <Card>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 1.5 }}>
-              <Typography variant="h4" component="h2">
+              <Typography variant="h6" component="h2">
                 Recent activity
               </Typography>
               <Button size="small" onClick={() => navigate('/app/audit')}>

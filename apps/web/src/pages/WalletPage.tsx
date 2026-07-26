@@ -109,7 +109,7 @@ export function WalletPage() {
       {/* ── Sample transactions ─────────────────────────────────────── */}
       <Card>
         <CardContent sx={{ pb: 0 }}>
-          <Typography variant="h4" component="h2">
+          <Typography variant="h6" component="h2">
             Recent transactions
           </Typography>
           <Typography variant="caption" color="text.secondary">

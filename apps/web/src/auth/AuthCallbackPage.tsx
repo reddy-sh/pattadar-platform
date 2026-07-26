@@ -43,7 +43,7 @@ export function AuthCallbackPage() {
     >
       {error ? (
         <Box>
-          <Typography variant="h3" gutterBottom>
+          <Typography variant="h6" gutterBottom>
             Sign-in could not be completed
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 2 }}>

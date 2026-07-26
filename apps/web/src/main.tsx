@@ -1,8 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-// Self-hosted Inter (variable) — founder rule: nothing loads from third-party
-// URLs. Vite bundles the woff2 files as local assets.
-import '@fontsource-variable/inter';
+// Self-hosted Roboto (MUI default font) — founder rule: nothing loads from
+// third-party URLs. Vite bundles the woff2 files as local assets.
+import '@fontsource/roboto/300.css';
+import '@fontsource/roboto/400.css';
+import '@fontsource/roboto/500.css';
+import '@fontsource/roboto/700.css';
 import CssBaseline from '@mui/material/CssBaseline';
 import { ThemeProvider } from '@mui/material/styles';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

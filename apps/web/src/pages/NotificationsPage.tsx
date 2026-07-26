@@ -146,7 +146,7 @@ export function NotificationsPage() {
       />
 
       {/* Section title — the log itself. */}
-      <Typography variant="h4" component="h2" sx={{ mb: 1.5 }}>
+      <Typography variant="h6" component="h2" sx={{ mb: 1.5 }}>
         Sent notifications
       </Typography>
 

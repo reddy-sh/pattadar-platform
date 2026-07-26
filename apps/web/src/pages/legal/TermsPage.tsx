@@ -10,7 +10,7 @@ import { LegalLayout } from './LegalLayout';
 export function TermsPage() {
   return (
     <LegalLayout>
-      <Typography variant="h2" component="h1" gutterBottom>
+      <Typography variant="h4" component="h1" gutterBottom>
         Terms of use
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
