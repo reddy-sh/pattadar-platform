@@ -6,7 +6,7 @@
 import { expect, openApp, test, uxCheck } from '../helpers/fixtures';
 
 const NAV: { label: string; path: string; title: RegExp }[] = [
-  { label: 'Dashboard', path: '/app', title: /Land Portfolio/ },
+  { label: 'Dashboard', path: '/app', title: /Good (morning|afternoon|evening)/ },
   { label: 'Passbooks', path: '/app/passbooks', title: /Passbooks|Start your land record/ },
   { label: 'Land & Properties', path: '/app/parcels', title: /Land & Properties|Add your first holding/ },
   { label: 'Documents', path: '/app/documents', title: /Documents/ },
