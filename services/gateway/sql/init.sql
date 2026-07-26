@@ -2,9 +2,9 @@
 --
 -- Executed at every startup under pg_advisory_lock (see app/db.py). Every
 -- statement is IF NOT EXISTS / ON CONFLICT DO NOTHING so it is a no-op
--- against a database that already has the tables (e.g. rhub's local hub DB).
+-- against a database that already has the tables (e.g. the predecessor's local hub DB).
 --
--- DDL ported from rhub api/providers/postgres/schema.sql (storage_*) and
+-- DDL ported from the predecessor's api/providers/postgres/schema.sql (storage_*) and
 -- api/providers/postgres/migrations/20260419_platform_models*.sql (model
 -- catalog, pricing columns folded into the CREATE). FKs to tables not
 -- ported (none applied — storage/model FKs are all within this set).

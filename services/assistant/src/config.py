@@ -1,9 +1,10 @@
 """Assistant service (chat API) configuration.
 
-Ported from rhub api/assistant/config.py. Differences:
+Ported from the predecessor's api/assistant/config.py. Differences:
 - Port defaults to 8080 (pattadar service convention).
-- PG_DATABASE defaults to "hub" — rhub's code default of 'rhub' was a known
-  trap (deployments always use 'hub'); the safe value is now the default.
+- PG_DATABASE defaults to "hub" — the predecessor's default didn't match,
+  which was a known trap (deployments always use 'hub'); the safe value is
+  now the default.
 - MCP_URL defaults to EMPTY: the assistant runs with only its built-in
   navigate/page-action tools unless an MCP gateway is explicitly configured.
 """

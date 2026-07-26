@@ -4,7 +4,7 @@ Standalone AWS platform for **Pattadar** — the Andhra Pradesh land-records app
 
 This repository is both the product and the **template**: the layout, Terraform module, and gateway are designed so future apps can be stamped out the same way (new repo → instantiate the `app-stack` Terraform module → new `services/<app>` + UI heads over the same patterns).
 
-Extracted from the `rhub` platform (local Kind/k8s) per the design in [docs/specs/2026-07-25-standalone-platform-design.md](docs/specs/2026-07-25-standalone-platform-design.md).
+Extracted from the predecessor platform (local Kind/k8s) per the design in [docs/specs/2026-07-25-standalone-platform-design.md](docs/specs/2026-07-25-standalone-platform-design.md).
 
 ## Architecture
 
@@ -54,7 +54,7 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 
 | Path | What it is |
 |---|---|
-| `packages/core` | Shared TypeScript: GraphQL client/types, domain logic (land calc, dashboard math, document types), DD/MM/YYYY formatting. See its README for the rhub port map. |
+| `packages/core` | Shared TypeScript: GraphQL client/types, domain logic (land calc, dashboard math, document types), DD/MM/YYYY formatting. See its README for the predecessor port map. |
 | `packages/tokens` | Design tokens (palette, type, spacing) feeding the MUI theme **and** the React Native Paper theme. |
 | `apps/web` | React + MUI web app — shell-lite chrome (header, drawer, content, footer, assistant slot) + all views. Buildable skeleton. |
 | `apps/mobile` | Expo / React Native companion app (native feel, ML Kit document scanning, push). Docs-only until Phase 4. |
@@ -81,7 +81,7 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 | Auth | Amazon Cognito (ap-south-1, Essentials tier; hosted UI) |
 | AI | Anthropic API (document vision extraction), model catalog under super-admin |
 
-No Ant Design, no pnpm, no webpack/module-federation — deliberate clean break from the rhub stack.
+No Ant Design, no pnpm, no webpack/module-federation — deliberate clean break from the predecessor stack.
 
 ## Getting started
 

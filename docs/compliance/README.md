@@ -26,7 +26,7 @@ SOC 2 is an audit outcome, not a checkbox. This repository bakes in the **techni
 | CloudTrail, CloudWatch logs (365d), ALB/S3 access logs | Terraform scaffold | Alarm tuning (Phase 2) |
 | CI checks + secret scanning + main-branch protection | CI scaffold | — |
 | Aadhaar masking, beneficiary verification tokens, CRON_SECRET | Ported code | — |
-| Application audit trail | — | TODO(Phase 1) port from rhub |
+| Application audit trail | — | TODO(Phase 1) port from the predecessor platform |
 | DSR export + erasure cascade | — | TODO(Phase 2) |
 | GuardDuty malware scan gate on uploaded documents | Terraform scaffold (bucket protection) | Availability gate in gateway (Phase 2) |
 | DPDP consent capture (incl. verifiable parental consent) | — | TODO(Phase 2) |

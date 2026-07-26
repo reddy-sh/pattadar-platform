@@ -1,15 +1,15 @@
 """Document Storage API — per-user folder explorer.
 
-Ported from rhub api/gateway/routes_storage.py. All routes under
+Ported from the predecessor's api/gateway/routes_storage.py. All routes under
 ``/api/gateway/storage``. Authenticated with the platform bearer; the owner
 is derived from validated JWT claims via ``extract_user_id`` (never client
 headers). Metadata in PostgreSQL, bytes in AWS S3 (proxied streaming — no
 presigned URLs). Every operation is scoped to the acting user.
 
-Deltas vs rhub (v1):
+Deltas vs the predecessor (v1):
 - Share and tag mutation routes (and the unauthenticated link-token routes)
   are not ported. nodes/files/folders/versions/trash/star — everything the
-  app uses — keeps the exact rhub route surface and behavior.
+  app uses — keeps the exact predecessor route surface and behavior.
 - org/workspace scoping hardcoded to 'pattadar'.
 """
 from __future__ import annotations

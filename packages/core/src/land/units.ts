@@ -1,5 +1,5 @@
 /**
- * Land-area units (ported from the rhub pattadar app's units.ts concepts).
+ * Land-area units (ported from the predecessor's pattadar app's units.ts concepts).
  * Canonical unit is the ACRE: `parcel.extent` is decimal acres and `unit` is
  * only a provenance label. Pure functions, no dependencies.
  */

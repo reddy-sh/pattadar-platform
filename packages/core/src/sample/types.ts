@@ -1,6 +1,6 @@
 /**
  * Typed shapes mirroring the pattadar GraphQL API (camelCase, same field
- * names as the rhub app's queries). The web app's data hooks fetch live data
+ * names as the predecessor app's queries). The web app's data hooks fetch live data
  * in these shapes and fall back to the sample datasets in `data.ts`.
  */
 

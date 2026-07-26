@@ -1,11 +1,11 @@
 """LangGraph agent for the Pattadar Assistant — stateful ReAct agent.
 
-Ported from rhub api/assistant/agent.py. Differences:
+Ported from the predecessor's api/assistant/agent.py. Differences:
 - MCP is optional and OFF by default (MCP_URL empty): the agent runs with
   only its built-in navigate/page-action tools. The MCP client wiring stays
   so a gateway can be plugged in later via MCP_URL.
 - The Jira instructions block in _build_contextual_prompt is deleted
-  (rhub-only). The "Plain Language Only" rule is kept VERBATIM — it is a
+  (predecessor-only). The "Plain Language Only" rule is kept VERBATIM — it is a
   product invariant.
 - The baseline navigation lookup covers the Pattadar web shell routes.
 """

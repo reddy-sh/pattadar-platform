@@ -1,6 +1,6 @@
 """Admin endpoints for the platform model catalog.
 
-Ported from rhub api/gateway/routes_admin_models.py. Super-admin only —
+Ported from the predecessor's api/gateway/routes_admin_models.py. Super-admin only —
 the RBAC `platform.manage` gate is replaced by the ADMIN_USER_IDS
 allowlist (auth.require_admin, FAIL CLOSED). All endpoints:
 

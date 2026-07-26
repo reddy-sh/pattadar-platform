@@ -1,5 +1,5 @@
 /**
- * Seed domain types. This grows in Phase 2 as rhub modules are ported in
+ * Seed domain types. This grows in Phase 2 as predecessor modules are ported in
  * (land, dashboard, documents, storage — see the PORT MAP in the README)
  * and as GraphQL codegen output replaces hand-written operation types.
  */

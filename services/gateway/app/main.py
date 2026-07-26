@@ -1,6 +1,6 @@
 """pattadar gateway — the only internet-facing service.
 
-Slim FastAPI gateway assembled from rhub modules (Phase 1):
+Slim FastAPI gateway assembled from predecessor-platform modules (Phase 1):
 auth (Cognito), storage (PG + S3), model-catalog admin, and reverse
 proxies to the api + assistant services. See services/gateway/README.md.
 

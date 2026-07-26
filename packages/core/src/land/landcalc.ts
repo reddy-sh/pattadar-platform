@@ -1,6 +1,6 @@
 /**
  * Ground-measurement geometry for the Area Calculator (ported verbatim from
- * the rhub pattadar app's landcalc.ts). Lengths in feet unless noted; polygon
+ * the predecessor's pattadar app's landcalc.ts). Lengths in feet unless noted; polygon
  * helpers mirror the shared GeoMap's spherical formulas. Pure functions.
  */
 

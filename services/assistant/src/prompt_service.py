@@ -1,9 +1,9 @@
 """
 Centralized prompt service with DB-backed storage, TTL cache, and built-in fallback.
 
-Ported from rhub api/common/prompt_service.py. Differences:
+Ported from the predecessor's api/common/prompt_service.py. Differences:
 - The DB connection string is built from the standard PG_* env vars directly
-  (rhub read it from its postgres provider module, which is not ported).
+  (the predecessor read it from its postgres provider module, which is not ported).
 - Final fallback is a BUILT-IN default assistant prompt: if the
   ``agent_prompts`` table/row is absent (fresh database), the assistant still
   boots with a sensible pattadar system prompt instead of raising.
@@ -33,7 +33,7 @@ _DEFAULT_SEED_DIR = os.getenv("PROMPT_SEED_DIR", "")
 
 
 # Built-in default system prompt — used when neither the agent_prompts table
-# nor a seed file provides one. Ports the spirit of rhub's assistant seed
+# nor a seed file provides one. Ports the spirit of the predecessor's assistant seed
 # prompt, rewritten for the Pattadar land-records domain.
 _BUILTIN_PROMPTS: Dict[str, str] = {
     "assistant": """\

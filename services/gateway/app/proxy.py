@@ -82,7 +82,7 @@ def is_public_verify(path: str, method: str, body: bytes) -> bool:
     The beneficiary verification landing page (verify/:token) posts the
     ``verifyBeneficiary`` GraphQL mutation before the visitor has any
     session — the emailed/WhatsApped token IS the credential. Matches the
-    rhub behavior for the same flow. Only an unauthenticated POST to
+    predecessor's behavior for the same flow. Only an unauthenticated POST to
     ``graphql`` whose GraphQL ``query`` string contains "verifyBeneficiary"
     passes; every other request requires a valid Cognito access token.
     """

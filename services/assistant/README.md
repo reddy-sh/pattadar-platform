@@ -3,7 +3,7 @@
 In-app AI assistant. **Ported** — FastAPI service in `src/` (port 8080), image
 `pattadar/assistant` in ECR. See `.env.example` for the env contract.
 
-Ported from rhub `api/assistant` (`agent.py`, `main.py`, `config.py`, `model_registry.py`,
+Ported from the predecessor's `api/assistant` (`agent.py`, `main.py`, `config.py`, `model_registry.py`,
 `telemetry.py`, `conversations.py`, `attachments.py`, `models.py`) plus
 `api/common/prompt_service.py` (now `src/prompt_service.py`, with a built-in default
 pattadar prompt when the `agent_prompts` table/row is absent).
@@ -16,7 +16,7 @@ pattadar prompt when the `agent_prompts` table/row is absent).
   never narrates endpoints, latencies, sagas, or other internals to users.
 - **SSE streaming**: responses stream over SSE and must not be buffered by any proxy in
   front (ALB/CloudFront config must pass streams through).
-- **PG trap**: the code's default database is `rhub`, but deployments use `hub` — always set
+- **PG trap**: the predecessor's code default didn't match `hub` — always set
   `PG_DATABASE` explicitly.
 - **Model catalog**: read from `platform_models` with a 30s cache, so super-admin model
   toggles propagate without a restart.

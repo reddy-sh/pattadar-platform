@@ -1,6 +1,6 @@
 """JWT validation for Amazon Cognito access tokens.
 
-Ported from rhub api/common/auth0_jwt.py (JWKS-cache skeleton), rewired to
+Ported from the predecessor's api/common/auth0_jwt.py (JWKS-cache skeleton), rewired to
 Cognito's claims contract:
 
 - Issuer: https://cognito-idp.{region}.amazonaws.com/{user_pool_id}
@@ -72,7 +72,7 @@ class JWKSCache:
 
     Uses an asyncio.Lock to prevent thundering-herd on cache refresh —
     only one request fetches from Cognito while others wait and reuse the
-    result.  (Byte-for-byte the rhub JWKSCache, minus Auth0 naming.)
+    result.  (Byte-for-byte the predecessor's JWKSCache, minus provider-specific naming.)
     """
 
     def __init__(self, jwks_url: str, *, ttl: int = _DEFAULT_CACHE_TTL):
@@ -210,7 +210,7 @@ async def verify_token(
         },
     )
 
-    # Cognito-specific claim checks (replace Auth0's audience validation).
+    # Cognito-specific claim checks (replace the predecessor OIDC provider's audience validation).
     if str(claims.get("token_use") or "") != "access":
         raise JWTError("Not an access token (token_use != 'access')")
     if str(claims.get("client_id") or "") != config.client_id:

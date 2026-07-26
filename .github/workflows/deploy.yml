@@ -89,7 +89,7 @@ jobs:
   # later assistant): docker build from services/<name>, tag with the git SHA,
   # push to the ECR repo from `terraform output ecr_repository_urls`, then
   # `aws ecs update-service --force-new-deployment`. Blocked until the services
-  # are ported from rhub (services/*/README.md).
+  # are ported from the predecessor platform (services/*/README.md).
   #
   # services:
   #   runs-on: ubuntu-latest

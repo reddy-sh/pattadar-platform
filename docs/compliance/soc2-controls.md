@@ -42,7 +42,7 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 | Config drift | AWS Config recording resource configuration changes — `aws_config` in the Terraform persistent layer | [template] |
 | Application logs | ECS → CloudWatch Logs, 365-day retention | [template] |
 | Access logs | ALB access logs + S3 server access logs to a logging bucket | [template] |
-| Application audit trail | Port rhub audit-trail writer into services/api (`audit_events`) | [phase-1] |
+| Application audit trail | Port the predecessor's audit-trail writer into services/api (`audit_events`) | [phase-1] |
 | Alerting | CloudWatch alarms (5xx rate, RDS storage/CPU, ECS task health) → SNS → founder email/SMS | [template], tuning [phase-2] |
 | Log PII scrubbing | Strip PII (Aadhaar, phone) from application log lines | [phase-2] |
 

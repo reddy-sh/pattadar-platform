@@ -1,10 +1,10 @@
 # Pattadar API (services/api)
 
-The existing Pattadar backend, ported **unchanged** from rhub
+The existing Pattadar backend, ported **unchanged** from the predecessor platform
 (`api/services/apps/pattadar`): FastAPI + Strawberry GraphQL, ~4200-line `src/main.py`,
 `src/notify.py`, `data/*.csv` reference data, and the service `Dockerfile`.
 
-Ported 25/07/2026 from rhub `api/services/apps/pattadar` (source unchanged except the
+Ported 25/07/2026 from the predecessor's `api/services/apps/pattadar` (source unchanged except the
 two review fixes below: verify-link path + required-env fail-fast at startup).
 
 ## Operational contract
@@ -26,7 +26,7 @@ The service does **no** token validation. It trusts the `x-user-id` header injec
 workers/replicas): `CREATE TABLE IF NOT EXISTS` plus additive `ALTER`s, ~28 tables. There is
 no separate migration tool.
 
-Migration from rhub: `pg_dump` the `pattadar` database → restore into RDS → start the
+Migration from the predecessor platform: `pg_dump` the `pattadar` database → restore into RDS → start the
 service. `init_db()` reconciles anything additive.
 
 ### 3. AI extraction — direct Anthropic calls
@@ -51,7 +51,7 @@ it.
 ### 5. Verification links
 
 Beneficiary/member invite links are built as `{APP_PUBLIC_URL}/verify/{token}` with
-`APP_PUBLIC_URL=https://pattadar.com` — note the path fix vs rhub's
+`APP_PUBLIC_URL=https://pattadar.com` — note the path fix vs the predecessor's
 `/app/pattadar/verify/...`. The `/verify/:token` route works **without login**.
 
 `APP_PUBLIC_URL` and `CRON_SECRET` are **required at startup** — the service raises

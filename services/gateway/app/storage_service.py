@@ -1,19 +1,19 @@
 """Document Storage service — per-user folder tree.
 
-Ported from rhub api/gateway/storage_service.py. Metadata lives in
+Ported from the predecessor's api/gateway/storage_service.py. Metadata lives in
 PostgreSQL (``storage_nodes`` / ``storage_versions``); file bytes live in
 AWS S3 keyed ``{owner_id}/{node_id}/{version_id}`` (identical key scheme to
-rhub's MinIO layout so migrated objects need zero metadata changes). Every
+the predecessor's MinIO layout so migrated objects need zero metadata changes). Every
 method takes ``owner`` and filters every query by it.
 
-Deltas vs rhub:
+Deltas vs the predecessor:
 - MinIO client → boto3 S3 client (task-role IAM creds, no static keys).
   Bucket ensure is a no-op existence check — the bucket is Terraform-managed.
 - org/workspace scoping hardcoded to the base org 'pattadar' (columns kept).
 - Share/tag MUTATION methods and public link-token reads are not ported
   (v1). Read-side share/tag awareness (_access, _attach_shares,
   _attach_tags, list_shared_children) is kept so responses and access
-  behavior stay byte-compatible with rhub.
+  behavior stay byte-compatible with the predecessor.
 
 Renames and moves are metadata-only (no object copy). Ids are generated in
 Python so the object key is known before the DB rows exist.

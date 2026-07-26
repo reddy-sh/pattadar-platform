@@ -28,7 +28,7 @@ Concrete work items tied to this codebase. Phase tags match the platform build p
 
 ## Audit & data-subject rights
 
-- [ ] [phase-1] Port the rhub audit-trail writer into services/api (`audit_events` table; who/what/when on data mutations)
+- [ ] [phase-1] Port the predecessor's audit-trail writer into services/api (`audit_events` table; who/what/when on data mutations)
 - [ ] [phase-2] DSR export endpoint — me-scoped GraphQL export of all user rows + S3 document manifest
 - [ ] [phase-2] Erasure cascade — pattadar DB rows + storage metadata + S3 objects **including all versions and delete markers** + Cognito user deletion (`AdminDeleteUser`); retention carve-outs for audit_events (see gdpr-dpdp.md)
 - [ ] [pre-pilot] Consent capture at signup — itemised DPDP notice + recorded consent

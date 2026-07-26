@@ -1,5 +1,5 @@
 /**
- * Table-export data preparation (ported from the rhub design-system's
+ * Table-export data preparation (ported from the predecessor's design-system
  * exporters.ts). This is the RENDERING-FREE half: column/brand shapes, cell
  * resolution, timestamping and CSV text building — pure functions safe for
  * both web and native heads. The web app layers jsPDF/xlsx/Blob rendering on

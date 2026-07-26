@@ -1,10 +1,10 @@
 """Pattadar Assistant — FastAPI service with SSE streaming chat.
 
-Ported from rhub api/assistant/main.py. Differences:
+Ported from the predecessor's api/assistant/main.py. Differences:
 - Identity: trusts the gateway-injected `x-user-id` header (this service is
   NEVER internet-exposed directly; the gateway strips any spoofed header and
   injects the validated one — same invariant as the api service).
-- No Jira auto-attach / Builder (/vkx) paths — rhub-only, deleted.
+- No Jira auto-attach / Builder paths — predecessor-only, deleted.
 - Creates its own tables (r_conversations / r_attachments) if absent so a
   fresh database works without a separate schema step.
 """

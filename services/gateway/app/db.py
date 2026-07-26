@@ -1,6 +1,6 @@
 """PostgreSQL access for the gateway (hub database).
 
-Mirrors the slice of rhub's providers/postgres/postgres.py that the ported
+Mirrors the slice of the predecessor's providers/postgres/postgres.py that the ported
 gateway modules use: a shared psycopg connection pool, ``query_native`` and
 ``_get_conn`` — so storage_service.py ports with a one-line import change.
 
@@ -63,7 +63,7 @@ def query_native(
 ) -> List[dict]:
     """Run a SELECT and return rows as dicts.
 
-    Signature-compatible with rhub's db.query_native so ported call sites
+    Signature-compatible with the predecessor's db.query_native so ported call sites
     don't change. ``table`` and ``camel_case`` are accepted and ignored —
     the ported callers always pass camel_case=False and do their own
     camelCasing.

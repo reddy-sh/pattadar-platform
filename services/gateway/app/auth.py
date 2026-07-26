@@ -1,13 +1,13 @@
 """Authentication and identity for the pattadar gateway.
 
-Ported from rhub api/gateway/auth.py with the auth provider swapped from
-Auth0 to Amazon Cognito:
+Ported from the predecessor's api/gateway/auth.py with the auth provider swapped
+from the predecessor's OIDC provider to Amazon Cognito:
 
 - Only JWT bearer tokens are accepted (Cognito issues only JWTs). The
-  opaque-token /userinfo fallback and userinfo enrichment paths from rhub
-  are deliberately deleted, not disabled.
+  opaque-token /userinfo fallback and userinfo enrichment paths from the
+  predecessor are deliberately deleted, not disabled.
 - There is NO auth-disable knob. Auth is always on.
-- ``extract_user_id`` normalization is BYTE-IDENTICAL to rhub's
+- ``extract_user_id`` normalization is BYTE-IDENTICAL to the predecessor's
   (email local-part, lowercased) — every DB row and S3 object key across
   the platform is keyed by its output.
 """
@@ -85,8 +85,8 @@ async def validate_bearer(request: Request, *, strict: bool = True) -> Optional[
         return None
 
     # Cognito issues only JWTs — anything that isn't three dot-separated
-    # parts is invalid outright (rhub's opaque-token /userinfo fallback is
-    # deleted, not ported).
+    # parts is invalid outright (the predecessor's opaque-token /userinfo
+    # fallback is deleted, not ported).
     if token.count(".") != 2:
         raise _auth_error(401, "Invalid token", "Not a JWT")
 
@@ -109,7 +109,7 @@ async def require_auth(request: Request) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # User identity extraction
 #
-# The normalization below is copied BYTE-IDENTICAL from rhub
+# The normalization below is copied BYTE-IDENTICAL from the predecessor's
 # api/gateway/auth.py (extract_user_id / _looks_like_opaque_subject).
 # Do NOT "improve" it — the owner key of every row in every database and
 # every S3 object key is produced by this exact code.
@@ -129,7 +129,7 @@ def _looks_like_opaque_subject(value: str) -> bool:
     return False
 
 
-# Keep backward-compat alias (rhub name)
+# Keep backward-compat alias (predecessor name)
 _looks_like_okta_subject = _looks_like_opaque_subject
 
 
@@ -146,7 +146,7 @@ def _normalize_user_id(v: str) -> str:
 
 
 def user_id_from_claims(claims: Any) -> str:
-    """rhub extract_user_id's claim-priority loop, operating on a claims dict."""
+    """The predecessor's extract_user_id claim-priority loop, operating on a claims dict."""
     if isinstance(claims, dict):
         # Prefer human-readable username claims over opaque uid/sub
         for key in ("preferred_username", "email", "login"):
@@ -196,7 +196,7 @@ def extract_user_name(request: Request) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Super-admin gate (replaces rhub's RBAC platform.manage permission)
+# Super-admin gate (replaces the predecessor's RBAC platform.manage permission)
 # ---------------------------------------------------------------------------
 
 def _admin_ids() -> set:
@@ -217,7 +217,7 @@ def is_admin(user_id: str) -> bool:
 
 async def require_admin(request: Request) -> Optional[JSONResponse]:
     """Gate for admin endpoints. Returns None when allowed, a 403 response
-    otherwise. Mirrors rhub's _require_admin call shape (deny-object or None)
+    otherwise. Mirrors the predecessor's _require_admin call shape (deny-object or None)
     so routes_admin_models.py ports with minimal diff. FAILS CLOSED."""
     try:
         if is_admin(extract_user_id(request)):

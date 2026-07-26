@@ -1,6 +1,6 @@
 """LLM provider adapters — one per provider (Anthropic, OpenAI, ...).
 
-Ported from rhub api/gateway/model_providers/. Each provider implements
+Ported from the predecessor's api/gateway/model_providers/. Each provider implements
 list_models(api_key) → List[ProviderModel]. The admin/models sync endpoint
 dispatches to the right adapter based on the provider row in PG. Adding a
 new provider = drop a file in here + `register()` it; no other code change.
