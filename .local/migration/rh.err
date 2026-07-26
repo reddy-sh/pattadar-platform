@@ -1,1 +1,0 @@
-psql:/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.local/migration/hub-subset.sql:872: ERROR:  relation "public.model_providers" does not exist
