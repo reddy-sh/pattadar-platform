@@ -8,7 +8,14 @@ import {
   CREATE_PARCEL_MUTATION,
   CREATE_PASSBOOK_MUTATION,
   DASHBOARD_QUERY,
+  DELETE_DOCUMENT_MUTATION,
   DELETE_INVITATION_MUTATION,
+  DELETE_PARCEL_MUTATION,
+  DELETE_PASSBOOK_MUTATION,
+  DELETE_PROPERTY_MUTATION,
+  DOCUMENT_REFS_QUERY,
+  PASSBOOK_DOCUMENTS_QUERY,
+  SET_STAKE_MUTATION,
   UPDATE_PARCEL_PRICE_MUTATION,
   GROUPS_QUERY,
   GROUP_MEMBERS_QUERY,
@@ -284,6 +291,72 @@ export function useCreateFlows() {
   });
 
   return { createPassbook, createParcel, setParcelPrice };
+}
+
+// --- delete + stake (ported from web pattadarActions.ts) ---------------------
+
+interface DocRef {
+  id: string;
+  fileRef?: string;
+}
+
+/**
+ * Document ROWS are removed best-effort before the entity (web parity).
+ * Moving file bytes to Trash is a gateway/storage call that needs a Cognito
+ * session — mobile skips it (same degradation web accepts when storage is
+ * offline); files remain in My Drive on the web until deleted there.
+ */
+async function deleteDocRows(docs: DocRef[]): Promise<void> {
+  await Promise.all(
+    docs.map((d) =>
+      api.gql(DELETE_DOCUMENT_MUTATION, { id: d.id }).catch(() => undefined),
+    ),
+  );
+}
+
+export function useHoldingActions() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['pattadar', 'holdings'] });
+    qc.invalidateQueries({ queryKey: ['pattadar', 'dashboard'] });
+  };
+
+  const deleteParcel = useMutation({
+    mutationFn: async (id: string) => {
+      const d = await api
+        .gql<{ documents: (DocRef & { parcelId: string })[] }>(DOCUMENT_REFS_QUERY)
+        .catch(() => ({ documents: [] as (DocRef & { parcelId: string })[] }));
+      await deleteDocRows((d.documents ?? []).filter((x) => x.parcelId === id));
+      return api.gql<{ deleteParcel: boolean }>(DELETE_PARCEL_MUTATION, { id });
+    },
+    onSuccess: invalidate,
+  });
+
+  const deletePassbook = useMutation({
+    mutationFn: async (id: string) => {
+      const d = await api
+        .gql<{ passbookDocuments: DocRef[] }>(PASSBOOK_DOCUMENTS_QUERY, { id })
+        .catch(() => ({ passbookDocuments: [] as DocRef[] }));
+      await deleteDocRows(d.passbookDocuments ?? []);
+      return api.gql<{ deletePassbook: boolean }>(DELETE_PASSBOOK_MUTATION, { id });
+    },
+    onSuccess: invalidate,
+  });
+
+  const deleteProperty = useMutation({
+    // API cascades the doc rows itself for properties.
+    mutationFn: (id: string) =>
+      api.gql<{ deleteProperty: boolean }>(DELETE_PROPERTY_MUTATION, { id }),
+    onSuccess: invalidate,
+  });
+
+  const setStake = useMutation({
+    mutationFn: (v: { kind: 'parcel' | 'property'; id: string; stake: string }) =>
+      api.gql<{ setStake: boolean }>(SET_STAKE_MUTATION, { k: v.kind, id: v.id, s: v.stake }),
+    onSuccess: invalidate,
+  });
+
+  return { deleteParcel, deletePassbook, deleteProperty, setStake };
 }
 
 // --- verify (public) ---------------------------------------------------------

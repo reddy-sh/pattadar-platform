@@ -52,6 +52,14 @@ Because logic lives in `@pattadar/core`, graduating a view from web to mobile is
   machine with Accept/Revoke/Delete).
 - `src/app/verify/[token].tsx` — public verify landing (verifyBeneficiary —
   the gateway's only unauthenticated operation; the web page is still a stub).
+- `src/app/add-khata.tsx` — new passbook: photograph/pick a passbook image →
+  POST /import-passbook (AI extraction, extract-only) prefills the form and
+  holds the parcel rows; save = createPassbook + createParcel per row
+  (source `passbook:<id>`, web parity). Manual entry works without a photo.
+- `src/app/add-parcel.tsx` — manual parcel: extent canonicalized to acres via
+  toAcres() with the chosen unit kept as provenance; optional cost-per-acre
+  saved as derived total purchasePrice (second mutation). FAB on Holdings +
+  buttons on the dashboard empty state are the entry points.
 - `src/data/hooks.ts` — live-or-sample hooks (web semantics: fetch failure →
   bundled sample data flagged isSample). Operations come from
   `@pattadar/core/src/api/operations.ts`; valuation math from

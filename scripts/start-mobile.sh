@@ -40,19 +40,16 @@ if ! curl -fsS -m 2 "${EXPO_PUBLIC_API_URL}/health" >/dev/null 2>&1; then
   echo "» WARNING: no API at ${EXPO_PUBLIC_API_URL} — app will show sample data (run ./scripts/start-local.sh for real data)"
 fi
 
-# Metro defaults to :8081 — the same port the local gateway uses. Scan for the
-# first genuinely free port (another Metro, the gateway, or any stray listener
-# on ANY interface counts as taken) instead of hitting Expo's port prompt.
-PORT=8081
+# Metro defaults to :8081 — but that port is RESERVED for the local gateway
+# (start-local.sh). Always start scanning at :8082 so a running Metro never
+# blocks the gateway from starting later; skip any taken port.
+PORT=8082
 while lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; do
   PORT=$((PORT + 1))
-  [ "$PORT" -gt 8099 ] && { echo "no free port in 8081-8099"; exit 1; }
+  [ "$PORT" -gt 8099 ] && { echo "no free port in 8082-8099"; exit 1; }
 done
-PORT_FLAG=""
-if [ "$PORT" -ne 8081 ]; then
-  PORT_FLAG="--port $PORT"
-  echo "» :8081 busy — Metro will use :$PORT"
-fi
+PORT_FLAG="--port $PORT"
+echo "» Metro on :$PORT (:8081 is reserved for the local gateway)"
 
 # Xcode 27 (beta) replaced Simulator.app with DeviceHub.app; Expo CLI 57 still
 # waits for Simulator.app and dies with SIMULATOR_TIMEOUT. When that's the

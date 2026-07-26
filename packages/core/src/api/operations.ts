@@ -80,3 +80,23 @@ export const CREATE_PARCEL_MUTATION = `mutation($passbookId: String!, $surveyNo:
 
 /** Web parity: cost-per-acre is stored only as the derived total price. */
 export const UPDATE_PARCEL_PRICE_MUTATION = `mutation($id: String!, $purchasePrice: Float!) { updateParcel(id: $id, purchasePrice: $purchasePrice) { id } }`;
+
+// --- delete flows (ported from apps/web/src/data/pattadarActions.ts) --------
+// Order matters: document ROWS go before the parcel/passbook row (ownership
+// checks); deleteProperty cascades its own doc rows server-side. Moving file
+// bytes to Trash is a separate gateway/storage call (web does it best-effort;
+// clients without a storage session skip it — files stay in My Drive).
+
+export const DELETE_DOCUMENT_MUTATION = `mutation($id:String!){ deleteDocument(id:$id) }`;
+export const DELETE_PARCEL_MUTATION = `mutation($id: String!) { deleteParcel(id: $id) }`;
+export const DELETE_PASSBOOK_MUTATION = `mutation($id: String!) { deletePassbook(id: $id) }`;
+export const DELETE_PROPERTY_MUTATION = `mutation($id: String!) { deleteProperty(id: $id) }`;
+
+/** Doc refs for the parcel-delete cascade (filter client-side by parcelId). */
+export const DOCUMENT_REFS_QUERY = `query { documents { id parcelId fileRef } }`;
+/** Khata-level AND parcel-level docs of one passbook. */
+export const PASSBOOK_DOCUMENTS_QUERY = `query($id:String!){ passbookDocuments(passbookId:$id){ id fileRef } }`;
+export const PROPERTY_DOCUMENTS_QUERY = `query($id:String!){ propertyDocuments(propertyId:$id){ id fileRef } }`;
+
+/** My relationship to a holding: owned / managed / watch. */
+export const SET_STAKE_MUTATION = `mutation($k:String!,$id:String!,$s:String!){ setStake(kind:$k, id:$id, stake:$s) }`;

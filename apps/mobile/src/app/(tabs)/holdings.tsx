@@ -5,9 +5,14 @@ import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Banner,
+  Button,
   Card,
   Chip,
+  Dialog,
+  Divider,
   FAB,
+  IconButton,
+  Menu,
   Portal,
   Searchbar,
   SegmentedButtons,
@@ -16,16 +21,34 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useHoldings } from '@/data/hooks';
+import { useHoldingActions, useHoldings, type HoldingsData } from '@/data/hooks';
 import { holdingStatusLabel, normalizeHoldings, type Holding } from '@/data/holdings';
+import { formatArea } from '@pattadar/core';
 import { tokens } from '@pattadar/tokens';
 
 function money(v: number): string {
   return v > 0 ? `₹${Math.round(v).toLocaleString('en-IN')}` : '—';
 }
 
-function HoldingCard({ h }: { h: Holding }) {
+/** What the confirm dialog must delete, with honest consequence copy. */
+export interface DeleteTarget {
+  kind: 'parcel' | 'property' | 'passbook';
+  id: string;
+  label: string;
+  detail: string;
+}
+
+function HoldingCard({
+  h,
+  onDelete,
+  onStake,
+}: {
+  h: Holding;
+  onDelete: (t: DeleteTarget) => void;
+  onStake: (kind: 'parcel' | 'property', id: string, stake: string) => void;
+}) {
   const theme = useTheme();
+  const [menu, setMenu] = useState(false);
   // Web-parity semantics: litigation and 'disputed' are danger, 'sold' is
   // muted, 'for-sale' is an active-listing accent, owned/unknown is calm.
   const statusColor =
@@ -47,6 +70,42 @@ function HoldingCard({ h }: { h: Holding }) {
           <Chip compact mode="flat" textStyle={styles.chipText}>
             {h.typeLabel}
           </Chip>
+          <Menu
+            visible={menu}
+            onDismiss={() => setMenu(false)}
+            anchor={<IconButton icon="dots-vertical" size={18} onPress={() => setMenu(true)} />}
+          >
+            {(['owned', 'managed', 'watch'] as const)
+              .filter((s) => s !== h.stake)
+              .map((s) => (
+                <Menu.Item
+                  key={s}
+                  leadingIcon={s === 'owned' ? 'check-circle-outline' : s === 'managed' ? 'briefcase-outline' : 'eye-outline'}
+                  title={`Mark as ${s}`}
+                  onPress={() => {
+                    setMenu(false);
+                    onStake(h.kind, h.id, s);
+                  }}
+                />
+              ))}
+            <Divider />
+            <Menu.Item
+              leadingIcon="delete-outline"
+              title={h.kind === 'parcel' ? 'Delete parcel…' : 'Delete property…'}
+              onPress={() => {
+                setMenu(false);
+                onDelete({
+                  kind: h.kind,
+                  id: h.id,
+                  label: h.title,
+                  detail:
+                    h.kind === 'parcel'
+                      ? 'Removes the parcel and its document records. Files already uploaded stay in My Drive on the web until deleted there.'
+                      : 'Removes the property and its document records. Files already uploaded stay in My Drive on the web until deleted there.',
+                });
+              }}
+            />
+          </Menu>
         </View>
         <Text variant="bodyMedium" numberOfLines={1}>
           {h.owner}
@@ -79,13 +138,98 @@ function HoldingCard({ h }: { h: Holding }) {
   );
 }
 
+function KhataCard({
+  pb,
+  parcelCount,
+  totalAcres,
+  onDelete,
+}: {
+  pb: HoldingsData['passbooks'][number];
+  parcelCount: number;
+  totalAcres: number;
+  onDelete: (t: DeleteTarget) => void;
+}) {
+  const theme = useTheme();
+  const [menu, setMenu] = useState(false);
+  return (
+    <Card mode="outlined" style={styles.card}>
+      <Card.Content style={styles.cardContent}>
+        <View style={styles.titleRow}>
+          <Text variant="titleMedium" style={styles.title} numberOfLines={1}>
+            📒 Khata {pb.pattadarNo || '—'}
+          </Text>
+          <Menu
+            visible={menu}
+            onDismiss={() => setMenu(false)}
+            anchor={<IconButton icon="dots-vertical" size={18} onPress={() => setMenu(true)} />}
+          >
+            <Menu.Item
+              leadingIcon="map-marker-plus-outline"
+              title="Add parcel"
+              onPress={() => {
+                setMenu(false);
+                router.push({ pathname: '/add-parcel', params: { passbookId: pb.id } });
+              }}
+            />
+            <Divider />
+            <Menu.Item
+              leadingIcon="delete-outline"
+              title="Delete khata…"
+              onPress={() => {
+                setMenu(false);
+                onDelete({
+                  kind: 'passbook',
+                  id: pb.id,
+                  label: `Khata ${pb.pattadarNo || '—'}`,
+                  detail: `Deletes the khata AND its ${parcelCount} parcel${
+                    parcelCount === 1 ? '' : 's'
+                  }, plus their document records. Files already uploaded stay in My Drive on the web until deleted there.`,
+                });
+              }}
+            />
+          </Menu>
+        </View>
+        <Text variant="bodyMedium" numberOfLines={1}>
+          {pb.ownerName || '—'}
+        </Text>
+        <Text variant="bodySmall" numberOfLines={1} style={{ color: theme.colors.onSurfaceVariant }}>
+          {[pb.village, pb.mandal, pb.district].filter(Boolean).join(', ') || '—'}
+        </Text>
+        <View style={styles.footer}>
+          <Text variant="titleSmall">
+            {parcelCount} parcel{parcelCount === 1 ? '' : 's'}
+          </Text>
+          <Text variant="titleSmall">{totalAcres > 0 ? formatArea(totalAcres) : '—'}</Text>
+        </View>
+      </Card.Content>
+    </Card>
+  );
+}
+
 export default function HoldingsScreen() {
   const theme = useTheme();
   const qc = useQueryClient();
   const { data: result, isLoading, isRefetching } = useHoldings();
+  const { deleteParcel, deletePassbook, deleteProperty, setStake } = useHoldingActions();
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');
   const [fabOpen, setFabOpen] = useState(false);
+  const [confirm, setConfirm] = useState<DeleteTarget | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const deleting = deleteParcel.isPending || deletePassbook.isPending || deleteProperty.isPending;
+
+  const runDelete = async () => {
+    if (!confirm) return;
+    setDeleteError('');
+    try {
+      if (confirm.kind === 'parcel') await deleteParcel.mutateAsync(confirm.id);
+      else if (confirm.kind === 'property') await deleteProperty.mutateAsync(confirm.id);
+      else await deletePassbook.mutateAsync(confirm.id);
+      setConfirm(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Delete failed');
+    }
+  };
   // Portal renders at the app root, so the FAB must hide when this tab loses
   // focus — otherwise it floats over every other screen.
   const [focused, setFocused] = useState(false);
@@ -99,7 +243,7 @@ export default function HoldingsScreen() {
   const allRows = useMemo(() => (result ? normalizeHoldings(result.data) : []), [result]);
   const holdings = useMemo(() => {
     let rows = allRows;
-    if (kind !== 'all') rows = rows.filter((h) => h.kind === kind);
+    if (kind !== 'all' && kind !== 'khata') rows = rows.filter((h) => h.kind === kind);
     const q = search.trim().toLowerCase();
     if (q) {
       rows = rows.filter((h) =>
@@ -111,6 +255,29 @@ export default function HoldingsScreen() {
     }
     return rows;
   }, [allRows, kind, search]);
+
+  // Khata view: passbooks with per-khata parcel rollups.
+  const khatas = useMemo(() => {
+    if (!result) return [];
+    const agg = new Map<string, { count: number; acres: number }>();
+    for (const p of result.data.parcels) {
+      const a = agg.get(p.passbookId) ?? { count: 0, acres: 0 };
+      a.count += 1;
+      a.acres += Number(p.extent) || 0;
+      agg.set(p.passbookId, a);
+    }
+    const q = search.trim().toLowerCase();
+    return result.data.passbooks
+      .filter(
+        (pb) =>
+          !q ||
+          [pb.pattadarNo, pb.ownerName, pb.village, pb.mandal, pb.district]
+            .join(' ')
+            .toLowerCase()
+            .includes(q),
+      )
+      .map((pb) => ({ pb, ...(agg.get(pb.id) ?? { count: 0, acres: 0 }) }));
+  }, [result, search]);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
@@ -131,7 +298,8 @@ export default function HoldingsScreen() {
           buttons={[
             { value: 'all', label: 'All' },
             { value: 'parcel', label: 'Land' },
-            { value: 'property', label: 'Properties' },
+            { value: 'property', label: 'Props' },
+            { value: 'khata', label: 'Khata' },
           ]}
         />
       </View>
@@ -144,11 +312,42 @@ export default function HoldingsScreen() {
         <View style={styles.center}>
           <ActivityIndicator />
         </View>
+      ) : kind === 'khata' ? (
+        <FlatList
+          data={khatas}
+          keyExtractor={(k) => k.pb.id}
+          renderItem={({ item }) => (
+            <KhataCard
+              pb={item.pb}
+              parcelCount={item.count}
+              totalAcres={item.acres}
+              onDelete={setConfirm}
+            />
+          )}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={() => qc.invalidateQueries({ queryKey: ['pattadar', 'holdings'] })}
+            />
+          }
+          ListEmptyComponent={
+            <Text variant="bodyMedium" style={styles.empty}>
+              No khata yet — tap + to scan or add one.
+            </Text>
+          }
+        />
       ) : (
         <FlatList
           data={holdings}
           keyExtractor={(h) => `${h.kind}:${h.id}`}
-          renderItem={({ item }) => <HoldingCard h={item} />}
+          renderItem={({ item }) => (
+            <HoldingCard
+              h={item}
+              onDelete={setConfirm}
+              onStake={(k, id, stake) => setStake.mutate({ kind: k, id, stake })}
+            />
+          )}
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl
@@ -177,9 +376,33 @@ export default function HoldingsScreen() {
         />
       )}
       <Portal>
+        <Dialog visible={confirm !== null} onDismiss={() => !deleting && setConfirm(null)}>
+          <Dialog.Title>Delete {confirm?.label}?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">{confirm?.detail}</Text>
+            {!!deleteError && (
+              <Text variant="bodySmall" style={{ color: theme.colors.error }}>
+                {deleteError}
+              </Text>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button disabled={deleting} onPress={() => setConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              textColor={theme.colors.error}
+              loading={deleting}
+              disabled={deleting}
+              onPress={runDelete}
+            >
+              Delete
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
         <FAB.Group
           open={fabOpen}
-          visible
+          visible={focused}
           icon={fabOpen ? 'close' : 'plus'}
           style={styles.fab}
           onStateChange={({ open }) => setFabOpen(open)}
