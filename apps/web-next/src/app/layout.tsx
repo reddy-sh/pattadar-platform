@@ -1,3 +1,7 @@
+// Must run before amazon-cognito-identity-js loads anywhere in the tree
+// (needs a Node-style `global`) — see controller notes on task B3.
+import 'src/lib/global-polyfill';
+
 import 'src/global.css';
 
 import InitColorSchemeScript from '@mui/material/InitColorSchemeScript';
@@ -5,6 +9,7 @@ import InitColorSchemeScript from '@mui/material/InitColorSchemeScript';
 import ThemeProvider from 'src/theme';
 import { primaryFont } from 'src/theme/typography';
 
+import { AuthProvider } from 'src/auth/AuthProvider';
 import ProgressBar from 'src/components/progress-bar';
 import { MotionLazy } from 'src/components/animate/motion-lazy';
 import SnackbarProvider from 'src/components/snackbar/snackbar-provider';
@@ -58,7 +63,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <SnackbarProvider>
                 <SettingsDrawer />
                 <ProgressBar />
-                {children}
+                <AuthProvider>{children}</AuthProvider>
               </SnackbarProvider>
             </MotionLazy>
           </ThemeProvider>

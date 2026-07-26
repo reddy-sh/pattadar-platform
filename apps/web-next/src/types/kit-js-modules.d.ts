@@ -9,6 +9,16 @@
 
 declare module 'lodash/merge';
 
+declare module 'src/routes/components' {
+  const RouterLink: any;
+  export { RouterLink };
+}
+
+declare module 'src/components/logo' {
+  const Logo: any;
+  export default Logo;
+}
+
 declare module 'src/components/iconify' {
   const Iconify: any;
   export default Iconify;
