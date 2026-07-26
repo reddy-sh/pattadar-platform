@@ -31,7 +31,11 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="holdings"
-        options={{ title: 'Holdings', tabBarIcon: tabIcon('terrain') }}
+        options={{ title: 'Land', tabBarIcon: tabIcon('terrain') }}
+      />
+      <Tabs.Screen
+        name="passbooks"
+        options={{ title: 'Passbooks', tabBarIcon: tabIcon('book-open-outline') }}
       />
       <Tabs.Screen
         name="family"

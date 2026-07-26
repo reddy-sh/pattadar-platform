@@ -140,74 +140,6 @@ function HoldingCard({
   );
 }
 
-function KhataCard({
-  pb,
-  parcelCount,
-  totalAcres,
-  onDelete,
-}: {
-  pb: HoldingsData['passbooks'][number];
-  parcelCount: number;
-  totalAcres: number;
-  onDelete: (t: DeleteTarget) => void;
-}) {
-  const theme = useTheme();
-  const [menu, setMenu] = useState(false);
-  return (
-    <Card mode="outlined" style={styles.card}>
-      <Card.Content style={styles.cardContent}>
-        <View style={styles.titleRow}>
-          <Text variant="titleMedium" style={styles.title} numberOfLines={1}>
-            📒 Khata {pb.pattadarNo || '—'}
-          </Text>
-          <Menu
-            visible={menu}
-            onDismiss={() => setMenu(false)}
-            anchor={<IconButton icon="dots-vertical" size={18} onPress={() => setMenu(true)} />}
-          >
-            <Menu.Item
-              leadingIcon="map-marker-plus-outline"
-              title="Add parcel"
-              onPress={() => {
-                setMenu(false);
-                router.push({ pathname: '/add-parcel', params: { passbookId: pb.id } });
-              }}
-            />
-            <Divider />
-            <Menu.Item
-              leadingIcon="delete-outline"
-              title="Delete khata…"
-              onPress={() => {
-                setMenu(false);
-                onDelete({
-                  kind: 'passbook',
-                  id: pb.id,
-                  label: `Khata ${pb.pattadarNo || '—'}`,
-                  detail: `Deletes the khata AND its ${parcelCount} parcel${
-                    parcelCount === 1 ? '' : 's'
-                  }, plus their document records. Files already uploaded stay in My Drive on the web until deleted there.`,
-                });
-              }}
-            />
-          </Menu>
-        </View>
-        <Text variant="bodyMedium" numberOfLines={1}>
-          {pb.ownerName || '—'}
-        </Text>
-        <Text variant="bodySmall" numberOfLines={1} style={{ color: theme.colors.onSurfaceVariant }}>
-          {[pb.village, pb.mandal, pb.district].filter(Boolean).join(', ') || '—'}
-        </Text>
-        <View style={styles.footer}>
-          <Text variant="titleSmall">
-            {parcelCount} parcel{parcelCount === 1 ? '' : 's'}
-          </Text>
-          <Text variant="titleSmall">{totalAcres > 0 ? formatArea(totalAcres) : '—'}</Text>
-        </View>
-      </Card.Content>
-    </Card>
-  );
-}
-
 export default function HoldingsScreen() {
   const theme = useTheme();
   const qc = useQueryClient();
@@ -245,7 +177,7 @@ export default function HoldingsScreen() {
   const allRows = useMemo(() => (result ? normalizeHoldings(result.data) : []), [result]);
   const holdings = useMemo(() => {
     let rows = allRows;
-    if (kind !== 'all' && kind !== 'khata') rows = rows.filter((h) => h.kind === kind);
+    if (kind !== 'all') rows = rows.filter((h) => h.kind === kind);
     const q = search.trim().toLowerCase();
     if (q) {
       rows = rows.filter((h) =>
@@ -258,34 +190,12 @@ export default function HoldingsScreen() {
     return rows;
   }, [allRows, kind, search]);
 
-  // Khata view: passbooks with per-khata parcel rollups.
-  const khatas = useMemo(() => {
-    if (!result) return [];
-    const agg = new Map<string, { count: number; acres: number }>();
-    for (const p of result.data.parcels) {
-      const a = agg.get(p.passbookId) ?? { count: 0, acres: 0 };
-      a.count += 1;
-      a.acres += Number(p.extent) || 0;
-      agg.set(p.passbookId, a);
-    }
-    const q = search.trim().toLowerCase();
-    return result.data.passbooks
-      .filter(
-        (pb) =>
-          !q ||
-          [pb.pattadarNo, pb.ownerName, pb.village, pb.mandal, pb.district]
-            .join(' ')
-            .toLowerCase()
-            .includes(q),
-      )
-      .map((pb) => ({ pb, ...(agg.get(pb.id) ?? { count: 0, acres: 0 }) }));
-  }, [result, search]);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
         <Text variant="headlineSmall" style={styles.heading}>
-          Holdings
+          Land & Properties
         </Text>
         <Searchbar
           placeholder="Search survey no, owner, village…"
@@ -300,8 +210,7 @@ export default function HoldingsScreen() {
           buttons={[
             { value: 'all', label: 'All' },
             { value: 'parcel', label: 'Land' },
-            { value: 'property', label: 'Props' },
-            { value: 'khata', label: 'Khata' },
+            { value: 'property', label: 'Properties' },
           ]}
         />
       </View>
@@ -314,31 +223,6 @@ export default function HoldingsScreen() {
         <View style={styles.center}>
           <ActivityIndicator />
         </View>
-      ) : kind === 'khata' ? (
-        <FlatList
-          data={khatas}
-          keyExtractor={(k) => k.pb.id}
-          renderItem={({ item }) => (
-            <KhataCard
-              pb={item.pb}
-              parcelCount={item.count}
-              totalAcres={item.acres}
-              onDelete={setConfirm}
-            />
-          )}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={() => qc.invalidateQueries({ queryKey: ['pattadar', 'holdings'] })}
-            />
-          }
-          ListEmptyComponent={
-            <Text variant="bodyMedium" style={styles.empty}>
-              No khata yet — tap + to scan or add one.
-            </Text>
-          }
-        />
       ) : (
         <FlatList
           data={holdings}
@@ -410,16 +294,6 @@ export default function HoldingsScreen() {
           style={[styles.fab, { pointerEvents: 'box-none' }]}
           onStateChange={({ open }) => setFabOpen(open)}
           actions={[
-            {
-              icon: 'camera-plus-outline',
-              label: 'Scan passbook',
-              onPress: () => router.push('/add-khata'),
-            },
-            {
-              icon: 'book-plus-outline',
-              label: 'New khata',
-              onPress: () => router.push('/add-khata'),
-            },
             {
               icon: 'map-marker-plus-outline',
               label: 'New parcel',

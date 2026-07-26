@@ -31,6 +31,10 @@ export const HOLDINGS_QUERY = `query {
   groups { id name }
 }`;
 
+/** Passbooks page — verbatim from web usePassbooks (parcels feed per-khata
+ * count + acquisition-cost aggregation). */
+export const PASSBOOKS_QUERY = `query { passbooks { id ref ownerUserId pattadarNo ownerName fatherHusbandName state district mandal village photo totalExtent groupId createdAt } parcels { passbookId purchasePrice } groups { id name } }`;
+
 /** Family groups list. */
 export const GROUPS_QUERY = `query { groups { id ownerUserId type name description myRole memberCount landCount totalExtent totalShare createdAt } }`;
 

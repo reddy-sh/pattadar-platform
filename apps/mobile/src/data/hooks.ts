@@ -14,6 +14,7 @@ import {
   DELETE_PASSBOOK_MUTATION,
   DELETE_PROPERTY_MUTATION,
   DOCUMENT_REFS_QUERY,
+  PASSBOOKS_QUERY,
   PASSBOOK_DOCUMENTS_QUERY,
   SET_STAKE_MUTATION,
   UPDATE_PARCEL_PRICE_MUTATION,
@@ -164,6 +165,29 @@ export function useHoldings() {
       properties: sampleProperties,
       groups: sampleGroups,
     }),
+  );
+}
+
+// --- passbooks page ----------------------------------------------------------
+
+export interface PassbooksData {
+  passbooks: Passbook[];
+  parcels: Pick<Parcel, 'passbookId' | 'purchasePrice'>[];
+  groups: Pick<Group, 'id' | 'name'>[];
+}
+
+export function usePassbooks() {
+  return useLiveOrSample<PassbooksData>(
+    'passbooks',
+    async () => {
+      const d = await api.gql<{
+        passbooks: Passbook[] | null;
+        parcels: PassbooksData['parcels'] | null;
+        groups: PassbooksData['groups'] | null;
+      }>(PASSBOOKS_QUERY);
+      return { passbooks: d.passbooks ?? [], parcels: d.parcels ?? [], groups: d.groups ?? [] };
+    },
+    () => ({ passbooks: samplePassbooks, parcels: sampleParcels, groups: sampleGroups }),
   );
 }
 

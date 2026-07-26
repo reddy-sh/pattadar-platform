@@ -9,7 +9,8 @@
  * stats or logos), self-hosted everything, links never open new tabs, and
  * sign-in always goes to OUR native /login page.
  */
-import type { ReactElement } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -125,6 +126,69 @@ const TRUST_ITEMS = [
   { icon: <ManageAccountsOutlinedIcon fontSize="small" />, text: 'You control your data' },
 ];
 
+/** Rotating word (Aceternity FlipWords) — cycles with a rise-in animation. */
+function FlipWord({ words }: { words: string[] }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % words.length), 2400);
+    return () => clearInterval(t);
+  }, [words.length]);
+  return (
+    <Box
+      key={words[i]}
+      component="span"
+      sx={{ display: 'inline-block', color: BLUE, fontWeight: 600, animation: 'landing-word-in .45s cubic-bezier(0.2, 0, 0, 1) both' }}
+    >
+      {words[i]}
+    </Box>
+  );
+}
+
+/** Scroll-reveal wrapper — fades sections up as they enter the viewport. */
+function Reveal({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setShown(true);
+      return;
+    }
+    const ob = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          setShown(true);
+          ob.disconnect();
+        }
+      },
+      { rootMargin: '0px 0px -10% 0px' },
+    );
+    ob.observe(el);
+    return () => ob.disconnect();
+  }, []);
+  return (
+    <Box
+      ref={ref}
+      sx={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? 'none' : 'translateY(26px)',
+        transition: 'opacity .7s cubic-bezier(0.2, 0, 0, 1), transform .7s cubic-bezier(0.2, 0, 0, 1)',
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+const NAV_LINKS: [string, string][] = [
+  ['About', 'story'],
+  ['Features', 'features'],
+  ['How it works', 'how'],
+  ['6 Pillars', 'pillars'],
+  ['Services', 'services'],
+  ['FAQ', 'faq'],
+];
+
 export function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
@@ -153,6 +217,22 @@ export function LandingPage() {
           '@keyframes landing-border-spin': {
             to: { transform: 'rotate(360deg)' },
           },
+          '@keyframes landing-shimmer': {
+            '0%': { backgroundPosition: '0% 50%' },
+            '100%': { backgroundPosition: '200% 50%' },
+          },
+          '@keyframes landing-float': {
+            '0%, 100%': { transform: 'translateY(0)' },
+            '50%': { transform: 'translateY(-9px)' },
+          },
+          '@keyframes landing-pulse': {
+            '0%, 100%': { boxShadow: '0 10px 40px -10px rgba(100, 181, 246, 0.45)' },
+            '50%': { boxShadow: '0 10px 52px -8px rgba(100, 181, 246, 0.75)' },
+          },
+          '@keyframes landing-word-in': {
+            from: { opacity: 0, transform: 'translateY(10px)' },
+            to: { opacity: 1, transform: 'translateY(0)' },
+          },
         }}
       />
 
@@ -170,9 +250,22 @@ export function LandingPage() {
         }}
       >
         <Container maxWidth="lg" sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
-          <Typography variant="h6" component="span" sx={{ flexGrow: 1, fontWeight: 700, color: INK }}>
+          <Typography variant="h6" component="span" sx={{ fontWeight: 700, color: INK }}>
             Pattadar<Box component="span" sx={{ color: BLUE }}>.</Box>
           </Typography>
+          <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'center', gap: 0.5 }}>
+            {NAV_LINKS.map(([label, id]) => (
+              <Button
+                key={id}
+                size="small"
+                onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                sx={{ color: INK_DIM, px: 1.5, '&:hover': { color: INK, background: 'rgba(100,181,246,0.08)' } }}
+              >
+                {label}
+              </Button>
+            ))}
+          </Box>
+          <Box sx={{ flexGrow: { xs: 1, md: 0 } }} />
           <Button
             onClick={startSignIn}
             sx={{
@@ -217,6 +310,21 @@ export function LandingPage() {
           }}
         />
         {/* Aurora blobs */}
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            left: '-10%',
+            top: '42%',
+            width: 460,
+            height: 460,
+            borderRadius: '50%',
+            pointerEvents: 'none',
+            background: 'radial-gradient(circle, rgba(100, 181, 246, 0.14), transparent 65%)',
+            filter: 'blur(46px)',
+            animation: 'landing-aurora 18s ease-in-out -7s infinite',
+          }}
+        />
         <Box
           aria-hidden
           sx={{
@@ -270,10 +378,12 @@ export function LandingPage() {
               component="span"
               sx={{
                 display: 'block',
-                background: `linear-gradient(100deg, ${BLUE} 10%, #bbdefb 50%, ${BLUE} 90%)`,
+                background: `linear-gradient(100deg, ${BLUE} 10%, #e3f2fd 35%, ${BLUE} 60%, #bbdefb 85%, ${BLUE} 110%)`,
+                backgroundSize: '200% 100%',
                 backgroundClip: 'text',
                 WebkitBackgroundClip: 'text',
                 color: 'transparent',
+                animation: 'landing-shimmer 6s linear infinite',
               }}
             >
               in one secure place
@@ -291,8 +401,9 @@ export function LandingPage() {
               animation: 'landing-fadeup .7s .3s cubic-bezier(0.2, 0, 0, 1) both',
             }}
           >
-            Pattadar helps Andhra Pradesh land-owners manage parcels, passbooks, registered deeds and
-            family — securely, and in plain language the whole family can understand.
+            Pattadar helps Andhra Pradesh land-owners manage{' '}
+            <FlipWord words={['parcels', 'passbooks', 'registered deeds', 'documents', 'family']} /> —
+            securely, and in plain language the whole family can understand.
           </Typography>
           <Box
             sx={{
@@ -330,6 +441,7 @@ export function LandingPage() {
                   borderRadius: 999,
                   color: '#0a0a0f',
                   background: '#fff',
+                  animation: 'landing-pulse 3.2s ease-in-out infinite',
                   '&:hover': { background: '#e3f2fd' },
                 }}
               >
@@ -378,6 +490,12 @@ export function LandingPage() {
               p: '1px',
               background: `linear-gradient(135deg, rgba(100,181,246,0.55), rgba(255,255,255,0.08) 40%, rgba(25,118,210,0.45))`,
               boxShadow: '0 30px 80px -30px rgba(25, 118, 210, 0.35), 0 20px 60px -30px rgba(0,0,0,0.8)',
+              animation: 'landing-float 7s ease-in-out infinite',
+              transition: 'transform .4s cubic-bezier(0.2, 0, 0, 1), box-shadow .4s',
+              '&:hover': {
+                transform: 'perspective(1200px) rotateX(1.5deg) scale(1.012)',
+                boxShadow: '0 40px 100px -30px rgba(25, 118, 210, 0.5), 0 20px 60px -30px rgba(0,0,0,0.8)',
+              },
             }}
           >
             <Box sx={{ borderRadius: '19px', background: '#0d0d13', p: { xs: 2.5, md: 3.5 } }}>
@@ -424,8 +542,82 @@ export function LandingPage() {
         </Container>
       </Box>
 
+      {/* ── How Pattadar evolved — the story, from the original site ── */}
+      <Container id="story" maxWidth="md" component="section" sx={{ py: { xs: 7, md: 9 }, scrollMarginTop: 80 }}>
+        <Reveal>
+        <Typography component="p" sx={sectionEyebrowSx}>
+          Our story
+        </Typography>
+        <Typography variant="h4" component="h2" sx={sectionTitleSx}>
+          How Pattadar evolved
+        </Typography>
+        <Typography variant="body1" sx={{ textAlign: 'center', color: INK_DIM, maxWidth: 640, mx: 'auto', mb: 6 }}>
+          Pattadar evolved from the real pain of revenue issues — problems our own family faced with
+          land records in Andhra Pradesh — into a platform built to deliver on that experience.
+        </Typography>
+        <Box sx={{ position: 'relative', pl: { xs: 3.5, md: 5 } }}>
+          {/* the timeline line */}
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              left: { xs: 8, md: 14 },
+              top: 6,
+              bottom: 6,
+              width: '2px',
+              background: `linear-gradient(180deg, transparent, ${BLUE} 12%, rgba(100,181,246,0.35) 88%, transparent)`,
+            }}
+          />
+          {[
+            {
+              t: 'Born from real pain',
+              b: 'It started in Katragunta village, Prakasam district — inside the everyday revenue problems Andhra Pradesh families face when land is bought, sold or simply held.',
+            },
+            {
+              t: 'Understanding the system',
+              b: 'We mapped the six pillars the revenue system stands on — 1B & Adangal, survey numbers, the RSR, the Field Measurement Book, village maps and legal rights — the records true ownership depends on.',
+            },
+            {
+              t: 'Every stage examined',
+              b: 'Before, during and after a transaction — each stage\u2019s pain points were studied one by one, and each got a practical answer.',
+            },
+            {
+              t: 'The AI platform',
+              b: 'The ideas became software: passbooks and deeds read by AI, a living land portfolio, a documents drive, and family members verified with secure links.',
+            },
+            {
+              t: 'Today — pattadar.com',
+              b: 'A secure home for your family\u2019s land records — and a foundation growing towards the wallet, the AI watch dog and on-demand property services.',
+            },
+          ].map((e, i) => (
+            <Box key={e.t} sx={{ position: 'relative', pb: i === 4 ? 0 : 4 }}>
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  left: { xs: -26.5, md: -32.5 },
+                  top: 6,
+                  width: 13,
+                  height: 13,
+                  borderRadius: '50%',
+                  background: `radial-gradient(circle, #bbdefb 0%, ${BLUE} 60%)`,
+                  boxShadow: '0 0 14px rgba(100, 181, 246, 0.8)',
+                }}
+              />
+              <Typography variant="h6" component="h3" sx={{ color: INK, mb: 0.5 }}>
+                {e.t}
+              </Typography>
+              <Typography variant="body2" sx={{ color: INK_DIM, maxWidth: 640 }}>
+                {e.b}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+        </Reveal>
+      </Container>
+
       {/* ── Bento features ───────────────────────────────────────────── */}
-      <Container maxWidth="lg" component="section" sx={{ py: { xs: 7, md: 9 } }}>
+      <Container id="features" maxWidth="lg" component="section" sx={{ py: { xs: 7, md: 9 }, scrollMarginTop: 80 }}>
         <Typography component="p" sx={sectionEyebrowSx}>
           Everything in one place
         </Typography>
@@ -454,7 +646,7 @@ export function LandingPage() {
       </Container>
 
       {/* ── How it works ─────────────────────────────────────────────── */}
-      <Container maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 } }}>
+      <Container id="how" maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 }, scrollMarginTop: 80 }}>
         <Typography component="p" sx={sectionEyebrowSx}>
           Three simple steps
         </Typography>
@@ -511,7 +703,7 @@ export function LandingPage() {
       </Container>
 
       {/* ── 6 Pillars ────────────────────────────────────────────────── */}
-      <Container maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 } }}>
+      <Container id="pillars" maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 }, scrollMarginTop: 80 }}>
         <Typography component="p" sx={sectionEyebrowSx}>
           Built on how AP land records actually work
         </Typography>
@@ -610,7 +802,7 @@ export function LandingPage() {
       </Container>
 
       {/* ── Roadmap ──────────────────────────────────────────────────── */}
-      <Container maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 } }}>
+      <Container id="services" maxWidth="lg" component="section" sx={{ py: { xs: 6, md: 8 }, scrollMarginTop: 80 }}>
         <Typography component="p" sx={sectionEyebrowSx}>
           Beyond record-keeping
         </Typography>
@@ -642,7 +834,7 @@ export function LandingPage() {
       </Container>
 
       {/* ── FAQ ──────────────────────────────────────────────────────── */}
-      <Container maxWidth="md" component="section" sx={{ py: { xs: 6, md: 8 } }}>
+      <Container id="faq" maxWidth="md" component="section" sx={{ py: { xs: 6, md: 8 }, scrollMarginTop: 80 }}>
         <Typography component="p" sx={sectionEyebrowSx}>
           Common questions
         </Typography>
@@ -731,7 +923,8 @@ export function LandingPage() {
         <Container maxWidth="lg" sx={{ py: 3 }}>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
             <Typography variant="caption" sx={{ color: INK_FAINT }}>
-              © {new Date().getFullYear()} Pattadar
+              © {new Date().getFullYear()} Pattadar · Katragunta, Prakasam, Andhra Pradesh · San
+              Francisco, California
             </Typography>
             <Box sx={{ display: 'flex', gap: 3 }}>
               <Link component={RouterLink} to="/privacy" variant="caption" sx={{ color: INK_FAINT }}>
