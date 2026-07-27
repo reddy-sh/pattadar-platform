@@ -35,6 +35,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
@@ -77,6 +78,13 @@ import { RouterLink } from 'src/routes/components';
 import { usePathname } from 'src/routes/hooks';
 import { isAuthMocked, useAuth } from 'src/auth/AuthProvider';
 import { AssistantPanel } from 'src/assistant/AssistantPanel';
+
+// Blob URLs are browser-only — load client-side, never during SSR (same
+// treatment as GeoMap; see .superpowers/sdd/phase-C-recipe.md).
+const FileViewerHost = dynamic(
+  () => import('src/components/FileViewer').then((m) => m.FileViewerHost),
+  { ssr: false },
+);
 
 const DRAWER_WIDTH = 252;
 
@@ -358,6 +366,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Assistant panel — services/assistant chat surface (SSE streaming). */}
       <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+
+      {/* In-portal file preview host — listens for openFileViewer() calls. */}
+      <FileViewerHost />
     </Box>
   );
 }

@@ -1,5 +1,7 @@
 import type { ElementType, ReactNode } from 'react';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 interface PageHeaderProps {
@@ -23,26 +25,47 @@ interface PageHeaderProps {
 }
 
 /**
- * B5 placeholder for the route skeleton — prop shape matches
- * apps/web/src/components/PageHeader.tsx exactly (eyebrow/titleChips/sample
- * accepted but not yet rendered) so every stub page already compiles against
- * the final signature. A later Phase C task ports the full component
- * (eyebrow overline, title chips, "service unreachable" sample banner) in
- * place of this file — call sites don't change.
+ * The one page-scaffold header: eyebrow (overline) + headline + subtitle on
+ * the left, actions right — adopted by every view so titles, spacing and
+ * action placement read identically across the app.
  */
 export function PageHeader({
   title,
+  eyebrow,
   subtitle,
+  sample,
+  titleChips,
   actions,
   component = 'h1',
   variant = 'h2',
 }: PageHeaderProps) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap', gap: 1.5, mb: 3 }}>
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        flexWrap: 'wrap',
+        gap: 1.5,
+        mb: 3,
+      }}
+    >
       <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-        <Typography variant={variant === 'h2' ? 'h4' : 'h6'} component={component}>
-          {title}
-        </Typography>
+        {eyebrow && (
+          <Typography variant="overline" color="text.secondary" component="div" sx={{ mb: 0.25 }}>
+            {eyebrow}
+          </Typography>
+        )}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
+          <Typography variant={variant === 'h2' ? 'h4' : 'h6'} component={component}>
+            {title}
+          </Typography>
+          {titleChips}
+          {sample && (
+            <Tooltip title="The live service is not reachable — nothing is shown until it responds.">
+              <Chip size="small" variant="outlined" color="error" label="Service unreachable" />
+            </Tooltip>
+          )}
+        </Box>
         {subtitle && (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 720 }}>
             {subtitle}
