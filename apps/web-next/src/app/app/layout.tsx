@@ -1,15 +1,16 @@
 'use client';
 
-// Guards everything under /app: unauthenticated visitors bounce to /login.
-// The real dashboard shell (nav, header, settings drawer) lands in B5 — until
-// then this is a plain passthrough <main>.
+// Guards everything under /app: unauthenticated visitors bounce to /login,
+// then the Minimals-derived dashboard shell (nav, header, settings drawer,
+// assistant) renders the routed page.
 import type { ReactNode } from 'react';
 import { RequireAuth } from 'src/auth/RequireAuth';
+import { AppShell } from 'src/layout/AppShell';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <main>{children}</main>
+      <AppShell>{children}</AppShell>
     </RequireAuth>
   );
 }

@@ -1,10 +1,15 @@
-// Minimal boot-only page for B3 — proves RequireAuth/mock-mode wiring works.
-// The real dashboard (nav, header, widgets) lands in B5.
 'use client';
 
-import { useAuth } from 'src/auth/AuthProvider';
+// Route skeleton stub (task B5) — Phase C ports the real dashboard (hero,
+// health rings, category holdings) from apps/web/src/pages/DashboardPage.tsx.
+import EmptyContent from 'src/components/empty-content';
+import { PageHeader } from 'src/components/PageHeader';
 
 export default function AppHomePage() {
-  const { user } = useAuth();
-  return <p>Signed in as {user?.email} — dashboard shell lands in B5.</p>;
+  return (
+    <>
+      <PageHeader title="Dashboard" />
+      <EmptyContent title="Your dashboard is on its way" description="This page is coming soon." filled />
+    </>
+  );
 }
