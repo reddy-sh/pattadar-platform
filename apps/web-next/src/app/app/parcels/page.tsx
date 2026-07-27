@@ -1,14 +1,8 @@
 'use client';
 
-// Route skeleton stub (task B5) — Phase C ports the Land & Properties workspace.
-import EmptyContent from 'src/components/empty-content';
-import { PageHeader } from 'src/components/PageHeader';
+// Ported from apps/web/src/pages/LandPropertiesPage.tsx (task C3).
+import { LandPropertiesPage } from 'src/views/LandPropertiesPage';
 
-export default function ParcelsPage() {
-  return (
-    <>
-      <PageHeader title="Land & Properties" />
-      <EmptyContent title="Coming soon" description="This page is coming soon." filled />
-    </>
-  );
+export default function Page() {
+  return <LandPropertiesPage />;
 }

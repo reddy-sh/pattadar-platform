@@ -35,7 +35,6 @@
  */
 import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import dynamic from 'next/dynamic';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
@@ -78,14 +77,18 @@ import { RouterLink } from 'src/routes/components';
 import { usePathname } from 'src/routes/hooks';
 import { isAuthMocked, useAuth } from 'src/auth/AuthProvider';
 import { AssistantPanel } from 'src/assistant/AssistantPanel';
+import { FileViewerHost } from 'src/components/FileViewer';
 
-// Blob URLs are browser-only — load client-side, never during SSR (same
-// treatment as GeoMap; see .superpowers/sdd/phase-C-recipe.md).
-const FileViewerHost = dynamic(
-  () => import('src/components/FileViewer').then((m) => m.FileViewerHost),
-  { ssr: false },
-);
-
+// FileViewer has no module-scope browser-only calls (unlike GeoMap's Leaflet
+// import) — URL.createObjectURL/document.createElement only run inside
+// effects/handlers, which are always client-only regardless of SSR. A direct
+// import (matching the source's `import { FileViewerHost } from
+// '../components/FileViewer'`) mounts it synchronously with the rest of the
+// shell instead of via a lazy chunk — `next/dynamic(..., { ssr:false })` here
+// left a real gap: the CustomEvent `openFileViewer()` dispatches on `window`
+// is fire-and-forget with no queue, so any call landing before the lazily
+// loaded chunk finished mounting its listener was silently dropped (caught by
+// tests/e2e-ux/specs/viewer.spec.ts dispatching immediately after page load).
 const DRAWER_WIDTH = 252;
 
 interface NavItem {

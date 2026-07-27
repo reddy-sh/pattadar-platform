@@ -1,14 +1,8 @@
 'use client';
 
-// Route skeleton stub (task B5) — Phase C ports the real parcel detail view.
-import EmptyContent from 'src/components/empty-content';
-import { PageHeader } from 'src/components/PageHeader';
+// Ported from apps/web/src/pages/detail/ParcelDetailPage.tsx (task C3).
+import { ParcelDetailPage } from 'src/views/detail/ParcelDetailPage';
 
-export default function ParcelDetailPage() {
-  return (
-    <>
-      <PageHeader title="Parcel" />
-      <EmptyContent title="Coming soon" description="This page is coming soon." filled />
-    </>
-  );
+export default function Page() {
+  return <ParcelDetailPage />;
 }
