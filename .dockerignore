@@ -1,0 +1,20 @@
+# Repo-root .dockerignore — keeps the build context small for images built
+# with the repo root as context (currently: apps/web-next/Dockerfile).
+# Service Dockerfiles under services/* are built with their own directory as
+# context and are unaffected by this file.
+**/node_modules
+**/.next
+**/.expo
+**/.turbo
+**/dist
+**/build
+**/coverage
+**/test-results
+**/playwright-report
+.git
+.github
+.local
+.DS_Store
+infra
+docs
+*.log
