@@ -65,6 +65,30 @@ resource "aws_security_group" "gateway" {
   tags = merge(local.tags, { Name = "${local.prefix}-gateway" })
 }
 
+resource "aws_security_group" "web" {
+  name        = "${local.prefix}-web"
+  description = "Web (Next.js) service - only the ALB may connect"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "App traffic from the ALB (default action forwards to web after the ecs flip)"
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    description = "All egress (ECR pulls, Secrets Manager, api - public subnets, no NAT)"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(local.tags, { Name = "${local.prefix}-web" })
+}
+
 resource "aws_security_group" "api" {
   name        = "${local.prefix}-api"
   description = "API service - gateway plus ALB (cron path only)"

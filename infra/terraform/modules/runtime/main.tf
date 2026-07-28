@@ -6,7 +6,7 @@
 #   vpc.tf             — 2-AZ public-subnet VPC, IGW (NO NAT — see cost note)
 #   security_groups.tf — alb / gateway / api / rds tiering
 #   alb.tf             — ALB (idle_timeout 200), api.<domain> ACM cert, listeners
-#   ecs.tf             — cluster + gateway/api Fargate services, IAM roles
+#   ecs.tf             — cluster + gateway/api/assistant/web Fargate services, IAM roles
 #   rds.tf             — PostgreSQL 17 + composed db-dsn runtime secret
 #   scheduler.tf       — daily /cron/inactivity-check (EventBridge Scheduler)
 #   observability.tf   — log groups, SNS alarms topic + email, CloudWatch alarms
@@ -37,7 +37,7 @@ data "terraform_remote_state" "persistent" {
 locals {
   prefix = "${var.app_name}-${var.environment}"
 
-  services = toset(["gateway", "api", "assistant"])
+  services = toset(["gateway", "api", "assistant", "web"])
 
   persistent = data.terraform_remote_state.persistent.outputs
 

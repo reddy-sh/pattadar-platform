@@ -197,3 +197,29 @@ variable "assistant_image_tag" {
   type        = string
   default     = "v1"
 }
+
+variable "web_image_tag" {
+  description = "Image tag for the web (Next.js) service. Not deployed until the web-migration cutover (D4)."
+  type        = string
+  default     = "latest"
+}
+
+# --- Web origin switch ------------------------------------------------------
+
+variable "web_origin" {
+  description = <<-EOT
+    Which origin CloudFront's DEFAULT behavior serves the site from:
+      "spa" — the static Vite SPA in the S3 bucket (current live posture).
+      "ecs" — the Next.js app on the web ECS service, via the ALB origin.
+    The flip to "ecs" is the founder-gated cutover (D4); everything else here
+    is staged so the switch is a single-variable change. The S3 SPA bucket +
+    OAC stay intact in either mode for instant rollback.
+  EOT
+  type        = string
+  default     = "spa"
+
+  validation {
+    condition     = contains(["spa", "ecs"], var.web_origin)
+    error_message = "web_origin must be \"spa\" or \"ecs\"."
+  }
+}

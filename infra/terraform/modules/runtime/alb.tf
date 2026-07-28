@@ -1,7 +1,18 @@
 # Application Load Balancer: api.<domain> terminates here (ap-south-1 ACM
-# cert), CloudFront's /api/* behavior also fetches from here. Default action
-# -> gateway; the single path rule /cron/inactivity-check -> api (see the
-# x-user-id invariant note in security_groups.tf).
+# cert), CloudFront also fetches from here (default site behavior in ecs mode
+# + /api/*). Listener-rule routing (evaluated by priority, lowest first):
+#   priority 10  /cron/inactivity-check -> api      (the ONLY internet-reachable
+#                                                     api path; x-user-id
+#                                                     invariant, see
+#                                                     security_groups.tf)
+#   priority 20  /api/*                 -> gateway   (authenticates, sets
+#                                                     x-user-id, proxies to api)
+#   default      (everything else)      -> web       (Next.js app on :3000)
+# The default action moved from gateway to web so a single ALB fronts both the
+# site and the API. Gateway now only serves /api/gateway/* + /health (the TG
+# health check hits /health on the target directly, bypassing listener rules).
+# Bare non-/api paths on api.<domain> now serve the web app — a documented
+# semantic change; no current consumer hits bare paths.
 
 # --- Certificate (ap-south-1 — CloudFront's own cert lives in us-east-1) ----
 
@@ -108,6 +119,30 @@ resource "aws_lb_target_group" "api" {
   tags = local.tags
 }
 
+# Web (Next.js) on :3000. Next has no dedicated /health route, so the check
+# hits "/" (the landing renders 200); 200-399 tolerates any locale/auth
+# redirect the root might issue without flapping the target unhealthy.
+resource "aws_lb_target_group" "web" {
+  name        = "${local.prefix}-web"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  deregistration_delay = 30
+
+  health_check {
+    path                = "/"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    matcher             = "200-399"
+  }
+
+  tags = local.tags
+}
+
 # --- Listeners --------------------------------------------------------------
 
 resource "aws_lb_listener" "http" {
@@ -135,9 +170,11 @@ resource "aws_lb_listener" "https" {
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn   = aws_acm_certificate_validation.api.certificate_arn
 
+  # Default -> web (the Next.js site). /api/* and /cron are peeled off by the
+  # higher-priority rules below.
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.gateway.arn
+    target_group_arn = aws_lb_target_group.web.arn
   }
 
   tags = local.tags
@@ -156,6 +193,28 @@ resource "aws_lb_listener_rule" "cron_to_api" {
   condition {
     path_pattern {
       values = ["/cron/inactivity-check"]
+    }
+  }
+
+  tags = local.tags
+}
+
+# API surface -> gateway (authenticates, sets x-user-id, proxies to api).
+# CloudFront's /api/* behavior fetches through here; also serves direct
+# api.<domain>/api/* callers. Priority 20 keeps it below the cron rule (10)
+# and above the default action (web).
+resource "aws_lb_listener_rule" "api_to_gateway" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 20
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.gateway.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/*"]
     }
   }
 

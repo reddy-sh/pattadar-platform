@@ -1,4 +1,4 @@
-# ECS cluster + two ARM64 Fargate services (gateway, api).
+# ECS cluster + ARM64 Fargate services (gateway, api, assistant, web).
 #
 # assign_public_ip = true is REQUIRED: the tasks sit in public subnets with no
 # NAT, so without a public IP they cannot reach ECR/Secrets Manager/Logs and
@@ -429,6 +429,100 @@ resource "aws_ecs_service" "assistant" {
       }
     }
   }
+
+  tags = local.tags
+}
+
+# --- Web (Next.js SSR; ALB-fronted, container port 3000) --------------------
+#
+# Cognito config is baked into the image at build time (NEXT_PUBLIC_* build
+# args, see apps/web-next/Dockerfile), so the task needs no runtime secrets.
+# Not deployed until the web-migration cutover (D4); until then desired_count
+# is 0 in dev and the web target group simply has no registered targets.
+
+resource "aws_iam_role" "web_task" {
+  name               = "${local.prefix}-web-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  tags               = local.tags
+}
+
+resource "aws_ecs_task_definition" "web" {
+  family                   = "${local.prefix}-web"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = tostring(var.task_cpu)
+  memory                   = tostring(var.task_memory)
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.web_task.arn
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64"
+  }
+
+  container_definitions = jsonencode([
+    {
+      name      = "web"
+      image     = "${local.persistent.ecr_repository_urls["web"]}:${var.web_image_tag}"
+      essential = true
+
+      portMappings = [
+        {
+          name          = "web"
+          containerPort = 3000
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        { name = "PORT", value = "3000" },
+        { name = "NODE_ENV", value = "production" },
+        { name = "AWS_REGION", value = data.aws_region.current.region },
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.service["web"].name
+          awslogs-region        = data.aws_region.current.region
+          awslogs-stream-prefix = "web"
+        }
+      }
+    }
+  ])
+
+  tags = local.tags
+}
+
+resource "aws_ecs_service" "web" {
+  name            = "web"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.web.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.web.id]
+    assign_public_ip = true # no NAT: required to pull from ECR (see header note)
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.web.arn
+    container_name   = "web"
+    container_port   = 3000
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.main.arn
+    # Client-only: web resolves "api"/"assistant" if it ever needs to, but
+    # registers nothing itself (it is reached via the ALB, like gateway).
+  }
+
+  health_check_grace_period_seconds = 60
+
+  depends_on = [aws_lb_listener.https]
 
   tags = local.tags
 }

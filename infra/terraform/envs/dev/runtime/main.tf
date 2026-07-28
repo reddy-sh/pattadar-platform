@@ -57,6 +57,7 @@ module "runtime" {
 
   assistant_image_tag = var.assistant_image_tag
   api_image_tag       = var.api_image_tag
+  web_image_tag       = var.web_image_tag
   desired_count       = var.desired_count
 
   deletion_protection         = var.deletion_protection
@@ -70,4 +71,5 @@ module "runtime" {
   enable_waf                     = var.enable_waf
   waf_block_mode                 = var.waf_block_mode
   cloudfront_origin_read_timeout = var.cloudfront_origin_read_timeout
+  web_origin                     = var.web_origin
 }

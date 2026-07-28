@@ -10,7 +10,7 @@
 #   kms.tf         — customer-managed key + alias (S3 docs, secrets, logs, SNS)
 #   s3.tf          — documents bucket + access-logs bucket
 #   cloudtrail.tf  — CloudTrail bucket + multi-region trail + AWS Config recorder
-#   ecr.tf         — api / gateway / assistant repositories
+#   ecr.tf         — api / gateway / assistant / web repositories
 #   secrets.tf     — placeholder Secrets Manager secrets
 #   cognito.tf     — user pool, pre-token-gen Lambda, SPA client, hosted-UI domain
 #   route53.tf     — public hosted zone pattadar.com (records added by runtime)
@@ -25,7 +25,7 @@ data "aws_region" "current" {}
 locals {
   prefix = "${var.app_name}-${var.environment}"
 
-  services = toset(["api", "gateway", "assistant"])
+  services = toset(["api", "gateway", "assistant", "web"])
 
   tags = merge(var.tags, {
     App         = var.app_name

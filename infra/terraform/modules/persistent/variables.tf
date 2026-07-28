@@ -115,7 +115,7 @@ variable "manage_org_security" {
 }
 
 variable "manage_ecr" {
-  description = "Create the shared ECR repositories (pattadar/api|gateway|assistant). Repo names carry no env segment — exactly one env per account owns them; dev in a shared account sets false and reuses prod's."
+  description = "Create the shared ECR repositories (pattadar/api|gateway|assistant|web). Repo names carry no env segment — exactly one env per account owns them; dev in a shared account sets false and reuses prod's."
   type        = bool
   default     = true
 }

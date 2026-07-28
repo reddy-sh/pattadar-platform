@@ -107,3 +107,15 @@ variable "assistant_image_tag" {
   type        = string
   default     = "v1"
 }
+
+variable "web_image_tag" {
+  description = "Image tag for the web (Next.js) service — deployed at the cutover (D4)."
+  type        = string
+  default     = "latest"
+}
+
+variable "web_origin" {
+  description = "CloudFront default-behavior origin: \"spa\" (S3 SPA, current) or \"ecs\" (Next.js via ALB). The flip to \"ecs\" is the founder-gated cutover (D4) — leave at spa here."
+  type        = string
+  default     = "spa"
+}

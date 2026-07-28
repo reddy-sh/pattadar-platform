@@ -1,4 +1,4 @@
-# One repository per service image (api, gateway, assistant).
+# One repository per service image (api, gateway, assistant, web).
 # NOTE: repository names carry no environment segment ("pattadar/api"); when
 # dev and prod share one AWS account, only one env can own them — dev should
 # reuse prod's repositories (see README).

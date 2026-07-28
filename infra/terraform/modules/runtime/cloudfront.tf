@@ -218,12 +218,17 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
-# Viewer-request function on the DEFAULT behavior only: (a) 301 www -> apex
-# (keeps Cognito callbacks single-origin), (b) SPA fallback — extension-less
-# URIs rewrite to /index.html BEFORE the origin fetch. Scoped to the default
-# behavior, so /api/* status codes and WAF blocks pass through untouched
-# (review finding: custom_error_response was distribution-wide and rewrote
-# API 403/404s to 200 + index.html).
+# The DEFAULT behavior's viewer-request function does TWO jobs, and which
+# variant is associated depends on var.web_origin (see the default behavior
+# below). BOTH functions are always created (cheap, and flipping the switch
+# then never creates/destroys a function) but only one is wired in at a time.
+#
+# spa mode — spa_router: (a) 301 www -> apex (keeps Cognito callbacks
+# single-origin), (b) SPA fallback — extension-less URIs rewrite to
+# /index.html BEFORE the S3 origin fetch. Scoped to the default behavior, so
+# /api/* status codes and WAF blocks pass through untouched (review finding:
+# custom_error_response was distribution-wide and rewrote API 403/404s to
+# 200 + index.html).
 resource "aws_cloudfront_function" "spa_router" {
   count = var.enable_cdn ? 1 : 0
 
@@ -251,16 +256,48 @@ resource "aws_cloudfront_function" "spa_router" {
   EOT
 }
 
+# ecs mode — www_redirect: the SAME www -> apex 301 (Next handles its own
+# routing, so NO index.html rewrite). The function MUST stay associated in
+# ecs mode: dropping it would let www.<domain> resolve as a second origin and
+# break the single-origin Cognito-callback rule.
+resource "aws_cloudfront_function" "www_redirect" {
+  count = var.enable_cdn ? 1 : 0
+
+  name    = "${local.prefix}-www-redirect"
+  runtime = "cloudfront-js-2.0"
+  comment = "www->apex redirect only (ecs mode; Next owns path routing)"
+  publish = true
+
+  code = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      var host = request.headers.host ? request.headers.host.value : '';
+      if (host === 'www.${var.web_domain}') {
+        return {
+          statusCode: 301,
+          statusDescription: 'Moved Permanently',
+          headers: { location: { value: 'https://${var.web_domain}' + request.uri } }
+        };
+      }
+      return request;
+    }
+  EOT
+}
+
 resource "aws_cloudfront_distribution" "web" {
   count = var.enable_cdn ? 1 : 0
 
-  enabled             = true
-  is_ipv6_enabled     = true
-  comment             = "${local.prefix} SPA + same-origin /api/*"
-  default_root_object = "index.html"
-  aliases             = [var.web_domain, local.www_domain]
-  price_class         = "PriceClass_200" # includes India
-  web_acl_id          = var.enable_waf ? aws_wafv2_web_acl.web[0].arn : null
+  enabled         = true
+  is_ipv6_enabled = true
+  comment         = "${local.prefix} ${var.web_origin == "ecs" ? "Next.js (ECS)" : "SPA"} + same-origin /api/*"
+
+  # spa mode roots to /index.html (the SPA shell). In ecs mode it MUST be null:
+  # Next serves the apex itself, and a forced /index.html fetch 404s.
+  default_root_object = var.web_origin == "ecs" ? null : "index.html"
+
+  aliases     = [var.web_domain, local.www_domain]
+  price_class = "PriceClass_200" # includes India
+  web_acl_id  = var.enable_waf ? aws_wafv2_web_acl.web[0].arn : null
 
   origin {
     origin_id                = "spa"
@@ -284,17 +321,26 @@ resource "aws_cloudfront_distribution" "web" {
     }
   }
 
+  # Default behavior serves the SITE.
+  #   spa mode -> S3 bucket, CachingOptimized, GET/HEAD, spa_router (rewrite).
+  #   ecs mode -> ALB origin ("api"), CachingDisabled + AllViewerExceptHostHeader
+  #     (mirrors /api/* so authenticated HTML is never edge-cached and every
+  #     header except Host reaches Next), all methods (App Router server
+  #     actions POST to page routes), and the redirect-only www function.
   default_cache_behavior {
-    target_origin_id       = "spa"
+    target_origin_id       = var.web_origin == "ecs" ? "api" : "spa"
     viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
+    allowed_methods        = var.web_origin == "ecs" ? ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"] : ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
     compress               = true
-    cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+
+    cache_policy_id = var.web_origin == "ecs" ? data.aws_cloudfront_cache_policy.caching_disabled.id : data.aws_cloudfront_cache_policy.caching_optimized.id
+
+    origin_request_policy_id = var.web_origin == "ecs" ? data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id : null
 
     function_association {
       event_type   = "viewer-request"
-      function_arn = aws_cloudfront_function.spa_router[0].arn
+      function_arn = var.web_origin == "ecs" ? aws_cloudfront_function.www_redirect[0].arn : aws_cloudfront_function.spa_router[0].arn
     }
   }
 
@@ -311,13 +357,35 @@ resource "aws_cloudfront_distribution" "web" {
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
   }
 
-  # Serve /.well-known/* files verbatim from the bucket (e.g.
-  # assetlinks.json / apple-app-site-association). The SPA rewrite lives in a
-  # viewer-request function on the DEFAULT behavior only, so a missing file
-  # here is a genuine 404.
+  # ecs mode only: Next's immutable, content-hashed build assets. Long-cache
+  # them at the edge (CachingOptimized) straight from the ALB origin. The SPA
+  # (Vite) never emits /_next/static, so this behavior is inert in spa mode
+  # and is therefore not created there.
+  dynamic "ordered_cache_behavior" {
+    for_each = var.web_origin == "ecs" ? [1] : []
+
+    content {
+      path_pattern           = "/_next/static/*"
+      target_origin_id       = "api"
+      viewer_protocol_policy = "redirect-to-https"
+      allowed_methods        = ["GET", "HEAD"]
+      cached_methods         = ["GET", "HEAD"]
+      compress               = true
+      cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+    }
+  }
+
+  # /.well-known/* — mobile app-link files (assetlinks.json /
+  # apple-app-site-association). Origin follows the switch:
+  #   spa mode -> S3 bucket (files uploaded there out-of-band).
+  #   ecs mode -> ALB origin, so Next serves them from
+  #     apps/web-next/public/.well-known/ (decision D9).
+  # CachingDisabled either way (app-link files must update promptly). The SPA
+  # rewrite lives on the DEFAULT behavior only, so a missing file is a genuine
+  # 404 here, not an index.html.
   ordered_cache_behavior {
     path_pattern           = "/.well-known/*"
-    target_origin_id       = "spa"
+    target_origin_id       = var.web_origin == "ecs" ? "api" : "spa"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
