@@ -1,5 +1,4 @@
-// Minimal boot-only loading state for B1. The kit's real loading.js
-// (SplashScreen) is preserved at ../../_reference/app/loading.js.
+// Minimal root-level loading state (Next.js app-router loading UI).
 
 export default function Loading() {
   return <p>Loading…</p>;

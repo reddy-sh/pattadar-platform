@@ -32,9 +32,15 @@ test('row Open goes through the FileViewer dialog — never a tab', async ({ pag
   await openApp(page, '/app/documents');
   await expect.poll(() => page.locator('tbody tr').count()).toBeGreaterThan(0);
 
-  // Click the first row's NAME cell (td 0 is now the selection checkbox;
-  // selection is checkbox-only — a name click still opens the viewer).
-  await page.locator('tbody tr').first().locator('td').nth(1).click();
+  // Click the NAME cell of the first row that actually HAS a file (td 0 is the
+  // selection checkbox; selection is checkbox-only — a name click still opens
+  // the viewer). The default "All documents" view is unfiltered/unsorted, so
+  // the Nth table row maps to the Nth document from the same query. Targeting
+  // the first file-backed row (rather than blindly row 0, whose fileRef can be
+  // empty — the live dataset's most-recent rows often are — and which then
+  // does not open the viewer) keeps this robust against dataset ordering.
+  const firstWithFile = d.documents.findIndex((x) => x.fileRef);
+  await page.locator('tbody tr').nth(firstWithFile).locator('td').nth(1).click();
   const viewer = page.getByRole('dialog');
   await expect(viewer, 'the in-portal FileViewer must open').toBeVisible();
   await expect(viewer.getByRole('button', { name: 'Download' })).toBeVisible();

@@ -5,9 +5,10 @@
  * (:5173 web / :8080 api) are NEVER touched:
  *   · pattadar API (FastAPI, real local `pattadar` Postgres DB) on :18080,
  *     started from the same venv scripts/start-local.sh provisions
- *   · vite dev server on :5174 with the '/api' proxy pointed at :18080
- *     (VITE_API_PROXY_TARGET) — mock auth (no VITE_COGNITO_*), the proxy
- *     injects x-user-id: sankara.telukutla → the founder's REAL data.
+ *   · web-next (Next.js, `next build && next start`) on :5174 whose dev
+ *     proxy points 'pattadar/' → :18080 (DEV_API_TARGET) and everything else
+ *     → :8082 (DEV_GATEWAY_TARGET) — mock auth (NEXT_PUBLIC_COGNITO_AUTHORITY
+ *     empty), the proxy injects x-user-id: sankara.telukutla → REAL data.
  *
  * ONE worker: the suite reads live data and does one profile round-trip;
  * serial execution keeps every assertion deterministic.
@@ -58,12 +59,24 @@ export default defineConfig({
       },
     },
     {
-      command: `${BUN} run dev --port 5174 --strictPort`,
-      cwd: path.join(PLATFORM_DIR, 'apps/web'),
+      // web-next (Next.js) is now the gated web server: `next build && next
+      // start -p 5174`. Its dev proxy (src/app/api/gateway/[...path]) forwards
+      // 'pattadar/' → DEV_API_TARGET with x-user-id injected, everything else →
+      // DEV_GATEWAY_TARGET. NEXT_PUBLIC_COGNITO_AUTHORITY='' = mock auth.
+      // `next start` has no --strictPort; the url healthcheck below is the guard
+      // against port drift. build+start is slower to boot than vite, so the
+      // healthcheck timeout is bumped so it doesn't false-fail on a cold build.
+      command: `${BUN} run e2e:serve`,
+      cwd: path.join(PLATFORM_DIR, 'apps/web-next'),
       url: 'http://localhost:5174',
       reuseExistingServer: true,
-      timeout: 120_000,
-      env: { VITE_API_PROXY_TARGET: 'http://localhost:18080' },
+      timeout: 300_000,
+      env: {
+        DEV_API_TARGET: 'http://localhost:18080',
+        DEV_GATEWAY_TARGET: 'http://localhost:8082',
+        DEV_USER_ID: 'sankara.telukutla',
+        NEXT_PUBLIC_COGNITO_AUTHORITY: '',
+      },
     },
   ],
 });
