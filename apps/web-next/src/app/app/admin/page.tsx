@@ -1,14 +1,8 @@
 'use client';
 
-// Route skeleton stub (task B5) — Phase C ports the real admin/reference data console.
-import EmptyContent from 'src/components/empty-content';
-import { PageHeader } from 'src/components/PageHeader';
+// Ported from apps/web/src/pages/AdminRefDataPage.tsx (task C8).
+import { AdminRefDataPage } from 'src/views/AdminRefDataPage';
 
-export default function AdminPage() {
-  return (
-    <>
-      <PageHeader title="Admin & Reference Data" />
-      <EmptyContent title="Coming soon" description="This page is coming soon." filled />
-    </>
-  );
+export default function Page() {
+  return <AdminRefDataPage />;
 }

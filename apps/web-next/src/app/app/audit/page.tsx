@@ -1,14 +1,8 @@
 'use client';
 
-// Route skeleton stub (task B5) — Phase C ports the real audit log view.
-import EmptyContent from 'src/components/empty-content';
-import { PageHeader } from 'src/components/PageHeader';
+// Ported from apps/web/src/pages/AuditLogPage.tsx (task C8).
+import { AuditLogPage } from 'src/views/AuditLogPage';
 
-export default function AuditPage() {
-  return (
-    <>
-      <PageHeader title="Audit Log" />
-      <EmptyContent title="Coming soon" description="This page is coming soon." filled />
-    </>
-  );
+export default function Page() {
+  return <AuditLogPage />;
 }
