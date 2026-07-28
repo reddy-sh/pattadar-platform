@@ -78,6 +78,16 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:ecr:*:${data.aws_caller_identity.current.account_id}:repository/${var.app_name}/*"]
   }
 
+  # Roll an ECS service after pushing its image (web today; other services'
+  # deploy jobs will use the same permission as they land). Scoped to this
+  # env's cluster by naming convention — local.prefix ("<app_name>-<env>") is
+  # the same string aws_ecs_cluster.main.name is set to in the runtime module.
+  statement {
+    sid       = "EcsDeploy"
+    actions   = ["ecs:UpdateService"]
+    resources = ["arn:aws:ecs:*:${data.aws_caller_identity.current.account_id}:service/${local.prefix}/*"]
+  }
+
   # Sync the built SPA to the runtime-owned site bucket (name convention:
   # pattadar-<env>-spa-<account>).
   statement {
@@ -192,7 +202,7 @@ resource "aws_iam_policy" "github_deploy" {
   count = var.manage_github_oidc ? 1 : 0
 
   name        = "pattadar-github-deploy"
-  description = "GitHub Actions deploy permissions: ECR push, SPA sync + invalidation, terraform state rw, terraform read surface"
+  description = "GitHub Actions deploy permissions: ECR push, ECS service update, SPA sync + invalidation, terraform state rw, terraform read surface"
   policy      = data.aws_iam_policy_document.github_deploy[0].json
   tags        = local.tags
 }

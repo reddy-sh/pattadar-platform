@@ -14,17 +14,18 @@ permissions:
 concurrency: deploy-web
 
 jobs:
-  # Rollback path (D3): the S3/CloudFront SPA deploy stays intact but only
-  # runs while the repo variable WEB_ORIGIN == "spa" (repo Settings -> Actions
-  # -> Variables — separate from Terraform's own `web_origin` var). D4 flips
-  # WEB_ORIGIN to "ecs" at the cutover. NOTE: until the WEB_ORIGIN repo
-  # variable is created, this job is SKIPPED — GitHub Actions vars default to
-  # "" for an undefined var, which never equals "spa". Set WEB_ORIGIN=spa now
-  # to keep today's behavior unchanged.
+  # Rollback path (D3): the S3/CloudFront SPA deploy stays intact and keeps
+  # running as long as the repo variable WEB_ORIGIN (repo Settings -> Actions
+  # -> Variables — separate from Terraform's own `web_origin` var) is
+  # anything OTHER than "ecs". This is a fail-SAFE guard: GitHub Actions vars
+  # default to "" for an undefined var, and "" != 'ecs' is true, so the SPA
+  # deploy keeps running unconditionally until someone deliberately flips
+  # WEB_ORIGIN to "ecs" at the D4 cutover — an unset/missing variable can
+  # never silently stop this job the way `== 'spa'` would.
   web:
     name: Build & deploy SPA (prod)
     runs-on: ubuntu-latest
-    if: vars.WEB_ORIGIN == 'spa'
+    if: vars.WEB_ORIGIN != 'ecs'
     steps:
       - uses: actions/checkout@v4
 
@@ -115,9 +116,13 @@ jobs:
         with:
           terraform_wrapper: false
 
-      # Track B guard: same idea as the SPA job — until the prod runtime
-      # layer's web ECS service (D2) has actually been applied, skip
-      # gracefully instead of failing the push.
+      # Track B guard: same idea as the SPA job's spa_bucket_name check, but
+      # keyed off the WEB-SPECIFIC resources instead of the runtime ECS
+      # cluster — the pattadar-prod cluster already exists today (it predates
+      # the web service), so cluster presence alone can't detect whether D2
+      # has been applied. The persistent layer's ecr_repository_urls.web is
+      # null until D2 lands, so that's the signal that actually gates this
+      # job.
       - name: Resolve terraform outputs (or skip)
         id: tf
         run: |
@@ -127,12 +132,17 @@ jobs:
           if ! terraform -chdir="$RUNTIME" init -input=false >/dev/null 2>&1 \
             || ! cluster="$(terraform -chdir="$RUNTIME" output -raw ecs_cluster_name 2>/dev/null)" \
             || [ -z "$cluster" ]; then
-            echo "::notice::prod runtime state / ECS cluster not available (Track B not done, or D2 not applied yet) — skipping web image build/deploy."
+            echo "::notice::prod runtime state / ECS cluster not available (Track B not done) — skipping web image build/deploy."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          terraform -chdir="$PERSISTENT" init -input=false >/dev/null
-          ecr_repo="$(terraform -chdir="$PERSISTENT" output -json ecr_repository_urls | jq -r '.web')"
+          if ! terraform -chdir="$PERSISTENT" init -input=false >/dev/null 2>&1 \
+            || ! ecr_repo="$(terraform -chdir="$PERSISTENT" output -json ecr_repository_urls 2>/dev/null | jq -r '.web // empty')" \
+            || [ -z "$ecr_repo" ] || [ "$ecr_repo" = "null" ]; then
+            echo "::notice::prod persistent state / web ECR repository not available yet (D2 not applied to prod) — skipping web image build/deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           {
             echo "skip=false"
             echo "cluster=$cluster"
