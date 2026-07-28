@@ -102,6 +102,10 @@ test('registered deeds: expander reveals the fee breakup', async ({ page }) => {
   await openApp(page, '/app/documents');
   await page.getByRole('tab', { name: 'Registered deeds' }).click();
 
+  // Wait for the registered-deeds table to settle before counting (next start
+  // paints slower than vite; a bare count() can race the first paint and
+  // spuriously skip). Data is present, so the expander must appear.
+  await expect(page.getByRole('button', { name: 'Expand deed' }).first()).toBeVisible();
   const expanders = page.getByRole('button', { name: 'Expand deed' });
   const n = await expanders.count();
   test.skip(n === 0, 'no registered deeds in the dataset — expander not reachable');
