@@ -14,9 +14,17 @@ permissions:
 concurrency: deploy-web
 
 jobs:
+  # Rollback path (D3): the S3/CloudFront SPA deploy stays intact but only
+  # runs while the repo variable WEB_ORIGIN == "spa" (repo Settings -> Actions
+  # -> Variables — separate from Terraform's own `web_origin` var). D4 flips
+  # WEB_ORIGIN to "ecs" at the cutover. NOTE: until the WEB_ORIGIN repo
+  # variable is created, this job is SKIPPED — GitHub Actions vars default to
+  # "" for an undefined var, which never equals "spa". Set WEB_ORIGIN=spa now
+  # to keep today's behavior unchanged.
   web:
     name: Build & deploy SPA (prod)
     runs-on: ubuntu-latest
+    if: vars.WEB_ORIGIN == 'spa'
     steps:
       - uses: actions/checkout@v4
 
@@ -84,6 +92,108 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.tf.outputs.dist_id }}" \
             --paths "/index.html" "/*"
+
+  # web-ecs (D3): builds the pattadar/web Next.js image and rolls the ECS
+  # `web` service. Runs unconditionally (not gated on WEB_ORIGIN) — the web
+  # ECS service exists in both spa and ecs modes (D2), and nothing serves
+  # traffic from it until CloudFront's default origin is switched, so keeping
+  # the image warm is harmless while WEB_ORIGIN=spa. Guarded only by the same
+  # Track B graceful-skip as the job above.
+  web-ecs:
+    name: Build & deploy web (Next.js on ECS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Track B guard: same idea as the SPA job — until the prod runtime
+      # layer's web ECS service (D2) has actually been applied, skip
+      # gracefully instead of failing the push.
+      - name: Resolve terraform outputs (or skip)
+        id: tf
+        run: |
+          set -euo pipefail
+          RUNTIME=infra/terraform/envs/prod/runtime
+          PERSISTENT=infra/terraform/envs/prod/persistent
+          if ! terraform -chdir="$RUNTIME" init -input=false >/dev/null 2>&1 \
+            || ! cluster="$(terraform -chdir="$RUNTIME" output -raw ecs_cluster_name 2>/dev/null)" \
+            || [ -z "$cluster" ]; then
+            echo "::notice::prod runtime state / ECS cluster not available (Track B not done, or D2 not applied yet) — skipping web image build/deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          terraform -chdir="$PERSISTENT" init -input=false >/dev/null
+          ecr_repo="$(terraform -chdir="$PERSISTENT" output -json ecr_repository_urls | jq -r '.web')"
+          {
+            echo "skip=false"
+            echo "cluster=$cluster"
+            echo "ecr_repo=$ecr_repo"
+            echo "cognito_authority=$(terraform -chdir="$PERSISTENT" output -raw cognito_issuer)"
+            echo "cognito_client_id=$(terraform -chdir="$PERSISTENT" output -raw cognito_spa_client_id)"
+            echo "cognito_domain=$(terraform -chdir="$PERSISTENT" output -raw cognito_hosted_ui_domain)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (arm64 emulation for the Fargate ARM64 task)
+        if: steps.tf.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        if: steps.tf.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ECR
+        if: steps.tf.outputs.skip == 'false'
+        env:
+          ECR_REPO: ${{ steps.tf.outputs.ecr_repo }}
+        run: |
+          aws ecr get-login-password --region ap-south-1 \
+            | docker login --username AWS --password-stdin "${ECR_REPO%%/*}"
+
+      # Build context is the REPO ROOT (workspace:* deps make an app-dir
+      # context unresolvable — see apps/web-next/Dockerfile, D1) with
+      # --provenance=false, matching D1 exactly. Tag with the git SHA
+      # (traceable, rollback-able in ECR) AND the moving "latest" tag — the
+      # web ECS task definition's web_image_tag defaults to "latest" (same
+      # moving-tag convention as gateway/api); --force-new-deployment only
+      # forces ECS to re-pull the tag the task def already references, it
+      # does not change which tag that is.
+      - name: Build & push web image
+        if: steps.tf.outputs.skip == 'false'
+        env:
+          ECR_REPO: ${{ steps.tf.outputs.ecr_repo }}
+          NEXT_PUBLIC_COGNITO_AUTHORITY: ${{ steps.tf.outputs.cognito_authority }}
+          NEXT_PUBLIC_COGNITO_CLIENT_ID: ${{ steps.tf.outputs.cognito_client_id }}
+          NEXT_PUBLIC_COGNITO_DOMAIN: ${{ steps.tf.outputs.cognito_domain }}
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --provenance=false \
+            -f apps/web-next/Dockerfile \
+            --build-arg NEXT_PUBLIC_COGNITO_AUTHORITY="$NEXT_PUBLIC_COGNITO_AUTHORITY" \
+            --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID="$NEXT_PUBLIC_COGNITO_CLIENT_ID" \
+            --build-arg NEXT_PUBLIC_COGNITO_DOMAIN="$NEXT_PUBLIC_COGNITO_DOMAIN" \
+            --build-arg NEXT_PUBLIC_COGNITO_REDIRECT_URI=https://pattadar.com/auth/callback \
+            --tag "$ECR_REPO:${{ github.sha }}" \
+            --tag "$ECR_REPO:latest" \
+            --push \
+            .
+
+      - name: Roll the web ECS service
+        if: steps.tf.outputs.skip == 'false'
+        env:
+          CLUSTER: ${{ steps.tf.outputs.cluster }}
+        run: aws ecs update-service --cluster "$CLUSTER" --service web --force-new-deployment
 
   # TODO(Phase 1): service image builds — one job per service (gateway, api,
   # later assistant): docker build from services/<name>, tag with the git SHA,
