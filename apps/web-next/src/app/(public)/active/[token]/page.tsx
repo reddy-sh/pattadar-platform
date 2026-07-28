@@ -1,15 +1,12 @@
 'use client';
 
-// Route skeleton stub (task B5) — Phase C ports the real account-activation
-// landing for the token-based invite flow.
-import EmptyContent from 'src/components/empty-content';
-import { PageHeader } from 'src/components/PageHeader';
+// Ported from apps/web/src/pages/VerifyPage.tsx (task C9). Replaces the B5
+// stub. Source apps/web/src/routes.tsx routes /active/:token to the SAME
+// VerifyPage component as /verify/:token, with no distinguishing prop —
+// confirmed by tests/e2e-ux/specs/auth-pages.spec.ts expecting the identical
+// "Verify membership" probe text on both routes.
+import { VerifyPage } from 'src/views/VerifyPage';
 
-export default function ActivateTokenPage() {
-  return (
-    <>
-      <PageHeader title="Activate" />
-      <EmptyContent title="Coming soon" description="This page is coming soon." filled />
-    </>
-  );
+export default function Page() {
+  return <VerifyPage />;
 }
