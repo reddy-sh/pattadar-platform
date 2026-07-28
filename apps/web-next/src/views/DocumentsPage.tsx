@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Documents — the full documents experience from the current rhub pattadar
+ * Documents — the full documents experience from the current predecessor pattadar
  * app, in two tabs:
  *   · All documents  — every classified file (DocumentsView table mode +
  *     FilesPanel upload/AI-classify pipeline, links, trash flow)

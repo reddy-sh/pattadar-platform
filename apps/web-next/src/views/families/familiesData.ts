@@ -2,7 +2,7 @@
  * Families & Groups data layer — co-located queries/mutations for part 2 of
  * the rebuild (FamiliesGroupsPage / InvitationsPage / NotificationsPage).
  *
- * Field selections and mutation shapes are copied verbatim from the rhub
+ * Field selections and mutation shapes are copied verbatim from the predecessor
  * pattadar app (family/UnifiedFamilyView.tsx, family/GroupsListView.tsx,
  * family/GroupDetailView.tsx, NotificationsView.tsx, RemoteApp.tsx
  * InvitationsView). Live-first with sample fallback, mirroring the app's
@@ -21,7 +21,7 @@ import { gql } from '../../api/client';
 import { emptyLike } from '../../data/useLiveOrSample';
 
 // ---------------------------------------------------------------------------
-// Group type definitions (port of rhub groups.ts)
+// Group type definitions (port of predecessor groups.ts)
 // ---------------------------------------------------------------------------
 
 export interface GroupTypeDef {
@@ -70,7 +70,7 @@ export function roleOptions(type: string): { value: string; label: string }[] {
   return groupTypeDef(type).roles.map((r) => ({ value: r, label: r }));
 }
 
-/** Family relationship options (port of rhub family/genealogy.ts RELATIONS). */
+/** Family relationship options (port of predecessor family/genealogy.ts RELATIONS). */
 export const RELATIONS: { value: string; label: string }[] = [
   { value: 'self', label: 'You' },
   { value: 'grandfather', label: 'Grandfather' },
@@ -167,7 +167,7 @@ export interface NotifierRow {
   priority: number;
 }
 
-// Exact field list the rhub UnifiedFamilyView queries.
+// Exact field list the predecessor UnifiedFamilyView queries.
 export const MEMBER_FIELDS =
   'id ownerUserId name relation gender dob phone email bio photo groupId role isSelf ' +
   'fatherId motherId spouseId isBeneficiary sharePct kind status inviteStatus inviteToken ' +
@@ -363,7 +363,7 @@ export function useNotificationLogList() {
 }
 
 // ---------------------------------------------------------------------------
-// Mutations (shapes verbatim from the rhub app)
+// Mutations (shapes verbatim from the predecessor app)
 // ---------------------------------------------------------------------------
 
 export async function createGroup(type: string, name: string, description: string): Promise<string> {
@@ -551,7 +551,7 @@ export async function sendTestNotification(to: string): Promise<{ provider?: str
   }
 }
 
-/** Public verify link for a member's invite token (same path the rhub app uses). */
+/** Public verify link for a member's invite token (same path the predecessor app uses). */
 export function verifyLink(inviteToken: string): string {
   return `${window.location.origin}/verify/${inviteToken || ''}`;
 }

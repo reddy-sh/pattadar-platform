@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Manual Add-Parcel dialog — port of the rhub pattadar app's "Add Parcel"
+ * Manual Add-Parcel dialog — port of the predecessor pattadar app's "Add Parcel"
  * modal (ParcelsView): passbook, survey number/sub-division, extent + unit
  * (converted to canonical acres), classification, acquisition source and an
  * optional cost-per-acre saved as acquisition cost (extent × cost/acre).

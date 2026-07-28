@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Invitations — functional-parity port of the rhub pattadar InvitationsView:
+ * Invitations — functional-parity port of the predecessor pattadar InvitationsView:
  * invitee / scope / role / status / expiry table, Send-Invitation dialog
  * (scope type + id, role, expiry), Accept / Revoke / Delete row actions and
  * CSV/Excel/PDF export.

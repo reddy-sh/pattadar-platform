@@ -1,6 +1,6 @@
 /**
  * Write-side actions for the Passbooks and Land & Properties pages — the
- * exact mutations/endpoints the rhub pattadar app calls (RemoteApp.tsx,
+ * exact mutations/endpoints the predecessor pattadar app calls (RemoteApp.tsx,
  * shared.ts, PassbookCreateModal.tsx, AddPropertyModal.tsx).
  */
 import { apiFetch, gql } from '../api/client';

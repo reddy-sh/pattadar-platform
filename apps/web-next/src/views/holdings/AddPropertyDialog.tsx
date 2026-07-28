@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Add-Property flow — functional port of the rhub pattadar app's
+ * Add-Property flow — functional port of the predecessor pattadar app's
  * AddPropertyModal. Drop up to 5 deeds/allotment letters (or enter manually);
  * each file is mirrored to My Drive then read by
  * POST /api/gateway/pattadar/extract-property. Agricultural deeds are routed

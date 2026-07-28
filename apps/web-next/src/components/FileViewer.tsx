@@ -9,7 +9,7 @@
  *
  * Open it from anywhere with openFileViewer(files, index) — a window
  * CustomEvent carries the request to the single <FileViewerHost/> mounted in
- * AppShell (fire-and-forget, same pattern as the rhub shell actions).
+ * AppShell (fire-and-forget, same pattern as the predecessor shell actions).
  */
 import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';

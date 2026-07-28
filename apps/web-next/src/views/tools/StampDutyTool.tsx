@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Stamp Duty & Fee Calculator — functional port of the rhub StampDutyView:
+ * Stamp Duty & Fee Calculator — functional port of the predecessor StampDutyView:
  * deed type comes from the 115-row AP-IGRS fee schedule (the fee-row id is
  * the value so the resolver applies the exact real rates), consideration +
  * market/guideline value, and a full duty & fee breakup. Calculation runs

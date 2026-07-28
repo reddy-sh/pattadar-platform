@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Passbook record — functional-parity port of the rhub pattadar app's
+ * Passbook record — functional-parity port of the predecessor pattadar app's
  * PassbookDetailView (RemoteApp.tsx): holder header card (photo upload →
  * square-crop → setPassbookPhoto, owner + khata + father/husband + address +
  * ref), stat tiles (Parcels / Total extent / Land type / Created), the

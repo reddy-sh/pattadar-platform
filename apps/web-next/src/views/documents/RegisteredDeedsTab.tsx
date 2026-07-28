@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Registered deeds — functional port of the rhub RegisteredDocsView +
+ * Registered deeds — functional port of the predecessor RegisteredDocsView +
  * RegisteredDocDetailView (inline expander instead of a detail route, since
  * /app/deeds redirects into Documents): list of AI-imported registered
  * documents, expandable row with parties / property & boundaries / fees /

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Families & Groups — functional-parity port of the rhub pattadar app's
+ * Families & Groups — functional-parity port of the predecessor pattadar app's
  * GroupsListView + GroupDetailView (founder screenshot contract): typed
  * group cards ("<n> members · <n> passbooks · Your role: …", "View
  * holdings ›" deep link) with the full in-page group detail — member table,

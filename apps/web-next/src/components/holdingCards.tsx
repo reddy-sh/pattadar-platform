@@ -2,7 +2,7 @@
 
 /**
  * Card building blocks for the Passbooks and Land & Properties grids —
- * functional port of the rhub pattadar app's ParcelGallery helpers
+ * functional port of the predecessor pattadar app's ParcelGallery helpers
  * (CardHero, CardActions, parcelPill, stakePill) in MUI.
  */
 import { useEffect, useState } from 'react';

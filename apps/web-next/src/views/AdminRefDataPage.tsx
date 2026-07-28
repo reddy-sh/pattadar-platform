@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Admin & Reference Data — functional port of the rhub AdminView: read-only
+ * Admin & Reference Data — functional port of the predecessor AdminView: read-only
  * reference tables for States & UTs, Districts, the 115 AP deed types and the
  * IGRS fee schedule (rates as percentages), plus the Analytics coming-soon
  * tab. Queries are co-located here; each tab has search + export.

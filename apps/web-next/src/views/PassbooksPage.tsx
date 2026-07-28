@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Passbooks — functional-parity port of the rhub pattadar app's
+ * Passbooks — functional-parity port of the predecessor pattadar app's
  * PassbooksView: "<n> khatas" header, extent/villages/parcels subtitle,
  * stat cards (Passbooks / Total Extent / Villages / Acquisition Cost),
  * search, List/Grid toggle, CSV/Excel/PDF export, khata cards and the

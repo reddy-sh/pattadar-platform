@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * GeoMap — port of the rhub design-system GeoMap (Leaflet + OpenStreetMap /
+ * GeoMap — port of the predecessor design-system GeoMap (Leaflet + OpenStreetMap /
  * Esri satellite, fully open source, no API key), restyled for the Emerald &
  * Gold theme (rounded emerald-bordered container, emerald shapes/pins; colors
  * resolve from the MUI CSS theme variables so dark mode follows along).

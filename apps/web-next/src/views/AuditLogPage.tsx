@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Audit — the full activity log (rhub AuditView): every recorded action with
+ * Audit — the full activity log (predecessor AuditView): every recorded action with
  * actor, friendly action phrasing, target entity, DD/MM/YYYY timestamp, a
  * details expander per row, search, and CSV/Excel/PDF export.
  */

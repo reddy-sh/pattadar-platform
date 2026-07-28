@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * PersonDialog — add/edit a group member. Functional port of the rhub
+ * PersonDialog — add/edit a group member. Functional port of the predecessor
  * pattadar PersonModal: side-by-side "Scan Aadhaar / ID (AI)" import panel
  * (POST /api/gateway/pattadar/extract-aadhaar, with a best-effort My Drive
  * mirror) next to the manual form. DOB → minor → guardian requirement,

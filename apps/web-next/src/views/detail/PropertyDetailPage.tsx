@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Property 360 — functional-parity port of the rhub pattadar app's
+ * Property 360 — functional-parity port of the predecessor pattadar app's
  * PropertyDetailView + EditPropertyModal (properties/*.tsx): header with
  * type icon/status chips + tax/EC attention badges, photo strip, property
  * record with type-driven attributes (TEXT JSON, ISO dates shown DD/MM/YYYY),

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Profile — functional port of the rhub ProfileView: identity card, preferred
+ * Profile — functional port of the predecessor ProfileView: identity card, preferred
  * language, step-up MFA toggle, "My Address" (feeds the "Same as my address"
  * shortcut when adding family members), districts of interest, notification
  * channels, and the DPDP-compliant masked-Aadhaar reference (raw Aadhaar is

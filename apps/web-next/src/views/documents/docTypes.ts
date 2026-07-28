@@ -1,5 +1,5 @@
 /**
- * Doc-type taxonomy — ported verbatim from the rhub pattadar app's
+ * Doc-type taxonomy — ported verbatim from the predecessor pattadar app's
  * docTypes.ts + documentClassify.ts (keys, labels, groups, classifier map).
  * Pure data/functions, no React imports.
  */

@@ -1,7 +1,7 @@
 /**
  * Rotating copy for the AI "reading" spinner — land-deed-specific, ordered to
  * feel like it's progressing through a real deed rather than just repeating
- * "Reading…". Ported verbatim from the rhub AddPropertyModal.
+ * "Reading…". Ported verbatim from the predecessor AddPropertyModal.
  */
 import { useEffect, useState } from 'react';
 

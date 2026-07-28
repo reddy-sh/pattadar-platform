@@ -2,7 +2,7 @@
 
 /**
  * Shared building blocks for the three record-detail pages (parcel 360,
- * property 360, passbook record) — MUI ports of the small helpers the rhub
+ * property 360, passbook record) — MUI ports of the small helpers the predecessor
  * pattadar app keeps inside RemoteApp.tsx: description fields, status chips,
  * the append-only NotesPanel, the read-only audit timeline, the linked
  * documents list (My Drive preview/download) and the media hero banner.

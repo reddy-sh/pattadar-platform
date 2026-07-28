@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Parcel location dialog — port of the rhub pattadar app's ParcelLocationModal:
+ * Parcel location dialog — port of the predecessor pattadar app's ParcelLocationModal:
  * pin a location or draw the boundary on the open-source map straight from the
  * holdings list, saved via updateParcelGeo.
  */

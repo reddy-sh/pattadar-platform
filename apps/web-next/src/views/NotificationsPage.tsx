@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Sent notifications — functional-parity port of the rhub pattadar
+ * Sent notifications — functional-parity port of the predecessor pattadar
  * NotificationsView over notificationLog: All ↔ Failures filter with
  * counts, When / Channel / To / Subject / Provider / Status table,
  * one-click send-test dialog, refresh and per-row delete. "stub · not

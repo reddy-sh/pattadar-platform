@@ -1,5 +1,5 @@
 /**
- * Small display helpers ported from the rhub pattadar app (RemoteApp.tsx /
+ * Small display helpers ported from the predecessor pattadar app (RemoteApp.tsx /
  * shared.ts): server-timestamp formatting and the deterministic avatar
  * colour used on owner initials.
  */

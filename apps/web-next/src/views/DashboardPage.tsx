@@ -8,7 +8,7 @@
  *   honest guideline-basis note) · "things need your attention" with action
  *   buttons + green all-clear list · record completeness bar · tools grid ·
  *   family & heirs bars · your land village-by-village with deed chips ·
- *   AP-IGRS footer note. Value math is unchanged from rhub dashboard.ts.
+ *   AP-IGRS footer note. Value math is unchanged from predecessor dashboard.ts.
  */
 import { useState } from 'react';
 import { useRouter } from 'src/routes/hooks';
@@ -80,7 +80,7 @@ export function DashboardPage() {
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstRun = d.stats.totalPassbooks === 0 && d.properties.length === 0;
 
-  // ── value model (unchanged from rhub dashboard.ts) ────────────────────
+  // ── value model (unchanged from predecessor dashboard.ts) ────────────────────
   const farmTotal = d.stats.estimatedValue ?? 0;
   const propTotal = d.properties.reduce((s, p) => s + propertyValue(p), 0);
   const total = farmTotal + propTotal;

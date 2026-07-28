@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * New-Passbook flow — functional port of the rhub pattadar app's
+ * New-Passbook flow — functional port of the predecessor pattadar app's
  * PassbookCreateModal. Two steps: "choose" (drop up to 5 passbook photos /
  * PDFs, or enter manually) and "batch" (left: draft list; right: what the AI
  * read + the editable form, or a rotating "reading" spinner).

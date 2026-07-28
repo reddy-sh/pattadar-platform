@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * All documents — functional port of the rhub DocumentsView (table mode) +
+ * All documents — functional port of the predecessor DocumentsView (table mode) +
  * FilesPanel upload pipeline: every classified document with doc-type chips,
  * real My-Drive filenames, preview/download via blob fetch, upload (≤10
  * files / 1 GB per batch) with background AI classification, link-to-parcel /

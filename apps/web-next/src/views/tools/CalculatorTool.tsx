@@ -1,11 +1,11 @@
 'use client';
 
 /**
- * Area Calculator — functional port of the rhub Calculator.tsx over
+ * Area Calculator — functional port of the predecessor Calculator.tsx over
  * @pattadar/core units.ts + landcalc.ts: Unit Converter, Plot Area
  * (rectangle / triangle / quadrilateral from ground measurements), Fencing
  * estimate (posts, wire, cost — accepts the perimeter from the other tabs),
- * and Map Area from a GeoJSON polygon boundary. The rhub original draws the
+ * and Map Area from a GeoJSON polygon boundary. The predecessor original draws the
  * boundary on an interactive map; this head accepts the polygon GeoJSON
  * directly (no map dependency) and runs the same spherical math.
  */

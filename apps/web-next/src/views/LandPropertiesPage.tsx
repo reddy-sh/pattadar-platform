@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Land & Properties — functional-parity port of the rhub pattadar app's
+ * Land & Properties — functional-parity port of the predecessor pattadar app's
  * combined HoldingsView + AllHoldingsView: "<n> holdings" header, per-tab
  * stat tiles, All / Land Parcels / Properties tabs, search, quick filters
  * (kind / status / stake / family / passbook), List/Grid modes, CSV/Excel/PDF

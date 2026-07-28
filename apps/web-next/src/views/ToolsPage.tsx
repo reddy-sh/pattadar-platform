@@ -2,12 +2,12 @@
 
 /**
  * Tools — the four utilities live under one section, matching the current
- * rhub pattadar app's ToolsView tabs: Find SRO · Stamp Duty · Market Value ·
+ * predecessor pattadar app's ToolsView tabs: Find SRO · Stamp Duty · Market Value ·
  * Area Calculator. Old direct routes (/app/sro, /app/stamp-duty,
  * /app/market-value, /app/calculator) redirect here and land on the matching
  * tab via ?tab=.
  *
- * All four tabs are at functional parity with the rhub source: the SRO
+ * All four tabs are at functional parity with the predecessor source: the SRO
  * directory, the AP fee-schedule stamp-duty calculator, the guideline
  * market-value cascade lookup, and the landcalc-driven area calculator.
  */

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Parcel 360 — functional-parity port of the rhub pattadar app's
+ * Parcel 360 — functional-parity port of the predecessor pattadar app's
  * Parcel360Content (RemoteApp.tsx): header (survey/status/class/extent),
  * photo strip, parcel record + location & boundaries + at-a-glance cards,
  * financials, legal & compliance, family share/heir summary, geo section

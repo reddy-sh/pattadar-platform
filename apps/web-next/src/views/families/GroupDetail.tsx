@@ -2,7 +2,7 @@
 
 /**
  * GroupDetail — in-page detail section for a selected group (the rebuild's
- * routes have no /app/groups/:id, so the rhub GroupDetailView renders here
+ * routes have no /app/groups/:id, so the predecessor GroupDetailView renders here
  * as a section under the cards). Ports: header + Edit/Delete group, the
  * family inactivity-safeguard alert + notifier priority editor, and the
  * Members / Land / Invitations / Activity tabs with the full member table,

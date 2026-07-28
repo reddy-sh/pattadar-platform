@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Files panel for the record-detail pages — functional port of the rhub
+ * Files panel for the record-detail pages — functional port of the predecessor
  * pattadar FilesPanel for the `property` and `parcel` scopes: drag-drop +
  * Upload button (≤10 files / 1 GB per batch), files go to My Drive then a
  * createDocument row is linked to the record, background AI classification

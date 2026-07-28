@@ -1,6 +1,6 @@
 /**
  * My-Drive storage helpers for the Documents page — the exact endpoints the
- * rhub pattadar app calls (shared.ts trashDocuments, driveFolders.ts
+ * predecessor pattadar app calls (shared.ts trashDocuments, driveFolders.ts
  * nestUnderPattadar, FilesPanel/DocumentsTable blob + node lookups). All
  * best-effort: in local dev the storage service may be absent and every
  * helper degrades gracefully.
@@ -80,7 +80,7 @@ export function downloadBlob(blob: Blob, name: string): void {
 
 /**
  * Create a `documents` row linked to a parcel / passbook / property (the
- * exact createDocument call the rhub FilesPanel makes). Returns the new
+ * exact createDocument call the predecessor FilesPanel makes). Returns the new
  * document id or '' on failure.
  */
 export async function createDocumentRow(
@@ -112,7 +112,7 @@ export async function createDocumentRow(
 /**
  * Upload an image → My Drive → create a "photo" document on the parcel or
  * property — the grids/galleries treat the newest photo as the cover.
- * (Port of rhub shared.ts uploadCoverPhoto.) Returns 'storage' when My
+ * (Port of predecessor shared.ts uploadCoverPhoto.) Returns 'storage' when My
  * Drive is unreachable so callers can show STORAGE_OFFLINE_MSG.
  */
 export async function uploadCoverPhoto(
@@ -157,7 +157,7 @@ export async function trashDocument(doc: { id: string; fileRef?: string }): Prom
 /**
  * Deleting a document also moves its My Drive file to Trash (soft-delete via
  * the storage API) and removes the document row. Best-effort — a failed
- * trash never blocks the delete. (Port of rhub shared.ts trashDocuments.)
+ * trash never blocks the delete. (Port of predecessor shared.ts trashDocuments.)
  */
 export async function trashDocuments(
   docs: { id: string; fileRef?: string }[],
@@ -186,7 +186,7 @@ export async function trashDocuments(
 /**
  * Shared My-Drive folder-nesting: files land at
  * My Drive / Pattadar / Passbook <ref> [/ Parcel <label>] / <file>.
- * (Port of rhub driveFolders.ts nestUnderPattadar — filing is best-effort.)
+ * (Port of predecessor driveFolders.ts nestUnderPattadar — filing is best-effort.)
  */
 export async function nestUnderPattadar(
   opts: { passbookRef: string; parcelLabel?: string },

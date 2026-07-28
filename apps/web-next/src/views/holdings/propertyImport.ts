@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the Add-Property AI import flow (ported verbatim from the
- * rhub pattadar app's properties/propertyImport.ts). No React imports.
+ * predecessor pattadar app's properties/propertyImport.ts). No React imports.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { PROPERTY_TYPES, attributeFieldsFor } from './propertyTypes';

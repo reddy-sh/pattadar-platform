@@ -2,7 +2,7 @@
 
 /**
  * ExportMenu — "Export ▾" dropdown offering CSV / Excel / branded PDF
- * (functional port of the rhub design-system ExportMenu, MUI edition).
+ * (functional port of the predecessor design-system ExportMenu, MUI edition).
  * Pass `cols` (with optional per-column `fmt`), `rows` and a `brand`
  * (used for the PDF/Excel header + watermark — NOT shown in the menu).
  */

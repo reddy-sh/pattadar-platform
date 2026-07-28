@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * "Register a Deed" dialog — functional port of the rhub RegisteredDocsView
+ * "Register a Deed" dialog — functional port of the predecessor RegisteredDocsView
  * modal: left panel imports a scanned registered document (PDF/image, English
  * or Telugu) through the AI extractor (/api/gateway/pattadar/
  * import-registered-document) with the rotating land-deed reading messages

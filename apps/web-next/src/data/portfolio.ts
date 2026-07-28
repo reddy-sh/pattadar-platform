@@ -1,6 +1,6 @@
 /**
  * Pure portfolio computations for the Land Portfolio dashboard — information
- * design rebuilt from the rhub app's dashboard.ts (records health, succession
+ * design rebuilt from the predecessor app's dashboard.ts (records health, succession
  * cover, tax compliance, member verification, attention items, gains).
  * No React imports.
  */

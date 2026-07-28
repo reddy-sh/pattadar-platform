@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * "My stake in this holding" — port of the rhub pattadar app's StakeModal:
+ * "My stake in this holding" — port of the predecessor pattadar app's StakeModal:
  * record your relationship to a parcel/property (owned / managed / watch).
  */
 import { useEffect, useState } from 'react';

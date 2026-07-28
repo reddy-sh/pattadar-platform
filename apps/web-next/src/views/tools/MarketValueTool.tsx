@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Market Value — the AP guideline-rate lookup (rhub MarketValueView) with a
+ * Market Value — the AP guideline-rate lookup (predecessor MarketValueView) with a
  * district → mandal → village cascade over the marketValues reference table.
  * Selecting down the cascade narrows the rows; a village selection surfaces
  * its rates as highlight cards.

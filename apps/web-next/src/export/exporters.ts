@@ -1,6 +1,6 @@
 /**
  * Table exporters — CSV, Excel (.xlsx) and a branded, watermarked corporate A4
- * PDF report (ported from the rhub design-system exporters.ts; the data-prep
+ * PDF report (ported from the predecessor design-system exporters.ts; the data-prep
  * half lives in @pattadar/core). jsPDF / xlsx are lazy-imported so they only
  * load when the user actually exports (keeps the initial chunk lean).
  */

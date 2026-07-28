@@ -1,6 +1,6 @@
 /**
  * Per-view data hooks. Each tries LIVE GraphQL first — using the exact field
- * names the rhub pattadar app queries — and falls back to the bundled sample
+ * names the predecessor pattadar app queries — and falls back to the bundled sample
  * datasets on any failure (see useLiveOrSample).
  */
 import {
@@ -144,7 +144,7 @@ export function useDashboard() {
 }
 
 // ---------------------------------------------------------------------------
-// Portfolio views — field selections copied verbatim from the rhub pattadar
+// Portfolio views — field selections copied verbatim from the predecessor pattadar
 // app (RemoteApp.tsx PassbooksView / HoldingsView + AllHoldingsView.tsx).
 // ---------------------------------------------------------------------------
 

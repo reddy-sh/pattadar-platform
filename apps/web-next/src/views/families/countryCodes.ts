@@ -1,5 +1,5 @@
 /**
- * Country dial codes — direct port of the rhub pattadar app's
+ * Country dial codes — direct port of the predecessor pattadar app's
  * countryCodes.ts (file-sourced reference data per the GitOps convention).
  * India (+91) is the default; covers the NRI corridors where family
  * members commonly live.

@@ -1,6 +1,6 @@
 /**
  * Pure type-definition data for the non-agricultural property register
- * (ported verbatim from the rhub pattadar app's propertyTypes.ts). Drives
+ * (ported verbatim from the predecessor pattadar app's propertyTypes.ts). Drives
  * the type-adaptive Add-Property form.
  */
 export interface AttrField {

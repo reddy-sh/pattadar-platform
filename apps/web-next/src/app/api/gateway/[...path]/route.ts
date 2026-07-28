@@ -22,6 +22,7 @@ async function forward(req: NextRequest, { params }: { params: Promise<{ path: s
     : `${target}/api/gateway/${path.join('/')}${search}`;
   const headers = new Headers(req.headers);
   HOP.forEach((h) => headers.delete(h));
+  headers.delete('x-user-id'); // never trust a client-supplied identity header
   if (direct && DEV_USER) headers.set('x-user-id', DEV_USER);
   const sse = path[0] === 'assistant'; // SSE stream must not be time-capped
   const res = await fetch(url, {
