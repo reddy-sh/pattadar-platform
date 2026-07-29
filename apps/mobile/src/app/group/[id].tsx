@@ -278,6 +278,6 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '700' },
   sectionTitle: { marginTop: 4 },
   sharePct: { alignSelf: 'center', fontWeight: '700' },
-  rightRow: { flexDirection: 'row', alignItems: 'center' },
+  rightRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   warnBox: { borderRadius: 10, padding: 12, gap: 10, alignItems: 'flex-start' },
 });
