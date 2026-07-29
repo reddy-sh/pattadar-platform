@@ -28,6 +28,7 @@ import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
 import { isAllowedApiUrl } from '@/lib/urlScheme';
 import { useAppTheme } from '@/theme/paper';
 import { formatAadhaarMask, isoToDmy } from '@pattadar/core';
+import { tokens } from '@pattadar/tokens';
 
 /** Local mirror of the server's mask, for the confirmation message only. */
 const maskFromDigits = (d: string) => `XXXX-XXXX-${d.replace(/\D/g, '').slice(-4)}`;
@@ -221,224 +222,253 @@ export default function AccountScreen() {
             </Text>
           </View>
         </View>
-        <Divider />
         <List.Section>
           {/* CL-508: Cognito gives an email and a display name — Aadhaar is the
               only source of a legal name, DOB, gender and address for AP land
               records, so it belongs on the account, not only on members. */}
           <List.Subheader style={styles.subheader}>Your identity</List.Subheader>
-          <List.Item
-            style={styles.row}
-            title="Aadhaar"
-            descriptionNumberOfLines={4}
-            description={
-              myMask
-                ? [
-                    formatAadhaarMask(myMask),
-                    // CL-509: the point of scanning is these fields — show them.
-                    [selfKyc?.dob ? isoToDmy(selfKyc.dob) : '', selfKyc?.gender ? cap(selfKyc.gender) : '']
-                      .filter(Boolean)
-                      .join(' · '),
-                    selfKyc?.presentAddress || '',
-                  ]
-                    .filter(Boolean)
-                    .join('\n')
-                : 'Not added — scan your card to fill your name, date of birth, gender and address'
-            }
-            left={(p) => <List.Icon {...p} icon="shield-account-outline" />}
-            right={() =>
-              myMask ? (
-                <Button
-                  mode="text"
-                  compact
-                  icon="content-copy"
-                  loading={myAadhaar.reveal.isPending}
-                  onPress={async () => {
-                    // H-8a: every reveal re-authenticates — a single unlock
-                    // must not let the full number be copied repeatedly.
-                    if (!(await authenticateForReveal('Copy your Aadhaar number'))) return;
-                    try {
-                      const r = await myAadhaar.reveal.mutateAsync();
-                      await copySensitive(r.revealMyAadhaar);
-                      setNote('Aadhaar copied — the clipboard clears in a minute.');
-                    } catch (e) {
-                      setNote(e instanceof Error ? e.message : "Couldn't copy the number");
-                    }
-                  }}
-                >
-                  Copy
-                </Button>
-              ) : (
-                <Button mode="text" compact icon="camera" onPress={scanMyCard}>
-                  Add
-                </Button>
-              )
-            }
-            onPress={myMask ? undefined : scanMyCard}
-          />
-          {/* CL-545: scanning a relative's card used to be one-way — applyMyKyc
-              writes only non-empty values, so every later submit preserved the
-              wrong name. This is the way back. */}
-          {!!myMask && (
+          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
             <List.Item
               style={styles.row}
-              title="This isn't me"
-              description="Remove this name, date of birth, address and Aadhaar from your account"
-              titleStyle={{ color: theme.colors.error }}
-              left={(p) => <List.Icon {...p} icon="account-remove-outline" color={theme.colors.error} />}
-              onPress={() => setConfirmClear(true)}
+              title="Aadhaar"
+              descriptionNumberOfLines={4}
+              description={
+                myMask
+                  ? [
+                      formatAadhaarMask(myMask),
+                      // CL-509: the point of scanning is these fields — show them.
+                      [selfKyc?.dob ? isoToDmy(selfKyc.dob) : '', selfKyc?.gender ? cap(selfKyc.gender) : '']
+                        .filter(Boolean)
+                        .join(' · '),
+                      selfKyc?.presentAddress || '',
+                    ]
+                      .filter(Boolean)
+                      .join('\n')
+                  : 'Not added — scan your card to fill your name, date of birth, gender and address'
+              }
+              left={(p) => <List.Icon {...p} icon="shield-account-outline" />}
+              right={() =>
+                myMask ? (
+                  <Button
+                    mode="text"
+                    compact
+                    icon="content-copy"
+                    loading={myAadhaar.reveal.isPending}
+                    onPress={async () => {
+                      // H-8a: every reveal re-authenticates — a single unlock
+                      // must not let the full number be copied repeatedly.
+                      if (!(await authenticateForReveal('Copy your Aadhaar number'))) return;
+                      try {
+                        const r = await myAadhaar.reveal.mutateAsync();
+                        await copySensitive(r.revealMyAadhaar);
+                        setNote('Aadhaar copied — the clipboard clears in a minute.');
+                      } catch (e) {
+                        setNote(e instanceof Error ? e.message : "Couldn't copy the number");
+                      }
+                    }}
+                  >
+                    Copy
+                  </Button>
+                ) : (
+                  <Button mode="text" compact icon="camera" onPress={scanMyCard}>
+                    Add
+                  </Button>
+                )
+              }
+              onPress={myMask ? undefined : scanMyCard}
             />
-          )}
+            {/* CL-545: scanning a relative's card used to be one-way — applyMyKyc
+                writes only non-empty values, so every later submit preserved the
+                wrong name. This is the way back. */}
+            {!!myMask && (
+              <>
+                <Divider leftInset />
+                <List.Item
+                  style={styles.row}
+                  title="This isn't me"
+                  description="Remove this name, date of birth, address and Aadhaar from your account"
+                  titleStyle={{ color: theme.colors.error }}
+                  left={(p) => <List.Icon {...p} icon="account-remove-outline" color={theme.colors.error} />}
+                  onPress={() => setConfirmClear(true)}
+                />
+              </>
+            )}
+          </View>
         </List.Section>
-        <Divider />
         <List.Section>
           <List.Subheader style={styles.subheader}>Land</List.Subheader>
-          <List.Item
-            style={styles.row}
-            title="Pattadar Assistant"
-            description="Ask about your land, duty, documents"
-            left={(p) => <List.Icon {...p} icon="shimmer" />}
-            onPress={() => router.push('/assistant' as never)}
-          />
-          <List.Item
-            style={styles.row}
-            title="Documents"
-            description="Upload, classify & file deeds"
-            left={(p) => <List.Icon {...p} icon="file-document-outline" />}
-            onPress={() => router.push('/documents' as never)}
-          />
-          {/* CL-322: a row that does nothing is worse than no row. Invitations
-              is genuinely web-only today, so it says so AND opens the web. */}
-          <List.Item
-            style={styles.row}
-            title="Invitations"
-            description="Shares & verification invites · Web only"
-            left={(p) => <List.Icon {...p} icon="email-outline" />}
-            right={(p) => <List.Icon {...p} icon="open-in-new" />}
-            onPress={() => Linking.openURL('https://pattadar.com/invitations').catch(() => undefined)}
-          />
-          <List.Item
-            style={styles.row}
-            title="Activity log"
-            description="Every change, most recent first"
-            left={(p) => <List.Icon {...p} icon="history" />}
-            onPress={() => router.push('/activity' as never)}
-          />
+          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+            <List.Item
+              style={styles.row}
+              title="Pattadar Assistant"
+              description="Ask about your land, duty, documents"
+              left={(p) => <List.Icon {...p} icon="shimmer" />}
+              onPress={() => router.push('/assistant' as never)}
+            />
+            <Divider leftInset />
+            <List.Item
+              style={styles.row}
+              title="Documents"
+              description="Upload, classify & file deeds"
+              left={(p) => <List.Icon {...p} icon="file-document-outline" />}
+              onPress={() => router.push('/documents' as never)}
+            />
+            <Divider leftInset />
+            {/* CL-322: a row that does nothing is worse than no row. Invitations
+                is genuinely web-only today, so it says so AND opens the web. */}
+            <List.Item
+              style={styles.row}
+              title="Invitations"
+              description="Shares & verification invites · Web only"
+              left={(p) => <List.Icon {...p} icon="email-outline" />}
+              right={(p) => <List.Icon {...p} icon="open-in-new" />}
+              onPress={() => Linking.openURL('https://pattadar.com/invitations').catch(() => undefined)}
+            />
+            <Divider leftInset />
+            <List.Item
+              style={styles.row}
+              title="Activity log"
+              description="Every change, most recent first"
+              left={(p) => <List.Icon {...p} icon="history" />}
+              onPress={() => router.push('/activity' as never)}
+            />
+          </View>
           {/* CL-323/324: Wallet and Tools were listing features that do not
               exist in any head — no financial model, no calculators. Listing
               them promises what we cannot deliver, so they are hidden until
               they ship rather than shown as permanent "soon" rows. */}
-          <Divider />
+        </List.Section>
+        <List.Section>
           <List.Subheader style={styles.subheader}>App</List.Subheader>
-          <List.Item
-            style={styles.row}
-            title="Units"
-            description={UNIT_LABELS[unitPref]}
-            left={(p) => <List.Icon {...p} icon="ruler-square" />}
-            onPress={() => setUnitDialog(true)}
-          />
-          {soon('Appearance', 'Follows your device light/dark setting', 'theme-light-dark')}
-          {/* CL-317: only in a debug build, or after 7 taps on Version. A
-              release build never renders a raw endpoint. */}
-          {/* Always reachable when NO address is configured: hiding the only
-              way to set one behind seven taps strands the whole app. */}
-          {(showDebug || !(currentUrl || API_URL)) && (
+          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
             <List.Item
               style={styles.row}
-              title="Server connection"
-              description={`API ${currentUrl || API_URL || 'not set'}`}
-              descriptionNumberOfLines={1}
-              left={(p) => <List.Icon {...p} icon="server-network-outline" />}
-              onPress={() => {
-                setUrl(currentUrl);
-                setStorageUrl(currentStorage);
-                setUrlError('');
-                setUrlDialog(true);
-              }}
+              title="Units"
+              description={UNIT_LABELS[unitPref]}
+              left={(p) => <List.Icon {...p} icon="ruler-square" />}
+              onPress={() => setUnitDialog(true)}
             />
-          )}
+            <Divider leftInset />
+            {soon('Appearance', 'Follows your device light/dark setting', 'theme-light-dark')}
+            {/* CL-317: only in a debug build, or after 7 taps on Version. A
+                release build never renders a raw endpoint. */}
+            {/* Always reachable when NO address is configured: hiding the only
+                way to set one behind seven taps strands the whole app. */}
+            {(showDebug || !(currentUrl || API_URL)) && (
+              <>
+                <Divider leftInset />
+                <List.Item
+                  style={styles.row}
+                  title="Server connection"
+                  description={`API ${currentUrl || API_URL || 'not set'}`}
+                  descriptionNumberOfLines={1}
+                  left={(p) => <List.Icon {...p} icon="server-network-outline" />}
+                  onPress={() => {
+                    setUrl(currentUrl);
+                    setStorageUrl(currentStorage);
+                    setUrlError('');
+                    setUrlDialog(true);
+                  }}
+                />
+              </>
+            )}
+          </View>
+        </List.Section>
 
-          <Divider />
+        <List.Section>
           <List.Subheader style={styles.subheader}>Your data</List.Subheader>
-          {/* CL-326 */}
-          <List.Item
-            style={styles.row}
-            title="Export your records"
-            description="Complete-record PDF per parcel or passbook"
-            left={(p) => <List.Icon {...p} icon="download-outline" />}
-            right={() => (
-              <Chip compact mode="outlined" textStyle={styles.soonChip}>
-                Soon
-              </Chip>
-            )}
-            onPress={() => setNote('Export is being built — it will produce the full record, N/A entries included.')}
-          />
-          <List.Item
-            style={styles.row}
-            title="Clear cached files"
-            description="Frees space used by downloaded and scanned document copies on this device"
-            left={(p) => <List.Icon {...p} icon="delete-sweep-outline" />}
-            onPress={() => setConfirmClearCache(true)}
-          />
-          <List.Item
-            style={styles.row}
-            title="Delete account"
-            description="Permanently removes your records"
-            titleStyle={{ color: theme.colors.error }}
-            left={(p) => <List.Icon {...p} icon="account-remove-outline" color={theme.colors.error} />}
-            onPress={() =>
-              Linking.openURL('mailto:support@pattadar.com?subject=Delete%20my%20Pattadar%20account').catch(
-                () => undefined,
-              )
-            }
-          />
+          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+            {/* CL-326 */}
+            <List.Item
+              style={styles.row}
+              title="Export your records"
+              description="Complete-record PDF per parcel or passbook"
+              left={(p) => <List.Icon {...p} icon="download-outline" />}
+              right={() => (
+                <Chip compact mode="outlined" textStyle={styles.soonChip}>
+                  Soon
+                </Chip>
+              )}
+              onPress={() => setNote('Export is being built — it will produce the full record, N/A entries included.')}
+            />
+            <Divider leftInset />
+            <List.Item
+              style={styles.row}
+              title="Clear cached files"
+              description="Frees space used by downloaded and scanned document copies on this device"
+              left={(p) => <List.Icon {...p} icon="delete-sweep-outline" />}
+              onPress={() => setConfirmClearCache(true)}
+            />
+            <Divider leftInset />
+            <List.Item
+              style={styles.row}
+              title="Delete account"
+              description="Permanently removes your records"
+              titleStyle={{ color: theme.colors.error }}
+              left={(p) => <List.Icon {...p} icon="account-remove-outline" color={theme.colors.error} />}
+              onPress={() =>
+                Linking.openURL('mailto:support@pattadar.com?subject=Delete%20my%20Pattadar%20account').catch(
+                  () => undefined,
+                )
+              }
+            />
+          </View>
+        </List.Section>
 
-          <Divider />
+        <List.Section>
           <List.Subheader style={styles.subheader}>Help & legal</List.Subheader>
-          {/* CL-325 */}
-          <List.Item
-            style={styles.row}
-            title="Help & support"
-            description="support@pattadar.com"
-            left={(p) => <List.Icon {...p} icon="help-circle-outline" />}
-            onPress={() =>
-              Linking.openURL('mailto:support@pattadar.com?subject=Pattadar%20app%20help').catch(() => undefined)
-            }
-          />
-          <List.Item
-            style={styles.row}
-            title="Privacy policy"
-            left={(p) => <List.Icon {...p} icon="shield-lock-outline" />}
-            right={(p) => <List.Icon {...p} icon="open-in-new" />}
-            onPress={() => Linking.openURL('https://pattadar.com/privacy').catch(() => undefined)}
-          />
-          <List.Item
-            style={styles.row}
-            title="Terms of use"
-            left={(p) => <List.Icon {...p} icon="file-document-outline" />}
-            right={(p) => <List.Icon {...p} icon="open-in-new" />}
-            onPress={() => Linking.openURL('https://pattadar.com/terms').catch(() => undefined)}
-          />
-          {/* CL-320: no internal phase numbering; 7 taps reveal debug tools. */}
-          <List.Item
-            style={styles.row}
-            title="Version"
-            description={`Pattadar ${APP_VERSION} (build ${BUILD_NO})`}
-            left={(p) => <List.Icon {...p} icon="information-outline" />}
-            onPress={() => setDebugTaps((t) => t + 1)}
-          />
+          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+            {/* CL-325 */}
+            <List.Item
+              style={styles.row}
+              title="Help & support"
+              description="support@pattadar.com"
+              left={(p) => <List.Icon {...p} icon="help-circle-outline" />}
+              onPress={() =>
+                Linking.openURL('mailto:support@pattadar.com?subject=Pattadar%20app%20help').catch(() => undefined)
+              }
+            />
+            <Divider leftInset />
+            <List.Item
+              style={styles.row}
+              title="Privacy policy"
+              left={(p) => <List.Icon {...p} icon="shield-lock-outline" />}
+              right={(p) => <List.Icon {...p} icon="open-in-new" />}
+              onPress={() => Linking.openURL('https://pattadar.com/privacy').catch(() => undefined)}
+            />
+            <Divider leftInset />
+            <List.Item
+              style={styles.row}
+              title="Terms of use"
+              left={(p) => <List.Icon {...p} icon="file-document-outline" />}
+              right={(p) => <List.Icon {...p} icon="open-in-new" />}
+              onPress={() => Linking.openURL('https://pattadar.com/terms').catch(() => undefined)}
+            />
+            <Divider leftInset />
+            {/* CL-320: no internal phase numbering; 7 taps reveal debug tools. */}
+            <List.Item
+              style={styles.row}
+              title="Version"
+              description={`Pattadar ${APP_VERSION} (build ${BUILD_NO})`}
+              left={(p) => <List.Icon {...p} icon="information-outline" />}
+              onPress={() => setDebugTaps((t) => t + 1)}
+            />
+          </View>
+        </List.Section>
 
-          {/* CL-315: Sign out lives here now — the drawer is gone. */}
-          <Divider />
-          <List.Item
-            style={styles.row}
-            title={identity ? 'Sign out' : 'Sign in'}
-            titleStyle={identity ? { color: theme.colors.error } : undefined}
-            left={(p) => (
-              <List.Icon {...p} icon={identity ? 'logout' : 'login'} color={identity ? theme.colors.error : undefined} />
-            )}
-            onPress={() => (identity ? setSignOutDialog(true) : router.push('/sign-in' as never))}
-          />
+        {/* CL-315: Sign out lives here now — the drawer is gone. */}
+        <List.Section>
+          <View style={[styles.card, { backgroundColor: theme.colors.surface }]}>
+            <List.Item
+              style={styles.row}
+              title={identity ? 'Sign out' : 'Sign in'}
+              titleStyle={identity ? { color: theme.colors.error } : undefined}
+              left={(p) => (
+                <List.Icon {...p} icon={identity ? 'logout' : 'login'} color={identity ? theme.colors.error : undefined} />
+              )}
+              onPress={() => (identity ? setSignOutDialog(true) : router.push('/sign-in' as never))}
+            />
+          </View>
         </List.Section>
       </ScrollView>
       <Portal>
@@ -709,6 +739,9 @@ const styles = StyleSheet.create({
   // CL-349: two-line rows do not need 145pt.
   row: { paddingVertical: 2, minHeight: 64 },
   subheader: { fontWeight: '700' },
+  // iOS grouped-inset card: rounded, inset from the screen edges, rows
+  // divided by inset dividers rather than full-bleed lines between groups.
+  card: { marginHorizontal: tokens.spacing.lg, borderRadius: tokens.radii.lg, overflow: 'hidden' },
   soonChip: { fontSize: 11 },
   reviewBody: { gap: 12, paddingVertical: 8 },
   clearKeep: { marginTop: 8 },
