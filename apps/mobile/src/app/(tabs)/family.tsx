@@ -21,7 +21,6 @@ import {
   Snackbar,
   Text,
   TextInput,
-  useTheme,
 } from 'react-native-paper';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -50,6 +49,7 @@ import {
   noHeirsWarning,
 } from '@/lib/family';
 import { useUnitPref } from '@/lib/units';
+import { useAppTheme } from '@/theme/paper';
 import { tokens } from '@pattadar/tokens';
 
 const GROUP_META: Record<string, { icon: string; label: string }> = {
@@ -81,7 +81,7 @@ function MemberRow({
   isPartnership?: boolean;
   onEdit: (m: Member) => void;
 }) {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const [menu, setMenu] = useState(false);
   // Even the last 4 digits stay off screen until asked for.
   const [showId, setShowId] = useState(false);
@@ -97,9 +97,9 @@ function MemberRow({
   const age = ageFromDob(m.dob);
   const chip = statusChip(m);
   const toneColor = {
-    ok: '#2e7d32',
+    ok: theme.colors.success,
     bad: theme.colors.error,
-    warn: '#b45309',
+    warn: theme.colors.warning,
     muted: theme.colors.onSurfaceVariant,
   } as const;
   const name = displayName(m.name);
@@ -173,7 +173,7 @@ function MemberRow({
 }
 
 export default function FamilyScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const qc = useQueryClient();
   const identity = useIdentity();
   const unitPref = useUnitPref();
@@ -331,7 +331,7 @@ export default function FamilyScreen() {
           const selfIn = gm.some((m) => m.isSelf);
           // CL-151: ≤3 groups auto-expand until the user chooses otherwise.
           const shareColor =
-            share.tone === 'ok' ? '#2e7d32' : share.tone === 'warn' ? '#b45309' : theme.colors.error;
+            share.tone === 'ok' ? theme.colors.success : share.tone === 'warn' ? theme.colors.warning : theme.colors.error;
           // CL-269: an unallocated warning on a group with no holdings is noise.
           const shareWarn = showShareWarning(heirs.length, share.tone, g.landCount);
           const isPartnershipGroup = g.type !== 'family' && g.type !== 'huf';

@@ -15,7 +15,6 @@ import {
   Portal,
   Snackbar,
   Text,
-  useTheme,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -25,6 +24,7 @@ import { useAvatar } from '@/lib/avatar';
 import { displayName, memberCountLabel, pluralize, relationLine, shareState } from '@/lib/family';
 import { ageFromDob, memberState } from '@/lib/memberStatus';
 import { useUnitPref } from '@/lib/units';
+import { useAppTheme } from '@/theme/paper';
 
 /**
  * One group, on its own screen.
@@ -35,7 +35,7 @@ import { useUnitPref } from '@/lib/units';
  * hold, so the row says what fits and this screen says the rest.
  */
 export default function GroupDetailScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: result, isLoading } = useGroups();
   const unitPref = useUnitPref();
@@ -118,7 +118,7 @@ export default function GroupDetailScreen() {
                     style={[
                       styles.bold,
                       styles.noShrink,
-                      { color: share.tone === 'ok' ? '#2e7d32' : share.tone === 'warn' ? '#b45309' : theme.colors.error },
+                      { color: share.tone === 'ok' ? theme.colors.success : share.tone === 'warn' ? theme.colors.warning : theme.colors.error },
                     ]}
                   >
                     {totalShare}% allocated

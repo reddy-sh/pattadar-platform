@@ -7,7 +7,7 @@ import { Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Appbar, Avatar, Button, Chip, Dialog, Divider, HelperText, List, Portal, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Appbar, Avatar, Button, Chip, Dialog, Divider, HelperText, List, Portal, Snackbar, Text, TextInput } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useQueryClient } from '@tanstack/react-query';
@@ -26,6 +26,7 @@ import { documentFileName } from '@pattadar/core';
 import { aadhaarPrefill } from '@/lib/aadhaar';
 import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
 import { isAllowedApiUrl } from '@/lib/urlScheme';
+import { useAppTheme } from '@/theme/paper';
 import { formatAadhaarMask, isoToDmy } from '@pattadar/core';
 
 /** Local mirror of the server's mask, for the confirmation message only. */
@@ -60,7 +61,7 @@ const DEV_USER = process.env.EXPO_PUBLIC_DEV_USER ?? '';
  * avatar opens everything). Working areas live in the tab bar; the rest are
  * listed here and light up as they ship. */
 export default function AccountScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const { data } = useDashboard();
   const { data: groups } = useGroups();
   const qc = useQueryClient();
@@ -531,7 +532,7 @@ export default function AccountScreen() {
           <Dialog.ScrollArea>
             <ScrollView contentContainerStyle={styles.reviewBody}>
               {!!review?.name && !!data?.data.me?.name && !sharesAnyName(review.name, data.data.me.name) && (
-                <Text variant="bodySmall" style={{ color: '#b45309' }}>
+                <Text variant="bodySmall" style={{ color: theme.colors.warning }}>
                   This card reads {review.name}, but your account is{' '}
                   {displayName(data.data.me.name)}. If this is a relative's card, add
                   them as a member instead — applying it here changes who this

@@ -1,8 +1,21 @@
 /**
  * iOS HIG (Apple Standards) Theme overrides for React Native Paper.
  */
-import { MD3DarkTheme, MD3LightTheme, type MD3Theme, configureFonts } from 'react-native-paper';
+import { MD3DarkTheme, MD3LightTheme, type MD3Theme, configureFonts, useTheme } from 'react-native-paper';
 import { PixelRatio, Platform } from 'react-native';
+
+/**
+ * MD3Colors (react-native-paper) is a closed `type`, not an `interface`, so it
+ * cannot be extended via `declare module` merging. AppTheme adds the two
+ * semantic status colors the app needs on top of it; `useAppTheme()` is the
+ * typed way to read them (`useAppTheme().colors.success`).
+ */
+export type AppTheme = MD3Theme & {
+  colors: MD3Theme['colors'] & {
+    success: string;
+    warning: string;
+  };
+};
 
 const fontConfig = {
   fontFamily: Platform.select({ ios: 'System', default: 'sans-serif' }),
@@ -38,7 +51,7 @@ const iosFonts = configureFonts({
   },
 });
 
-export const paperLight: MD3Theme = {
+export const paperLight: AppTheme = {
   ...MD3LightTheme,
   roundness: 3, // ~12pt rounded corners
   fonts: iosFonts,
@@ -60,10 +73,14 @@ export const paperLight: MD3Theme = {
     outline: '#C6C6C8',
     outlineVariant: '#E5E5EA',
     error: '#FF3B30',
+    // 5.13:1 on white, 4.59:1 on the grouped background — both pass AA.
+    success: '#2e7d32',
+    // 5.02:1 on white, 4.50:1 on the grouped background — both pass AA.
+    warning: '#b45309',
   },
 };
 
-export const paperDark: MD3Theme = {
+export const paperDark: AppTheme = {
   ...MD3DarkTheme,
   roundness: 3,
   fonts: iosFonts,
@@ -82,5 +99,17 @@ export const paperDark: MD3Theme = {
     outline: '#38383A',
     outlineVariant: '#2C2C2E',
     error: '#FF453A',
+    // 8.95:1 on the elevated surface, 11.05:1 on true black.
+    success: '#6fcf97',
+    // 7.78:1 on the elevated surface, 9.6:1 on true black.
+    warning: '#e8a13d',
   },
 };
+
+/**
+ * Typed replacement for react-native-paper's `useTheme()` — use wherever
+ * `theme.colors.success` / `theme.colors.warning` are read.
+ */
+export function useAppTheme(): AppTheme {
+  return useTheme<AppTheme>();
+}

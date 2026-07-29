@@ -43,6 +43,7 @@ import { ErrorRetry } from '@/components/ErrorRetry';
 import { useDashboard, useIdentity, type DashboardData } from '@/data/hooks';
 import { heroMoney, tintAlphas, upcomingFromRecords } from '@/lib/homeInsights';
 import { useUnitPref } from '@/lib/units';
+import { useAppTheme } from '@/theme/paper';
 import { tokens } from '@pattadar/tokens';
 
 /**
@@ -324,7 +325,7 @@ function buildAttention(d: DashboardData): AttentionItem[] {
 }
 
 export default function HomeScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const qc = useQueryClient();
   const { data: result, isLoading, isRefetching } = useDashboard();
   const identity = useIdentity();
@@ -637,7 +638,7 @@ export default function HomeScreen() {
                       <View
                         style={[
                           styles.dot,
-                          { backgroundColor: a.severity === 'error' ? theme.colors.error : '#e8a13d' },
+                          { backgroundColor: a.severity === 'error' ? theme.colors.error : theme.colors.warning },
                         ]}
                       />
                     )}
@@ -652,7 +653,7 @@ export default function HomeScreen() {
                     <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
                       act now
                     </Text>
-                    <View style={[styles.dot, { backgroundColor: '#e8a13d' }]} />
+                    <View style={[styles.dot, { backgroundColor: theme.colors.warning }]} />
                     <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
                       worth fixing
                     </Text>
@@ -765,7 +766,7 @@ export default function HomeScreen() {
                               backgroundColor: /delete|remove/.test(e.action)
                                 ? theme.colors.error
                                 : /create|add|upload/.test(e.action)
-                                  ? '#2e7d32'
+                                  ? theme.colors.success
                                   : theme.colors.primary,
                             },
                           ]}

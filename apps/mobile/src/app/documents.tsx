@@ -21,7 +21,6 @@ import {
   Portal,
   Snackbar,
   Text,
-  useTheme,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -31,6 +30,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { useDocumentActions, useDocuments, useInvalidateAll } from '@/data/hooks';
 import { getLocalFiles, localFileUri, removeLocalCopy, saveLocalCopy, type LocalFile } from '@/lib/localFiles';
+import { useAppTheme } from '@/theme/paper';
 import { documentDisplayName, documentFileName, stripTypePrefix } from '@pattadar/core';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -85,7 +85,7 @@ function matchPassbook(
 }
 
 export default function DocumentsScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const { data: result, isLoading } = useDocuments();
   const invalidate = useInvalidateAll();
   const { fileDocument, parcelFromDocument, propertyFromDocument, linkRegistered, deleteRegistered } = useDocumentActions();
@@ -445,8 +445,8 @@ export default function DocumentsScreen() {
                       compact
                       mode="outlined"
                       icon="alert-outline"
-                      style={styles.warnChip}
-                      textStyle={[styles.chipText, styles.warnText]}
+                      style={{ borderColor: theme.colors.warning }}
+                      textStyle={[styles.chipText, { color: theme.colors.warning }]}
                     >
                       Needs review
                     </Chip>
@@ -622,8 +622,6 @@ const styles = StyleSheet.create({
   rowLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   grow: { flex: 1 },
   chipText: { fontSize: 11 },
-  warnText: { color: '#b45309' },
-  warnChip: { borderColor: '#b45309' },
   tight: { margin: 0 },
   loader: { marginTop: 32 },
   empty: { textAlign: 'center', marginTop: 16 },

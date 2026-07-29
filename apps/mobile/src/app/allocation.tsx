@@ -11,7 +11,6 @@ import {
   IconButton,
   Text,
   TextInput,
-  useTheme,
 } from 'react-native-paper';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,6 +29,7 @@ import {
 } from '@/lib/allocation';
 import { displayName } from '@/lib/family';
 import { useUnitPref } from '@/lib/units';
+import { useAppTheme } from '@/theme/paper';
 
 /**
  * Estate allocation (CL-457).
@@ -55,7 +55,7 @@ import { useUnitPref } from '@/lib/units';
 const sentenceCase = (v: string) => (v ? v.charAt(0).toUpperCase() + v.slice(1) : v);
 
 export default function AllocationScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const identity = useIdentity();
   const unitPref = useUnitPref();
@@ -290,7 +290,7 @@ export default function AllocationScreen() {
                     variant="titleMedium"
                     style={[
                       styles.bold,
-                      { color: untouched ? theme.colors.onSurfaceVariant : total === 100 ? '#2e7d32' : '#b45309' },
+                      { color: untouched ? theme.colors.onSurfaceVariant : total === 100 ? theme.colors.success : theme.colors.warning },
                     ]}
                   >
                     {total}% {total === 100 ? '✓' : ''}

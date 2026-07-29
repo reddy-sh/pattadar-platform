@@ -30,7 +30,6 @@ import {
   Switch,
   Text,
   TextInput,
-  useTheme,
 } from 'react-native-paper';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,6 +46,7 @@ import { documentFileName } from '@pattadar/core';
 import { RequireSignIn } from '@/components/RequireSignIn';
 import { useDocumentActions, useGroups, useIdentity, useMemberActions } from '@/data/hooks';
 import { aadhaarPrefill, formatAadhaar, isValidAadhaar } from '@/lib/aadhaar';
+import { useAppTheme } from '@/theme/paper';
 import { dmyToIso, formatAadhaarMask, isValidDmy, isoToDmy, maskDmyInput } from '@pattadar/core';
 
 const RELATIONS = ['spouse', 'son', 'daughter', 'father', 'mother', 'brother', 'sister', 'other'];
@@ -62,7 +62,7 @@ function longDate(iso: string): string {
 
 /** Add a family member — Aadhaar scan prefills KYC; heirs get an invite link. */
 export default function AddMemberScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const identity = useIdentity();
   const { groupId, groupName, memberId } = useLocalSearchParams<{
@@ -383,7 +383,7 @@ export default function AddMemberScreen() {
             {!!scanNote && (
               <Text
                 variant="bodySmall"
-                style={{ color: scanWarn ? '#b45309' : theme.colors.primary }}
+                style={{ color: scanWarn ? theme.colors.warning : theme.colors.primary }}
               >
                 {scanNote}
               </Text>

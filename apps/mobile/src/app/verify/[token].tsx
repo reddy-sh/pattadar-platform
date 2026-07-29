@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Text, useTheme } from 'react-native-paper';
+import { ActivityIndicator, Button, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { hasApi } from '@/api/client';
 import { useVerifyBeneficiary } from '@/data/hooks';
+import { useAppTheme } from '@/theme/paper';
 
 /**
  * Public verification landing — opened from the invite link
@@ -15,10 +16,9 @@ import { useVerifyBeneficiary } from '@/data/hooks';
  * why verification only fires on an explicit tap, never on mere link-open.
  */
 export default function VerifyScreen() {
-  const theme = useTheme();
+  const theme = useAppTheme();
   const { token } = useLocalSearchParams<{ token: string }>();
   const verify = useVerifyBeneficiary();
-  const statusColors = theme.dark ? { good: '#6fcf97', warning: '#e8a13d', critical: '#ef6a6a', muted: theme.colors.onSurfaceVariant } : { good: '#2e7d32', warning: '#b45309', critical: '#a61b1b', muted: theme.colors.onSurfaceVariant };
 
   const succeeded = verify.isSuccess && !!verify.data?.verifyBeneficiary;
   // A rejected token comes back as a GraphQL-level error ("Invalid or expired
@@ -62,7 +62,7 @@ export default function VerifyScreen() {
         )}
         {succeeded && (
           <>
-            <MaterialCommunityIcons name="check-decagram" size={64} color={statusColors.good} />
+            <MaterialCommunityIcons name="check-decagram" size={64} color={theme.colors.success} />
             <Text variant="headlineSmall" style={styles.title}>
               Verification complete
             </Text>
