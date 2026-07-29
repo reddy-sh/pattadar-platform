@@ -109,6 +109,11 @@ export default function HoldingDetailScreen() {
   const [mutOwner, setMutOwner] = useState('');
   const [mutType, setMutType] = useState('inheritance');
   const [mutBusy, setMutBusy] = useState(false);
+  // CL: a free-text new-owner field wrote straight to the record on a single
+  // tap — the last chance to catch a typo before it becomes who owns the land.
+  const [confirmMutation, setConfirmMutation] = useState<{ oldOwner: string; newOwner: string; type: string } | null>(
+    null,
+  );
   const unitPref = useUnitPref();
   const [localFiles, setLocalFiles] = useState<Record<string, LocalFile>>({});
   const [docBusy, setDocBusy] = useState(false);
@@ -256,7 +261,7 @@ export default function HoldingDetailScreen() {
    * into the same path instead of duplicating the write.
    */
   const saveGeo = async (p: LatLng, force = false) => {
-    if (!parcel) return;
+    if (!parcel && !property) return;
     if (!force && checkLocation(p, approx, placeName).suspect) {
       setConfirmFarPin(p);
       return;
@@ -265,16 +270,18 @@ export default function HoldingDetailScreen() {
     try {
       // Never swallow the error and toast success anyway — that lie hid a
       // broken mutation name for a full day.
-      await setParcelGeo.mutateAsync({ id: parcel.id, geoPoint });
+      if (parcel) await setParcelGeo.mutateAsync({ id: parcel.id, geoPoint });
+      else if (property) await setPropertyGeo.mutateAsync({ id: property.id, geoPoint });
       setToast('Location saved');
     } catch (e) {
       setToast(e instanceof Error ? `Couldn't save: ${e.message}` : "Couldn't save the location");
     }
   };
   const clearGeo = async () => {
-    if (!parcel) return;
+    if (!parcel && !property) return;
     try {
-      await setParcelGeo.mutateAsync({ id: parcel.id, geoPoint: '' });
+      if (parcel) await setParcelGeo.mutateAsync({ id: parcel.id, geoPoint: '' });
+      else if (property) await setPropertyGeo.mutateAsync({ id: property.id, geoPoint: '' });
       setToast('Location cleared');
     } catch (e) {
       setToast(e instanceof Error ? `Couldn't clear: ${e.message}` : "Couldn't clear the location");
@@ -836,20 +843,57 @@ export default function HoldingDetailScreen() {
             <Button onPress={() => setMutOpen(false)}>Cancel</Button>
             <Button
               mode="contained"
+              disabled={!mutOwner.trim()}
+              onPress={() => {
+                setMutOpen(false);
+                setConfirmMutation({
+                  oldOwner: parcel?.currentOwner || property?.currentOwner || 'No owner on record',
+                  newOwner: mutOwner.trim(),
+                  type: mutType,
+                });
+              }}
+            >
+              Continue
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        {/* The write itself — a summary of old owner → new owner is the last
+            chance to catch a typo before it becomes who owns the land. */}
+        <Dialog visible={confirmMutation !== null} onDismiss={() => setConfirmMutation(null)}>
+          <Dialog.Title>Confirm ownership change</Dialog.Title>
+          <Dialog.Content style={styles.mutGap}>
+            <Text variant="bodyMedium" style={styles.bold}>
+              {confirmMutation?.oldOwner} → {confirmMutation?.newOwner}
+            </Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              Recorded as {confirmMutation?.type}. This is added to the audit log.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => {
+                setConfirmMutation(null);
+                setMutOpen(true);
+              }}
+            >
+              Back
+            </Button>
+            <Button
+              mode="contained"
               loading={mutBusy}
-              disabled={mutBusy || !mutOwner.trim()}
+              disabled={mutBusy}
               onPress={async () => {
-                if (!parcel) return;
+                if (!parcel || !confirmMutation) return;
                 setMutBusy(true);
                 try {
                   await api.gql(RECORD_PARCEL_MUTATION_MUTATION, {
                     id: parcel.id,
-                    newOwner: mutOwner.trim(),
-                    src: mutType,
-                    type: mutType,
+                    newOwner: confirmMutation.newOwner,
+                    src: confirmMutation.type,
+                    type: confirmMutation.type,
                   });
                   qc.invalidateQueries({ queryKey: ['pattadar'] });
-                  setMutOpen(false);
+                  setConfirmMutation(null);
                   setMutOwner('');
                   setToast('Ownership change recorded');
                 } catch (e) {
