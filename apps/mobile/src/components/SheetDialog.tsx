@@ -1,4 +1,5 @@
-import { Modal as RNModal, Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { AccessibilityInfo, findNodeHandle, Modal as RNModal, Pressable, StyleSheet, View } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
 /**
@@ -27,12 +28,35 @@ export function SheetDialog({
   actions?: React.ReactNode;
 }) {
   const theme = useTheme();
+  const titleRef = useRef<any>(null);
+
+  // Move focus onto the title as the sheet appears — otherwise VoiceOver/
+  // TalkBack stays on whatever was focused behind it.
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      const node = findNodeHandle(titleRef.current);
+      if (node) AccessibilityInfo.setAccessibilityFocus(node);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [visible]);
+
   return (
-    <RNModal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+    <RNModal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onDismiss}
+      accessibilityViewIsModal
+    >
       <Pressable style={styles.scrim} onPress={onDismiss} accessibilityLabel="Dismiss">
         {/* stop taps inside the card from dismissing */}
-        <Pressable style={[styles.card, { backgroundColor: theme.colors.elevation.level3 }]} onPress={() => {}}>
-          <Text variant="titleMedium" style={styles.title}>
+        <Pressable
+          style={[styles.card, { backgroundColor: theme.colors.elevation.level3 }]}
+          onPress={() => {}}
+          accessibilityRole="none"
+        >
+          <Text ref={titleRef} variant="titleMedium" accessibilityRole="header" style={styles.title}>
             {title}
           </Text>
           <View style={styles.body}>{children}</View>

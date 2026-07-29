@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { HelperText, List, Text, TextInput, useTheme } from 'react-native-paper';
 
 /**
@@ -80,24 +80,27 @@ export function InlinePicker({
               </Text>
             </View>
           )}
-          {options.map((o) => (
-            <Pressable
-              key={o.value}
-              accessibilityRole="button"
-              disabled={o.disabled}
-              onPress={() => onPick(o.value)}
-              style={({ pressed }) => [
-                styles.row,
-                o.disabled && styles.disabled,
-                (pressed || value === o.value) && { backgroundColor: theme.colors.surfaceVariant },
-              ]}
-            >
-              <Text variant="bodyMedium" style={value === o.value ? styles.bold : undefined}>
-                {o.label}
-              </Text>
-              {value === o.value && <List.Icon icon="check" color={theme.colors.primary} style={styles.check} />}
-            </Pressable>
-          ))}
+          <ScrollView nestedScrollEnabled>
+            {options.map((o) => (
+              <Pressable
+                key={o.value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: value === o.value, disabled: o.disabled }}
+                disabled={o.disabled}
+                onPress={() => onPick(o.value)}
+                style={({ pressed }) => [
+                  styles.row,
+                  o.disabled && styles.disabled,
+                  (pressed || value === o.value) && { backgroundColor: theme.colors.surfaceVariant },
+                ]}
+              >
+                <Text variant="bodyMedium" style={value === o.value ? styles.bold : undefined}>
+                  {o.label}
+                </Text>
+                {value === o.value && <List.Icon icon="check" color={theme.colors.primary} style={styles.check} />}
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
       )}
     </View>
@@ -105,7 +108,7 @@ export function InlinePicker({
 }
 
 const styles = StyleSheet.create({
-  list: { borderWidth: 1, borderRadius: 8, marginTop: 4, overflow: 'hidden' },
+  list: { borderWidth: 1, borderRadius: 8, marginTop: 4, overflow: 'hidden', maxHeight: 240 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

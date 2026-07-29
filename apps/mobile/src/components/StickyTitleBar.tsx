@@ -99,6 +99,7 @@ export function StickyTitleBar({
             label={title.trim()[0]?.toUpperCase() ?? 'P'}
             style={[styles.avatar, { backgroundColor: theme.colors.primaryContainer }]}
             labelStyle={{ color: theme.colors.onPrimaryContainer }}
+            accessibilityLabel="Your profile"
           />
         )}
         <View style={styles.titles}>
