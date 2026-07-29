@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, height: 48 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, minHeight: 48 },
   avatar: { marginRight: 4 },
   titles: { flex: 1 },
   title: { fontWeight: '700' },

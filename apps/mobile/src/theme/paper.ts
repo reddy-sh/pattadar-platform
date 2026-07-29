@@ -2,30 +2,39 @@
  * iOS HIG (Apple Standards) Theme overrides for React Native Paper.
  */
 import { MD3DarkTheme, MD3LightTheme, type MD3Theme, configureFonts } from 'react-native-paper';
-import { Platform } from 'react-native';
+import { PixelRatio, Platform } from 'react-native';
 
 const fontConfig = {
   fontFamily: Platform.select({ ios: 'System', default: 'sans-serif' }),
 };
 
+/**
+ * RN scales `fontSize` by the OS font-scale setting (Dynamic Type / Android
+ * font size) at render time, but takes `lineHeight` literally — a fixed
+ * lineHeight clips large text against its line box. Scaling it by the same
+ * factor keeps today's numbers unchanged at the default 100% scale while
+ * growing them in step with fontSize at larger accessibility sizes.
+ */
+const scaledLineHeight = (px: number) => Math.round(px * PixelRatio.getFontScale());
+
 // Map iOS Dynamic Type sizes onto Paper's MD3 scale
 const iosFonts = configureFonts({
   config: {
-    displayLarge: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: 41 },
-    displayMedium: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: 41 },
-    displaySmall: { ...fontConfig, fontSize: 28, fontWeight: '700', letterSpacing: 0, lineHeight: 34 },
-    headlineLarge: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: 41 },
-    headlineMedium: { ...fontConfig, fontSize: 28, fontWeight: '700', letterSpacing: 0, lineHeight: 34 },
-    headlineSmall: { ...fontConfig, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
-    titleLarge: { ...fontConfig, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
-    titleMedium: { ...fontConfig, fontSize: 17, fontWeight: '600', letterSpacing: -0.4, lineHeight: 22 },
-    titleSmall: { ...fontConfig, fontSize: 15, fontWeight: '600', letterSpacing: -0.24, lineHeight: 20 },
-    bodyLarge: { ...fontConfig, fontSize: 17, fontWeight: '400', letterSpacing: -0.4, lineHeight: 22 },
-    bodyMedium: { ...fontConfig, fontSize: 17, fontWeight: '400', letterSpacing: -0.4, lineHeight: 22 },
-    bodySmall: { ...fontConfig, fontSize: 15, fontWeight: '400', letterSpacing: -0.24, lineHeight: 20 },
-    labelLarge: { ...fontConfig, fontSize: 15, fontWeight: '500', letterSpacing: -0.24, lineHeight: 20 },
-    labelMedium: { ...fontConfig, fontSize: 13, fontWeight: '400', letterSpacing: -0.08, lineHeight: 18 },
-    labelSmall: { ...fontConfig, fontSize: 11, fontWeight: '500', letterSpacing: 0.06, lineHeight: 13 },
+    displayLarge: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(41) },
+    displayMedium: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(41) },
+    displaySmall: { ...fontConfig, fontSize: 28, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(34) },
+    headlineLarge: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(41) },
+    headlineMedium: { ...fontConfig, fontSize: 28, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(34) },
+    headlineSmall: { ...fontConfig, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(28) },
+    titleLarge: { ...fontConfig, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: scaledLineHeight(28) },
+    titleMedium: { ...fontConfig, fontSize: 17, fontWeight: '600', letterSpacing: -0.4, lineHeight: scaledLineHeight(22) },
+    titleSmall: { ...fontConfig, fontSize: 15, fontWeight: '600', letterSpacing: -0.24, lineHeight: scaledLineHeight(20) },
+    bodyLarge: { ...fontConfig, fontSize: 17, fontWeight: '400', letterSpacing: -0.4, lineHeight: scaledLineHeight(22) },
+    bodyMedium: { ...fontConfig, fontSize: 17, fontWeight: '400', letterSpacing: -0.4, lineHeight: scaledLineHeight(22) },
+    bodySmall: { ...fontConfig, fontSize: 15, fontWeight: '400', letterSpacing: -0.24, lineHeight: scaledLineHeight(20) },
+    labelLarge: { ...fontConfig, fontSize: 15, fontWeight: '500', letterSpacing: -0.24, lineHeight: scaledLineHeight(20) },
+    labelMedium: { ...fontConfig, fontSize: 13, fontWeight: '400', letterSpacing: -0.08, lineHeight: scaledLineHeight(18) },
+    labelSmall: { ...fontConfig, fontSize: 11, fontWeight: '500', letterSpacing: 0.06, lineHeight: scaledLineHeight(13) },
   },
 });
 

@@ -177,7 +177,7 @@ export default function ActivityScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   controls: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
-  search: { height: 44 },
+  search: { minHeight: 44 },
   searchInput: { minHeight: 0, paddingBottom: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   list: { paddingHorizontal: 16, paddingBottom: 48 },

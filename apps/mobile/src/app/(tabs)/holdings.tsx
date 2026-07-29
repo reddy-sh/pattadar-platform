@@ -809,10 +809,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: tokens.spacing.xs,
-    // CL-575/578: a FIXED height, not a minimum. With a minimum, a row holding
-    // a 40pt thumbnail grew taller than its neighbours and its overflow button
-    // drifted out of line with theirs.
-    height: 56,
+    // CL-575/578: the 40pt leading tile is fixed-size (see `leading` below),
+    // so centering keeps it aligned regardless of row height — minHeight +
+    // paddingVertical lets the row grow for Dynamic Type without clipping.
+    minHeight: 56,
+    paddingVertical: tokens.spacing.sm,
     paddingLeft: tokens.spacing.lg,
     borderRadius: tokens.radii.md,
   },

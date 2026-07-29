@@ -64,6 +64,6 @@ const styles = StyleSheet.create({
   box: { alignItems: 'center', paddingTop: 56, paddingHorizontal: 32, gap: 12 },
   disc: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   title: { fontWeight: '700', textAlign: 'center' },
-  body: { textAlign: 'center', lineHeight: 20 },
+  body: { textAlign: 'center' },
   action: { alignSelf: 'stretch', marginTop: 4 },
 });

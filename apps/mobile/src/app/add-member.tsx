@@ -614,7 +614,7 @@ export default function AddMemberScreen() {
           </HelperText>
         )}
 
-        <Chip compact mode="outlined" icon="shield-check-outline" textStyle={styles.chipText} style={styles.privacy}>
+        <Chip compact mode="outlined" icon="shield-check-outline" textStyle={theme.fonts.labelSmall} style={styles.privacy}>
           KYC details stay in your account — never shared with other members
         </Chip>
       </View>
@@ -724,7 +724,6 @@ const styles = StyleSheet.create({
   rowLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   buttons: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   bold: { fontWeight: '700' },
-  chipText: { fontSize: 11 },
   privacy: { alignSelf: 'center' },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   leftBtn: { alignSelf: 'flex-start' },
