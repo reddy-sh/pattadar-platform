@@ -202,6 +202,7 @@ export default function GroupDetailScreen() {
                             size={18}
                             accessibilityLabel={`Remove ${displayName(m.name)}`}
                             onPress={() => setConfirm(m)}
+                            hitSlop={8}
                           />
                         )}
                       </View>

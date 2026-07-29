@@ -157,6 +157,7 @@ function HoldingRow({
             style={styles.tight}
             accessibilityLabel={`Actions for ${h.title}`}
             onPress={() => setMenu(true)}
+            hitSlop={8}
           />
         }
       >
@@ -583,6 +584,7 @@ export default function HoldingsScreen() {
                   style={styles.tight}
                   accessibilityLabel={allCollapsed ? 'Expand all groups' : 'Collapse all groups'}
                   onPress={() => setAll(!allCollapsed)}
+                  hitSlop={8}
                 />
               )}
               <Chip
@@ -682,6 +684,7 @@ export default function HoldingsScreen() {
                   icon={collapsed[s.key] ? 'chevron-right' : 'chevron-down'}
                   size={18}
                   style={styles.tight}
+                  hitSlop={8}
                 />
                 <View style={styles.grow}>
                   {/* CL-230: khata leads, village joins at reduced emphasis */}

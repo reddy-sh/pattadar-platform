@@ -113,7 +113,7 @@ export function StickyTitleBar({
           )}
         </View>
         {onSearch && (
-          <IconButton icon="magnify" size={20} style={styles.tight} onPress={onSearch} accessibilityLabel="Search" />
+          <IconButton icon="magnify" size={20} style={styles.tight} onPress={onSearch} accessibilityLabel="Search" hitSlop={8} />
         )}
         <Menu
           visible={menu}
@@ -128,6 +128,7 @@ export function StickyTitleBar({
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                 setMenu(true);
               }}
+              hitSlop={8}
             />
           }
         >

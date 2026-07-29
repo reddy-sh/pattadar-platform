@@ -77,6 +77,7 @@ export function AppHeader({
           style={styles.tight}
           onPress={onSearch}
           accessibilityLabel="Search"
+          hitSlop={8}
         />
       )}
       <Menu
@@ -92,6 +93,7 @@ export function AppHeader({
               setAddMenu(true);
             }}
             accessibilityLabel="More actions"
+            hitSlop={8}
           />
         }
       >

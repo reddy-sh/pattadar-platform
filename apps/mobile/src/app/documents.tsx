@@ -510,6 +510,7 @@ export default function DocumentsScreen() {
                         style={styles.tight}
                         accessibilityLabel={`Actions for ${fname || r.docType || 'document'}`}
                         onPress={() => setRowMenu(r.id)}
+                        hitSlop={8}
                       />
                     }
                   >

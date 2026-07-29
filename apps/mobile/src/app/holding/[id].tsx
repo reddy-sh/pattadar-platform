@@ -658,6 +658,7 @@ export default function HoldingDetailScreen() {
                         style={styles.tightIcon}
                         accessibilityLabel={`Actions for ${fname || doc.docType || 'document'}`}
                         onPress={() => setDocMenu(doc.id)}
+                        hitSlop={8}
                       />
                     }
                   >

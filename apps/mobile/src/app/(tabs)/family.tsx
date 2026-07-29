@@ -405,6 +405,7 @@ export default function FamilyScreen() {
                       style={styles.tight}
                       accessibilityLabel={`Actions for ${g.name}`}
                       onPress={() => setGroupMenu(g.id)}
+                      hitSlop={8}
                     />
                   }
                 >

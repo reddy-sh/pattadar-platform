@@ -123,6 +123,7 @@ function PassbookCard({
                 style={styles.tight}
                 accessibilityLabel="Passbook actions"
                 onPress={() => setMenu(true)}
+                hitSlop={8}
               />
             }
           >
@@ -485,6 +486,7 @@ export default function PassbooksScreen() {
                       iconColor={filterCount > 0 ? theme.colors.onPrimaryContainer : undefined}
                       accessibilityLabel={`Filters${filterCount > 0 ? ` — ${filterCount} active` : ''}`}
                       onPress={() => setFilterMenu(true)}
+                      hitSlop={8}
                     />
                     {filterCount > 0 && (
                       <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]}>
