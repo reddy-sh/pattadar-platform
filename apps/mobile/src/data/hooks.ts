@@ -70,6 +70,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api, getIdentity, hasApi } from '@/api/client';
+import { mergeOnFailure } from '@/lib/mergeOnFailure';
 
 /** Current signed-in identity ('' = guest). Refreshes with the ['pattadar'] prefix. */
 export function useIdentity(): string {
@@ -107,6 +108,7 @@ export function useInvalidateAll() {
 }
 
 function useLiveOrSample<T>(key: string, fetcher: () => Promise<T>, empty: () => T) {
+  const queryClient = useQueryClient();
   return useQuery<LiveResult<T>>({
     queryKey: ['pattadar', key],
     staleTime: 30_000,
@@ -127,7 +129,10 @@ function useLiveOrSample<T>(key: string, fetcher: () => Promise<T>, empty: () =>
         try {
           return { data: await fetcher(), isSample: false };
         } catch {
-          return { data: empty(), isSample: true };
+          // H-6: a transient outage must not wipe already-loaded holdings —
+          // keep whatever this query last resolved to, flagged isSample.
+          const prev = queryClient.getQueryData<LiveResult<T>>(['pattadar', key]);
+          return mergeOnFailure(prev, empty);
         }
       }
     },
