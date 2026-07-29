@@ -9,7 +9,6 @@ import { Text, useTheme } from 'react-native-paper';
 const ACTIONS: { icon: string; label: string; route?: string }[] = [
   { icon: 'book-plus-outline', label: 'Passbook', route: '/add-khata' },
   { icon: 'home-plus-outline', label: 'Property', route: '/add-property' },
-  { icon: 'clipboard-plus-outline', label: 'Request' },
 ];
 
 export function QuickActions() {

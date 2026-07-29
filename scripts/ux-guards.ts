@@ -620,6 +620,18 @@ check(
   'no roadmap language ships',
   !/Phase \d/.test(code('apps/mobile/src/app/assistant.tsx')),
 );
+// CL-5CLEAN: more.tsx used to leak "Phase 4" and "Sign in with Cognito" /
+// "needs sign-in (Cognito)" dev copy alongside a page of dead, unshippable
+// "coming soon" rows. Guarded here so a roadmap number or the auth provider's
+// name can't quietly ship back into this screen's user-facing copy.
+check(
+  'no roadmap language ships in More',
+  !/Phase \d/.test(code('apps/mobile/src/app/(tabs)/more.tsx')),
+);
+check(
+  'no auth-provider name ships in More',
+  !/Cognito/i.test(code('apps/mobile/src/app/(tabs)/more.tsx')),
+);
 check(
   'the Assistant icon is gone until it does something',
   !/icon="shimmer"/.test(code('apps/mobile/src/components/AppHeader.tsx')) &&
