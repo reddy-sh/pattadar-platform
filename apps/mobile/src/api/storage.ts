@@ -14,6 +14,8 @@ import * as SecureStore from 'expo-secure-store';
 import { fetchWithTimeout } from '@pattadar/core';
 
 import { COGNITO_CLIENT_ID, COGNITO_DOMAIN, TOKENS_KEY, type StoredTokens } from '@/auth/cognitoConfig';
+import { selectCacheEvictions } from '@/lib/cacheEviction';
+import { clearLocalCopies } from '@/lib/localFiles';
 
 const STORAGE_URL_KEY = 'pattadar_storage_url';
 
@@ -170,12 +172,48 @@ export async function uploadToDrive(
 }
 
 /**
+ * Sweep the `drive-*` download cache (H-2): delete anything older than
+ * CACHE_TTL_MS, then — among what is left — the oldest by mtime until the
+ * total fits under CACHE_SIZE_CAP_BYTES. Deeds run to ~14 MB and the cache
+ * used to grow forever, so this runs on every open, not on a timer.
+ */
+async function sweepDriveCache(): Promise<void> {
+  const dir = FileSystem.cacheDirectory;
+  if (!dir) return;
+  const names = await FileSystem.readDirectoryAsync(dir).catch(() => [] as string[]);
+  const stats = await Promise.all(
+    names
+      .filter((n) => n.startsWith('drive-'))
+      .map(async (n) => {
+        const info = await FileSystem.getInfoAsync(`${dir}${n}`).catch(() => null);
+        return info?.exists && !info.isDirectory
+          ? { name: n, size: info.size ?? 0, mtimeMs: info.modificationTime * 1000 }
+          : null;
+      }),
+  );
+  const toDelete = selectCacheEvictions(
+    stats.filter((s): s is { name: string; size: number; mtimeMs: number } => s !== null),
+    Date.now(),
+  );
+  await Promise.all(
+    toDelete.map((n) => FileSystem.deleteAsync(`${dir}${n}`, { idempotent: true }).catch(() => undefined)),
+  );
+}
+
+/**
  * Download a stored file into the app cache and return a local file:// URI a
  * viewer can render. Cached by node id so re-opening is instant and offline.
+ *
+ * Bytes land here plaintext; app-level AES encryption of the cache was
+ * considered and deferred — expo-crypto provides digest/random only, no AES,
+ * so that is a larger lift than this pass. At rest this relies on
+ * `cacheDirectory` being excluded from iCloud/iTunes backups plus iOS Data
+ * Protection (protected-until-first-unlock by default).
  */
 export async function fetchDriveFile(nodeId: string, name: string): Promise<string> {
   const base = await storageBase();
   if (!base) throw new Error('File storage is not configured for this build.');
+  await sweepDriveCache();
   const safe = `${nodeId}-${(name || 'file').replace(/[^\w.\-]/g, '_')}`;
   const dest = `${FileSystem.cacheDirectory}drive-${safe}`;
   const cached = await FileSystem.getInfoAsync(dest).catch(() => null);
@@ -195,4 +233,42 @@ export async function fetchDriveFile(nodeId: string, name: string): Promise<stri
     throw new Error(`Could not download the file (HTTP ${result.status})`);
   }
   return dest;
+}
+
+/**
+ * Delete this node's cached bytes (H-3), called on document delete so the
+ * cache does not outlive the record that pointed at it. Matched by nodeId
+ * prefix rather than the exact `name` last used to fetch it — the same
+ * document is opened from more than one screen, each building its own
+ * `name`, so an exact-name delete can miss a differently-named copy of the
+ * same file.
+ */
+export async function evictDriveCache(nodeId: string, name?: string): Promise<void> {
+  const dir = FileSystem.cacheDirectory;
+  if (!dir) return;
+  const prefix = `drive-${nodeId}-`;
+  const names = await FileSystem.readDirectoryAsync(dir).catch(() => [] as string[]);
+  await Promise.all(
+    names
+      .filter((n) => n.startsWith(prefix))
+      .map((n) => FileSystem.deleteAsync(`${dir}${n}`, { idempotent: true }).catch(() => undefined)),
+  );
+}
+
+/**
+ * Delete every cached/local document byte on this device (H-2): the `drive-*`
+ * download cache here, plus the `doc-*` local copies in localFiles.ts. This
+ * is the helper a later sign-out task reuses.
+ */
+export async function clearCachedFiles(): Promise<void> {
+  const dir = FileSystem.cacheDirectory;
+  if (dir) {
+    const names = await FileSystem.readDirectoryAsync(dir).catch(() => [] as string[]);
+    await Promise.all(
+      names
+        .filter((n) => n.startsWith('drive-'))
+        .map((n) => FileSystem.deleteAsync(`${dir}${n}`, { idempotent: true }).catch(() => undefined)),
+    );
+  }
+  await clearLocalCopies();
 }

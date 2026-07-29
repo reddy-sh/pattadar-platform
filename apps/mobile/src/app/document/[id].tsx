@@ -1,5 +1,4 @@
 import { formatDateTime, parseAuditTime } from '@pattadar/core';
-import * as FileSystem from 'expo-file-system/legacy';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Share, StyleSheet, View } from 'react-native';
@@ -16,8 +15,9 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { evictDriveCache } from '@/api/storage';
 import { useDocumentActions, useDocuments } from '@/data/hooks';
-import { getLocalFiles, type LocalFile } from '@/lib/localFiles';
+import { getLocalFiles, localFileUri, removeLocalCopy, type LocalFile } from '@/lib/localFiles';
 
 /** ₹1,91,000 — Indian grouping, which is how the deed itself writes it. */
 function rupees(n: number): string {
@@ -80,7 +80,7 @@ export default function DocumentDetailScreen() {
       router.push({
         pathname: '/viewer',
         params: {
-          local: `${FileSystem.documentDirectory}${local.file}`,
+          local: localFileUri(local.file),
           name: local.file,
         },
       });
@@ -259,7 +259,8 @@ export default function DocumentDetailScreen() {
               <Card.Content style={styles.gap}>
                 <Text variant="bodyMedium" style={{ color: theme.colors.onErrorContainer }}>
                   Delete this document? What was read from it — this summary, the parties and the
-                  extracted details — goes with it. The stored file stays in My Drive.
+                  extracted details — goes with it, along with any copy kept on this device. The
+                  file itself stays in My Drive.
                 </Text>
                 <View style={styles.actions}>
                   <Button onPress={() => setConfirmDelete(false)}>Keep it</Button>
@@ -270,6 +271,11 @@ export default function DocumentDetailScreen() {
                     onPress={async () => {
                       try {
                         await deleteRegistered.mutateAsync(doc.id);
+                        // H-3: the record is gone — the on-device copy and
+                        // cached bytes must not outlive it. Best-effort: the
+                        // record delete already succeeded either way.
+                        await removeLocalCopy(doc.id).catch(() => undefined);
+                        if (doc.fileRef) await evictDriveCache(doc.fileRef, doc.docType || 'document').catch(() => undefined);
                         router.back();
                       } catch (e) {
                         setConfirmDelete(false);

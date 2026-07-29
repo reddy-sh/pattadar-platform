@@ -2,8 +2,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as SecureStore from 'expo-secure-store';
 import * as Sharing from 'expo-sharing';
 
-const KEY = 'pattadar_local_files';
-
 /**
  * Locally kept copies of documents.
  *
@@ -14,7 +12,7 @@ const KEY = 'pattadar_local_files';
  * because the prefix was added here afterwards.
  */
 export interface LocalFile {
-  /** Filename under documentDirectory — unique, not for display. */
+  /** Filename under LOCAL_DIR — unique, not for display. */
   file: string;
   /** Human name: "Aadhaar - Sankara Telukutla - 27-07-2026.jpg". */
   name: string;
@@ -27,13 +25,73 @@ function normalise(v: LocalFile | string): LocalFile {
   return typeof v === 'string' ? { file: v, name: v } : v;
 }
 
-export async function getLocalFiles(): Promise<Record<string, LocalFile>> {
+/**
+ * On-device copies (Aadhaar/deed scans) live under `cacheDirectory`, not
+ * `documentDirectory` (H-2): Documents is backed up to iCloud on iOS by
+ * default, and these are records with people's Aadhaar numbers on them.
+ * Caches is excluded from iCloud/iTunes backups by the OS — the tradeoff is
+ * that the OS may purge it under disk pressure, which is accepted here.
+ * Bytes stay plaintext on disk: app-level AES encryption was considered and
+ * deferred (expo-crypto has no AES — see fetchDriveFile in api/storage.ts);
+ * at rest this relies on that exclusion plus iOS Data Protection, which
+ * protects files until first unlock by default.
+ */
+const LOCAL_DIR = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
+
+/** Full `file://` URI for a saved local copy's on-disk filename. */
+export function localFileUri(file: string): string {
+  return `${LOCAL_DIR}${file}`;
+}
+
+// --- index: a JSON file, not one growing SecureStore/Keychain item (H-4) ---
+//
+// The whole map used to be serialized into a single SecureStore/Keychain
+// item, one entry per filed document, with no upper bound — and Keychain
+// items have a size limit. Past it, the write was swallowed and the file
+// reference for that document was gone with no signal. A JSON file has no
+// such cap; only the (future) encryption key belongs in SecureStore.
+
+const LEGACY_KEY = 'pattadar_local_files';
+const INDEX_FILE = `${FileSystem.documentDirectory}local-files.json`;
+
+async function readIndexFile(): Promise<StoredMap | null> {
+  const info = await FileSystem.getInfoAsync(INDEX_FILE).catch(() => null);
+  if (!info?.exists) return null;
   try {
-    const raw = JSON.parse((await SecureStore.getItemAsync(KEY)) || '{}') as StoredMap;
-    return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, normalise(v)]));
+    return JSON.parse(await FileSystem.readAsStringAsync(INDEX_FILE)) as StoredMap;
   } catch {
-    return {};
+    return null;
   }
+}
+
+async function writeIndexFile(map: StoredMap): Promise<void> {
+  await FileSystem.writeAsStringAsync(INDEX_FILE, JSON.stringify(map));
+}
+
+/**
+ * One-time move off the old Keychain item: read old → write new → delete
+ * old. If a write or delete is interrupted mid-way, the old key is simply
+ * read again next launch — this only stops once the new file is in place
+ * and the old key is gone.
+ */
+async function migrateFromSecureStore(): Promise<StoredMap> {
+  const raw = await SecureStore.getItemAsync(LEGACY_KEY).catch(() => null);
+  if (!raw) return {};
+  let map: StoredMap;
+  try {
+    map = JSON.parse(raw) as StoredMap;
+  } catch {
+    map = {};
+  }
+  await writeIndexFile(map);
+  await SecureStore.deleteItemAsync(LEGACY_KEY).catch(() => undefined);
+  return map;
+}
+
+export async function getLocalFiles(): Promise<Record<string, LocalFile>> {
+  const fromFile = await readIndexFile();
+  const raw = fromFile ?? (await migrateFromSecureStore());
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, normalise(v)]));
 }
 
 /** `displayName` is what the owner sees; the on-disk name stays id-prefixed. */
@@ -44,15 +102,55 @@ export async function saveLocalCopy(
 ): Promise<void> {
   const safe = displayName.replace(/[^\w.\- ]/g, '_');
   const file = `doc-${docId}-${safe.replace(/\s+/g, '_')}`;
-  await FileSystem.copyAsync({ from: uri, to: `${FileSystem.documentDirectory}${file}` });
-  const map = await getLocalFiles();
+  await FileSystem.copyAsync({ from: uri, to: localFileUri(file) });
+  const map: StoredMap = await getLocalFiles();
   map[docId] = { file, name: safe };
-  await SecureStore.setItemAsync(KEY, JSON.stringify(map)).catch(() => undefined);
+  // H-4: logged and surfaced, not swallowed — a caller that ignores this
+  // rejection loses the reference to the copy it just made with no
+  // indication it happened.
+  try {
+    await writeIndexFile(map);
+  } catch (e) {
+    console.error(`[localFiles] failed to save the index entry for ${docId}`, e);
+    throw e;
+  }
 }
 
 export async function openLocalCopy(docId: string): Promise<void> {
   const map = await getLocalFiles();
   const entry = map[docId];
   if (!entry?.file) throw new Error('This file lives on the web — open it at pattadar.com.');
-  await Sharing.shareAsync(`${FileSystem.documentDirectory}${entry.file.split('/').pop()}`);
+  await Sharing.shareAsync(localFileUri(entry.file.split('/').pop() ?? entry.file));
+}
+
+/**
+ * Delete a document's on-device copy and drop its index entry (H-3) — called
+ * from the delete handlers so the file does not outlive the record that
+ * pointed at it.
+ */
+export async function removeLocalCopy(docId: string): Promise<void> {
+  const map = await getLocalFiles();
+  const entry = map[docId];
+  if (entry?.file) {
+    await FileSystem.deleteAsync(localFileUri(entry.file), { idempotent: true }).catch(() => undefined);
+  }
+  if (entry) {
+    delete map[docId];
+    await writeIndexFile(map);
+  }
+}
+
+/**
+ * Delete every on-device document copy (H-2). Exported for `clearCachedFiles`
+ * in api/storage.ts, which sweeps the `drive-*` download cache the same way;
+ * together they are the helper a later sign-out task reuses.
+ */
+export async function clearLocalCopies(): Promise<void> {
+  const names = await FileSystem.readDirectoryAsync(LOCAL_DIR).catch(() => [] as string[]);
+  await Promise.all(
+    names
+      .filter((n) => n.startsWith('doc-'))
+      .map((n) => FileSystem.deleteAsync(`${LOCAL_DIR}${n}`, { idempotent: true }).catch(() => undefined)),
+  );
+  await writeIndexFile({});
 }

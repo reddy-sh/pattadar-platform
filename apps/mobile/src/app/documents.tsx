@@ -1,6 +1,4 @@
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as SecureStore from 'expo-secure-store';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -28,11 +26,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { importRegisteredDocument } from '@/api/client';
-import { StorageAuthError, uploadToDrive } from '@/api/storage';
+import { evictDriveCache, StorageAuthError, uploadToDrive } from '@/api/storage';
 import { EmptyState } from '@/components/EmptyState';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { useDocumentActions, useDocuments, useInvalidateAll } from '@/data/hooks';
-import { getLocalFiles, saveLocalCopy, type LocalFile } from '@/lib/localFiles';
+import { getLocalFiles, localFileUri, removeLocalCopy, saveLocalCopy, type LocalFile } from '@/lib/localFiles';
 import { documentDisplayName, documentFileName, stripTypePrefix } from '@pattadar/core';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -93,15 +91,16 @@ export default function DocumentsScreen() {
   const { fileDocument, parcelFromDocument, propertyFromDocument, linkRegistered, deleteRegistered } = useDocumentActions();
   const [rowMenu, setRowMenu] = useState('');
   const [linkFor, setLinkFor] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string; fileRef?: string } | null>(null);
   const [reading, setReading] = useState(false);
   const [pending, setPending] = useState<Record<string, unknown> | null>(null);
   const [pendingFile, setPendingFile] = useState<{ uri: string; name: string } | null>(null);
   const [localFiles, setLocalFiles] = useState<Record<string, LocalFile>>({});
+  // H-4: the index moved out of SecureStore into a JSON file behind
+  // getLocalFiles() — a raw SecureStore read here would go blank once the
+  // old Keychain key is migrated away on first read.
   useState(() => {
-    SecureStore.getItemAsync('pattadar_local_files')
-      .then((v) => v && setLocalFiles(JSON.parse(v)))
-      .catch(() => undefined);
+    getLocalFiles().then(setLocalFiles).catch(() => undefined);
   });
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -394,7 +393,7 @@ export default function DocumentsScreen() {
             } else if (hasLocal) {
               router.push({
                 pathname: '/viewer',
-                params: { local: `${FileSystem.documentDirectory}${local?.file ?? ''}`, name: fname },
+                params: { local: localFileUri(local?.file ?? ''), name: fname },
               });
             } else {
               setToast('This file was uploaded before file storage was switched on — re-upload it to view.');
@@ -531,7 +530,7 @@ export default function DocumentsScreen() {
                       title="Delete…"
                       onPress={() => {
                         setRowMenu('');
-                        setConfirmDelete({ id: r.id, name: fname || r.docType || 'this document' });
+                        setConfirmDelete({ id: r.id, name: fname || r.docType || 'this document', fileRef: r.fileRef });
                       }}
                     />
                   </Menu>
@@ -566,7 +565,7 @@ export default function DocumentsScreen() {
           <Dialog.Content>
             <Text variant="bodyMedium">
               This removes the document record and its links to any passbook or
-              parcel.
+              parcel, and deletes any copy of the file kept on this device.
             </Text>
             <Text variant="bodyMedium" style={{ color: theme.colors.error, marginTop: 8, fontWeight: '700' }}>
               This cannot be undone — there is no way to restore it.
@@ -582,8 +581,18 @@ export default function DocumentsScreen() {
                 const target = confirmDelete;
                 setConfirmDelete(null);
                 if (!target) return;
-                await deleteRegistered.mutateAsync(target.id).catch((e) => setToast(String(e?.message ?? e)));
-                setToast(`${target.name} deleted permanently.`);
+                try {
+                  await deleteRegistered.mutateAsync(target.id);
+                } catch (e) {
+                  setToast(String(e instanceof Error ? e.message : e));
+                  return;
+                }
+                // H-3: the record is gone — the on-device copy and cached
+                // bytes must not outlive it. Best-effort: the record delete
+                // already succeeded and must not be undone by this failing.
+                await removeLocalCopy(target.id).catch(() => undefined);
+                if (target.fileRef) await evictDriveCache(target.fileRef, target.name).catch(() => undefined);
+                setToast(`${target.name} deleted permanently — the copy on this device is gone too.`);
               }}
             >
               Delete permanently
