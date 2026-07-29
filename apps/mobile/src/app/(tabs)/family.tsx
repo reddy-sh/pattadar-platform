@@ -1,4 +1,4 @@
-import { formatAadhaarMask, formatExtent } from '@pattadar/core';
+import { formatExtent } from '@pattadar/core';
 import type { Member } from '@pattadar/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useFocusEffect } from 'expo-router';
@@ -14,7 +14,6 @@ import {
   Divider,
   Icon,
   IconButton,
-  List,
   Menu,
   Portal,
   Searchbar,
@@ -30,7 +29,6 @@ import { EmptyState } from '@/components/EmptyState';
 import { ErrorRetry } from '@/components/ErrorRetry';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { useAvatar } from '@/lib/avatar';
-import { ageFromDob, memberState } from '@/lib/memberStatus';
 import { useListBottomInset } from '@/components/ListScaffold';
 import { AppHeader } from '@/components/AppHeader';
 import { StickyTitleBar } from '@/components/StickyTitleBar';
@@ -42,7 +40,6 @@ import {
   initialsFor,
   memberCountLabel,
   pluralize,
-  relationLine,
   shareState,
   showShareWarning,
   heirCoverageNote,
@@ -60,118 +57,6 @@ const GROUP_META: Record<string, { icon: string; label: string }> = {
   trust: { icon: 'shield-account-outline', label: 'Trust' },
 };
 
-function statusChip(m: Member): { label: string; tone: 'ok' | 'bad' | 'warn' | 'muted' } | null {
-  if (m.status === 'verified') return { label: 'Active', tone: 'ok' };
-  if (m.status === 'revoked') return { label: 'Revoked', tone: 'bad' };
-  if (m.inviteStatus === 'invited' || (m.status === 'pending' && m.inviteToken))
-    return { label: 'Invited', tone: 'warn' };
-  if (m.status === 'pending') return { label: 'Pending', tone: 'muted' };
-  return null;
-}
-
-/** CL-64/65/68/70/71: one row spec — avatar, name, labeled metadata, chips, single ⋮. */
-function MemberRow({
-  m,
-  selfPhoto,
-  isPartnership,
-  onEdit,
-}: {
-  m: Member;
-  selfPhoto?: string | null;
-  isPartnership?: boolean;
-  onEdit: (m: Member) => void;
-}) {
-  const theme = useAppTheme();
-  const [menu, setMenu] = useState(false);
-  // Even the last 4 digits stay off screen until asked for.
-  const [showId, setShowId] = useState(false);
-  const state = memberState({
-    isSelf: m.isSelf,
-    status: m.status,
-    inviteStatus: m.inviteStatus,
-    inviteToken: m.inviteToken,
-    dob: m.dob,
-    phone: m.phone,
-    phoneVerified: m.phoneVerified,
-  });
-  const age = ageFromDob(m.dob);
-  const chip = statusChip(m);
-  const toneColor = {
-    ok: theme.colors.success,
-    bad: theme.colors.error,
-    warn: theme.colors.warning,
-    muted: theme.colors.onSurfaceVariant,
-  } as const;
-  const name = displayName(m.name);
-  const invited = m.inviteStatus === 'invited' || (m.status === 'pending' && !!m.inviteToken);
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={m.isSelf ? 'Open your profile' : `Open ${name}`}
-      onPress={() => (m.isSelf ? router.push('/account' as never) : onEdit(m))}
-      style={({ pressed }) => [styles.memberRow, pressed && { backgroundColor: theme.colors.surfaceVariant }]}
-    >
-      {/* CL-407: one identity — the self row uses the account photo. */}
-      <PersonAvatar name={m.name} photo={m.isSelf ? selfPhoto || m.photo : m.photo} size={32} />
-      <View style={styles.memberBody}>
-        <Text variant="bodyMedium" style={styles.bold} numberOfLines={1}>
-          {name}
-          {m.isSelf ? ' (you)' : ''}
-        </Text>
-        <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={1}>
-          {[
-            m.isSelf ? 'You' : relationLine(m.relation, m.role === 'Member' ? '' : m.role),
-            age !== null ? `${age} yrs` : '',
-            m.isSelf ? 'Owner' : state.label,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
-        {/* This reveals an identity number, and it rendered as grey body text
-            in the same size and colour as the metadata line above it — the
-            smallest target in the app, with no padding and nothing marking it
-            as tappable. */}
-        {!!m.aadhaarMasked && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={showId ? 'Hide Aadhaar reference' : 'Show Aadhaar reference'}
-            onPress={() => setShowId((v) => !v)}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.idRow,
-              { borderColor: theme.colors.outlineVariant },
-              pressed && { backgroundColor: theme.colors.surfaceVariant },
-            ]}
-          >
-            <Icon
-              source={showId ? 'eye-off-outline' : 'eye-outline'}
-              size={13}
-              color={theme.colors.primary}
-            />
-            <Text variant="labelSmall" style={{ color: theme.colors.primary }}>
-              {/* CL-483: spaces, never hyphens — the font renders a long dash
-                  that reads as an en-dash and has been reported twice. */}
-              {showId ? formatAadhaarMask(m.aadhaarMasked) : 'Show ID'}
-            </Text>
-          </Pressable>
-        )}
-      </View>
-      {/* CL-271/272: neutral chip, tap to edit the share */}
-      {m.isBeneficiary && (
-        <Chip
-          compact
-          mode="outlined"
-          textStyle={styles.chipText}
-          accessibilityLabel={`${name} holds ${Number(m.sharePct) || 0} percent`}
-        >
-          {isPartnership ? 'Partner' : 'Heir'} · {Number(m.sharePct) || 0}%
-        </Chip>
-      )}
-      <List.Icon icon="chevron-right" color={theme.colors.onSurfaceVariant} style={styles.rowChevron} />
-    </Pressable>
-  );
-}
-
 export default function FamilyScreen() {
   const theme = useAppTheme();
   const qc = useQueryClient();
@@ -181,8 +66,7 @@ export default function FamilyScreen() {
   // CL-407: the account photo, so the self row matches the app bar.
   const selfPhoto = useAvatar();
   const { data: result, isLoading, isRefetching, refetch } = useGroups();
-  const { removeMember, createGroup, updateGroup, deleteGroup, setShare } = useMemberActions();
-  const [shareEdit, setShareEdit] = useState<{ m: Member; pct: string } | null>(null);
+  const { removeMember, createGroup, updateGroup, deleteGroup } = useMemberActions();
   const [explainerSeen, setExplainerSeen] = useState(true);
   useEffect(() => {
     SecureStore.getItemAsync('pattadar_family_explainer_seen')
@@ -345,22 +229,24 @@ export default function FamilyScreen() {
                 onPress={() => router.push({ pathname: '/group/[id]', params: { id: g.id } })}
                 style={({ pressed }) => [styles.groupHeader, pressed && { opacity: 0.7 }]}
               >
-                <IconButton icon={meta.icon} size={22} style={styles.tight} iconColor={theme.colors.primary} />
+                {/* Decorative — the row itself is the tap target; an IconButton
+                    here had no onPress and announced as a dead VoiceOver button. */}
+                <View style={styles.groupIcon}>
+                  <Icon source={meta.icon} size={22} color={theme.colors.primary} />
+                </View>
                 <View style={styles.grow}>
                   {/* CL-153/154: single-line title; type moved to the metadata line */}
                   <Text variant="titleSmall" style={styles.bold} numberOfLines={1}>
                     {g.name}
                   </Text>
-                  {/* CL-270: type renders for every group, consistently */}
+                  {/* CL-270: type renders for every group, consistently.
+                      No onPress here — it used to navigate to /holdings on its
+                      own, layered under the row's own tap target on the same
+                      pixels. "View properties" in the overflow menu covers it. */}
                   <Text
                     variant="labelSmall"
                     style={{ color: theme.colors.onSurface }}
                     numberOfLines={1}
-                    onPress={
-                      g.landCount > 0
-                        ? () => router.push(`/holdings?q=${encodeURIComponent(g.name)}` as never)
-                        : undefined
-                    }
                   >
                     {[meta.label, memberCountLabel(gm.length, selfIn)].filter(Boolean).join(' · ')}
                   </Text>
@@ -453,7 +339,8 @@ export default function FamilyScreen() {
                     }}
                   />
                 </Menu>
-                <IconButton icon="chevron-right" size={20} style={styles.tight} />
+                {/* Decorative — no onPress; same phantom-button issue as the group icon above. */}
+                <Icon source="chevron-right" size={20} color={theme.colors.onSurfaceVariant} />
               </Pressable>
             </View>
           );
@@ -487,40 +374,6 @@ export default function FamilyScreen() {
                 }}
               >
                 Remove
-              </Button>
-            </Dialog.Actions>
-          </Dialog>
-          {/* CL-271: inline share editing from the Heir chip */}
-          <Dialog visible={shareEdit !== null} onDismiss={() => setShareEdit(null)}>
-            <Dialog.Title>{displayName(shareEdit?.m.name ?? '')}'s share</Dialog.Title>
-            <Dialog.Content>
-              <TextInput
-                label="Heir share %"
-                value={shareEdit?.pct ?? ''}
-                onChangeText={(t) => setShareEdit((s) => (s ? { ...s, pct: t.replace(/[^\d.]/g, '') } : s))}
-                keyboardType="decimal-pad"
-                mode="outlined"
-              />
-            </Dialog.Content>
-            <Dialog.Actions>
-              <Button onPress={() => setShareEdit(null)}>Cancel</Button>
-              <Button
-                mode="contained"
-                loading={setShare.isPending}
-                disabled={
-                  setShare.isPending ||
-                  !(Number(shareEdit?.pct) >= 0 && Number(shareEdit?.pct) <= 100)
-                }
-                onPress={async () => {
-                  if (shareEdit) {
-                    await setShare
-                      .mutateAsync({ id: shareEdit.m.id, pct: Number(shareEdit.pct) })
-                      .catch((e) => setNote(e instanceof Error ? e.message : "Couldn't save the share"));
-                  }
-                  setShareEdit(null);
-                }}
-              >
-                Save
               </Button>
             </Dialog.Actions>
           </Dialog>
@@ -645,28 +498,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.spacing.xs,
   },
   avatarStack: { flexDirection: 'row', alignItems: 'center', marginRight: 2 },
+  // Matches the fixed 40x40 leading slot used for holdings rows (CL-575) — the
+  // IconButton it replaces had that same footprint by default.
+  groupIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   explainerCard: { borderWidth: 1, borderRadius: tokens.radii.md, padding: tokens.spacing.md, gap: 4 },
   gotIt: { alignSelf: 'flex-end' },
-  rowChevron: { margin: 0, width: 20, height: 20 },
-  idRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    // A real target, not a 13pt line of text.
-    minHeight: 28,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginTop: 2,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   idIcon: { margin: 0, width: 16, height: 16 },
   avatarOverlap: { marginLeft: -8 },
   skelLine: { height: 14, borderRadius: 7, marginVertical: 12, marginLeft: 12 },
   groupBody: { paddingHorizontal: tokens.spacing.md, paddingBottom: tokens.spacing.sm, gap: tokens.spacing.xs },
-  memberRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.sm, minHeight: 56 },
-  memberBody: { flex: 1, gap: 1 },
   bold: { fontWeight: '700' },
   chipText: { fontSize: 11 },
   tight: { margin: 0 },
