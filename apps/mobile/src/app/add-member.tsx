@@ -106,7 +106,6 @@ export default function AddMemberScreen() {
   // CL-359: Aadhaar retention is opt-in and separate from scanning to prefill.
   const storedAadhaar = existing?.aadhaarMasked ?? '';
   const [replacingAadhaar, setReplacingAadhaar] = useState(false);
-  const [revealed, setRevealed] = useState(false);
   const [rescanning, setRescanning] = useState(false);
   const [confirmRescan, setConfirmRescan] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -463,7 +462,6 @@ export default function AddMemberScreen() {
                 try {
                   const full = await revealAadhaar.mutateAsync(existing.id);
                   setAadhaar(formatAadhaar(full.revealMemberAadhaar));
-                  setRevealed(true);
                   setReplacingAadhaar(true);
                 } catch (e) {
                   setNote(e instanceof Error ? e.message : "Couldn't read the number");
@@ -484,12 +482,10 @@ export default function AddMemberScreen() {
               loading={revealAadhaar.isPending}
               onPress={async () => {
                 if (!existing) return;
-                // Biometric only the first time in a session; after that one tap.
-                if (!revealed && !(await authenticateForReveal('Copy this Aadhaar number'))) return;
+                if (!(await authenticateForReveal('Copy this Aadhaar number'))) return;
                 try {
                   const full = await revealAadhaar.mutateAsync(existing.id);
                   await copySensitive(full.revealMemberAadhaar);
-                  setRevealed(true);
                   setNote('Aadhaar number copied — the clipboard clears in a minute.');
                 } catch (e) {
                   setNote(e instanceof Error ? e.message : "Couldn't copy the number");
@@ -516,7 +512,6 @@ export default function AddMemberScreen() {
                   onPress={() => {
                     setReplacingAadhaar(false);
                     setAadhaar('');
-                    setRevealed(false);
                   }}
                 />
               ) : undefined
