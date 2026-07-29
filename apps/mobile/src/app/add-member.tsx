@@ -103,6 +103,9 @@ export default function AddMemberScreen() {
   // Photo is only persisted when the owner ticks consent (it is personal data
   // about another person, so storing it is an explicit choice, not a default).
   const [photo, setPhoto] = useState(existing?.photo ?? '');
+  // Off by default for a new record; an existing stored photo means consent
+  // was already given, so editing something else must not silently drop it.
+  const [photoConsent, setPhotoConsent] = useState(!!existing?.photo);
 
   // CL-359: Aadhaar retention is opt-in and separate from scanning to prefill.
   const storedAadhaar = existing?.aadhaarMasked ?? '';
@@ -113,7 +116,7 @@ export default function AddMemberScreen() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   // CL-449: back-navigation must not silently throw away edits.
   const initial = useRef('');
-  const snapshot = JSON.stringify({ name, relation, gender, dob, address, notes, phone, email, photo, aadhaar });
+  const snapshot = JSON.stringify({ name, relation, gender, dob, address, notes, phone, email, photo, photoConsent, aadhaar });
   useEffect(() => {
     if (!initial.current) initial.current = snapshot;
   }, [snapshot]);
@@ -265,7 +268,7 @@ export default function AddMemberScreen() {
           sharePct: Number(existing?.sharePct) || 0,
           presentAddress: address.trim(),
           aadhaar,
-          photo,
+          photo: photoConsent ? photo : '',
         });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         router.back();
@@ -284,7 +287,7 @@ export default function AddMemberScreen() {
         bio: notes.trim(),
         presentAddress: address.trim(),
         aadhaar,
-        photo,
+        photo: photoConsent ? photo : '',
       });
       const saved = r.addMember;
       if (!saved) throw new Error('Could not add the member');
@@ -398,6 +401,13 @@ export default function AddMemberScreen() {
           onEdit={choosePhoto}
           hint="Used across groups and records"
         />
+        {/* Third-party PII: stored only when the owner explicitly consents. */}
+        <View style={[styles.rowLine, styles.consent]}>
+          <Switch value={photoConsent} onValueChange={setPhotoConsent} />
+          <Text variant="bodySmall" style={[styles.consentLabel, styles.growShrink]}>
+            Save this photo on their record — it is their personal data, so it is off unless you turn it on.
+          </Text>
+        </View>
         <TextInput
           label="Name *"
           value={name}
