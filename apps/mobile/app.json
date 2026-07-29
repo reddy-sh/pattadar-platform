@@ -57,6 +57,18 @@
       ],
       "expo-secure-store",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Pattadar uses your location to pin land parcels on the map."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Pattadar uses Face ID to unlock sensitive land records like your Aadhaar."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Pattadar uses your photos to read passbooks and land documents.",
