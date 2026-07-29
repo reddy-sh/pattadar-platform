@@ -3,7 +3,9 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PaperProvider } from 'react-native-paper';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { healApiBase } from '@/api/client';
 import { paperDark, paperLight } from '@/theme/paper';
@@ -25,27 +27,31 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <PaperProvider theme={theme}>
-        <StatusBar style="auto" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: theme.colors.background },
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="add-khata" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-parcel" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-property" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="add-member" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          <Stack.Screen name="allocation" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-          {/* Pushed, not presented as a modal: the map needs the full height,
-              and the Snackbar inside it would mount below a modal. */}
-          <Stack.Screen name="set-location" />
-        </Stack>
-      </PaperProvider>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <PaperProvider theme={theme}>
+            <StatusBar style="auto" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: theme.colors.background },
+                animation: 'slide_from_right',
+              }}
+            >
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="add-khata" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="add-parcel" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="add-property" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="add-member" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="allocation" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              {/* Pushed, not presented as a modal: the map needs the full height,
+                  and the Snackbar inside it would mount below a modal. */}
+              <Stack.Screen name="set-location" />
+            </Stack>
+          </PaperProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
