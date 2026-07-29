@@ -17,6 +17,9 @@ export default function ViewerScreen() {
   const [uri, setUri] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  // The image's own dimensions, so a portrait scan gets a portrait box instead
+  // of being squeezed into a fixed 500pt letterbox.
+  const [aspectRatio, setAspectRatio] = useState(1);
 
   useEffect(() => {
     let alive = true;
@@ -87,7 +90,7 @@ export default function ViewerScreen() {
       {loading && (
         <View style={styles.center}>
           <ActivityIndicator />
-          <Text variant="bodyMedium">Fetching from My Drive…</Text>
+          <Text variant="bodyMedium">{local ? 'Opening…' : 'Fetching from My Drive…'}</Text>
         </View>
       )}
       {!loading && !!error && (
@@ -103,7 +106,16 @@ export default function ViewerScreen() {
       {!loading && !error && !!uri && (
         isImage ? (
           <ScrollView contentContainerStyle={styles.imageWrap} maximumZoomScale={4} minimumZoomScale={1}>
-            <Image source={{ uri }} style={styles.image} resizeMode="contain" />
+            <Image
+              source={{ uri }}
+              style={[styles.image, { aspectRatio }]}
+              resizeMode="contain"
+              accessibilityLabel={name}
+              onLoad={(e) => {
+                const { width, height } = e.nativeEvent.source;
+                if (width > 0 && height > 0) setAspectRatio(width / height);
+              }}
+            />
           </ScrollView>
         ) : (
           // PDFs and anything else the platform can render.
@@ -128,5 +140,5 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   web: { flex: 1 },
   imageWrap: { flexGrow: 1, justifyContent: 'center' },
-  image: { width: '100%', height: 500 },
+  image: { width: '100%' },
 });
