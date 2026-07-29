@@ -9,6 +9,7 @@ import {
   Appbar,
   Button,
   Divider,
+  HelperText,
   Icon,
   IconButton,
   List,
@@ -17,6 +18,7 @@ import {
   Searchbar,
   Snackbar,
   Text,
+  TextInput,
   useTheme,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,6 +34,15 @@ interface Suggestion {
   subtitle: string;
   icon: string;
   coord: LatLng | null; // null = resolve on tap (current location)
+}
+
+/**
+ * Village/locality name from a reverse-geocode result — shared by the pin's
+ * address readout and by search-result titles, so the two never disagree
+ * about how to describe the same kind of point.
+ */
+function localityLabel(a?: Location.LocationGeocodedAddress | null): string {
+  return a ? [a.name, a.district, a.subregion || a.city, a.region].filter(Boolean).join(', ') : '';
 }
 
 /**
@@ -99,6 +110,16 @@ export default function SetLocationScreen() {
   const [ready, setReady] = useState(Boolean(saved));
   const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
+  /**
+   * Manual lat/lng entry — the fallback for placing the pin without touching
+   * the map at all. react-native-maps exposes nothing to VoiceOver, so
+   * dragging the world under a fixed pin is not an option for a screen-reader
+   * user; typing two numbers is.
+   */
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+  const [manualError, setManualError] = useState('');
 
   /** Aim: the saved pin if there is one, otherwise the record's own village. */
   useEffect(() => {
@@ -136,14 +157,7 @@ export default function SetLocationScreen() {
     setResolving(true);
     reverseTimer.current = setTimeout(() => {
       Location.reverseGeocodeAsync(c)
-        .then((r) => {
-          const a = r[0];
-          setAddress(
-            a
-              ? [a.name, a.district, a.subregion || a.city, a.region].filter(Boolean).join(', ')
-              : '',
-          );
-        })
+        .then((r) => setAddress(localityLabel(r[0])))
         .catch(() => setAddress(''))
         .finally(() => setResolving(false));
     }, 500);
@@ -167,15 +181,25 @@ export default function SetLocationScreen() {
     setSearching(true);
     try {
       const found = await Location.geocodeAsync(term).catch(() => []);
-      setResults(
-        found.slice(0, 6).map((r, i) => ({
-          key: `${r.latitude},${r.longitude},${i}`,
-          title: term,
-          subtitle: `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`,
-          icon: 'map-marker-outline',
-          coord: { latitude: r.latitude, longitude: r.longitude },
-        })),
+      // Every hit used to repeat the search term as its title, with only the
+      // raw coordinates underneath — six rows all reading "Nallapadu" are not
+      // six choices, they are one choice shown six times. Reverse-geocoding
+      // each hit gives it its own name.
+      const withTitles = await Promise.all(
+        found.slice(0, 6).map(async (r, i) => {
+          const coord = { latitude: r.latitude, longitude: r.longitude };
+          const rev = await Location.reverseGeocodeAsync(coord).catch(() => []);
+          const label = localityLabel(rev[0]);
+          return {
+            key: `${r.latitude},${r.longitude},${i}`,
+            title: label || `${term} (${i + 1})`,
+            subtitle: `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`,
+            icon: 'map-marker-outline',
+            coord,
+          };
+        }),
       );
+      setResults(withTitles);
     } finally {
       setSearching(false);
     }
@@ -197,6 +221,25 @@ export default function SetLocationScreen() {
     const loc = await Location.getCurrentPositionAsync({}).catch(() => null);
     if (loc) goTo({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }, 0.004);
     else setToast('Could not get a fix on your position.');
+  };
+
+  /** Place the pin from typed coordinates — the map is never touched. */
+  const submitManual = () => {
+    const la = Number(manualLat.trim());
+    const ln = Number(manualLng.trim());
+    if (!Number.isFinite(la) || !Number.isFinite(ln)) {
+      setManualError('Enter a number for both latitude and longitude.');
+      return;
+    }
+    if (la < -90 || la > 90 || ln < -180 || ln > 180) {
+      setManualError('Latitude must be -90 to 90, longitude -180 to 180.');
+      return;
+    }
+    setManualError('');
+    setManualOpen(false);
+    setManualLat('');
+    setManualLng('');
+    goTo({ latitude: la, longitude: ln }, 0.01);
   };
 
   /**
@@ -319,6 +362,13 @@ export default function SetLocationScreen() {
             <View style={[styles.pinDot, { borderColor: theme.colors.error }]} />
           </View>
           <IconButton
+            icon="pencil-outline"
+            mode="contained"
+            style={styles.manual}
+            accessibilityLabel="Enter coordinates manually"
+            onPress={() => setManualOpen(true)}
+          />
+          <IconButton
             icon="crosshairs-gps"
             mode="contained"
             style={styles.gps}
@@ -331,8 +381,10 @@ export default function SetLocationScreen() {
       {results === null && (
         <View style={[styles.sheet, { backgroundColor: theme.colors.surface }]}>
           {/* Words first, coordinates second — a lat/lng pair tells nobody
-              whether the pin landed in the right village. */}
-          <Text variant="titleSmall" numberOfLines={2}>
+              whether the pin landed in the right village. `accessibilityLiveRegion`
+              so VoiceOver reads the new place out loud as the pin moves — the
+              map itself gives a screen reader nothing to go on. */}
+          <Text variant="titleSmall" numberOfLines={2} accessibilityLiveRegion="polite">
             {resolving ? 'Finding this place…' : address || 'Move the map to place the pin'}
           </Text>
           {!!centre && (
@@ -371,6 +423,45 @@ export default function SetLocationScreen() {
       )}
 
       <Portal>
+        <Dialog
+          visible={manualOpen}
+          onDismiss={() => {
+            setManualOpen(false);
+            setManualError('');
+          }}
+        >
+          <Dialog.Title>Enter coordinates</Dialog.Title>
+          <Dialog.Content style={styles.manualFields}>
+            <TextInput
+              label="Latitude"
+              value={manualLat}
+              onChangeText={setManualLat}
+              keyboardType="numbers-and-punctuation"
+              mode="outlined"
+              placeholder="16.500000"
+            />
+            <TextInput
+              label="Longitude"
+              value={manualLng}
+              onChangeText={setManualLng}
+              keyboardType="numbers-and-punctuation"
+              mode="outlined"
+              placeholder="80.600000"
+            />
+            {!!manualError && <HelperText type="error" visible>{manualError}</HelperText>}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => {
+                setManualOpen(false);
+                setManualError('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onPress={submitManual}>Use this location</Button>
+          </Dialog.Actions>
+        </Dialog>
         <Dialog visible={confirmFar} onDismiss={() => setConfirmFar(false)}>
           <Dialog.Title>Save this location anyway?</Dialog.Title>
           <Dialog.Content>
@@ -416,8 +507,10 @@ const styles = StyleSheet.create({
   pinStack: { position: 'absolute', transform: [{ translateY: -22 }] },
   pinDot: { width: 8, height: 8, borderRadius: 4, borderWidth: 2 },
   gps: { position: 'absolute', right: 12, bottom: 12 },
+  manual: { position: 'absolute', right: 12, bottom: 64 },
   results: { flex: 1 },
   noHits: { padding: 16 },
   sheet: { padding: 16, gap: 8, borderTopLeftRadius: 16, borderTopRightRadius: 16, elevation: 3 },
   warn: { borderRadius: 10, padding: 10 },
+  manualFields: { gap: 12 },
 });
