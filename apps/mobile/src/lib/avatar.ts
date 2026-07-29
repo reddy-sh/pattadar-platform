@@ -45,6 +45,15 @@ export async function adoptProviderPhoto(url: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Delete the locally stored profile photo (called on sign-out, H-1): the
+ * filename is fixed, not per-user, so whoever signs in next on this device
+ * otherwise inherits the previous account's photo.
+ */
+export async function clearAvatarFile(): Promise<void> {
+  await FileSystem.deleteAsync(dest(), { idempotent: true }).catch(() => undefined);
+}
+
 export function useSetAvatar() {
   const qc = useQueryClient();
   return useMutation({

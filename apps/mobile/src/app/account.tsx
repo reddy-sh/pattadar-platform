@@ -12,8 +12,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useQueryClient } from '@tanstack/react-query';
 
-import { apiBase, getIdentity, setApiBase, setIdentity } from '@/api/client';
+import { apiBase, getIdentity, setApiBase } from '@/api/client';
 import { clearCachedFiles, setStorageBase, storageBase } from '@/api/storage';
+import { signOut } from '@/auth/signOut';
 import { useAvatar, useSetAvatar } from '@/lib/avatar';
 import { choosePhotoSource, pickImage } from '@/lib/photoPicker';
 import { PhotoField } from '@/components/PhotoField';
@@ -448,9 +449,9 @@ export default function AccountScreen() {
               textColor={theme.colors.error}
               onPress={async () => {
                 setSignOutDialog(false);
-                await setIdentity('');
+                await signOut();
                 setIdentityState('');
-                qc.invalidateQueries({ queryKey: ['pattadar'] });
+                qc.clear();
                 router.replace('/' as never);
               }}
             >

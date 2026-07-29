@@ -17,7 +17,9 @@ import { COGNITO_CLIENT_ID, COGNITO_DOMAIN, TOKENS_KEY, type StoredTokens } from
 import { selectCacheEvictions } from '@/lib/cacheEviction';
 import { clearLocalCopies } from '@/lib/localFiles';
 
-const STORAGE_URL_KEY = 'pattadar_storage_url';
+// Exported so sign-out (H-1) can clear it alongside the tokens — one source
+// of truth for the key name rather than a second string literal in auth/.
+export const STORAGE_URL_KEY = 'pattadar_storage_url';
 
 /** Baked at build time; overridable at runtime from Account → Server. */
 export async function storageBase(): Promise<string> {
