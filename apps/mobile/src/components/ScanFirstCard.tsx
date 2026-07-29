@@ -93,10 +93,10 @@ export function ScanFirstCard({
       setResult({ summary, caveats });
       onFields(fields, { uri, name, mime });
       onManualOpenChange(true); // the filled form is the next thing to check
-      await notifyIfAway(
-        'Deed read',
-        summary ? summary.split('. ')[0] : `${name} was read — check the details.`,
-      );
+      // A lock-screen notification is world-readable. The AI summary carries
+      // owner names, village and consideration — none of that belongs there,
+      // so the body stays generic; the summary itself is shown only in-app.
+      await notifyIfAway('Deed read', 'Your document was read — tap to review.');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not read that document';
       setError(msg);
