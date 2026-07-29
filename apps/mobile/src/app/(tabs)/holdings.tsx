@@ -26,6 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddRow } from '@/components/AddRow';
 import { EmptyState } from '@/components/EmptyState';
+import { ErrorRetry } from '@/components/ErrorRetry';
 import { usePhotoFile } from '@/lib/photoFile';
 import { useListBottomInset } from '@/components/ListScaffold';
 import { AppHeader } from '@/components/AppHeader';
@@ -197,7 +198,7 @@ export default function HoldingsScreen() {
   const identity = useIdentity();
   const unitPref = useUnitPref();
   const bottomInset = useListBottomInset();
-  const { data: result, isLoading, isRefetching } = useHoldings();
+  const { data: result, isLoading, isRefetching, refetch } = useHoldings();
   // CL-569: one lookup for every row's cover — fetched once for the whole list
   // rather than a request per visible row.
   const { data: photosResult } = usePhotos();
@@ -731,7 +732,9 @@ export default function HoldingsScreen() {
           )
         }
         ListEmptyComponent={
-          isLoading || mapMode ? null : (
+          isLoading || mapMode ? null : result?.isSample ? (
+            <ErrorRetry onRetry={() => refetch()} />
+          ) : (
             /* A plot is bought by DEED — it has no passbook and no survey
                number — so telling this tab to scan a passbook offered the one
                route that cannot work here. Each segment gets the way in that

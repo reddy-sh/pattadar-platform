@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddRow } from '@/components/AddRow';
 import { EmptyState } from '@/components/EmptyState';
+import { ErrorRetry } from '@/components/ErrorRetry';
 import { useListBottomInset } from '@/components/ListScaffold';
 import { AppHeader } from '@/components/AppHeader';
 import { StickyTitleBar } from '@/components/StickyTitleBar';
@@ -226,7 +227,7 @@ export default function PassbooksScreen() {
   const identity = useIdentity();
   const unitPref = useUnitPref();
   const bottomInset = useListBottomInset();
-  const { data: result, isLoading, isRefetching } = usePassbooks();
+  const { data: result, isLoading, isRefetching, refetch } = usePassbooks();
   const { deletePassbook } = useHoldingActions();
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
@@ -619,6 +620,8 @@ export default function PassbooksScreen() {
               <SkeletonCard />
               <SkeletonCard />
             </View>
+          ) : result?.isSample ? (
+            <ErrorRetry onRetry={() => refetch()} />
           ) : (
             <EmptyState
               icon="book-outline"

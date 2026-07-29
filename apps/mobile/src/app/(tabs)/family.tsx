@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AddRow } from '@/components/AddRow';
 import { EmptyState } from '@/components/EmptyState';
+import { ErrorRetry } from '@/components/ErrorRetry';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { useAvatar } from '@/lib/avatar';
 import { ageFromDob, memberState } from '@/lib/memberStatus';
@@ -179,7 +180,7 @@ export default function FamilyScreen() {
   const bottomInset = useListBottomInset();
   // CL-407: the account photo, so the self row matches the app bar.
   const selfPhoto = useAvatar();
-  const { data: result, isLoading, isRefetching } = useGroups();
+  const { data: result, isLoading, isRefetching, refetch } = useGroups();
   const { removeMember, createGroup, updateGroup, deleteGroup, setShare } = useMemberActions();
   const [shareEdit, setShareEdit] = useState<{ m: Member; pct: string } | null>(null);
   const [explainerSeen, setExplainerSeen] = useState(true);
@@ -302,12 +303,16 @@ export default function FamilyScreen() {
           </View>
         )}
         {noData && (
-          <EmptyState
-            icon="account-multiple-outline"
-            title="No groups yet"
-            body="A group holds the people who share land with you — family or partners — and the shares each of them holds."
-            primary={{ label: 'Create a group', icon: 'account-multiple-plus-outline', onPress: () => setNewGroup(true) }}
-          />
+          result?.isSample ? (
+            <ErrorRetry onRetry={() => refetch()} />
+          ) : (
+            <EmptyState
+              icon="account-multiple-outline"
+              title="No groups yet"
+              body="A group holds the people who share land with you — family or partners — and the shares each of them holds."
+              primary={{ label: 'Create a group', icon: 'account-multiple-plus-outline', onPress: () => setNewGroup(true) }}
+            />
+          )
         )}
         {isLoading &&
           [0, 1].map((i) => (

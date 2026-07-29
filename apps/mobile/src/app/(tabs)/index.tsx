@@ -39,6 +39,7 @@ import { useListBottomInset } from '@/components/ListScaffold';
 import { AppHeader } from '@/components/AppHeader';
 import { StickyTitleBar } from '@/components/StickyTitleBar';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { ErrorRetry } from '@/components/ErrorRetry';
 import { useDashboard, useIdentity, type DashboardData } from '@/data/hooks';
 import { heroMoney, tintAlphas, upcomingFromRecords } from '@/lib/homeInsights';
 import { useUnitPref } from '@/lib/units';
@@ -373,6 +374,21 @@ export default function HomeScreen() {
     d.stats.totalPassbooks === 0 &&
     d.stats.totalDocuments === 0 &&
     d.properties.length === 0;
+
+  // H-6: cold start (nothing ever cached) with a fetch failure resolves to
+  // the empty scaffold flagged isSample — without this gate the "Start your
+  // land record" hero below would tell a landowner they own nothing when the
+  // server was simply unreachable. A later failure that kept real cached
+  // data (isEmpty false) skips this and renders normally under the
+  // OfflineBanner already wired in below.
+  if (result.isSample && isEmpty) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
+        <OfflineBanner visible onRetry={() => qc.invalidateQueries({ queryKey: ['pattadar'] })} />
+        <ErrorRetry onRetry={() => qc.invalidateQueries({ queryKey: ['pattadar'] })} />
+      </SafeAreaView>
+    );
+  }
 
   const lastVisit = d.me?.lastActiveAt ? new Date(d.me.lastActiveAt) : null;
   const awayHours = lastVisit ? (Date.now() - lastVisit.getTime()) / 36e5 : 0;
