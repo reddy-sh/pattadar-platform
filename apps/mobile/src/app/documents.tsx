@@ -1,9 +1,10 @@
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { FlatList, Linking, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
   ActivityIndicator,
@@ -19,6 +20,7 @@ import {
   Dialog,
   Menu,
   Portal,
+  ProgressBar,
   Snackbar,
   Text,
 } from 'react-native-paper';
@@ -98,14 +100,21 @@ export default function DocumentsScreen() {
   const [localFiles, setLocalFiles] = useState<Record<string, LocalFile>>({});
   // H-4: the index moved out of SecureStore into a JSON file behind
   // getLocalFiles() — a raw SecureStore read here would go blank once the
-  // old Keychain key is migrated away on first read.
-  useState(() => {
+  // old Keychain key is migrated away on first read. The read is a side
+  // effect and belongs in an effect, not a useState initializer, which React
+  // is allowed to invoke more than once (Strict Mode does, on every render).
+  useEffect(() => {
     getLocalFiles().then(setLocalFiles).catch(() => undefined);
-  });
+  }, []);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   // Row-level messages belong to the row, not the Upload & classify panel.
   const [toast, setToast] = useState('');
+  // Upload progress for the pending file — a bare button spinner gave no
+  // sense of how long a 14 MB deed had left, and no way to back out of it.
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ sent: number; total: number } | null>(null);
+  const uploadAbort = useRef<AbortController | null>(null);
 
   const d = result?.data;
   /**
@@ -126,8 +135,21 @@ export default function DocumentsScreen() {
       setPending(await importRegisteredDocument(uri, name, mime));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read the document');
+      // Nothing to file — this temp copy is done being read, and there is no
+      // pending card to Discard it from.
+      await cleanupTempFile(uri);
+      setPendingFile(null);
     } finally {
       setReading(false);
+    }
+  };
+
+  /** DocumentPicker/camera write their copy under cacheDirectory; once it has
+   * been read and either filed or discarded there is no further use for it.
+   * Mirrors the cleanup in add-member.tsx's scan(). */
+  const cleanupTempFile = async (uri: string) => {
+    if (uri.startsWith(FileSystem.cacheDirectory ?? '###')) {
+      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
     }
   };
 
@@ -139,19 +161,31 @@ export default function DocumentsScreen() {
       // filing still succeeds if Drive is unreachable (record without a file).
       let driveId = '';
       if (pendingFile) {
+        const controller = new AbortController();
+        uploadAbort.current = controller;
+        setUploading(true);
+        setUploadProgress(null);
         try {
           const node = await uploadToDrive(
             pendingFile.uri,
             pendingFile.name,
             pendingFile.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg',
+            (p) => setUploadProgress(p),
+            controller.signal,
           );
           driveId = node.id;
         } catch (e) {
           setToast(
             e instanceof StorageAuthError
               ? 'Filed, but not uploaded — sign in again to store the file.'
-              : 'Filed, but the file could not be uploaded to My Drive.',
+              : e instanceof Error && e.message === 'Upload cancelled.'
+                ? 'Upload cancelled — filed without the file.'
+                : 'Filed, but the file could not be uploaded to My Drive.',
           );
+        } finally {
+          setUploading(false);
+          setUploadProgress(null);
+          uploadAbort.current = null;
         }
       }
       const r = await fileDocument.mutateAsync({ ...pending, _fileRef: driveId });
@@ -181,6 +215,10 @@ export default function DocumentsScreen() {
         } catch {
           /* preview unavailable, record still filed */
         }
+        // The permanent copy above is a COPY — the original temp file the
+        // picker/camera made is done being read from and would otherwise
+        // never be deleted.
+        await cleanupTempFile(pendingFile.uri);
         setPendingFile(null);
       }
       // Agricultural → try to file it as a parcel under the matched khata.
@@ -310,6 +348,19 @@ export default function DocumentsScreen() {
                   </View>
                 )}
                 {!!error && <HelperText type="error" visible>{error}</HelperText>}
+                {/* A denied permission with only an error message is a dead
+                    end — the setting that would fix it is a few taps away in
+                    the OS, not reachable from anywhere else in the app. */}
+                {error === 'Camera permission denied.' && (
+                  <Button
+                    mode="text"
+                    compact
+                    icon="cog-outline"
+                    onPress={() => Linking.openSettings()}
+                  >
+                    Open Settings
+                  </Button>
+                )}
                 {!!status && <Text variant="bodySmall" style={{ color: theme.colors.primary }}>{status}</Text>}
               </Card.Content>
             </Card>
@@ -327,13 +378,44 @@ export default function DocumentsScreen() {
                       .filter(Boolean)
                       .join(', ') || 'No location read'}
                   </Text>
+                  {uploading && (
+                    <View style={styles.uploadRow}>
+                      <View style={styles.uploadBarWrap}>
+                        <ProgressBar
+                          progress={
+                            uploadProgress && uploadProgress.total > 0
+                              ? uploadProgress.sent / uploadProgress.total
+                              : 0
+                          }
+                          indeterminate={!uploadProgress || uploadProgress.total <= 0}
+                        />
+                        <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                          {uploadProgress && uploadProgress.total > 0
+                            ? `Uploading… ${Math.round((uploadProgress.sent / uploadProgress.total) * 100)}%`
+                            : 'Uploading…'}
+                        </Text>
+                      </View>
+                      <Button compact mode="text" onPress={() => uploadAbort.current?.abort()}>
+                        Cancel
+                      </Button>
+                    </View>
+                  )}
                 </Card.Content>
                 <Card.Actions>
-                  <Button onPress={() => setPending(null)}>Discard</Button>
+                  <Button
+                    disabled={uploading}
+                    onPress={async () => {
+                      if (pendingFile) await cleanupTempFile(pendingFile.uri);
+                      setPending(null);
+                      setPendingFile(null);
+                    }}
+                  >
+                    Discard
+                  </Button>
                   <Button
                     mode="contained"
-                    loading={fileDocument.isPending || parcelFromDocument.isPending}
-                    disabled={fileDocument.isPending || parcelFromDocument.isPending}
+                    loading={uploading || fileDocument.isPending || parcelFromDocument.isPending}
+                    disabled={uploading || fileDocument.isPending || parcelFromDocument.isPending}
                     onPress={fileIt}
                   >
                     File it
@@ -615,6 +697,8 @@ const styles = StyleSheet.create({
   upload: { gap: 8 },
   buttons: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   reading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  uploadBarWrap: { flex: 1, gap: 4 },
   pendingCard: { borderRadius: 16 },
   sectionTitle: { marginTop: 4 },
   card: { borderRadius: 16 },

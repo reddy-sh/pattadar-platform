@@ -138,11 +138,22 @@ export async function uploadToDrive(
   name: string,
   mimeType: string,
   onProgress?: (p: { sent: number; total: number }) => void,
+  /** External cancel signal — a Cancel button on the upload, distinct from the timeout below. */
+  signal?: AbortSignal,
 ): Promise<StorageNode> {
   const base = await storageBase();
   if (!base) throw new Error('File storage is not configured for this build.');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 240_000);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 240_000);
+  const onExternalAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onExternalAbort);
+  }
   let raw: { status: number; body: string };
   try {
     const task = new FSFile(uri).createUploadTask(
@@ -163,10 +174,12 @@ export async function uploadToDrive(
     raw = { status: res.status, body: res.body };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (signal?.aborted && !timedOut) throw new Error('Upload cancelled.');
     if (/abort/i.test(msg)) throw new Error(`Uploading ${name} timed out after 240s. Try again.`);
     throw new Error(`Couldn’t upload ${name} — ${msg}`);
   } finally {
     clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onExternalAbort);
   }
   if (raw.status === 401 || raw.status === 403) throw new StorageAuthError('Sign in again to upload files.');
   let body: StorageNode & { error?: string };
