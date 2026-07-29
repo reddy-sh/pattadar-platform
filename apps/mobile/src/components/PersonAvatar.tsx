@@ -1,5 +1,6 @@
 import { Avatar, useTheme } from 'react-native-paper';
 
+import { relLuminance } from '@/lib/contrast';
 import { avatarColor, displayName, initialsFor } from '@/lib/family';
 
 /**
@@ -23,14 +24,26 @@ export function PersonAvatar({
   const shown = displayName(name);
   const ring = border ? { borderWidth: 1, borderColor: theme.colors.surface } : null;
   if (photo) {
-    return <Avatar.Image size={size} source={{ uri: photo }} style={[ring]} />;
+    return (
+      <Avatar.Image
+        size={size}
+        source={{ uri: photo }}
+        style={[ring]}
+        accessible
+        accessibilityLabel={shown}
+      />
+    );
   }
+  const bg = avatarColor(shown);
+  const fg = relLuminance(bg) > 0.5 ? '#000' : '#fff';
   return (
     <Avatar.Text
       size={size}
       label={initialsFor(name)}
-      style={[{ backgroundColor: avatarColor(shown) }, ring]}
-      labelStyle={{ color: '#fff', fontSize: Math.max(9, Math.round(size * 0.36)) }}
+      style={[{ backgroundColor: bg }, ring]}
+      labelStyle={{ color: fg, fontSize: Math.max(9, Math.round(size * 0.36)) }}
+      accessible
+      accessibilityLabel={shown}
     />
   );
 }
