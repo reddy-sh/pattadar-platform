@@ -38,6 +38,13 @@ function normalise(v: LocalFile | string): LocalFile {
  */
 const LOCAL_DIR = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
 
+/**
+ * Copies saved before the H-2 move above were written to `documentDirectory`.
+ * Deletes must also check there — otherwise a pre-existing scanned
+ * Aadhaar/deed is left on disk forever while the UI reports it gone.
+ */
+const LEGACY_LOCAL_DIR = FileSystem.documentDirectory ?? '';
+
 /** Full `file://` URI for a saved local copy's on-disk filename. */
 export function localFileUri(file: string): string {
   return `${LOCAL_DIR}${file}`;
@@ -59,8 +66,17 @@ async function readIndexFile(): Promise<StoredMap | null> {
   if (!info?.exists) return null;
   try {
     return JSON.parse(await FileSystem.readAsStringAsync(INDEX_FILE)) as StoredMap;
-  } catch {
-    return null;
+  } catch (e) {
+    // Corrupt, not absent: returning null here would fall through to
+    // migrateFromSecureStore() and silently reset every filename to `{}`
+    // with no trace (the same swallow H-4 removed on the write side).
+    // Log it, keep the bad file around for inspection, and start fresh.
+    console.error('[localFiles] index file is corrupt JSON — preserving it and starting fresh', e);
+    await FileSystem.moveAsync({
+      from: INDEX_FILE,
+      to: `${FileSystem.documentDirectory}local-files.corrupt.json`,
+    }).catch(() => undefined);
+    return {};
   }
 }
 
@@ -70,9 +86,13 @@ async function writeIndexFile(map: StoredMap): Promise<void> {
 
 /**
  * One-time move off the old Keychain item: read old → write new → delete
- * old. If a write or delete is interrupted mid-way, the old key is simply
- * read again next launch — this only stops once the new file is in place
- * and the old key is gone.
+ * old. If the write is interrupted, the new file never appears, so
+ * `readIndexFile()` keeps returning null and this simply reruns next
+ * launch. But if the write succeeds and only the delete fails, the new file
+ * is already in place — migration itself will NOT rerun (readIndexFile()
+ * now finds it), so the stale Keychain item would persist forever. That
+ * case is instead best-effort retried once per launch from
+ * `getLocalFiles()` below.
  */
 async function migrateFromSecureStore(): Promise<StoredMap> {
   const raw = await SecureStore.getItemAsync(LEGACY_KEY).catch(() => null);
@@ -88,9 +108,18 @@ async function migrateFromSecureStore(): Promise<StoredMap> {
   return map;
 }
 
+// Set once the legacy-key delete retry (see migrateFromSecureStore's
+// docstring) has been attempted this launch, so it runs at most once rather
+// than on every getLocalFiles() call.
+let legacyDeleteRetried = false;
+
 export async function getLocalFiles(): Promise<Record<string, LocalFile>> {
   const fromFile = await readIndexFile();
   const raw = fromFile ?? (await migrateFromSecureStore());
+  if (fromFile && !legacyDeleteRetried) {
+    legacyDeleteRetried = true;
+    await SecureStore.deleteItemAsync(LEGACY_KEY).catch(() => undefined);
+  }
   return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, normalise(v)]));
 }
 
@@ -133,6 +162,12 @@ export async function removeLocalCopy(docId: string): Promise<void> {
   const entry = map[docId];
   if (entry?.file) {
     await FileSystem.deleteAsync(localFileUri(entry.file), { idempotent: true }).catch(() => undefined);
+    // The copy may instead be a pre-existing one saved under the old
+    // documentDirectory location before the H-2 move — check there too, or
+    // it is left orphaned while the UI reports it deleted.
+    if (LEGACY_LOCAL_DIR && LEGACY_LOCAL_DIR !== LOCAL_DIR) {
+      await FileSystem.deleteAsync(`${LEGACY_LOCAL_DIR}${entry.file}`, { idempotent: true }).catch(() => undefined);
+    }
   }
   if (entry) {
     delete map[docId];
@@ -146,11 +181,19 @@ export async function removeLocalCopy(docId: string): Promise<void> {
  * together they are the helper a later sign-out task reuses.
  */
 export async function clearLocalCopies(): Promise<void> {
-  const names = await FileSystem.readDirectoryAsync(LOCAL_DIR).catch(() => [] as string[]);
+  // Sweep both the current cacheDirectory location and the legacy
+  // documentDirectory one (pre-existing copies from before the H-2 move),
+  // or a "clear everything" action leaves some copies behind.
+  const dirs = LEGACY_LOCAL_DIR && LEGACY_LOCAL_DIR !== LOCAL_DIR ? [LOCAL_DIR, LEGACY_LOCAL_DIR] : [LOCAL_DIR];
   await Promise.all(
-    names
-      .filter((n) => n.startsWith('doc-'))
-      .map((n) => FileSystem.deleteAsync(`${LOCAL_DIR}${n}`, { idempotent: true }).catch(() => undefined)),
+    dirs.map(async (dir) => {
+      const names = await FileSystem.readDirectoryAsync(dir).catch(() => [] as string[]);
+      await Promise.all(
+        names
+          .filter((n) => n.startsWith('doc-'))
+          .map((n) => FileSystem.deleteAsync(`${dir}${n}`, { idempotent: true }).catch(() => undefined)),
+      );
+    }),
   );
   await writeIndexFile({});
 }

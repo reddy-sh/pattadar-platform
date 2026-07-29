@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { apiBase, getIdentity, setApiBase, setIdentity } from '@/api/client';
-import { setStorageBase, storageBase } from '@/api/storage';
+import { clearCachedFiles, setStorageBase, storageBase } from '@/api/storage';
 import { useAvatar, useSetAvatar } from '@/lib/avatar';
 import { choosePhotoSource, pickImage } from '@/lib/photoPicker';
 import { PhotoField } from '@/components/PhotoField';
@@ -78,6 +78,8 @@ export default function AccountScreen() {
   const [signOutDialog, setSignOutDialog] = useState(false);
   const [note, setNote] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmClearCache, setConfirmClearCache] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [revealedOnce, setRevealedOnce] = useState(false);
   const [review, setReview] = useState<{
@@ -368,6 +370,13 @@ export default function AccountScreen() {
           />
           <List.Item
             style={styles.row}
+            title="Clear cached files"
+            description="Frees space used by downloaded and scanned document copies on this device"
+            left={(p) => <List.Icon {...p} icon="delete-sweep-outline" />}
+            onPress={() => setConfirmClearCache(true)}
+          />
+          <List.Item
+            style={styles.row}
             title="Delete account"
             description="Permanently removes your records"
             titleStyle={{ color: theme.colors.error }}
@@ -478,6 +487,38 @@ export default function AccountScreen() {
               }}
             >
               Remove
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={confirmClearCache} onDismiss={() => setConfirmClearCache(false)}>
+          <Dialog.Title>Clear cached files?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Removes document copies and downloaded files kept on this
+              device to free up space. Your records and the files stored in
+              My Drive are not touched — they download again the next time
+              you open them.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setConfirmClearCache(false)}>Cancel</Button>
+            <Button
+              loading={clearingCache}
+              disabled={clearingCache}
+              onPress={async () => {
+                setConfirmClearCache(false);
+                setClearingCache(true);
+                try {
+                  await clearCachedFiles();
+                  setNote('Cached files cleared.');
+                } catch (e) {
+                  setNote(e instanceof Error ? e.message : "Couldn't clear cached files");
+                } finally {
+                  setClearingCache(false);
+                }
+              }}
+            >
+              Clear
             </Button>
           </Dialog.Actions>
         </Dialog>
