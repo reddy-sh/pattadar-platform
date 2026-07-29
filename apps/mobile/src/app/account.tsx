@@ -82,7 +82,6 @@ export default function AccountScreen() {
   const [confirmClearCache, setConfirmClearCache] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [revealedOnce, setRevealedOnce] = useState(false);
   const [review, setReview] = useState<{
     name: string; dob: string; gender: string; address: string; aadhaar: string;
     accept: Record<'name' | 'dob' | 'gender' | 'address' | 'aadhaar', boolean>;
@@ -252,11 +251,12 @@ export default function AccountScreen() {
                   icon="content-copy"
                   loading={myAadhaar.reveal.isPending}
                   onPress={async () => {
-                    if (!revealedOnce && !(await authenticateForReveal('Copy your Aadhaar number'))) return;
+                    // H-8a: every reveal re-authenticates — a single unlock
+                    // must not let the full number be copied repeatedly.
+                    if (!(await authenticateForReveal('Copy your Aadhaar number'))) return;
                     try {
                       const r = await myAadhaar.reveal.mutateAsync();
                       await copySensitive(r.revealMyAadhaar);
-                      setRevealedOnce(true);
                       setNote('Aadhaar copied — the clipboard clears in a minute.');
                     } catch (e) {
                       setNote(e instanceof Error ? e.message : "Couldn't copy the number");

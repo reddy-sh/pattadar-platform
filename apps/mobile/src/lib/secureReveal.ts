@@ -13,10 +13,12 @@ export async function authenticateForReveal(reason: string): Promise<boolean> {
   const hasHardware = await LocalAuthentication.hasHardwareAsync().catch(() => false);
   const enrolled = await LocalAuthentication.isEnrolledAsync().catch(() => false);
   if (!hasHardware || !enrolled) {
-    // No Face ID / passcode configured: the device itself offers no gate, so
-    // there is nothing to check. Allow rather than lock the owner out of
-    // their own record, but never pretend a check happened.
-    return true;
+    // No Face ID and no device passcode configured: the device offers no
+    // gate at all, so there is nothing to check against. This used to allow
+    // the reveal outright — but that means an Aadhaar number sits behind NO
+    // check on such a device. Deny instead: the record stays hidden until
+    // the owner sets a passcode, which is the only thing that could secure it.
+    return false;
   }
   const res = await LocalAuthentication.authenticateAsync({
     promptMessage: reason,
