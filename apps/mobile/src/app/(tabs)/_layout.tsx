@@ -103,12 +103,14 @@ export default function TabsLayout() {
           onDismiss={() => setSheet(false)}
           contentContainerStyle={[styles.sheet, { backgroundColor: theme.colors.surface }]}
         >
-          <View style={styles.grabber} />
+          <View style={[styles.grabber, { backgroundColor: theme.colors.outline }]} />
           <View style={styles.grid}>
             {MORE_ITEMS.map((it) => (
               <Pressable
                 key={it.label}
                 style={styles.cell}
+                accessibilityRole="button"
+                accessibilityLabel={it.label}
                 onPress={() => {
                   setSheet(false);
                   if (it.route) router.push(it.route as never);
@@ -155,7 +157,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#9aa0a6',
     marginBottom: 12,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
