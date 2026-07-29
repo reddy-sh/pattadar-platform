@@ -21,6 +21,8 @@ import * as SecureStore from 'expo-secure-store';
 
 import { createGraphQLClient, fetchWithTimeout, type Classification } from '@pattadar/core';
 
+import { isAllowedApiUrl } from '@/lib/urlScheme';
+
 const base = process.env.EXPO_PUBLIC_API_URL ?? '';
 const devUser = process.env.EXPO_PUBLIC_DEV_USER ?? '';
 
@@ -52,6 +54,11 @@ export async function apiBase(): Promise<string> {
 }
 export async function setApiBase(url: string): Promise<void> {
   const clean = url.trim().replace(/\/+$/, '');
+  // H-8b: a cleartext http:// host outside dev ships every request's PII —
+  // including x-user-id — in the open. Reject before it is ever saved.
+  if (!isAllowedApiUrl(clean, __DEV__)) {
+    throw new Error('Only an https:// server address is allowed here.');
+  }
   runtimeBase = clean || null;
   if (clean) await SecureStore.setItemAsync('pattadar_api_url', clean).catch(() => undefined);
   else await SecureStore.deleteItemAsync('pattadar_api_url').catch(() => undefined);

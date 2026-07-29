@@ -7,7 +7,7 @@ import { Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Appbar, Avatar, Button, Chip, Dialog, Divider, List, Portal, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Appbar, Avatar, Button, Chip, Dialog, Divider, HelperText, List, Portal, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useQueryClient } from '@tanstack/react-query';
@@ -25,6 +25,7 @@ import { saveLocalCopy } from '@/lib/localFiles';
 import { documentFileName } from '@pattadar/core';
 import { aadhaarPrefill } from '@/lib/aadhaar';
 import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
+import { isAllowedApiUrl } from '@/lib/urlScheme';
 import { formatAadhaarMask, isoToDmy } from '@pattadar/core';
 
 /** Local mirror of the server's mask, for the confirmation message only. */
@@ -64,6 +65,7 @@ export default function AccountScreen() {
   const { data: groups } = useGroups();
   const qc = useQueryClient();
   const [urlDialog, setUrlDialog] = useState(false);
+  const [urlError, setUrlError] = useState('');
   const [url, setUrl] = useState('');
   const [currentUrl, setCurrentUrl] = useState('');
   const [currentStorage, setCurrentStorage] = useState('');
@@ -349,6 +351,7 @@ export default function AccountScreen() {
               onPress={() => {
                 setUrl(currentUrl);
                 setStorageUrl(currentStorage);
+                setUrlError('');
                 setUrlDialog(true);
               }}
             />
@@ -637,7 +640,8 @@ export default function AccountScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
-              placeholder="https://<tunnel-host> or http://<mac-ip>:8080"
+              placeholder={__DEV__ ? 'https://<tunnel-host> or http://<mac-ip>:8080' : 'https://<tunnel-host>'}
+              error={!!urlError}
               mode="outlined"
             />
             <TextInput
@@ -648,25 +652,47 @@ export default function AccountScreen() {
               autoCorrect={false}
               keyboardType="url"
               placeholder="same host unless storage is split out"
+              error={!!urlError}
               mode="outlined"
               style={{ marginTop: 8 }}
             />
+            {!!urlError && (
+              <HelperText type="error" visible>
+                {urlError}
+              </HelperText>
+            )}
             <Text variant="bodySmall" style={{ marginTop: 8 }}>
               Paste the tunnel or bridge URL. Applies immediately — pull to
               refresh after saving. Clear it to use the built-in address.
             </Text>
+            {/* H-8b: a release build must never let this look like a routine
+                setting — changing it repoints every record at another server. */}
+            {!__DEV__ && (
+              <Text variant="bodySmall" style={{ marginTop: 8, color: theme.colors.error }}>
+                Changing this sends your records to that server instead of ours. Only use an address you trust.
+              </Text>
+            )}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setUrlDialog(false)}>Cancel</Button>
             <Button
               mode="contained"
               onPress={async () => {
-                await setApiBase(url);
-                await setStorageBase(storageUrl);
-                setCurrentUrl(url);
-                setCurrentStorage(storageUrl);
-                qc.invalidateQueries({ queryKey: ['pattadar'] });
-                setUrlDialog(false);
+                if (!isAllowedApiUrl(url, __DEV__) || !isAllowedApiUrl(storageUrl, __DEV__)) {
+                  setUrlError('Only an https:// address is allowed here.');
+                  return;
+                }
+                try {
+                  await setApiBase(url);
+                  await setStorageBase(storageUrl);
+                  setCurrentUrl(url);
+                  setCurrentStorage(storageUrl);
+                  setUrlError('');
+                  qc.invalidateQueries({ queryKey: ['pattadar'] });
+                  setUrlDialog(false);
+                } catch (e) {
+                  setUrlError(e instanceof Error ? e.message : 'Only an https:// address is allowed here.');
+                }
               }}
             >
               Save

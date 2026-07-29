@@ -16,6 +16,7 @@ import { fetchWithTimeout } from '@pattadar/core';
 import { COGNITO_CLIENT_ID, COGNITO_DOMAIN, TOKENS_KEY, type StoredTokens } from '@/auth/cognitoConfig';
 import { selectCacheEvictions } from '@/lib/cacheEviction';
 import { clearLocalCopies } from '@/lib/localFiles';
+import { isAllowedApiUrl } from '@/lib/urlScheme';
 
 // Exported so sign-out (H-1) can clear it alongside the tokens — one source
 // of truth for the key name rather than a second string literal in auth/.
@@ -28,7 +29,12 @@ export async function storageBase(): Promise<string> {
 }
 
 export async function setStorageBase(url: string): Promise<void> {
-  await SecureStore.setItemAsync(STORAGE_URL_KEY, url.trim().replace(/\/$/, ''));
+  const clean = url.trim().replace(/\/$/, '');
+  // H-8b: same rule as the API base — no cleartext http:// host outside dev.
+  if (!isAllowedApiUrl(clean, __DEV__)) {
+    throw new Error('Only an https:// server address is allowed here.');
+  }
+  await SecureStore.setItemAsync(STORAGE_URL_KEY, clean);
 }
 
 /**
