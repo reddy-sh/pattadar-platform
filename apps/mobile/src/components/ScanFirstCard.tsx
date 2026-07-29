@@ -172,7 +172,10 @@ export function ScanFirstCard({
             </>
           ) : (
             <>
-              <Text variant="titleSmall">📄 {title}</Text>
+              <View style={styles.titleRow}>
+                <Icon source="text-box-search-outline" size={18} color={theme.colors.primary} />
+                <Text variant="titleSmall">{title}</Text>
+              </View>
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {body}
               </Text>
@@ -287,6 +290,7 @@ const styles = StyleSheet.create({
   reading: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   grow: { flex: 1 },
   errorHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   summaryCard: { borderRadius: 12, marginTop: 8 },
   caveats: { borderRadius: 10, padding: 10, gap: 4 },
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 4 },

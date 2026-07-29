@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   HelperText,
+  Icon,
   Text,
   TextInput,
   useTheme,
@@ -243,7 +244,10 @@ export default function AddKhataScreen() {
       <View>
         <Card mode="contained">
           <Card.Content style={styles.importBox}>
-            <Text variant="titleSmall">📸 Read it from the passbook</Text>
+            <View style={styles.titleRow}>
+              <Icon source="camera" size={18} color={theme.colors.primary} />
+              <Text variant="titleSmall">Read it from the passbook</Text>
+            </View>
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
               Photograph or upload the pattadar passbook — AI extraction fills
               the form and finds the parcels.
@@ -432,6 +436,7 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12, paddingBottom: 32 },
   importBox: { gap: 8 },
   importButtons: { flexDirection: 'row', gap: 8 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   grow: { flex: 1 },
   reading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });
