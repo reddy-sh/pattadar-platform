@@ -1,0 +1,8 @@
+appId: ${APP_ID}
+---
+- launchApp
+- assertVisible: "Pattadar"
+# Verify the authenticated dashboard renders correctly
+- extendedWaitUntil:
+    visible: "Namaste"
+    timeout: 10000

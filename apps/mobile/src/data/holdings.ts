@@ -15,6 +15,8 @@ export interface Holding {
   owner: string;
   location: string;
   extentLabel: string;
+  /** Canonical acres for parcels; 0 for properties (they format their own units). */
+  extentAcres: number;
   value: number;
   status: string;
   litigation: boolean;
@@ -26,6 +28,7 @@ export interface Holding {
   createdAt: string;
   /** Owning passbook id for parcels ('' for properties) — khata filtering. */
   passbookId: string;
+  geoPoint: string;
 }
 
 /** Verbatim from apps/web/src/pages/holdings/propertyTypes.ts PROPERTY_TYPES. */
@@ -55,6 +58,7 @@ function parcelRow(
       ? [pb.village, pb.mandal, pb.district].filter(Boolean).join(', ') || '—'
       : '—',
     extentLabel: formatArea(Number(p.extent) || 0),
+    extentAcres: Number(p.extent) || 0,
     value: Number(p.marketValue) || Number(p.purchasePrice) || 0,
     status: p.status || 'owned',
     litigation: p.litigation === true,
@@ -65,6 +69,7 @@ function parcelRow(
     groupName,
     createdAt: p.createdAt,
     passbookId: p.passbookId,
+    geoPoint: p.geoPoint || '',
   };
 }
 
@@ -80,6 +85,7 @@ function propertyRow(p: Property, groupName: string): Holding {
       : p.builtupArea
         ? `${p.builtupArea} ${p.builtupUnit}`
         : '—',
+    extentAcres: 0,
     value: Number(p.currentValue) || 0,
     status: p.holdingStatus || 'owned',
     litigation: false,
@@ -90,6 +96,7 @@ function propertyRow(p: Property, groupName: string): Holding {
     groupName,
     createdAt: p.createdAt,
     passbookId: '',
+    geoPoint: p.geoPoint || '',
   };
 }
 

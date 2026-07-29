@@ -34,10 +34,12 @@ command -v bun >/dev/null || { echo "bun not found — install: curl -fsSL https
 # phone; use `./scripts/start-mobile.sh tunnel` for Metro and keep API work
 # on the simulator until real Cognito auth lands.
 export EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://127.0.0.1:8080}"
-export EXPO_PUBLIC_DEV_USER="${EXPO_PUBLIC_DEV_USER:-sankara.telukutla}"
+# No hardcoded identity: pass EXPO_PUBLIC_DEV_USER=<uid> explicitly.
+export EXPO_PUBLIC_DEV_USER="${EXPO_PUBLIC_DEV_USER:-}"
+[ -z "$EXPO_PUBLIC_DEV_USER" ] && echo "» NOTE: EXPO_PUBLIC_DEV_USER not set — app runs as guest (empty data)"
 
 if ! curl -fsS -m 2 "${EXPO_PUBLIC_API_URL}/health" >/dev/null 2>&1; then
-  echo "» WARNING: no API at ${EXPO_PUBLIC_API_URL} — app will show sample data (run ./scripts/start-local.sh for real data)"
+  echo "» WARNING: no API at ${EXPO_PUBLIC_API_URL} — app will show empty data (run ./scripts/start-local.sh for real data)"
 fi
 
 # Metro defaults to :8081 — but that port is RESERVED for the local gateway
@@ -56,7 +58,10 @@ echo "» Metro on :$PORT (:8081 is reserved for the local gateway)"
 # case, drive the simulator ourselves: boot a device, open DeviceHub, install
 # the cached Expo Go, and open the exp:// URL once Metro answers.
 ios_without_simulator_app() {
-  local devicehub="/Applications/Xcode.app/Contents/Applications/DeviceHub.app"
+  local xcode
+  xcode="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -1)"
+  export DEVELOPER_DIR="${xcode}/Contents/Developer"
+  local devicehub="${xcode}/Contents/Applications/DeviceHub.app"
   if ! xcrun simctl list devices 2>/dev/null | grep -q Booted; then
     local udid
     udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
@@ -84,7 +89,9 @@ MODE="${1:-}"
 FLAG=""
 case "$MODE" in
   ios)
-    if [ -d "$(xcode-select -p)/Applications/Simulator.app" ]; then
+    XCODE_DIR="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -1)"
+    export DEVELOPER_DIR="${XCODE_DIR}/Contents/Developer"
+    if [ -d "${DEVELOPER_DIR}/Applications/Simulator.app" ]; then
       FLAG="--ios"
     else
       ios_without_simulator_app

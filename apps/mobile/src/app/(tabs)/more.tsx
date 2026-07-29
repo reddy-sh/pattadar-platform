@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/AppHeader';
 import { useDashboard } from '@/data/hooks';
-import { tokens } from '@pattadar/tokens';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 const DEV_USER = process.env.EXPO_PUBLIC_DEV_USER ?? '';
@@ -63,6 +62,6 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scroll: { padding: tokens.spacing.lg, paddingBottom: tokens.spacing.xxl },
+  scroll: { padding: 16, paddingBottom: 32 },
   heading: { fontWeight: '700' },
 });

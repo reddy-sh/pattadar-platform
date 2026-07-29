@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableWithoutFeedback, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import {
   Appbar,
   Button,
@@ -13,9 +14,15 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useCreateFlows, useHoldings } from '@/data/hooks';
+import { uploadToDrive } from '@/api/storage';
+import { useCreateFlows, useDocumentActions, useHoldings } from '@/data/hooks';
 import { toAcres, unitKey } from '@pattadar/core';
-import { tokens } from '@pattadar/tokens';
+import { InlinePicker } from '@/components/InlinePicker';
+import { ScanFirstCard, type ScannedFile } from '@/components/ScanFirstCard';
+import { parseAreaSqYd } from '@pattadar/core';
+import { RequireSignIn } from '@/components/RequireSignIn';
+import { saveLocalCopy } from '@/lib/localFiles';
+import { useIdentity } from '@/data/hooks';
 
 /**
  * New parcel — mirrors the web AddParcelDialog: extent is canonicalized to
@@ -36,12 +43,20 @@ const SOURCES = ['sale', 'gift', 'inheritance', 'partition', 'will', 'grant'];
 
 export default function AddParcelScreen() {
   const theme = useTheme();
+  const identity = useIdentity();
   const params = useLocalSearchParams<{ passbookId?: string }>();
   const { data: holdings } = useHoldings();
   const { createParcel, setParcelPrice } = useCreateFlows();
+  const { fileDocument, linkRegistered } = useDocumentActions();
 
   const passbooks = holdings?.data.passbooks ?? [];
   const [passbookId, setPassbookId] = useState(params.passbookId ?? '');
+  // Hand entry starts folded; the scan card opens it.
+  const [manualOpen, setManualOpen] = useState(false);
+  /** The deed this parcel was read from, so it can be filed WITH the parcel. */
+  const [scanned, setScanned] = useState<{ file: ScannedFile; fields: Record<string, unknown> } | null>(null);
+  const [savedId, setSavedId] = useState('');
+  const [filing, setFiling] = useState('');
   const [surveyNo, setSurveyNo] = useState('');
   const [subdivision, setSubdivision] = useState('');
   const [extent, setExtent] = useState('');
@@ -61,6 +76,10 @@ export default function AddParcelScreen() {
   const valid = passbookId && surveyNo.trim() && extentNum > 0;
 
   const save = async () => {
+    if (savedId) {
+      router.back();
+      return;
+    }
     setTried(true);
     setSaveError('');
     if (!valid) return;
@@ -87,13 +106,55 @@ export default function AddParcelScreen() {
           purchasePrice: Math.round(cost * extentAcres),
         });
       }
+      // The deed is filed WITH the parcel it produced — same reason as the
+      // property flow: a record made from a document should keep the document.
+      if (scanned) {
+        setFiling('Filing the deed…');
+        try {
+          let fileRef = '';
+          try {
+            const node = await uploadToDrive(scanned.file.uri, scanned.file.name, scanned.file.mime);
+            fileRef = node.id;
+          } catch {
+            // The summary and fields survive even when the bytes do not.
+          }
+          const filed = await fileDocument.mutateAsync({ ...scanned.fields, _fileRef: fileRef });
+          const docId = filed.createRegisteredDocument?.id;
+          if (docId) {
+            await linkRegistered.mutateAsync({ id: docId, passbookId });
+            await saveLocalCopy(docId, scanned.file.uri, scanned.file.name).catch(() => undefined);
+          }
+        } catch (e) {
+          setSavedId(id);
+          setFiling('');
+          setSaving(false);
+          setSaveError(
+            e instanceof Error
+              ? `The parcel was saved, but its deed could not be filed: ${e.message} You can attach it from Documents.`
+              : 'The parcel was saved, but its deed could not be filed. You can attach it from Documents.',
+          );
+          return;
+        } finally {
+          setFiling('');
+        }
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       router.back();
     } catch (e) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       setSaveError(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);
     }
   };
+
+  if (!identity) {
+    return (
+      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <RequireSignIn />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]} edges={['top']}>
@@ -101,34 +162,59 @@ export default function AddParcelScreen() {
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="New parcel" />
       </Appbar.Header>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Menu
-          visible={pbMenu}
-          onDismiss={() => setPbMenu(false)}
-          anchor={
-            <TextInput
-              label="Khata (passbook) *"
-              value={selectedPb ? `${selectedPb.pattadarNo} (${selectedPb.village})` : ''}
-              mode="outlined"
-              editable={false}
-              error={tried && !passbookId}
-              right={<TextInput.Icon icon="menu-down" onPress={() => setPbMenu(true)} />}
-              onPressIn={() => setPbMenu(true)}
-            />
-          }
-        >
-          {passbooks.map((p) => (
-            <Menu.Item
-              key={p.id}
-              title={`${p.pattadarNo} (${p.village})`}
-              onPress={() => {
-                setPassbookId(p.id);
-                setPbMenu(false);
-              }}
-            />
-          ))}
-          {passbooks.length === 0 && <Menu.Item title="No khata yet — add one first" disabled />}
-        </Menu>
+      <KeyboardAvoidingView
+        style={styles.grow}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+      >
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
+      >
+      <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+      <View>
+        <ScanFirstCard
+          manualOpen={manualOpen}
+          onManualOpenChange={setManualOpen}
+          title="Read it from the deed"
+          body="Photograph or upload the sale deed — the survey number, extent and classification are read from it and filled in below for you to check."
+          onFields={(f, file) => {
+            setScanned({ file, fields: f });
+            setSurveyNo(String(f.survey_no ?? ''));
+            setSubdivision(String(f.plot_no ?? ''));
+            // A deed states extent in square yards; this form's default unit is
+            // acres, so the unit is set to match what was actually written
+            // rather than silently reinterpreting the number.
+            const area = parseAreaSqYd(f.extent);
+            if (area) {
+              setExtent(String(area));
+              setUnit('sqyd');
+            }
+            const cl = String(f.classification ?? '').toLowerCase();
+            if (cl) {
+              setClassification(
+                cl.includes('house') || cl.includes('commerc') || cl.includes('site') ? 'non-agri' : 'agri',
+              );
+            }
+          }}
+        />
+        {/* Folded until asked for or needed — the scan owns the screen until
+            it produces something to check, or fails. */}
+        {manualOpen && (
+        <>
+        <InlinePicker
+          label="Passbook *"
+          value={passbookId}
+          open={pbMenu}
+          error={tried && !passbookId}
+          emptyText="No passbook yet — add one first"
+          onToggle={() => setPbMenu((o) => !o)}
+          onPick={(v) => {
+            setPassbookId(v);
+            setPbMenu(false);
+          }}
+          options={passbooks.map((p) => ({ value: p.id, label: `${p.pattadarNo} (${p.village})` }))}
+        />
 
         <TextInput
           label="Survey number *"
@@ -153,32 +239,19 @@ export default function AddParcelScreen() {
             mode="outlined"
             style={styles.grow}
           />
-          <Menu
-            visible={unitMenu}
-            onDismiss={() => setUnitMenu(false)}
-            anchor={
-              <TextInput
-                label="Unit"
-                value={UNITS.find((u) => u.key === unit)?.label ?? unit}
-                mode="outlined"
-                editable={false}
-                style={styles.unit}
-                right={<TextInput.Icon icon="menu-down" onPress={() => setUnitMenu(true)} />}
-                onPressIn={() => setUnitMenu(true)}
-              />
-            }
-          >
-            {UNITS.map((u) => (
-              <Menu.Item
-                key={u.key}
-                title={u.label}
-                onPress={() => {
-                  setUnit(u.key);
-                  setUnitMenu(false);
-                }}
-              />
-            ))}
-          </Menu>
+          <View style={styles.unit}>
+            <InlinePicker
+              label="Unit"
+              value={unit}
+              open={unitMenu}
+              onToggle={() => setUnitMenu((o) => !o)}
+              onPick={(v) => {
+                setUnit(v);
+                setUnitMenu(false);
+              }}
+              options={UNITS.map((u) => ({ value: u.key, label: u.label }))}
+            />
+          </View>
         </View>
 
         <SegmentedButtons
@@ -190,31 +263,17 @@ export default function AddParcelScreen() {
           ]}
         />
 
-        <Menu
-          visible={srcMenu}
-          onDismiss={() => setSrcMenu(false)}
-          anchor={
-            <TextInput
-              label="Acquisition source"
-              value={acquisitionSource.replace(/^\w/, (c) => c.toUpperCase())}
-              mode="outlined"
-              editable={false}
-              right={<TextInput.Icon icon="menu-down" onPress={() => setSrcMenu(true)} />}
-              onPressIn={() => setSrcMenu(true)}
-            />
-          }
-        >
-          {SOURCES.map((s) => (
-            <Menu.Item
-              key={s}
-              title={s.replace(/^\w/, (c) => c.toUpperCase())}
-              onPress={() => {
-                setAcquisitionSource(s);
-                setSrcMenu(false);
-              }}
-            />
-          ))}
-        </Menu>
+        <InlinePicker
+          label="Acquisition source"
+          value={acquisitionSource}
+          open={srcMenu}
+          onToggle={() => setSrcMenu((o) => !o)}
+          onPick={(v) => {
+            setAcquisitionSource(v);
+            setSrcMenu(false);
+          }}
+          options={SOURCES.map((s) => ({ value: s, label: s.replace(/^\w/, (c) => c.toUpperCase()) }))}
+        />
 
         <TextInput
           label="Cost per acre ₹ (optional)"
@@ -229,7 +288,7 @@ export default function AddParcelScreen() {
 
         {tried && !valid && (
           <HelperText type="error" visible>
-            Khata, survey number and a positive extent are required.
+            Enter a passbook, a survey number, and how much land this parcel is.
           </HelperText>
         )}
         {!!saveError && (
@@ -238,17 +297,26 @@ export default function AddParcelScreen() {
           </HelperText>
         )}
         <Button mode="contained" onPress={save} loading={saving} disabled={saving}>
-          Save parcel
+          {savedId ? 'Done' : filing || 'Save parcel'}
         </Button>
+        </>
+        )}
+      </View>
+      </TouchableWithoutFeedback>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scroll: { padding: tokens.spacing.lg, gap: tokens.spacing.md, paddingBottom: tokens.spacing.xxl },
-  row: { flexDirection: 'row', gap: tokens.spacing.sm },
+  scroll: { padding: 16, gap: 12, paddingBottom: 32 },
+  // A flex row stretches its children to the tallest sibling by default. When
+  // the unit picker opened its list, the Extent field stretched with it into a
+  // ~700pt red box — the form looked broken at the exact moment the user was
+  // correcting an error.
+  row: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   grow: { flex: 1 },
   unit: { width: 150 },
 });

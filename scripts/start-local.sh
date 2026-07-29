@@ -31,7 +31,9 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 # Cognito (same pool as pattadar.com — validation only, no secrets involved)
 COGNITO_USER_POOL_ID="ap-south-1_XfgAF21Z3"
-COGNITO_CLIENT_ID="10okivmth1rv58ed8f2k7eq4mm"
+# web SPA + native iOS app clients on the same pool (gateway matches exactly
+# against this allowlist).
+COGNITO_CLIENT_ID="10okivmth1rv58ed8f2k7eq4mm,44gv48ihjlgub7h0lnvjbdmj89"
 
 # Local storage stand-ins
 MINIO_NAME="pattadar-minio"
@@ -167,7 +169,7 @@ else
   echo "» starting web on http://localhost:5173  (Ctrl-C stops everything)"
   # REAL sign-in, exactly like pattadar.com — no mock mode.
   VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
-  VITE_COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
+  VITE_COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID%%,*}" \
   VITE_COGNITO_DOMAIN="auth.pattadar.com" \
   VITE_SOCIAL_PROVIDERS="Google" \
   VITE_GATEWAY_PROXY_TARGET="http://localhost:8082" \

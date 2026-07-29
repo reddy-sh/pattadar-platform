@@ -106,3 +106,39 @@ export function unitLabel(label: string): string {
   const u = UNITS.find((x) => x.key === unitKey(label));
   return u ? u.label : label;
 }
+
+/** Global extent-display preference (CL-13). */
+export type ExtentPref = 'acres-cents' | 'acres-guntas' | 'cents' | 'sqyd';
+
+/** THE extent formatter (CL-14) — every surface renders through this. */
+export function formatExtent(acres: number, pref: ExtentPref = 'acres-cents'): string {
+  const a = Number(acres) || 0;
+  switch (pref) {
+    case 'acres-guntas':
+      return formatAcresGuntas(a);
+    case 'cents':
+      return `${round2(a * 100).toLocaleString('en-IN')} Cents`;
+    case 'sqyd':
+      return `${Math.round(a * 4840).toLocaleString('en-IN')} Sq.yd`;
+    default:
+      return formatArea(a);
+  }
+}
+
+/** Natural sort for survey numbers: numeric-aware, treats "/" and "-" alike
+ * ("1/2" < "1/10"; "126/2" == "126-2" positionally). */
+export function naturalCompare(a: string, b: string): number {
+  const split = (s: string) => (s || '').split(/[\/\-.]/).map((p) => p.trim());
+  const pa = split(a);
+  const pb = split(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? '';
+    const y = pb[i] ?? '';
+    if (x === y) continue;
+    const nx = Number(x);
+    const ny = Number(y);
+    if (Number.isFinite(nx) && Number.isFinite(ny)) return nx - ny;
+    return x.localeCompare(y, undefined, { numeric: true });
+  }
+  return 0;
+}

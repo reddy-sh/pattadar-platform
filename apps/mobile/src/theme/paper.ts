@@ -1,60 +1,77 @@
 /**
- * React Native Paper (MD3) themes derived from @pattadar/tokens — the same
- * source the MUI web theme reads, so both heads share one brand language.
+ * iOS HIG (Apple Standards) Theme overrides for React Native Paper.
  */
-import { tokens } from '@pattadar/tokens';
-import { MD3DarkTheme, MD3LightTheme, type MD3Theme } from 'react-native-paper';
+import { MD3DarkTheme, MD3LightTheme, type MD3Theme, configureFonts } from 'react-native-paper';
+import { Platform } from 'react-native';
 
-const { schemes, gold, neutral, charcoal, status } = tokens;
+const fontConfig = {
+  fontFamily: Platform.select({ ios: 'System', default: 'sans-serif' }),
+};
+
+// Map iOS Dynamic Type sizes onto Paper's MD3 scale
+const iosFonts = configureFonts({
+  config: {
+    displayLarge: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: 41 },
+    displayMedium: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: 41 },
+    displaySmall: { ...fontConfig, fontSize: 28, fontWeight: '700', letterSpacing: 0, lineHeight: 34 },
+    headlineLarge: { ...fontConfig, fontSize: 34, fontWeight: '700', letterSpacing: 0, lineHeight: 41 },
+    headlineMedium: { ...fontConfig, fontSize: 28, fontWeight: '700', letterSpacing: 0, lineHeight: 34 },
+    headlineSmall: { ...fontConfig, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
+    titleLarge: { ...fontConfig, fontSize: 22, fontWeight: '700', letterSpacing: 0, lineHeight: 28 },
+    titleMedium: { ...fontConfig, fontSize: 17, fontWeight: '600', letterSpacing: -0.4, lineHeight: 22 },
+    titleSmall: { ...fontConfig, fontSize: 15, fontWeight: '600', letterSpacing: -0.24, lineHeight: 20 },
+    bodyLarge: { ...fontConfig, fontSize: 17, fontWeight: '400', letterSpacing: -0.4, lineHeight: 22 },
+    bodyMedium: { ...fontConfig, fontSize: 17, fontWeight: '400', letterSpacing: -0.4, lineHeight: 22 },
+    bodySmall: { ...fontConfig, fontSize: 15, fontWeight: '400', letterSpacing: -0.24, lineHeight: 20 },
+    labelLarge: { ...fontConfig, fontSize: 15, fontWeight: '500', letterSpacing: -0.24, lineHeight: 20 },
+    labelMedium: { ...fontConfig, fontSize: 13, fontWeight: '400', letterSpacing: -0.08, lineHeight: 18 },
+    labelSmall: { ...fontConfig, fontSize: 11, fontWeight: '500', letterSpacing: 0.06, lineHeight: 13 },
+  },
+});
 
 export const paperLight: MD3Theme = {
   ...MD3LightTheme,
+  roundness: 3, // ~12pt rounded corners
+  fonts: iosFonts,
   colors: {
     ...MD3LightTheme.colors,
-    primary: schemes.light.primary,
-    onPrimary: schemes.light.onPrimary,
-    primaryContainer: schemes.light.primaryContainer,
-    onPrimaryContainer: schemes.light.onPrimaryContainer,
-    secondary: schemes.light.accent,
-    onSecondary: neutral[0],
-    secondaryContainer: schemes.light.accentContainer,
-    onSecondaryContainer: schemes.light.onAccentContainer,
-    background: schemes.light.background,
-    onBackground: schemes.light.textPrimary,
-    surface: schemes.light.surface,
-    onSurface: schemes.light.textPrimary,
-    surfaceVariant: neutral[100],
-    onSurfaceVariant: schemes.light.textSecondary,
-    outline: schemes.light.border,
-    outlineVariant: neutral[100],
-    error: status.light.critical,
-    onError: neutral[0],
+    primary: '#007AFF', // System Blue
+    onPrimary: '#FFFFFF',
+    primaryContainer: 'rgba(0, 122, 255, 0.12)',
+    onPrimaryContainer: '#007AFF',
+    background: '#F2F2F7', // iOS Grouped Background
+    surface: '#FFFFFF',
+    surfaceVariant: '#E5E5EA',
+    // AA (4.5:1) on every surface it is used on: 5.99 on white, 5.37 on the
+    // grouped background, 4.77 on surfaceVariant. The old #8E8E93 measured
+    // 2.60–3.26 and carries nearly all secondary text in the app — counts,
+    // owner names, dates, every empty-state body. It passed in dark mode only,
+    // so testing on the dark physical device hid it completely.
+    onSurfaceVariant: '#636366',
+    outline: '#C6C6C8',
+    outlineVariant: '#E5E5EA',
+    error: '#FF3B30',
   },
 };
 
 export const paperDark: MD3Theme = {
   ...MD3DarkTheme,
+  roundness: 3,
+  fonts: iosFonts,
   colors: {
     ...MD3DarkTheme.colors,
-    primary: schemes.dark.primary,
-    onPrimary: schemes.dark.onPrimary,
-    primaryContainer: schemes.dark.primaryContainer,
-    onPrimaryContainer: schemes.dark.onPrimaryContainer,
-    secondary: schemes.dark.accent,
-    onSecondary: 'rgba(0, 0, 0, 0.87)',
-    secondaryContainer: schemes.dark.accentContainer,
-    onSecondaryContainer: schemes.dark.onAccentContainer,
-    background: schemes.dark.background,
-    onBackground: schemes.dark.textPrimary,
-    surface: schemes.dark.surface,
-    onSurface: schemes.dark.textPrimary,
-    surfaceVariant: charcoal.surfaceRaised,
-    onSurfaceVariant: schemes.dark.textSecondary,
-    outline: schemes.dark.border,
-    outlineVariant: charcoal.border,
-    error: status.dark.critical,
-    onError: 'rgba(0, 0, 0, 0.87)',
+    primary: '#0A84FF', // System Blue Dark
+    onPrimary: '#FFFFFF',
+    primaryContainer: 'rgba(10, 132, 255, 0.16)',
+    onPrimaryContainer: '#0A84FF',
+    background: '#000000', // True Black
+    surface: '#1C1C1E', // Elevated Surface
+    surfaceVariant: '#2C2C2E',
+    // 4.85 on surfaceVariant, 5.93 on surface, 7.31 on black. #8E8E93 was 4.27
+    // on surfaceVariant — under AA even here.
+    onSurfaceVariant: '#98989D',
+    outline: '#38383A',
+    outlineVariant: '#2C2C2E',
+    error: '#FF453A',
   },
 };
-
-export const goldAccent = gold;

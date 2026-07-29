@@ -1,4 +1,5 @@
 import os
+import re
 import csv
 import ssl
 import uuid
@@ -478,6 +479,20 @@ class FamilyMemberType:
 
 
 @strawberry.type
+class ParcelFieldType:
+    parcel_id: str
+    field_key: str
+    state: str
+    value: str
+    source: str
+    source_ref: str
+    verified_at: str
+    expires_at: str
+    na_reason: str
+    updated_at: str
+
+
+@strawberry.type
 class PersonType:
     id: str
     owner_user_id: str
@@ -714,6 +729,28 @@ class DocumentPartyType:
 
 
 @strawberry.type
+class ParcelPhotoType:
+    """A photograph of the land, with the metadata that makes it evidence.
+
+    `latitude`/`longitude`/`heading` are optional because a photo picked from
+    the library may carry no EXIF location at all — and a missing coordinate
+    must read as missing, never as 0,0 in the Gulf of Guinea.
+    """
+    id: str
+    parcel_id: str
+    file_ref: str
+    category: str
+    caption: str
+    latitude: Optional[float]
+    longitude: Optional[float]
+    heading: Optional[float]
+    captured_at: str
+    captured_by: str
+    is_cover: bool
+    created_at: str
+
+
+@strawberry.type
 class RegisteredDocumentType:
     id: str
     owner_user_id: str
@@ -747,7 +784,35 @@ class RegisteredDocumentType:
     file_ref: str
     passbook_id: str
     parcel_id: str
+    # The column has existed since create_property_from_document shipped, but
+    # the type never exposed it — so nothing could ask which property a deed
+    # belongs to, and the holding screen could not show its own deeds.
+    property_id: str
+    headline: str
+    summary: str
+    # Stored as a JSON array; exposed only through `caveatList` below, so the
+    # wire never carries a string the client has to know how to parse.
+    caveats: strawberry.Private[str]
+    key_points: strawberry.Private[str]
     created_at: str
+
+    @strawberry.field
+    def key_point_list(self) -> List[str]:
+        """The scannable facts, in the order they were written."""
+        try:
+            v = json.loads(self.key_points or "[]")
+            return [str(x) for x in v] if isinstance(v, list) else []
+        except Exception:
+            return []
+
+    @strawberry.field
+    def caveat_list(self) -> List[str]:
+        """The reader's own "check this yourself" notes, as a list."""
+        try:
+            v = json.loads(self.caveats or "[]")
+            return [str(x) for x in v] if isinstance(v, list) else []
+        except Exception:
+            return []
 
     @strawberry.field
     def ref(self) -> str:
@@ -773,12 +838,62 @@ def _uid_from_info(info) -> str:
 
 
 def _mask_aadhaar(raw: str) -> str:
-    """DPDP-2023: never store a raw Aadhaar. Keep only a masked reference token
-    (last 4 digits). If the input is already masked / non-numeric, pass through."""
+    """Masked reference token (last 4 digits) — the only form ever shown in a
+    list, an export, or to anyone but the owner. If the input is already masked
+    / non-numeric, pass through."""
     digits = "".join(c for c in (raw or "") if c.isdigit())
     if len(digits) >= 8:
         return "XXXX-XXXX-" + digits[-4:]
     return (raw or "").strip()
+
+
+# ── Aadhaar number at rest ────────────────────────────────────────────────
+# The full number is retained at the owner's explicit instruction (27 Jul 2026)
+# so it can be copied into government portals. It is ALWAYS encrypted at rest
+# and is never returned by any list query — only by an explicit single-record
+# lookup by the owner, which is audited.
+#
+# Key: AADHAAR_ENC_KEY, a urlsafe-base64 32-byte Fernet key. If it is absent we
+# refuse to store the number rather than fall back to plaintext.
+def _aadhaar_cipher():
+    key = os.getenv("AADHAAR_ENC_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+
+        return Fernet(key.encode())
+    except Exception as exc:  # noqa: BLE001
+        _log.error("aadhaar.key_invalid: %r", exc)
+        return None
+
+
+def encrypt_aadhaar(raw: str) -> str:
+    """Ciphertext for storage, or '' when there is nothing to store. Raises if
+    a number was supplied but no key is configured — failing closed beats
+    silently writing an identity number in the clear."""
+    digits = "".join(c for c in (raw or "") if c.isdigit())
+    if len(digits) != 12:
+        return ""
+    cipher = _aadhaar_cipher()
+    if cipher is None:
+        raise ValueError(
+            "Aadhaar storage is not configured on this server (AADHAAR_ENC_KEY missing)"
+        )
+    return cipher.encrypt(digits.encode()).decode()
+
+
+def decrypt_aadhaar(token: str) -> str:
+    if not (token or "").strip():
+        return ""
+    cipher = _aadhaar_cipher()
+    if cipher is None:
+        return ""
+    try:
+        return cipher.decrypt(token.encode()).decode()
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("aadhaar.decrypt_failed: %r", exc)
+        return ""
 
 
 def _is_minor(dob: str) -> bool:
@@ -842,6 +957,95 @@ async def log_audit(conn, actor: str, action: str, target: str, details: str = "
         "VALUES (%s, %s, %s, %s, %s, %s)",
         (new_id(), actor, action, target, details, datetime.utcnow().isoformat()),
     )
+
+
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a or not b:
+        return len(a) or len(b)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (0 if ca == cb else 1)))
+        prev = cur
+    return prev[-1]
+
+
+def _merge_threshold(n: int) -> int:
+    """Mirrors packages/core canonicalizeVillages: short names never merge."""
+    if n <= 4:
+        return 0
+    return 2 if n <= 9 else 3
+
+
+async def _canonical_village(conn, uid: str, village: str, mandal: str, district: str) -> str:
+    """Adopt an existing spelling of the same village rather than adding a new one.
+
+    Canonicalising only at display meant the database kept accumulating
+    variants — "Katragunta" and "Katraguntla" both live rows — and the app
+    warned the user about data it had itself created. Normalising on write stops
+    the second spelling ever existing.
+    """
+    v = (village or "").strip()
+    if not v:
+        return v
+    rows = await (await conn.execute(
+        "SELECT DISTINCT village FROM passbooks WHERE owner_user_id=%s AND mandal=%s AND district=%s",
+        (uid, mandal or "", district or ""))).fetchall()
+    key = v.lower()
+    best = None
+    for r in rows:
+        existing = (r["village"] or "").strip()
+        if not existing:
+            continue
+        if existing.lower() == key:
+            return existing
+        limit = min(_merge_threshold(len(existing)), _merge_threshold(len(key)))
+        d = _levenshtein(existing.lower(), key)
+        if d <= limit and (best is None or d < best[0]):
+            best = (d, existing)
+    return best[1] if best else v
+
+
+def _area_sq_yd(raw) -> float:
+    """Square yards from a deed's free-text extent.
+
+    Mirrors packages/core parseAreaSqYd. Joining every digit turned the real
+    string "418-1/2 sq. yards" into 41812 — a hundredfold error written into a
+    land record. Mixed fractions like "418-1/2" are ordinary in AP deeds.
+    """
+    s = str(raw or "").lower().replace(",", "").strip()
+    if not s:
+        return 0.0
+    m = re.search(r"(\d+)\s*[-\s]\s*(\d+)\s*/\s*(\d+)", s)
+    if m:
+        whole, num, den = m.groups()
+        return float(whole) + (float(num) / float(den) if float(den) else 0.0)
+    m = re.match(r"^(\d+)\s*/\s*(\d+)", s)
+    if m:
+        num, den = m.groups()
+        return float(num) / float(den) if float(den) else 0.0
+    m = re.search(r"\d+(?:\.\d+)?", s)
+    return float(m.group(0)) if m else 0.0
+
+
+def _named(prefix: str, *parts) -> str:
+    """CL-547: a human label for an audit row's object.
+
+    Deletes must call this with values read BEFORE the row is removed —
+    afterwards there is nothing left to name, which is how the log ended up
+    saying only "Deleted registered document". Returns '' when nothing is
+    known, and the display layer then falls back to the action alone rather
+    than printing an id.
+    """
+    kept = [str(p).strip() for p in parts if p and str(p).strip()]
+    if not kept:
+        return ""
+    return " · ".join(([prefix] if prefix else []) + kept)
 
 
 # ── Stamp Duty Calculation ───────────────────────────────────────────
@@ -1021,6 +1225,23 @@ class Query:
             return to_type(ParcelType, row) if row else None
 
     @strawberry.field
+    async def parcel_photos(self, info: strawberry.Info, parcel_id: str = "") -> List[ParcelPhotoType]:
+        """Photos for one parcel, or every photo the caller owns when parcel_id
+        is empty — the list screens need covers for many parcels at once and
+        must not make one round trip per row."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            if parcel_id:
+                cur = await conn.execute(
+                    "SELECT * FROM parcel_photos WHERE parcel_id=%s AND owner_user_id=%s "
+                    "ORDER BY is_cover DESC, created_at DESC", (parcel_id, uid))
+            else:
+                cur = await conn.execute(
+                    "SELECT * FROM parcel_photos WHERE owner_user_id=%s "
+                    "ORDER BY is_cover DESC, created_at DESC", (uid,))
+            return [to_type(ParcelPhotoType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
     async def registered_documents(self, info: strawberry.Info) -> List[RegisteredDocumentType]:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
@@ -1088,6 +1309,23 @@ class Query:
             row = await (await conn.execute(
                 "SELECT * FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             return await _group_summary(conn, uid, row) if row else None
+
+    @strawberry.field
+    async def parcel_fields(self, info: strawberry.Info, parcel_id: str = "") -> List[ParcelFieldType]:
+        """Record-completeness field states. Empty parcel_id returns every
+        field the caller owns, for the portfolio-wide record-health view."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            if parcel_id:
+                cur = await conn.execute(
+                    "SELECT pf.* FROM parcel_fields pf JOIN parcels p ON p.id = pf.parcel_id "
+                    "JOIN passbooks pb ON pb.id = p.passbook_id "
+                    "WHERE pf.parcel_id=%s AND pb.owner_user_id=%s", (parcel_id, uid))
+            else:
+                cur = await conn.execute(
+                    "SELECT pf.* FROM parcel_fields pf JOIN parcels p ON p.id = pf.parcel_id "
+                    "JOIN passbooks pb ON pb.id = p.passbook_id WHERE pb.owner_user_id=%s", (uid,))
+            return [to_type(ParcelFieldType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def members(self, info: strawberry.Info, group_id: str) -> List[PersonType]:
@@ -1420,6 +1658,7 @@ async def _write_person(conn, uid, pid, v, is_update):
         if (v["marital_status"] or "").lower() == "married" and not (v["spouse_name"] or "").strip():
             raise ValueError("Please add the spouse for a married beneficiary")
     aad = _mask_aadhaar(v["aadhaar"]) if (v["aadhaar"] or "").strip() else ""
+    aad_enc = encrypt_aadhaar(v["aadhaar"]) if (v["aadhaar"] or "").strip() else ""
     pcl = (v["parcel_id"] or "").strip()
     gid = (v.get("group_id") or "").strip()
     if v["is_beneficiary"]:
@@ -1449,8 +1688,11 @@ async def _write_person(conn, uid, pid, v, is_update):
     # On an edit that doesn't re-supply the Aadhaar, preserve the stored masked
     # value instead of wiping it (Person carries only aadhaar_masked, so a normal
     # edit can't round-trip the raw number). DPDP-2023.
+    cols["aadhaar_enc"] = aad_enc
+    # An empty submit means "keep what is stored" — never wipe by omission.
     if is_update and not (v["aadhaar"] or "").strip():
         cols.pop("aadhaar_masked", None)
+        cols.pop("aadhaar_enc", None)
     if is_update:
         _self = await (await conn.execute(
             "SELECT is_self FROM family_members WHERE id=%s AND owner_user_id=%s", (pid, uid))).fetchone()
@@ -1686,6 +1928,7 @@ class Mutation:
         uid = _uid_from_info(info) or "system"
         pid = new_id()
         async with pool.connection() as conn:
+            village = await _canonical_village(conn, uid, village, mandal, district)
             if not group_id.strip():
                 dg = await (await conn.execute(
                     "SELECT id FROM groups WHERE owner_user_id=%s ORDER BY created_at LIMIT 1", (uid,))).fetchone()
@@ -1708,6 +1951,10 @@ class Mutation:
     async def delete_passbook(self, info: strawberry.Info, id: str) -> bool:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
+            # CL-547: read the name BEFORE the row is gone — an audit entry that
+            # cannot say what it deleted is not an audit entry.
+            doomed = await (await conn.execute(
+                "SELECT pattadar_no, village FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             cur = await conn.execute("DELETE FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))
             deleted = cur.rowcount > 0
             if deleted:
@@ -1716,7 +1963,8 @@ class Mutation:
                 await conn.execute(
                     "DELETE FROM parcel_owners WHERE parcel_id IN (SELECT id FROM parcels WHERE passbook_id=%s)", (id,))
                 await conn.execute("DELETE FROM parcels WHERE passbook_id=%s", (id,))
-                await log_audit(conn, uid, "delete_passbook", id)
+                await log_audit(conn, uid, "delete_passbook", id, _named(
+                    "Khata", (doomed or {}).get("pattadar_no"), (doomed or {}).get("village")))
             return deleted
 
     @strawberry.mutation
@@ -1881,13 +2129,23 @@ class Mutation:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
             own = await (await conn.execute(
-                "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                "SELECT label, address FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not own:
                 raise NotAuthorized("Not authorized for this property")
             await conn.execute("DELETE FROM property_owners WHERE property_id=%s", (id,))
             await conn.execute("DELETE FROM documents WHERE property_id=%s", (id,))
+            # Registered deeds hang off the property too, and each carries its
+            # parties and its AI summary. Deleting only `documents` left the
+            # deed — and everything read out of it — pointing at a property
+            # that no longer existed.
+            await conn.execute(
+                "DELETE FROM document_parties WHERE document_id IN "
+                "(SELECT id FROM registered_documents WHERE property_id=%s AND owner_user_id=%s)",
+                (id, uid))
+            await conn.execute(
+                "DELETE FROM registered_documents WHERE property_id=%s AND owner_user_id=%s", (id, uid))
             await conn.execute("DELETE FROM properties WHERE id=%s", (id,))
-            await log_audit(conn, uid, "delete_property", id, "Deleted property")
+            await log_audit(conn, uid, "delete_property", id, _named("", own["label"], own["address"]))
             return True
 
     @strawberry.mutation
@@ -1918,6 +2176,149 @@ class Mutation:
             return to_type(ParcelType, prow)
 
     @strawberry.mutation
+    async def apply_my_kyc(
+        self, info: strawberry.Info,
+        name: str = "", dob: str = "", gender: str = "",
+        address: str = "", aadhaar: str = "",
+    ) -> UserType:
+        """Apply KYC read from the owner's own Aadhaar.
+
+        Writes BOTH the account profile and every `is_self` family-member row,
+        so the owner appears in their groups with the same name, age and ID as
+        anyone else — the account and the group record are two views of one
+        person, and they used to drift apart.
+
+        Every argument is optional: only non-empty values are written, so a
+        partial accept from the review screen never blanks a field.
+        """
+        uid = _uid_from_info(info) or "guest"
+        masked = _mask_aadhaar(aadhaar) if (aadhaar or "").strip() else ""
+        enc = encrypt_aadhaar(aadhaar) if (aadhaar or "").strip() else ""
+        async with pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", (uid, uid))
+            sets, vals = [], []
+            if (name or "").strip():
+                sets.append("name=%s"); vals.append(name.strip())
+            if (address or "").strip():
+                sets.append("address=%s"); vals.append(address.strip())
+            if masked:
+                sets.append("kyc_ref_masked=%s"); vals.append(masked)
+                sets.append("kyc_ref_enc=%s"); vals.append(enc)
+            if sets:
+                await conn.execute(
+                    f"UPDATE users SET {', '.join(sets)} WHERE id=%s", (*vals, uid))
+
+            msets, mvals = [], []
+            for col, val in (("name", name), ("dob", dob), ("gender", gender),
+                             ("present_address", address)):
+                if (val or "").strip():
+                    msets.append(f"{col}=%s"); mvals.append(val.strip())
+            if masked:
+                msets.append("aadhaar_masked=%s"); mvals.append(masked)
+                msets.append("aadhaar_enc=%s"); mvals.append(enc)
+            if msets:
+                await conn.execute(
+                    f"UPDATE family_members SET {', '.join(msets)} "
+                    "WHERE owner_user_id=%s AND is_self=TRUE", (*mvals, uid))
+
+            await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
+            row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
+            return to_type(UserType, row)
+
+    @strawberry.mutation
+    async def clear_my_kyc(self, info: strawberry.Info) -> UserType:
+        """Remove the identity applied from an Aadhaar card — CL-545.
+
+        `apply_my_kyc` deliberately writes only non-empty values so a partial
+        accept cannot blank a field. The cost of that rule is that scanning the
+        WRONG card (a spouse's, a parent's) is one-way: every later submit
+        preserves what is already there. This is the way back.
+
+        Clears the name, address and Aadhaar from the account and the same
+        fields from every `is_self` member row. Land, groups and documents are
+        untouched — this is about who the account says you are, nothing else.
+        """
+        uid = _uid_from_info(info) or "guest"
+        async with pool.connection() as conn:
+            prev = await (await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))).fetchone()
+            await conn.execute(
+                "UPDATE users SET name='', address='', kyc_ref_masked='', kyc_ref_enc='' WHERE id=%s", (uid,))
+            await conn.execute(
+                "UPDATE family_members SET name='', dob='', gender='', present_address='', "
+                "aadhaar_masked='', aadhaar_enc='' WHERE owner_user_id=%s AND is_self=TRUE", (uid,))
+            # Name the identity that was removed: this is exactly the kind of
+            # change someone will need to account for later.
+            await log_audit(conn, uid, "clear_my_kyc", uid, _named("Removed", (prev or {}).get("name")))
+            row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
+            return to_type(UserType, row)
+
+    @strawberry.mutation
+    async def reveal_my_aadhaar(self, info: strawberry.Info) -> str:
+        """The signed-in user's own full Aadhaar. Audited like the member one."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT kyc_ref_enc FROM users WHERE id=%s", (uid,))).fetchone()
+            full = decrypt_aadhaar(row["kyc_ref_enc"]) if row else ""
+            if not full:
+                raise ValueError("No Aadhaar stored on your profile")
+            await log_audit(conn, uid, "reveal_aadhaar", uid, "revealed own Aadhaar")
+            return full
+
+    @strawberry.mutation
+    async def reveal_member_aadhaar(self, info: strawberry.Info, id: str) -> str:
+        """Return one member's full Aadhaar to its owner, and audit the fact.
+
+        Deliberately a mutation on a single id rather than a field on PersonType:
+        a field would ride along on every `members { ... }` query and put the
+        number in every list response. Every call writes an audit row — an
+        un-audited reveal is indistinguishable from an exfiltration."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT aadhaar_enc, name FROM family_members WHERE id=%s AND owner_user_id=%s",
+                (id, uid))).fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this member")
+            full = decrypt_aadhaar(row["aadhaar_enc"])
+            if not full:
+                raise ValueError("No Aadhaar stored for this member")
+            await log_audit(conn, uid, "reveal_aadhaar", id, f"revealed for {row['name']}")
+            return full
+
+    @strawberry.mutation
+    async def set_parcel_field(
+        self, info: strawberry.Info, parcel_id: str, field_key: str, state: str,
+        value: str = "", source: str = "manual", source_ref: str = "",
+        verified_at: str = "", expires_at: str = "", na_reason: str = "",
+    ) -> ParcelFieldType:
+        """Upsert one record field. Idempotent on (parcel_id, field_key)."""
+        uid = _uid_from_info(info) or "system"
+        if state not in ("filled", "not_available", "unknown"):
+            raise ValueError("state must be filled, not_available or unknown")
+        async with pool.connection() as conn:
+            owned = await (await conn.execute(
+                "SELECT p.id FROM parcels p JOIN passbooks pb ON pb.id = p.passbook_id "
+                "WHERE p.id=%s AND pb.owner_user_id=%s", (parcel_id, uid))).fetchone()
+            if not owned:
+                raise NotAuthorized("Not authorized for this parcel")
+            cur = await conn.execute(
+                "INSERT INTO parcel_fields (parcel_id, field_key, state, value, source, source_ref, "
+                "verified_at, expires_at, na_reason, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (parcel_id, field_key) DO UPDATE SET "
+                "state=EXCLUDED.state, value=EXCLUDED.value, source=EXCLUDED.source, "
+                "source_ref=EXCLUDED.source_ref, verified_at=EXCLUDED.verified_at, "
+                "expires_at=EXCLUDED.expires_at, na_reason=EXCLUDED.na_reason, "
+                "updated_at=EXCLUDED.updated_at RETURNING *",
+                (parcel_id, field_key, state, value, source, source_ref,
+                 verified_at, expires_at, na_reason, datetime.utcnow().isoformat()))
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "set_parcel_field", parcel_id, f"{field_key} = {state}")
+            return to_type(ParcelFieldType, row)
+
+    @strawberry.mutation
     async def update_parcel_geo(self, info: strawberry.Info, parcel_id: str, geo_point: str) -> ParcelType:
         """Save the parcel's geo-location (GeoJSON Point or Polygon string)."""
         uid = _uid_from_info(info) or "system"
@@ -1931,6 +2332,32 @@ class Mutation:
                 raise NotAuthorized("Not authorized for this parcel")
             await log_audit(conn, uid, "update_parcel_geo", parcel_id, "location set" if geo_point else "location cleared")
             return to_type(ParcelType, row)
+
+    @strawberry.mutation
+    async def update_property_geo(self, info: strawberry.Info, property_id: str, geo_point: str) -> PropertyType:
+        """Save a property's pin.
+
+        The column has existed since the properties table was created; only the
+        write path was missing, so the app showed "Set location" and then had to
+        admit it could not save one. A plot is exactly the kind of holding whose
+        location is hardest to describe in words — it is the case that needs a
+        pin most.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE properties SET geo_point=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (geo_point, property_id, uid))
+            row = await cur.fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this property")
+            # The audit row names the property, not just its id — a log that
+            # says "location set · <uuid>" answers nothing later.
+            await log_audit(
+                conn, uid, "update_property_geo", property_id,
+                f"{'Location set' if geo_point else 'Location cleared'} · {_named('', row['label'], row['address'])}".strip(' ·'),
+            )
+            return to_type(PropertyType, row)
 
     @strawberry.mutation
     async def update_parcel(
@@ -1992,6 +2419,13 @@ class Mutation:
     async def delete_parcel(self, info: strawberry.Info, id: str) -> bool:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
+            # A parcel has no village of its own — the village belongs to its
+            # passbook. Reading it straight off `parcels` raised UndefinedColumn
+            # and broke deletion outright.
+            doomed = await (await conn.execute(
+                "SELECT p.survey_no, pb.village FROM parcels p "
+                "JOIN passbooks pb ON pb.id = p.passbook_id "
+                "WHERE p.id=%s AND pb.owner_user_id=%s", (id, uid))).fetchone()
             cur = await conn.execute(
                 "DELETE FROM parcels WHERE id=%s AND passbook_id IN "
                 "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (id, uid)
@@ -1999,7 +2433,8 @@ class Mutation:
             deleted = cur.rowcount > 0
             if deleted:
                 await conn.execute("DELETE FROM parcel_owners WHERE parcel_id=%s", (id,))
-                await log_audit(conn, uid, "delete_parcel", id)
+                await log_audit(conn, uid, "delete_parcel", id, _named(
+                    "Survey", (doomed or {}).get("survey_no"), (doomed or {}).get("village")))
             return deleted
 
     @strawberry.mutation
@@ -2328,13 +2763,13 @@ class Mutation:
         to personal, never deleted)."""
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
-            g = await (await conn.execute("SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            g = await (await conn.execute("SELECT name FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not g:
                 return False
             await conn.execute("UPDATE passbooks SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
             await conn.execute("DELETE FROM family_members WHERE group_id=%s AND owner_user_id=%s", (id, uid))
             cur = await conn.execute("DELETE FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))
-            await log_audit(conn, uid, "delete_group", id, "")
+            await log_audit(conn, uid, "delete_group", id, _named("", g["name"]))
             return cur.rowcount > 0
 
     @strawberry.mutation
@@ -2443,7 +2878,7 @@ class Mutation:
         node cannot be deleted."""
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
-            s = await (await conn.execute("SELECT is_self FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            s = await (await conn.execute("SELECT is_self, name FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not s:
                 return False
             if s["is_self"]:
@@ -2452,7 +2887,7 @@ class Mutation:
             await conn.execute("UPDATE family_members SET mother_id='' WHERE mother_id=%s AND owner_user_id=%s", (id, uid))
             await conn.execute("UPDATE family_members SET spouse_id='' WHERE spouse_id=%s AND owner_user_id=%s", (id, uid))
             cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
-            await log_audit(conn, uid, "remove_member", id, "")
+            await log_audit(conn, uid, "remove_member", id, _named("", s["name"]))
             return cur.rowcount > 0
 
     @strawberry.mutation
@@ -2711,14 +3146,19 @@ class Mutation:
                 "registration_date, execution_date, consideration, stamp_duty, transfer_duty, registration_fee, "
                 "user_charges, total_fee, village, mandal, district, survey_no, plot_no, extent, classification, "
                 "boundary_north, boundary_south, boundary_east, boundary_west, prior_document, gpa_document, "
-                "scanning_id, file_ref, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "scanning_id, file_ref, summary, caveats, headline, key_points, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (did, uid, _s("doc_type"), _s("document_no"), _s("reg_year"), _s("book_no"), _s("sro"),
                  _s("registration_date"), _s("execution_date"), _n("consideration"), _n("stamp_duty"), _n("transfer_duty"),
                  _n("registration_fee"), _n("user_charges"), _n("total_fee"), _s("village"), _s("mandal"), _s("district"),
                  _s("survey_no"), _s("plot_no"), _s("extent"), _s("classification"),
                  str(b.get("north") or ""), str(b.get("south") or ""), str(b.get("east") or ""), str(b.get("west") or ""),
-                 _s("prior_document"), _s("gpa_document"), _s("scanning_id"), file_ref, now),
+                 _s("prior_document"), _s("gpa_document"), _s("scanning_id"), file_ref,
+                 # The reading travels with the document it describes.
+                 _s("summary"), json.dumps([str(c) for c in (data.get("caveats") or []) if str(c).strip()]),
+                 _s("headline"),
+                 json.dumps([str(k) for k in (data.get("key_points") or []) if str(k).strip()]),
+                 now),
             )
             for p in (data.get("parties") or []):
                 await conn.execute(
@@ -2744,10 +3184,7 @@ class Mutation:
                 raise NotAuthorized("Not authorized for this document")
             await _assert_owns_passbook(conn, uid, passbook_id)
             pid = new_id()
-            try:
-                extent_sqyd = float("".join(ch for ch in str(doc["extent"]) if ch.isdigit() or ch == ".") or 0)
-            except Exception:
-                extent_sqyd = 0.0
+            extent_sqyd = _area_sq_yd(doc["extent"])
             # Registered-deed extents are recorded in sq. yards. Store canonical
             # acres (1 acre = 4840 sq.yd) so the Extent sort and SUM(extent)
             # rollups stay in one unit; `unit` keeps 'sqyd' as provenance.
@@ -2787,16 +3224,210 @@ class Mutation:
             return to_type(RegisteredDocumentType, row)
 
     @strawberry.mutation
+    async def link_document_parcel(self, info: strawberry.Info, document_id: str, parcel_id: str) -> RegisteredDocumentType:
+        """Attach a deed to the parcel it describes.
+
+        The parcel counterpart of link_document_property. Linking to the
+        PASSBOOK was the only option, which put the deed on the khata rather
+        than on the piece of land it actually covers — so a parcel screen could
+        never show the deed it was made from.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            await _assert_owns_parcel(conn, uid, parcel_id)
+            row = await (await conn.execute(
+                "SELECT survey_no, passbook_id FROM parcels WHERE id=%s", (parcel_id,))).fetchone()
+            cur = await conn.execute(
+                "UPDATE registered_documents SET parcel_id=%s, passbook_id=%s WHERE id=%s AND owner_user_id=%s "
+                "RETURNING *",
+                (parcel_id, row["passbook_id"] if row else "", document_id, uid))
+            doc = await cur.fetchone()
+            if not doc:
+                raise NotAuthorized("Not authorized for this document")
+            await log_audit(conn, uid, "link_document_parcel", document_id,
+                            _named("", doc["doc_type"], row["survey_no"] if row else ""))
+            return to_type(RegisteredDocumentType, doc)
+
+    @strawberry.mutation
+    async def link_document_property(self, info: strawberry.Info, document_id: str, property_id: str) -> RegisteredDocumentType:
+        """Attach a deed to the property it describes.
+
+        The passbook counterpart existed; the property one did not, so a plot
+        created by scanning a deed had no way to keep the deed. The property
+        showed "No documents attached yet" about the very document it was made
+        from — and with the deed unlinked, its AI summary was unreachable.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            own = await (await conn.execute(
+                "SELECT label FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
+            if not own:
+                raise NotAuthorized("Not authorized for this property")
+            cur = await conn.execute(
+                "UPDATE registered_documents SET property_id=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (property_id, document_id, uid))
+            row = await cur.fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this document")
+            await log_audit(conn, uid, "link_document_property", document_id,
+                            _named("", row["doc_type"], own["label"]))
+            return to_type(RegisteredDocumentType, row)
+
+    @strawberry.mutation
+    async def create_property_from_document(self, info: strawberry.Info, document_id: str) -> Optional[PropertyType]:
+        """Create a plot / flat / house from a registered deed.
+
+        The counterpart of create_parcel_from_document, which only ever produced
+        farmland under a passbook. A plot has no passbook and no survey number —
+        it is bought by deed — so the Plots tab had no way in at all except
+        typing everything by hand.
+
+        Deed extents are written in square yards, which is already the unit a
+        property records land area in, so no conversion is needed here (unlike
+        the parcel path, which must normalise to acres).
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            doc = await (await conn.execute(
+                "SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s",
+                (document_id, uid))).fetchone()
+            if not doc:
+                raise NotAuthorized("Not authorized for this document")
+            area = _area_sq_yd(doc["extent"])
+            cl = (doc["classification"] or "").lower()
+            kind = "flat" if "flat" in cl or "apartment" in cl else (
+                "house" if "house" in cl or "residen" in cl else (
+                    "commercial" if "commerc" in cl or "shop" in cl else "open_plot"))
+            # A label the owner will recognise in a list: plot and locality, not
+            # a document number.
+            label = _named("", f"Plot {doc['plot_no']}" if doc["plot_no"] else "", doc["village"]) or "Property"
+            pid = new_id()
+            now = datetime.utcnow().isoformat()
+            cur = await conn.execute(
+                "INSERT INTO properties (id, owner_user_id, type, label, address, locality, city, district, "
+                "land_area, land_unit, acquisition_mode, holding_status, purchase_price, purchase_date, "
+                "created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (pid, uid, kind, label, str(doc["village"] or ""), str(doc["village"] or ""),
+                 str(doc["mandal"] or ""), str(doc["district"] or ""), area, "Sq.yd", "purchase", "owned",
+                 float(doc["consideration"] or 0), str(doc["registration_date"] or ""), now))
+            row = await cur.fetchone()
+            # Point the deed at what it created, so the two stay linked.
+            await conn.execute("UPDATE registered_documents SET property_id=%s WHERE id=%s", (pid, document_id))
+            await log_audit(conn, uid, "create_property", pid, _named("", kind, label))
+            return to_type(PropertyType, row)
+
+    @strawberry.mutation
+    async def add_parcel_photo(
+        self, info: strawberry.Info, parcel_id: str, file_ref: str,
+        category: str = "general", caption: str = "",
+        latitude: Optional[float] = None, longitude: Optional[float] = None,
+        heading: Optional[float] = None, captured_at: str = "",
+    ) -> Optional[ParcelPhotoType]:
+        """Attach a photograph to a parcel (CL-561..563).
+
+        Ownership is checked through the parcel's passbook — the same path
+        delete_parcel uses — so a photo can never be hung off someone else's
+        land.
+
+        A photo is NEVER made the cover automatically. The first-photo-wins rule
+        this used to have put scanned ROR reports and an Aadhaar card on the
+        Properties rows, where a page of small print renders as a blank white
+        tile and is strictly worse than the land icon it displaced. The app
+        cannot tell a photograph of a field from a photograph of a document, so
+        the choice belongs to the person who can — via set_cover_photo.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            owns = await (await conn.execute(
+                "SELECT 1 FROM parcels WHERE id=%s AND passbook_id IN "
+                "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (parcel_id, uid))).fetchone()
+            if not owns:
+                raise NotAuthorized("Not authorized for this parcel")
+            pid = new_id()
+            now = datetime.utcnow().isoformat()
+            cur = await conn.execute(
+                "INSERT INTO parcel_photos (id, parcel_id, owner_user_id, file_ref, category, caption, "
+                "latitude, longitude, heading, captured_at, captured_by, is_cover, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (pid, parcel_id, uid, file_ref, (category or "general").strip(), caption.strip(),
+                 latitude, longitude, heading, captured_at or now, uid, False, now))
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "add_parcel_photo", parcel_id, _named("", category, caption))
+            return to_type(ParcelPhotoType, row)
+
+    @strawberry.mutation
+    async def update_parcel_photo(
+        self, info: strawberry.Info, id: str,
+        category: Optional[str] = None, caption: Optional[str] = None,
+    ) -> Optional[ParcelPhotoType]:
+        """Edit a photo's caption or category. Both are optional and only the
+        arguments actually supplied are written — passing null must not blank a
+        field the caller never mentioned."""
+        uid = _uid_from_info(info) or "system"
+        sets, vals = [], []
+        if category is not None:
+            sets.append("category=%s"); vals.append((category or "general").strip())
+        if caption is not None:
+            sets.append("caption=%s"); vals.append(caption.strip())
+        if not sets:
+            sets.append("caption=caption")
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                f"UPDATE parcel_photos SET {', '.join(sets)} WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (*vals, id, uid))
+            row = await cur.fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this photo")
+            await log_audit(conn, uid, "update_parcel_photo", id, _named("", row["category"], row["caption"]))
+            return to_type(ParcelPhotoType, row)
+
+    @strawberry.mutation
+    async def set_cover_photo(self, info: strawberry.Info, id: str) -> bool:
+        """Make one photo the parcel's cover. Clearing the old cover first is
+        not optional — a partial unique index rejects a second one."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT parcel_id FROM parcel_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this photo")
+            await conn.execute(
+                "UPDATE parcel_photos SET is_cover=FALSE WHERE parcel_id=%s", (row["parcel_id"],))
+            await conn.execute("UPDATE parcel_photos SET is_cover=TRUE WHERE id=%s", (id,))
+            await log_audit(conn, uid, "set_cover_photo", row["parcel_id"], "")
+            return True
+
+    @strawberry.mutation
+    async def delete_parcel_photo(self, info: strawberry.Info, id: str) -> bool:
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            doomed = await (await conn.execute(
+                "SELECT parcel_id, category, caption, is_cover FROM parcel_photos "
+                "WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            if not doomed:
+                return False
+            await conn.execute("DELETE FROM parcel_photos WHERE id=%s", (id,))
+            # Deleting the cover leaves the parcel with none, and the row falls
+            # back to its land icon. Promoting a survivor would put a picture
+            # the user never chose back on their list — the same mistake as
+            # auto-covering the first photo.
+            await log_audit(conn, uid, "delete_parcel_photo", doomed["parcel_id"],
+                            _named("", doomed["category"], doomed["caption"]))
+            return True
+
+    @strawberry.mutation
     async def delete_registered_document(self, info: strawberry.Info, id: str) -> bool:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
             own = await (await conn.execute(
-                "SELECT 1 FROM registered_documents WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                "SELECT doc_type, document_no, village, survey_no FROM registered_documents "
+                "WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not own:
                 return False
             await conn.execute("DELETE FROM document_parties WHERE document_id=%s", (id,))
             await conn.execute("DELETE FROM registered_documents WHERE id=%s", (id,))
-            await log_audit(conn, uid, "delete_registered_document", id, "Deleted registered document")
+            await log_audit(conn, uid, "delete_registered_document", id, _named(
+                "", own["doc_type"], own["document_no"], own["village"], own["survey_no"]))
             return True
 
     @strawberry.mutation
@@ -2829,20 +3460,32 @@ class Mutation:
         mfa_enabled: bool,
         address: str = "",
     ) -> UserType:
-        """Update the signed-in user's profile & preferences. Raw Aadhaar is
-        masked to a reference token before storage (DPDP-2023)."""
+        """Update the signed-in user's profile & preferences. The Aadhaar is
+        kept as a masked token for display plus ciphertext for retrieval; an
+        empty kyc_ref leaves whatever is stored untouched."""
         uid = _uid_from_info(info) or "guest"
         masked = _mask_aadhaar(kyc_ref)
+        kyc_enc = encrypt_aadhaar(kyc_ref) if (kyc_ref or "").strip() else ""
         async with pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
                 (uid, uid),
             )
-            cur = await conn.execute(
-                "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
-                "kyc_ref_masked=%s, mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
-                (language, districts_of_interest, notification_prefs, masked, mfa_enabled, address, uid),
-            )
+            if kyc_enc:
+                cur = await conn.execute(
+                    "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
+                    "kyc_ref_masked=%s, kyc_ref_enc=%s, mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
+                    (language, districts_of_interest, notification_prefs, masked, kyc_enc,
+                     mfa_enabled, address, uid),
+                )
+            else:
+                # No Aadhaar supplied — leave whatever is stored alone rather
+                # than blanking it (same rule as member updates).
+                cur = await conn.execute(
+                    "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
+                    "mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
+                    (language, districts_of_interest, notification_prefs, mfa_enabled, address, uid),
+                )
             row = await cur.fetchone()
             await log_audit(conn, uid, "update_profile", uid, "profile updated")
             return to_type(UserType, row)
@@ -3057,6 +3700,64 @@ async def init_db() -> None:
         """)
         await conn.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS parent_parcel_id TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'")
+        # Per-field record state (CL-289). One row per (parcel, field_key) so a
+        # government pull can upsert idempotently. `state` distinguishes
+        # unknown (never answered, counts as missing) from not_available
+        # (deliberately answered N/A) — they must never be conflated.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS parcel_fields (
+                parcel_id TEXT NOT NULL,
+                field_key TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'unknown',
+                value TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'manual',
+                source_ref TEXT NOT NULL DEFAULT '',
+                verified_at TEXT NOT NULL DEFAULT '',
+                expires_at TEXT NOT NULL DEFAULT '',
+                na_reason TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (parcel_id, field_key)
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS parcel_fields_key_idx ON parcel_fields (field_key)")
+        # Photographs of the land itself (CL-561..563). These are evidence, not
+        # decoration: a boundary-stone photo is worth what its coordinates,
+        # heading and capture date are worth, so the metadata is first-class
+        # columns rather than something buried in the image's EXIF, which every
+        # share sheet and messaging app strips.
+        #
+        # Attached to the PARCEL, not the passbook — one khata can span parcels
+        # kilometres apart, so a khata-level photo would name the wrong land.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS parcel_photos (
+                id TEXT PRIMARY KEY,
+                parcel_id TEXT NOT NULL,
+                owner_user_id TEXT NOT NULL,
+                file_ref TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'general',
+                caption TEXT NOT NULL DEFAULT '',
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
+                heading DOUBLE PRECISION,
+                captured_at TEXT NOT NULL DEFAULT '',
+                captured_by TEXT NOT NULL DEFAULT '',
+                is_cover BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS parcel_photos_parcel_idx ON parcel_photos (parcel_id)")
+        # One cover per parcel, enforced by the database rather than by every
+        # caller remembering to clear the previous one.
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS parcel_photos_one_cover_idx "
+            "ON parcel_photos (parcel_id) WHERE is_cover")
+        # Ciphertext only — the masked token stays in aadhaar_masked for display.
+        await conn.execute(
+            "ALTER TABLE family_members ADD COLUMN IF NOT EXISTS aadhaar_enc TEXT NOT NULL DEFAULT ''")
+        await conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_ref_enc TEXT NOT NULL DEFAULT ''")
         # Extended parcel dossier (identity/status, address, boundary schedule,
         # financials, legal) — manual entry now; AP-IGRS auto-fill later.
         for _col, _ddl in [
@@ -3215,6 +3916,26 @@ async def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT ''
             )
         """)
+        # A deed can create a PLOT as well as a parcel — the link back needs
+        # somewhere to live (create_property_from_document).
+        await conn.execute(
+            "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS property_id TEXT NOT NULL DEFAULT ''")
+        # What the AI read, in words, kept ON the document row. A summary is a
+        # statement ABOUT one particular file — it has no meaning apart from it,
+        # so it is a column here rather than a record of its own, and it goes
+        # when the document goes without anything having to remember to delete it.
+        await conn.execute(
+            "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT ''")
+        # JSON array of strings; the things the reader itself flagged as worth
+        # checking by eye.
+        await conn.execute(
+            "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS caveats TEXT NOT NULL DEFAULT ''")
+        # The summary reads like an article: a headline to scan, key points to
+        # skim, then the prose. Stored beside the summary they belong to.
+        await conn.execute(
+            "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS headline TEXT NOT NULL DEFAULT ''")
+        await conn.execute(
+            "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS key_points TEXT NOT NULL DEFAULT ''")
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS document_parties (
@@ -3943,8 +4664,30 @@ _TRANSIENT_CONNECTION_ERRORS = (
 )
 
 
+
+def _ai_failure_message(exc: Exception, size_bytes: int) -> str:
+    """A sentence the user can act on.
+
+    `f"AI call failed: {e}"` produced literally "AI call failed: " for an
+    httpx.ReadError, whose str() is empty — a red error naming nothing. Network
+    faults on this path are almost always payload size: a 13 MB scan becomes an
+    18 MB base64 upload, and the connection dies partway through.
+    """
+    mb = size_bytes / (1024 * 1024)
+    kind = type(exc).__name__
+    transport = isinstance(exc, _TRANSIENT_CONNECTION_ERRORS)
+    if transport and mb >= 6:
+        return (f"The connection dropped while sending this {mb:.0f} MB file "
+                f"({kind}). Large scans often fail — photograph the pages that "
+                f"carry the details, or use a smaller PDF.")
+    if transport:
+        return f"The connection to the AI service dropped ({kind}). Try again."
+    detail = str(exc).strip()
+    return f"AI call failed ({kind}){f': {detail}' if detail else ''}"
+
+
 async def _post_with_retry(url: str, *, headers: dict, json_body: dict, timeout: float,
-                            max_attempts: int = 3) -> httpx.Response:
+                            max_attempts: int = 4) -> httpx.Response:
     """POST with retry on transient connection/TLS faults (SSLV3_ALERT_BAD_RECORD_MAC,
     reset connections, etc). Builds a FRESH httpx.AsyncClient — a fresh TCP+TLS
     connection — on every attempt instead of retrying over the same connection, so a
@@ -3956,7 +4699,9 @@ async def _post_with_retry(url: str, *, headers: dict, json_body: dict, timeout:
         except _TRANSIENT_CONNECTION_ERRORS:
             if attempt == max_attempts:
                 raise
-            await asyncio.sleep(0.5 * attempt)  # 0.5s, then 1.0s
+            # Backs off further each time: a 13 MB upload that dropped needs
+            # more than a moment before the next attempt is worth making.
+            await asyncio.sleep(1.5 * attempt)  # 1.5s, 3s, 4.5s
     raise AssertionError("unreachable")  # loop always returns or re-raises
 
 
@@ -3979,7 +4724,18 @@ async def import_passbook(file: UploadFile = File(...)):
         return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
     payload = {
         "model": _IMPORT_MODEL,
-        "max_tokens": 2048,
+        # Output is pure JSON and you only pay for what is produced, so the
+        # ceiling is set by the longest document, not the typical one. At 3000
+        # a 14 MB multi-page deed stopped mid-object (stop_reason=max_tokens)
+        # and the app prefilled nothing.
+        # The model reasons before answering, and that reasoning is billed against
+        # max_tokens. On a 14 MB deed it spent 8228 tokens thinking — more than the
+        # entire 8000 ceiling — so the JSON was cut off mid-object and the app was
+        # told the document "ran out of room". The ceiling now comfortably exceeds
+        # thinking + answer, and effort=medium cuts the thinking (and the wait, 132s
+        # to 53s) without changing a single extracted value.
+        "max_tokens": 16000,
+        "output_config": {"effort": "medium"},
         "system": _IMPORT_SYSTEM,
         "messages": [{"role": "user", "content": [
             block,
@@ -3991,20 +4747,56 @@ async def import_passbook(file: UploadFile = File(...)):
             "https://api.anthropic.com/v1/messages",
             headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
             json_body=payload,
-            timeout=140,
+            timeout=200,
         )
     except httpx.TimeoutException:
         _log.warning("AI extract timed out (file=%s, model=%s)", file.filename or "", _IMPORT_MODEL)
         return JSONResponse(status_code=504, content={"error": "AI took too long to read this document (timed out). Try again or enter details manually."})
     except Exception as e:
-        _log.warning("AI extract failed (file=%s): %r", file.filename or "", e)
-        return JSONResponse(status_code=502, content={"error": f"AI call failed: {e}"})
+        _log.warning("AI extract failed (file=%s, bytes=%d): %r", file.filename or "", len(data), e)
+        return JSONResponse(status_code=502, content={"error": _ai_failure_message(e, len(data))})
     if r.status_code != 200:
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", file.filename or "", r.status_code, (r.text or '')[:300])
-        return JSONResponse(status_code=502, content={"error": "AI call failed", "detail": r.text[:300]})
+        return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
     body = r.json()
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-    return {"fields": _extract_json(text), "raw": text}
+    fields = _extract_json(text)
+    # Running out of room is a budget problem, not a bad document — so try once
+    # more with the model reasoning less, which leaves far more of the ceiling
+    # for the answer. Only worth doing when that is demonstrably what happened.
+    if (not fields) and body.get("stop_reason") == "max_tokens":
+        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", file.filename or "")
+        retry = dict(payload)
+        retry["output_config"] = {"effort": "low"}
+        try:
+            r2 = await _post_with_retry(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json_body=retry,
+                timeout=200,
+            )
+            if r2.status_code == 200:
+                body = r2.json()
+                text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
+                fields = _extract_json(text)
+        except Exception as e:
+            _log.warning("AI extract low-effort retry failed (file=%s): %r", file.filename or "", e)
+    if not text or not fields:
+        # An empty or unparseable reply used to be returned as a 200 with
+        # {"fields": {}} — the app then prefilled nothing and the form sat there
+        # looking untouched, which reads as "the button did nothing". A document
+        # we could not read is a failure and must say so.
+        _log.warning(
+            "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
+            file.filename or "", len(data), body.get("stop_reason"), len(text),
+        )
+        msg = ("This passbook is long enough that the reading ran out of room. Photograph just the "
+               "pages with the details, or enter them by hand."
+               if body.get("stop_reason") == "max_tokens" else
+               "Nothing could be read from this passbook. It may be a scan of photographs rather "
+               "than text — try a clearer copy, or enter the details by hand.")
+        return JSONResponse(status_code=502, content={"error": msg})
+    return {"fields": fields, "raw": text}
 
 
 # ── AI Aadhaar (KYC) classifier ───────────────────────────────────────
@@ -4029,7 +4821,24 @@ _AADHAAR_SYSTEM = (
 )
 
 
-async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024) -> dict:
+def _sniff_image_mime(data: bytes) -> str:
+    """Real media type from magic bytes; '' when it is not a known image."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    # HEIC/HEIF carry an ISO-BMFF brand; the vision API cannot read them, so
+    # naming them here lets the caller fail with a sentence instead of a 400.
+    if data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"hevc", b"mif1", b"msf1"):
+        return "image/heic"
+    return ""
+
+
+async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024, effort: str = "medium") -> dict:
     """Shared vision-extraction call: base64 → Claude → parsed JSON. Returns
     {"fields", "raw"} or {"_error": (status, message)}. `max_mb`/`max_tokens` let a
     caller with larger scans (e.g. multi-page property docs) raise the defaults."""
@@ -4040,6 +4849,13 @@ async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, use
         return {"_error": (413, f"File too large (max {max_mb} MB)")}
     b64 = base64.standard_b64encode(data).decode()
     mime = (mime or "").lower(); name = (name or "").lower()
+    # Trust the BYTES, not the client's label. Pickers and share sheets happily
+    # hand over a PNG named .jpg, or a generic octet-stream, and forwarding that
+    # verbatim earns a flat 400 from the vision API ("appears to be a image/png
+    # image") that surfaces to the user as an unexplained failure.
+    sniffed = _sniff_image_mime(data)
+    if sniffed:
+        mime = sniffed
     if mime == "application/pdf" or name.endswith(".pdf"):
         block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
     elif mime.startswith("image/"):
@@ -4048,6 +4864,7 @@ async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, use
         return {"_error": (400, "Upload a PDF, JPG or PNG")}
     payload = {
         "model": _IMPORT_MODEL, "max_tokens": max_tokens, "system": system,
+        "output_config": {"effort": effort},
         "messages": [{"role": "user", "content": [block, {"type": "text", "text": user_text}]}],
     }
     try:
@@ -4055,20 +4872,118 @@ async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, use
             "https://api.anthropic.com/v1/messages",
             headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
             json_body=payload,
-            timeout=140,
+            timeout=200,
         )
     except httpx.TimeoutException:
         _log.warning("AI extract timed out (file=%s, model=%s)", name, _IMPORT_MODEL)
         return {"_error": (504, "AI took too long to read this document (timed out). It may be large or multi-page — try again, or use 'enter details manually'.")}
     except Exception as e:
-        _log.warning("AI extract failed (file=%s): %r", name, e)
-        return {"_error": (502, f"AI call failed: {e}")}
+        _log.warning("AI extract failed (file=%s, bytes=%d): %r", name, len(data), e)
+        return {"_error": (502, _ai_failure_message(e, len(data)))}
     if r.status_code != 200:
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
         return {"_error": (502, "AI call failed")}
     body = r.json()
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-    return {"fields": _extract_json(text), "raw": text}
+    fields = _extract_json(text)
+    # Running out of room is a budget problem, not a bad document — so try once
+    # more with the model reasoning less, which leaves far more of the ceiling
+    # for the answer. Only worth doing when that is demonstrably what happened.
+    if (not fields) and body.get("stop_reason") == "max_tokens":
+        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", name)
+        retry = dict(payload)
+        retry["output_config"] = {"effort": "low"}
+        try:
+            r2 = await _post_with_retry(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json_body=retry,
+                timeout=200,
+            )
+            if r2.status_code == 200:
+                body = r2.json()
+                text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
+                fields = _extract_json(text)
+        except Exception as e:
+            _log.warning("AI extract low-effort retry failed (file=%s): %r", name, e)
+    if not text or not fields:
+        # An empty or unparseable reply used to be returned as a 200 with
+        # {"fields": {}} — the app then prefilled nothing and the form sat there
+        # looking untouched, which reads as "the button did nothing". A document
+        # we could not read is a failure and must say so.
+        _log.warning(
+            "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
+            name, len(data), body.get("stop_reason"), len(text),
+        )
+        if body.get("stop_reason") == "max_tokens":
+            return {"_error": (502, "This document is long enough that the reading ran out of room. "
+                                    "Photograph just the pages with the details, or enter them by hand.")}
+        return {"_error": (502, "Nothing could be read from this document. It may be a scan of "
+                                "photographs rather than text — try a clearer copy, or enter the "
+                                "details by hand.")}
+    return {"fields": fields, "raw": text}
+
+
+_PARCEL_PHOTO_SYSTEM = (
+    "You screen photographs for an Andhra Pradesh land-records app. The user is attaching a "
+    "picture to a PARCEL of land as evidence. Decide what the picture actually shows.\n"
+    "Return ONLY a compact JSON object, no markdown or commentary:\n"
+    '{"kind":"<land|document|id_document|person|screenshot|other>",'
+    '"category":"<boundary|overview|crop|water|access|structure|dispute|landmark|general>",'
+    '"confidence":"<high|medium|low>","reason":"<max 12 words, plain English>"}\n'
+    "KIND — choose exactly one:\n"
+    '  • "id_document" — Aadhaar, PAN, driving licence, passport, voter ID, ration card, or any '
+    "card bearing a government identity number or a photo-ID layout. This is the most important "
+    "category to get right.\n"
+    '  • "document" — a printed or scanned page: deed, ROR/Adangal/1-B, passbook page, receipt, '
+    "certificate, court paper, a table of text.\n"
+    '  • "screenshot" — a capture of a phone or computer screen (app UI, browser, chat).\n'
+    '  • "person" — a face or people are the main subject (a person incidentally standing in a '
+    "field is still land).\n"
+    '  • "land" — outdoor ground, fields, crops, soil, boundary or survey stones, bunds, fences, '
+    "farm sheds, wells, borewells, canals, tracks and approach roads, rural buildings on the plot. "
+    "IMPORTANT: bare, dry, fallow, dusty, scrubby or night-time ground IS land. Do not require it "
+    "to look green or cultivated. Andhra farmland is frequently bare earth.\n"
+    '  • "other" — indoor scenes, vehicles, food, pets, and anything that is none of the above.\n'
+    "CATEGORY — only meaningful when kind is \"land\"; otherwise use \"general\".\n"
+    "CONFIDENCE — say \"low\" whenever you are unsure. Being unsure is useful information; a "
+    "confident wrong answer blocks a farmer from recording real evidence."
+)
+
+
+@app.post("/classify-parcel-photo")
+async def classify_parcel_photo(file: UploadFile = File(...)):
+    """Classify an image BEFORE it is stored (CL-600..604).
+
+    The bytes are held in memory for the length of this call and written
+    nowhere — no disk, no S3, no database. That matters most for the case this
+    exists to catch: an Aadhaar card must not be persisted anywhere in order to
+    discover that it should not be persisted.
+    """
+    data = await file.read()
+    out = await _anthropic_extract(
+        data, file.content_type or "", file.filename or "",
+        _PARCEL_PHOTO_SYSTEM, "Classify this picture and return ONLY the JSON object.")
+    if "_error" in out:
+        # An image we cannot READ is not an image we can vouch for. Returning an
+        # error would make the client fail open and accept it silently, which is
+        # exactly wrong for the case this endpoint exists to catch. HEIC (which
+        # the vision API cannot decode) and oversized files land here.
+        _log.info("classify: unreadable (%s) — returning unknown", out["_error"][1])
+        return {"kind": "", "category": "general", "confidence": "low",
+                "reason": "could not read this image"}
+    fields = out.get("fields") or {}
+    kind = str(fields.get("kind", "")).strip().lower()
+    # An unrecognised answer must not read as "land" — unknown means unknown,
+    # and the client treats unknown as a soft warning rather than approval.
+    if kind not in {"land", "document", "id_document", "person", "screenshot", "other"}:
+        kind = ""
+    return {
+        "kind": kind,
+        "category": str(fields.get("category", "general")).strip().lower() or "general",
+        "confidence": str(fields.get("confidence", "low")).strip().lower() or "low",
+        "reason": str(fields.get("reason", "")).strip()[:120],
+    }
 
 
 @app.post("/extract-aadhaar")
@@ -4115,13 +5030,53 @@ _DOC_IMPORT_SYSTEM = (
     '"boundaries":{"north":"","south":"","east":"","west":""},'
     '"prior_document":"<prior deed no/year>","gpa_document":"<GPA doc no/year>","scanning_id":"<scanning id>",'
     '"parties":[{"role":"<seller|buyer>","name":"<English>","parentage":"<S/o|W/o|D/o ...>","age":"<age>","address":"<English>","is_gpa":<bool>}],'
+    '"headline":"<one line, max 90 chars, see below>",'
+    '"key_points":["<3 to 5 short factual lines, see below>"],'
+    '"summary":"<2-3 short paragraphs, see below>",'
+    '"caveats":["<anything unreadable, ambiguous or worth checking — [] if none>"],'
     '"confidence":"<high|medium|low>"}\n'
+    "THE NARRATIVE MUST AGREE WITH `parties`. Work out the roles FIRST, then write the headline, "
+    "key points and summary from them. The \"seller\" is the person who PARTED WITH the property; "
+    "the \"buyer\" is the person who RECEIVED it. Never write that the buyer sold, or that the "
+    "seller bought — a headline that contradicts the parties list is a serious error in a "
+    "land-records app, because it inverts who owns the land. For a GPA, the executant GRANTS the "
+    "power and the holder RECEIVES it; say it in that direction.\n"
+    "WRITE IT LIKE A NEWS REPORT. The reader is scanning, not studying. Most important fact "
+    "first, plain English, active voice, past tense for what has already happened. No jargon, no "
+    "field names, no hedging, no preamble like \"This document is\". Write amounts the Indian way "
+    "(Rs 1,91,000). Name people exactly as they appear on the page.\n"
+    "  HEADLINE — one line, max 90 characters, stating WHO did WHAT to WHAT for HOW MUCH. "
+    "No trailing full stop. Example: \"Dasaratharamaiah sold 418.5 sq yd in Nallapadu for "
+    "Rs 84,000\".\n"
+    "  KEY_POINTS — 3 to 5 lines, each under 90 characters, each a single self-contained fact a "
+    "buyer would want at a glance: what was transferred and how big, who to whom, the price, the "
+    "date and registering office, and any title chain (prior document). One fact per line, no "
+    "sentence fragments continuing from the line above.\n"
+    "  SUMMARY — 2 to 3 SHORT paragraphs separated by a blank line (\\n\\n). First paragraph: the "
+    "transaction itself. Later paragraphs: how the seller came to own it, the boundaries, and "
+    "anything else of substance. Two to three sentences per paragraph, never a single wall of "
+    "text. If the document is not a transfer (a receipt, a map, a certificate), report what it is "
+    "and what it covers instead.\n"
+    "CAVEATS — ALWAYS include, as the FIRST caveat, one line naming who you took as the person "
+    "parting with the property and who you took as the person receiving it, in the form: "
+    "\"Read as X transferring to Y — check this direction against the deed.\" Repeated readings of "
+    "the same GPA have disagreed about which party is which, so this direction is never to be "
+    "presented as settled. Then list anything else a careful person should verify by eye: a page that was cut off or "
+    "blurred, a figure that appears twice with different values, an extent written ambiguously, "
+    "a party whose role was hard to determine, handwriting you had to interpret. Be specific "
+    "and brief. An empty list is correct when the document read cleanly — do NOT invent doubt.\n"
     "PARTY ROLES — read carefully, DO NOT SWAP these two:\n"
     "  • వ్రాసి ఇచ్చినవారు / వ్రాయించి ఇచ్చినవారు (vrasi/vrayinchi ichchinavaru) = the executant / vendor "
     "who WRITES AND GIVES the deed → role = \"seller\" (the PREVIOUS owner).\n"
     "  • వ్రాయించుకొన్నవారు / వ్రాయించుకున్నవారు (vrayinchukonnavaru/vrayinchukunnavaru) = the claimant / "
     "vendee who GETS the deed written FOR THEMSELVES (the recipient) → role = \"buyer\" (the CURRENT owner).\n"
     "In a sale/gift, the person parting with the property is the seller; the person receiving it is the buyer. "
+    "A GPA HAS NO SELLER AND NO BUYER, and guessing has produced the opposite answer on repeated "
+    "readings of the same document — which silently inverts who controls the land. Map it "
+    "explicitly and always the same way: the EXECUTANT/PRINCIPAL, who owns the property and GRANTS "
+    "the authority (వ్రాసి ఇచ్చినవారు), takes role \"seller\"; the GPA HOLDER/AGENT, who RECEIVES "
+    "the authority to act (వ్రాయించుకొన్నవారు), takes role \"buyer\" and is marked is_gpa true. "
+    "Apply the same rule to an agreement-of-sale-cum-GPA. "
     "Map each party strictly by which Telugu heading it appears under — never guess from name order.\n"
     "Boundaries are the chuttupakkala haddulu (N/S/E/W) of the schedule property. Prefer English transliteration of "
     "Telugu names/places. Output MUST be valid JSON and nothing else."
@@ -4147,7 +5102,18 @@ async def import_registered_document(file: UploadFile = File(...)):
         return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
     payload = {
         "model": _IMPORT_MODEL,
-        "max_tokens": 3000,
+        # Output is pure JSON and you only pay for what is produced, so the
+        # ceiling is set by the longest document, not the typical one. At 3000
+        # a 14 MB multi-page deed stopped mid-object (stop_reason=max_tokens)
+        # and the app prefilled nothing.
+        # The model reasons before answering, and that reasoning is billed against
+        # max_tokens. On a 14 MB deed it spent 8228 tokens thinking — more than the
+        # entire 8000 ceiling — so the JSON was cut off mid-object and the app was
+        # told the document "ran out of room". The ceiling now comfortably exceeds
+        # thinking + answer, and effort=medium cuts the thinking (and the wait, 132s
+        # to 53s) without changing a single extracted value.
+        "max_tokens": 16000,
+        "output_config": {"effort": "medium"},
         "system": _DOC_IMPORT_SYSTEM,
         "messages": [{"role": "user", "content": [
             block,
@@ -4165,14 +5131,50 @@ async def import_registered_document(file: UploadFile = File(...)):
         _log.warning("AI extract timed out (file=%s, model=%s)", file.filename or "", _IMPORT_MODEL)
         return JSONResponse(status_code=504, content={"error": "AI took too long to read this document (timed out). Try again or enter details manually."})
     except Exception as e:
-        _log.warning("AI extract failed (file=%s): %r", file.filename or "", e)
-        return JSONResponse(status_code=502, content={"error": f"AI call failed: {e}"})
+        _log.warning("AI extract failed (file=%s, bytes=%d): %r", file.filename or "", len(data), e)
+        return JSONResponse(status_code=502, content={"error": _ai_failure_message(e, len(data))})
     if r.status_code != 200:
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", file.filename or "", r.status_code, (r.text or '')[:300])
-        return JSONResponse(status_code=502, content={"error": "AI call failed", "detail": r.text[:300]})
+        return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
     body = r.json()
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-    return {"fields": _extract_json(text), "raw": text}
+    fields = _extract_json(text)
+    # Running out of room is a budget problem, not a bad document — so try once
+    # more with the model reasoning less, which leaves far more of the ceiling
+    # for the answer. Only worth doing when that is demonstrably what happened.
+    if (not fields) and body.get("stop_reason") == "max_tokens":
+        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", file.filename or "")
+        retry = dict(payload)
+        retry["output_config"] = {"effort": "low"}
+        try:
+            r2 = await _post_with_retry(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json_body=retry,
+                timeout=200,
+            )
+            if r2.status_code == 200:
+                body = r2.json()
+                text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
+                fields = _extract_json(text)
+        except Exception as e:
+            _log.warning("AI extract low-effort retry failed (file=%s): %r", file.filename or "", e)
+    if not text or not fields:
+        # An empty or unparseable reply used to be returned as a 200 with
+        # {"fields": {}} — the app then prefilled nothing and the form sat there
+        # looking untouched, which reads as "the button did nothing". A document
+        # we could not read is a failure and must say so.
+        _log.warning(
+            "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
+            file.filename or "", len(data), body.get("stop_reason"), len(text),
+        )
+        msg = ("This document is long enough that the reading ran out of room. Photograph just the "
+               "pages with the details, or enter them by hand."
+               if body.get("stop_reason") == "max_tokens" else
+               "Nothing could be read from this document. It may be a scan of photographs rather "
+               "than text — try a clearer copy, or enter the details by hand.")
+        return JSONResponse(status_code=502, content={"error": msg})
+    return {"fields": fields, "raw": text}
 
 
 # ── AI Property Importer ──────────────────────────────────────────────
@@ -4251,7 +5253,7 @@ async def extract_property(file: UploadFile = File(...)):
         data, file.content_type or "", file.filename or "",
         _PROPERTY_IMPORT_SYSTEM,
         "Classify kind and extract the property (or agricultural parcel) fields. Return ONLY the JSON object.",
-        max_mb=25, max_tokens=3000,
+        max_mb=25, max_tokens=16000,
     )
     if "_error" in out:
         status, msg = out["_error"]

@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { hasApi } from '@/api/client';
 import { useVerifyBeneficiary } from '@/data/hooks';
-import { tokens } from '@pattadar/tokens';
 
 /**
  * Public verification landing — opened from the invite link
@@ -19,7 +18,7 @@ export default function VerifyScreen() {
   const theme = useTheme();
   const { token } = useLocalSearchParams<{ token: string }>();
   const verify = useVerifyBeneficiary();
-  const statusColors = theme.dark ? tokens.status.dark : tokens.status.light;
+  const statusColors = theme.dark ? { good: '#6fcf97', warning: '#e8a13d', critical: '#ef6a6a', muted: theme.colors.onSurfaceVariant } : { good: '#2e7d32', warning: '#b45309', critical: '#a61b1b', muted: theme.colors.onSurfaceVariant };
 
   const succeeded = verify.isSuccess && !!verify.data?.verifyBeneficiary;
   // A rejected token comes back as a GraphQL-level error ("Invalid or expired
@@ -120,8 +119,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: tokens.spacing.xl,
-    gap: tokens.spacing.md,
+    padding: 24,
+    gap: 12,
   },
   title: { fontWeight: '700', textAlign: 'center' },
   body: { textAlign: 'center' },

@@ -6,7 +6,7 @@ Cognito's claims contract:
 - Issuer: https://cognito-idp.{region}.amazonaws.com/{user_pool_id}
   (JWKS at {issuer}/.well-known/jwks.json)
 - Cognito access tokens have NO `aud` claim — we do NOT verify `aud`.
-  Instead we require `token_use == "access"` and `client_id` to equal the
+  Instead we require `token_use == "access"` and `client_id` to be one of the
   configured app client id.
 - The `email` claim is injected into the access token by a
   pre-token-generation Lambda trigger (lowercased). Tokens without it are
@@ -37,6 +37,10 @@ class CognitoJWTConfig:
     """JWT auth configuration for Amazon Cognito."""
     region: str
     user_pool_id: str
+    #: Comma-separated in COGNITO_CLIENT_ID; one Cognito user pool legitimately
+    #: serves several app clients (web SPA + native iOS). Matching stays EXACT
+    #: against this allowlist — this widens which clients are recognised, never
+    #: how a token is verified.
     client_id: str
     algorithms: List[str] = field(default_factory=lambda: ["RS256"])
     jwks_cache_ttl: int = _DEFAULT_CACHE_TTL
@@ -63,8 +67,14 @@ class CognitoJWTConfig:
         return f"{self.issuer}/.well-known/jwks.json"
 
     @property
+    def client_ids(self) -> frozenset:
+        """Allowed app-client ids. Empty entries are dropped so a stray comma
+        can never widen the allowlist to everything."""
+        return frozenset(c.strip() for c in self.client_id.split(",") if c.strip())
+
+    @property
     def is_configured(self) -> bool:
-        return bool(self.issuer and self.client_id)
+        return bool(self.issuer and self.client_ids)
 
 
 class JWKSCache:
@@ -213,8 +223,10 @@ async def verify_token(
     # Cognito-specific claim checks (replace the predecessor OIDC provider's audience validation).
     if str(claims.get("token_use") or "") != "access":
         raise JWTError("Not an access token (token_use != 'access')")
-    if str(claims.get("client_id") or "") != config.client_id:
-        raise JWTError("Token client_id does not match the configured app client")
+    allowed = config.client_ids
+    # FAIL CLOSED: no configured clients → no token is acceptable.
+    if not allowed or str(claims.get("client_id") or "") not in allowed:
+        raise JWTError("Token client_id does not match a configured app client")
     if not str(claims.get("email") or "").strip():
         # The pre-token-generation trigger injects email (lowercased) into
         # every access token; a token without it cannot be mapped to a user.

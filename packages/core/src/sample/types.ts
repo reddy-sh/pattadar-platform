@@ -98,6 +98,7 @@ export interface Property {
   stake?: string;
   currentOwner?: string;
   groupId?: string;
+  geoPoint?: string;
 }
 
 export interface DocumentRecord {
@@ -114,6 +115,8 @@ export interface DocumentRecord {
 export interface RegisteredDocument {
   id: string;
   ref: string;
+  /** My Drive storage node id; absent/empty when no file was stored. */
+  fileRef?: string;
   docType: string;
   documentNo: string;
   regYear: string;
@@ -125,6 +128,19 @@ export interface RegisteredDocument {
   district: string;
   passbookId: string;
   parcelId: string;
+  propertyId?: string;
+  extent?: string;
+  registrationDate?: string;
+  /**
+   * What the AI read out of this file, written as a news report: a headline to
+   * scan, key points to skim, then the prose. Stored ON the document row, so
+   * it cannot outlive the document it describes.
+   */
+  headline?: string;
+  keyPointList?: string[];
+  summary?: string;
+  /** The reader's own "check this yourself" notes. */
+  caveatList?: string[];
   createdAt: string;
   /** Sample-only enrichments (not in the live shape — shown as "—" when live). */
   parties?: string;
@@ -168,6 +184,11 @@ export interface Member {
   aadhaarMasked: string;
   phoneVerified: boolean;
   emailVerified: boolean;
+  /** Free-text notes; must round-trip through an edit or it is wiped. */
+  bio?: string;
+  presentAddress?: string;
+  /** Square data-URL avatar, stored only with the owner's consent. */
+  photo?: string;
 }
 
 export interface Invitation {
@@ -267,4 +288,21 @@ export interface WalletTransaction {
 export interface WalletSummary {
   balance: number;
   transactions: WalletTransaction[];
+}
+
+/** A photograph of land, with the metadata that makes it evidence (CL-563). */
+export interface ParcelPhoto {
+  id: string;
+  parcelId: string;
+  fileRef: string;
+  category: string;
+  caption: string;
+  /** null when the image carried no location — never 0, which is a real place. */
+  latitude: number | null;
+  longitude: number | null;
+  heading: number | null;
+  capturedAt: string;
+  capturedBy: string;
+  isCover: boolean;
+  createdAt: string;
 }

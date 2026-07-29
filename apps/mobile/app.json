@@ -10,7 +10,9 @@
     "ios": {
       "bundleIdentifier": "com.pattadar.app",
       "icon": "./assets/expo.icon",
-      "associatedDomains": ["applinks:pattadar.com"]
+      "associatedDomains": [
+        "applinks:pattadar.com"
+      ]
     },
     "android": {
       "package": "com.pattadar.app",
@@ -60,7 +62,8 @@
           "photosPermission": "Pattadar uses your photos to read passbooks and land documents.",
           "cameraPermission": "Pattadar uses the camera to photograph passbooks and land documents."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

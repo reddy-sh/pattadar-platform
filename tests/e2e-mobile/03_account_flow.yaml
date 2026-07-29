@@ -1,0 +1,7 @@
+appId: ${APP_ID}
+---
+- launchApp
+- tapOn: "account-avatar"
+- assertVisible: "Account"
+- tapOn: "close"
+- assertVisible: "Namaste"
