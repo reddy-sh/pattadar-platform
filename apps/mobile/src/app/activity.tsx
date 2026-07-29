@@ -12,7 +12,7 @@ import {
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
-import { Appbar, Chip, Divider, Searchbar, Text, useTheme } from 'react-native-paper';
+import { Appbar, Chip, Divider, Icon, Searchbar, Text, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/EmptyState';
@@ -146,13 +146,18 @@ export default function ActivityScreen() {
                 onPress={() => setExpanded(open ? null : e.id)}
                 style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
               >
-                {/* CL-551: destructive actions are marked here too, not only on Home. */}
-                <View
-                  style={[
-                    styles.dot,
-                    { backgroundColor: destructive ? theme.colors.error : theme.colors.primary },
-                  ]}
-                />
+                {/* CL-551: destructive actions are marked here too, not only on Home.
+                    Colour alone repeated the same failure the row text already fixed —
+                    a color-blind or grayscale reading of the dot couldn't tell add from
+                    delete. Shape carries that now: a minus glyph for destructive, a
+                    plain dot otherwise. */}
+                <View style={styles.dotWrap}>
+                  {destructive ? (
+                    <Icon source="minus-circle" size={10} color={theme.colors.error} />
+                  ) : (
+                    <View style={[styles.dot, { backgroundColor: theme.colors.primary }]} />
+                  )}
+                </View>
                 <View style={styles.grow}>
                   <Text variant="bodyMedium" style={styles.bold}>
                     {label}
@@ -183,7 +188,8 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingBottom: 48 },
   dayHeader: { fontWeight: '700', paddingTop: 16, paddingBottom: 4 },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 10 },
-  dot: { width: 8, height: 8, borderRadius: 4, marginTop: 7 },
+  dotWrap: { marginTop: 7 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
   grow: { flex: 1, gap: 2 },
   bold: { fontWeight: '600' },
   sectionGap: { height: 4 },
