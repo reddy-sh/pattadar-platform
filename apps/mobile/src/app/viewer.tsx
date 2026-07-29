@@ -110,9 +110,11 @@ export default function ViewerScreen() {
           <WebView
             source={{ uri }}
             style={styles.web}
-            originWhitelist={['*']}
+            javaScriptEnabled={false}
+            allowFileAccessFromFileURLs={false}
+            allowUniversalAccessFromFileURLs={false}
+            originWhitelist={['file://*']}
             allowFileAccess
-            allowFileAccessFromFileURLs
             startInLoadingState
           />
         )
