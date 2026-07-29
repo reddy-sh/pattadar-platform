@@ -13,7 +13,7 @@ import {
   TextInput,
   useTheme,
 } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { SheetDialog } from '@/components/SheetDialog';
@@ -56,6 +56,7 @@ const sentenceCase = (v: string) => (v ? v.charAt(0).toUpperCase() + v.slice(1) 
 
 export default function AllocationScreen() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const identity = useIdentity();
   const unitPref = useUnitPref();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
@@ -331,7 +332,7 @@ export default function AllocationScreen() {
             )}
           </ScrollView>
 
-          <View style={[styles.saveBar, { backgroundColor: theme.colors.elevation.level2, borderTopColor: theme.colors.outlineVariant }]}>
+          <View style={[styles.saveBar, { backgroundColor: theme.colors.elevation.level2, borderTopColor: theme.colors.outlineVariant, paddingBottom: 12 + insets.bottom }]}>
             <Button mode="text" onPress={() => router.back()} disabled={saving}>
               Cancel
             </Button>

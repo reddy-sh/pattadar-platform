@@ -32,7 +32,7 @@ import {
   TextInput,
   useTheme,
 } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { extractAadhaar } from '@/api/client';
 import { PhotoField } from '@/components/PhotoField';
@@ -63,6 +63,7 @@ function longDate(iso: string): string {
 /** Add a family member — Aadhaar scan prefills KYC; heirs get an invite link. */
 export default function AddMemberScreen() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const identity = useIdentity();
   const { groupId, groupName, memberId } = useLocalSearchParams<{
     groupId: string;
@@ -620,7 +621,7 @@ export default function AddMemberScreen() {
       </TouchableWithoutFeedback>
       </ScrollView>
       {/* CL-447: Save stays reachable regardless of scroll or keyboard. */}
-      <View style={[styles.saveBar, { backgroundColor: theme.colors.elevation.level2, borderTopColor: theme.colors.outlineVariant }]}>
+      <View style={[styles.saveBar, { backgroundColor: theme.colors.elevation.level2, borderTopColor: theme.colors.outlineVariant, paddingBottom: 12 + insets.bottom }]}>
         <Button mode="text" onPress={leave} disabled={saving}>
           Cancel
         </Button>
