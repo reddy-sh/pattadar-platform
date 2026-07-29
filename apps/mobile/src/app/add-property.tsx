@@ -160,7 +160,7 @@ export default function AddPropertyScreen() {
               cl.includes('flat') || cl.includes('apartment')
                 ? 'flat'
                 : cl.includes('house') || cl.includes('residen')
-                  ? 'house'
+                  ? 'independent_house'
                   : cl.includes('commerc') || cl.includes('shop')
                     ? 'commercial'
                     : 'open_plot',
