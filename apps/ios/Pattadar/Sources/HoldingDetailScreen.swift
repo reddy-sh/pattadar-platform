@@ -122,7 +122,7 @@ struct HoldingDetailScreen: View {
                             villageCentroid: villageCentroid,
                             entityType: "parcel", entityId: parcel.id,
                             address: parcel.address.isEmpty ? parcelWhere : parcel.address,
-                            boundary: parcel.boundary,
+                            boundary: parcel.boundary, documents: documents,
                             pin: $pin) { save($0) }
 
             // The surveyed outline — the FMB sketch, redrawn from corners.
@@ -352,6 +352,9 @@ struct LocationSection: View {
     /// The surveyed outline, when corners are on file — drawn over the
     /// preview so the map shows the LAND, not just a point near it.
     var boundary: String = ""
+    /// Filed documents, for the Maps screen's Sketch tab to find the FMB
+    /// sheet among.
+    var documents: [RegisteredDocument] = []
     @Binding var pin: LatLng?
     let onSave: (LatLng) -> Void
 
@@ -382,6 +385,7 @@ struct LocationSection: View {
             NavigationLink {
                 PlacesScreen(title: title, place: place, address: address,
                              photos: photos, entityType: entityType, entityId: entityId,
+                             documents: documents,
                              villageCentroid: villageCentroid, boundary: boundary,
                              pin: $pin, onSave: onSave)
             } label: {
@@ -547,7 +551,7 @@ struct PropertyDetailScreen: View {
                                                property.district]),
                             entityType: "property", entityId: property.id,
                             address: property.address.isEmpty ? whereLine : property.address,
-                            boundary: property.boundary,
+                            boundary: property.boundary, documents: documents,
                             pin: $pin) { save($0) }
 
             // The surveyed outline. A plot's recorded area arrives in its own

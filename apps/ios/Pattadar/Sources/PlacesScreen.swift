@@ -25,6 +25,9 @@ struct PlacesScreen: View {
     /// Which record the pin and corners hang off.
     var entityType: String = "parcel"
     var entityId: String = ""
+    /// The holding's filed documents — the Sketch tab shows the FMB sheet
+    /// among them beside the drawing it was drawn from.
+    var documents: [RegisteredDocument] = []
     let villageCentroid: LatLng?
     /// Corner-ordered "lat,lng;…". Local state so an edit made here redraws
     /// here — the caller's model is a snapshot.
@@ -39,8 +42,19 @@ struct PlacesScreen: View {
     }
     @State private var mode: Mode = .map
     @State private var editingCorners = false
+    @State private var openFMB: RegisteredDocument?
 
     private var corners: [LatLng] { parseBoundary(boundary) }
+
+    /// The FMB sheets among this holding's documents. Matched on what the
+    /// document says it is — "FMB", "field measurement" — not on file names,
+    /// which are UUIDs by the time they get here.
+    private var fmbSheets: [RegisteredDocument] {
+        documents.filter { d in
+            let what = (d.docType + " " + d.headline).lowercased()
+            return what.contains("fmb") || what.contains("field measurement")
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -169,8 +183,61 @@ struct PlacesScreen: View {
                     .background(Color(.secondarySystemGroupedBackground),
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+
+            // The survey office's own drawing, beside the redrawn one — the
+            // whole point of the sketch is holding it against the sheet, and
+            // the sheet was three screens away in the vault.
+            if fmbSheets.isEmpty {
+                Label("Have the FMB sheet? File it with ⊕ and it appears here beside the drawing.",
+                      systemImage: "doc.badge.plus")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(fmbSheets) { doc in
+                    if LocalFiles.url(for: doc.id) != nil {
+                        Button { openFMB = doc } label: {
+                            fmbRow(doc, note: "The survey office's drawing · tap to open")
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        fmbRow(doc, note: "Details only — no file stored for this document")
+                    }
+                }
+            }
         }
         .padding(.horizontal, 16)
+        .sheet(item: $openFMB) { doc in
+            if let url = LocalFiles.url(for: doc.id) {
+                FileViewer(
+                    url: url,
+                    title: doc.docType.isEmpty ? "FMB sheet" : doc.docType,
+                    shareName: shareFileName(
+                        docType: doc.docType.isEmpty ? "FMB" : doc.docType,
+                        village: doc.village,
+                        date: [doc.registrationDate, doc.regYear, doc.createdAt]
+                            .first { !$0.isEmpty } ?? "",
+                        fallbackExtension: url.pathExtension))
+            }
+        }
+    }
+
+    private func fmbRow(_ doc: RegisteredDocument, note: String) -> some View {
+        HStack(spacing: 12) {
+            DocumentIcon(docType: doc.docType.isEmpty ? "fmb" : doc.docType, size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(doc.docType.isEmpty ? "FMB sheet" : doc.docType)
+                    .font(.subheadline.weight(.medium))
+                Text([doc.village, doc.surveyNo.isEmpty ? "" : "Sy \(doc.surveyNo)", note]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if LocalFiles.url(for: doc.id) != nil {
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func emptyCard(icon: String, title: String, body: String) -> some View {
