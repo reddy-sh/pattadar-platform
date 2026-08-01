@@ -19,16 +19,35 @@ struct HomeScreen: View {
                                      onManual: { showAdd = true })
                     } else if data != nil {
                         greeting
-                        // The shortcut row.
+
+                        // Read, but not yet yours.
                         //
-                        // These are the questions people arrive with — where
-                        // are my papers, who is in the family record, who holds
-                        // what, what has this cost — and each was buried in a
-                        // tab or nowhere at all. Scrolls horizontally so adding
-                        // a seventh does not shrink the other six into
-                        // unreadable chips. "Get it done" came off the front of
-                        // the row: the work-request list is service machinery,
-                        // not a question anyone opens the app holding.
+                        // A read that finishes while the app is closed used to
+                        // vanish with the process: the notification arrived, the
+                        // app was opened, and the property was not there. These
+                        // wait here until they are saved or thrown away — above
+                        // everything, because they are the one thing on this
+                        // screen asking for a decision.
+                        if !app.pendingReviews.isEmpty {
+                            ReviewCard(entries: app.pendingReviews,
+                                       onOpen: { reviewToAdd = $0 },
+                                       onDiscard: { app.discardReview($0.id) })
+                        }
+                        // The land first. These are the numbers the app exists
+                        // to tell you, and they were sitting below a row of
+                        // navigation chips — the answer below the menu. Full
+                        // width and equal weight; none is subordinate.
+                        ForEach(categories) { c in
+                            KindCard(kind: c.kind, amount: c.amount,
+                                     count: c.count, passbooks: c.passbooks)
+                        }
+
+                        // The shortcut row, after the facts.
+                        //
+                        // These are doors, not answers — where are my papers,
+                        // who is in the family record, who holds what, what has
+                        // this cost. Scrolls horizontally so adding a seventh
+                        // does not shrink the others into unreadable chips.
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
                                 Button { app.selectedTab = .documents } label: {
@@ -54,26 +73,6 @@ struct HomeScreen: View {
                                 }
                             }
                             .padding(.horizontal, 2)
-                        }
-
-                        // Read, but not yet yours.
-                        //
-                        // A read that finishes while the app is closed used to
-                        // vanish with the process: the notification arrived, the
-                        // app was opened, and the property was not there. These
-                        // wait here until they are saved or thrown away.
-                        if !app.pendingReviews.isEmpty {
-                            ReviewCard(entries: app.pendingReviews,
-                                       onOpen: { reviewToAdd = $0 },
-                                       onDiscard: { app.discardReview($0.id) })
-                        }
-                        // Full width and equal weight. These are the four
-                        // numbers the app exists to tell you; none is
-                        // subordinate to another, and none should have to
-                        // compete with its own label for room.
-                        ForEach(categories) { c in
-                            KindCard(kind: c.kind, amount: c.amount,
-                                     count: c.count, passbooks: c.passbooks)
                         }
 
                         if !starred.isEmpty {
