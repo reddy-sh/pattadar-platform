@@ -170,9 +170,12 @@ struct RecordHistorySection: View {
 /// Documents filed against this holding, leading with what they say.
 struct LinkedDocumentsSection: View {
     let documents: [RegisteredDocument]
+    /// Attaching belongs in the documents section, not in a section of its
+    /// own below it — the button sits with the list it adds to.
+    var onAttach: (() -> Void)? = nil
 
     var body: some View {
-        Section("Documents") {
+        Section {
             if documents.isEmpty {
                 Text("No documents attached yet.").foregroundStyle(.secondary)
             } else {
@@ -188,6 +191,17 @@ struct LinkedDocumentsSection: View {
                         }
                     }
                 }
+            }
+            if let onAttach {
+                Button(action: onAttach) {
+                    Label("Attach a document", systemImage: "paperclip")
+                }
+            }
+        } header: {
+            Text("Documents")
+        } footer: {
+            if onAttach != nil {
+                Text("Checked against this holding before anything is changed.")
             }
         }
     }

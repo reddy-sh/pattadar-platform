@@ -89,29 +89,24 @@ struct HoldingDetailScreen: View {
 
     var body: some View {
         List {
+            // The identity, once. Classification and khata in the kicker, the
+            // holder on the chip, a worry-state (for sale, disputed) worn as a
+            // chip beside it — none of these appear again below.
             HoldingHero(kicker: [classificationLabel,
                                  passbook.map { "Khata \($0.pattadarNo)" } ?? ""]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                         title: screenTitle,
                         subtitle: parcelWhere,
                         heldBy: parcel.currentOwner.isEmpty
-                            ? (passbook?.ownerName ?? "") : parcel.currentOwner)
+                            ? (passbook?.ownerName ?? "") : parcel.currentOwner,
+                        statusChip: parcel.status.lowercased() == "owned"
+                            ? "" : humanize(parcel.status))
 
-            HoldingStats(documents: documents.count,
-                         places: features.count + (dossier?.parcelPhotos.count ?? 0),
-                         readiness: readiness.score,
-                         spent: spentHere)
-
+            // What is wrong, immediately under what it is — the one list a
+            // person opens this screen to act on.
             NeedsYouSection(readiness: readiness)
-            if !allBlank(parcel.regDocNo, parcel.sro, parcel.regDate) {
-                Section("Registration") {
-                    Fact(label: "Document no.", value: parcel.regDocNo)
-                    Fact(label: "Sub-registrar", value: parcel.sro)
-                    Fact(label: "Registered on", value: humanDate(parcel.regDate))
-                }
-            }
 
-            // WHERE it is, then WHAT PROVES it — same order as a property.
+            // Then WHERE it is — the land itself before the paperwork.
             LocationSection(title: "Sy \(parcel.surveyNo)",
                             // The MANDAL belongs here: village + district alone
                             // does not separate two villages of the same name.
@@ -126,46 +121,18 @@ struct HoldingDetailScreen: View {
                             recordedAcres: parcel.extent,
                             pin: $pin) { save($0) }
 
-            LinkedDocumentsSection(documents: documents)
-
-            if !allBlank(parcel.currentOwner, parcel.acquisitionSource, parcel.address,
-                         passbook?.pattadarNo ?? "", parcel.status) {
-                Section("Holding") {
-                    Fact(label: "Status", value: humanize(parcel.status))
-                    if !parcel.stake.isEmpty,
-                       parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame {
-                        Fact(label: "My stake", value: humanize(parcel.stake))
-                    }
-                    Fact(label: "Classification", value: classificationLabel)
-                    Fact(label: "Current owner", value: parcel.currentOwner)
-                    Fact(label: "Passbook", value: passbook?.pattadarNo ?? "")
-                    Fact(label: "Acquired via", value: humanize(parcel.acquisitionSource))
-                    if !parcel.address.isEmpty,
-                       parcel.address.caseInsensitiveCompare(parcelWhere) != .orderedSame {
-                        Fact(label: "Address", value: parcel.address)
-                    }
-                }
-            }
-
-            if parcel.purchasePrice > 0 || parcel.marketValue > 0
-                || parcel.guidelineValue > 0 || parcel.loanAmount > 0 {
-                Section {
-                    Fact(label: "Purchase price", value: money(parcel.purchasePrice), mono: true)
-                    Fact(label: "Purchased on", value: humanDate(parcel.purchaseDate))
-                    Fact(label: "Guideline value", value: money(parcel.guidelineValue), mono: true)
-                    Fact(label: "Market value", value: money(parcel.marketValue), mono: true)
-                    Fact(label: "Stamp duty", value: money(parcel.stampDuty), mono: true)
-                    Fact(label: "Loan outstanding", value: money(parcel.loanAmount), mono: true)
-                } header: {
-                    Text("What was paid")
-                } footer: {
-                    Text("What a deed records is not what the land is worth today.")
-                }
-            }
-
-            if !allBlank(parcel.ecStatus, parcel.ecDate, parcel.mutationStatus,
+            // THE PAPER TRAIL, as one subject. Registration, encumbrance,
+            // mutation and tax are the questions an advocate or a bank asks
+            // in one breath — they were three sections apart, with the same
+            // facts hinted at again by four tiles above. One section, in the
+            // order the questions come.
+            if !allBlank(parcel.regDocNo, parcel.sro, parcel.regDate,
+                         parcel.ecStatus, parcel.ecDate, parcel.mutationStatus,
                          parcel.taxPaidUpto, parcel.encumbranceStatus) {
-                Section("Compliance") {
+                Section("Title & compliance") {
+                    Fact(label: "Document no.", value: parcel.regDocNo)
+                    Fact(label: "Sub-registrar", value: parcel.sro)
+                    Fact(label: "Registered on", value: humanDate(parcel.regDate))
                     Fact(label: "Encumbrance", value: humanize(parcel.encumbranceStatus))
                     Fact(label: "EC status", value: humanize(parcel.ecStatus))
                     Fact(label: "EC dated", value: humanDate(parcel.ecDate))
@@ -174,15 +141,7 @@ struct HoldingDetailScreen: View {
                 }
             }
 
-            if !allBlank(parcel.boundaryNorth, parcel.boundarySouth,
-                         parcel.boundaryEast, parcel.boundaryWest) {
-                Section("Boundaries") {
-                    Fact(label: "North", value: parcel.boundaryNorth)
-                    Fact(label: "South", value: parcel.boundarySouth)
-                    Fact(label: "East", value: parcel.boundaryEast)
-                    Fact(label: "West", value: parcel.boundaryWest)
-                }
-            }
+            LinkedDocumentsSection(documents: documents) { attaching = true }
 
             if parcel.litigation {
                 Section {
@@ -194,9 +153,60 @@ struct HoldingDetailScreen: View {
                 }
             }
 
+            // What the deed SAYS the land abuts — the chuttupakkala haddulu.
+            if !allBlank(parcel.boundaryNorth, parcel.boundarySouth,
+                         parcel.boundaryEast, parcel.boundaryWest) {
+                Section("Boundaries on the deed") {
+                    Fact(label: "North", value: parcel.boundaryNorth)
+                    Fact(label: "South", value: parcel.boundarySouth)
+                    Fact(label: "East", value: parcel.boundaryEast)
+                    Fact(label: "West", value: parcel.boundaryWest)
+                }
+            }
+
+            // What the hero could not say: how it was acquired, a stake that
+            // differs from the status, an address that says more than the
+            // village line. Everything else this section used to hold —
+            // status, classification, owner, passbook — is on the hero now.
+            if !parcel.acquisitionSource.isEmpty
+                || (!parcel.stake.isEmpty
+                    && parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame)
+                || (!parcel.address.isEmpty
+                    && parcel.address.caseInsensitiveCompare(parcelWhere) != .orderedSame) {
+                Section("Holding") {
+                    if !parcel.stake.isEmpty,
+                       parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame {
+                        Fact(label: "My stake", value: humanize(parcel.stake))
+                    }
+                    Fact(label: "Acquired via", value: humanize(parcel.acquisitionSource))
+                    if !parcel.address.isEmpty,
+                       parcel.address.caseInsensitiveCompare(parcelWhere) != .orderedSame {
+                        Fact(label: "Address", value: parcel.address)
+                    }
+                }
+            }
+
             OnTheLandSection(entityType: "parcel", entityId: parcel.id,
                              features: features,
                              onChanged: { Task { await loadDossier() } })
+
+            if parcel.purchasePrice > 0 || parcel.marketValue > 0
+                || parcel.guidelineValue > 0 || parcel.loanAmount > 0 || spentHere > 0 {
+                Section {
+                    Fact(label: "Purchase price", value: money(parcel.purchasePrice), mono: true)
+                    Fact(label: "Purchased on", value: humanDate(parcel.purchaseDate))
+                    Fact(label: "Guideline value", value: money(parcel.guidelineValue), mono: true)
+                    Fact(label: "Market value", value: money(parcel.marketValue), mono: true)
+                    Fact(label: "Stamp duty", value: money(parcel.stampDuty), mono: true)
+                    Fact(label: "Loan outstanding", value: money(parcel.loanAmount), mono: true)
+                    // The "spent" tile, now a row among the money it belongs to.
+                    Fact(label: "Spent on this land", value: spentHere > 0 ? money(spentHere) : "", mono: true)
+                } header: {
+                    Text("Money")
+                } footer: {
+                    Text("What a deed records is not what the land is worth today.")
+                }
+            }
 
             OwnerHistorySection(owners: dossier?.parcels.first { $0.id == parcel.id }?.owners ?? [])
 
@@ -216,7 +226,9 @@ struct HoldingDetailScreen: View {
                 }
             }
         }
-        .navigationTitle(screenTitle)
+        // No repeated title: the hero IS the title, and "30 Acres · Sy 1"
+        // twice in the first inch was the first duplication on the screen.
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) { StarButton(type: "parcel", id: parcel.id) }
@@ -509,41 +521,20 @@ struct PropertyDetailScreen: View {
 
     var body: some View {
         List {
+            // The identity, once — like the parcel screen.
             HoldingHero(kicker: [HoldingKind.of(propertyType: property.type).noun,
                                  property.khataNo.isEmpty ? "" : "Khata \(property.khataNo)"]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                         title: screenTitle,
                         subtitle: [property.label, whereLine]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
-                        heldBy: property.currentOwner)
-
-            HoldingStats(documents: documents.count,
-                         places: features.count,
-                         readiness: readiness.score,
-                         spent: spentHere)
+                        heldBy: property.currentOwner,
+                        statusChip: property.holdingStatus.lowercased() == "owned"
+                            ? "" : humanize(property.holdingStatus))
 
             NeedsYouSection(readiness: readiness)
 
-            // WHICH DEED this is, first.
-            //
-            // The registered number, the sub-registrar and the date are how a
-            // holding is identified to anybody outside this app — an EC search,
-            // a lawyer, the registrar's index. They were below the boundaries
-            // and the money.
-            if !allBlank(property.regDocNo, property.sro, property.regDate,
-                         property.khataNo, property.ghmcAssessmentNo, property.reraNo) {
-                Section("Registration") {
-                    Fact(label: "Document no.", value: property.regDocNo)
-                    Fact(label: "Sub-registrar", value: property.sro)
-                    Fact(label: "Registered on", value: humanDate(property.regDate))
-                    Fact(label: "Khata no.", value: property.khataNo)
-                    Fact(label: "Assessment no.", value: property.ghmcAssessmentNo)
-                    Fact(label: "RERA no.", value: property.reraNo)
-                }
-            }
-
-
-            // Then WHERE it is, and WHAT PROVES it.
+            // WHERE it is, before the paperwork about it.
             LocationSection(title: screenTitle,
                             // Village first: a mandal name geocodes to an
                             // administrative centre, not to the land. The
@@ -557,15 +548,26 @@ struct PropertyDetailScreen: View {
                             recordedAcres: toAcres(property.landArea, unitKey(property.landUnit)),
                             pin: $pin) { save($0) }
 
-            LinkedDocumentsSection(documents: documents)
-
-            Section {
-                Button { attaching = true } label: {
-                    Label("Attach a document", systemImage: "paperclip")
+            // THE PAPER TRAIL, as one subject: the registered identity and
+            // the compliance answers an advocate asks for in one breath.
+            if !allBlank(property.regDocNo, property.sro, property.regDate,
+                         property.khataNo, property.ghmcAssessmentNo, property.reraNo,
+                         property.ecStatus, property.ecDate,
+                         property.mutationStatus, property.taxPaidUpto) {
+                Section("Title & compliance") {
+                    Fact(label: "Document no.", value: property.regDocNo)
+                    Fact(label: "Sub-registrar", value: property.sro)
+                    Fact(label: "Registered on", value: humanDate(property.regDate))
+                    Fact(label: "Assessment no.", value: property.ghmcAssessmentNo)
+                    Fact(label: "RERA no.", value: property.reraNo)
+                    Fact(label: "EC status", value: humanize(property.ecStatus))
+                    Fact(label: "EC dated", value: humanDate(property.ecDate))
+                    Fact(label: "Mutation", value: humanize(property.mutationStatus))
+                    Fact(label: "Tax paid up to", value: property.taxPaidUpto)
                 }
-            } footer: {
-                Text("Checked against this holding before anything is changed.")
             }
+
+            LinkedDocumentsSection(documents: documents) { attaching = true }
 
             // WHO transferred it, and to whom.
             //
@@ -594,17 +596,14 @@ struct PropertyDetailScreen: View {
                 }
             }
 
-            // Only what the title and the map did NOT already say.
-            if !allBlank(property.currentOwner, property.acquisitionMode, property.address,
-                         property.holdingStatus) {
+            // Only what the hero did NOT already say. Status is its chip,
+            // the owner its held-by line.
+            if !allBlank(property.acquisitionMode, property.address) {
                 Section("Holding") {
-                    Fact(label: "Status", value: humanize(property.holdingStatus))
-                    // Only when it differs — "Owned / Owned" is one fact twice.
                     if !property.stake.isEmpty,
                        property.stake.caseInsensitiveCompare(property.holdingStatus) != .orderedSame {
                         Fact(label: "My stake", value: humanize(property.stake))
                     }
-                    Fact(label: "Current owner", value: property.currentOwner)
                     Fact(label: "Acquired via", value: humanize(property.acquisitionMode))
                     // The street address only when it says more than the
                     // village line already did.
@@ -660,27 +659,18 @@ struct PropertyDetailScreen: View {
             // Sitting third from the top it read as the property's worth. It
             // belongs after the land, the papers and the place.
             if property.purchasePrice > 0 || property.currentValue > 0
-                || property.marketValue > 0 || property.guidelineValue > 0 {
+                || property.marketValue > 0 || property.guidelineValue > 0 || spentHere > 0 {
                 Section {
                     Fact(label: "Purchase price", value: money(property.purchasePrice), mono: true)
                     Fact(label: "Purchased on", value: humanDate(property.purchaseDate))
                     Fact(label: "Guideline value", value: money(property.guidelineValue), mono: true)
                     Fact(label: "Market value", value: money(property.marketValue), mono: true)
                     Fact(label: "Current value", value: money(property.currentValue), mono: true)
+                    Fact(label: "Spent on this property", value: spentHere > 0 ? money(spentHere) : "", mono: true)
                 } header: {
-                    Text("What was paid")
+                    Text("Money")
                 } footer: {
                     Text("What a deed records is not what the land is worth today.")
-                }
-            }
-
-            if !allBlank(property.ecStatus, property.ecDate,
-                         property.mutationStatus, property.taxPaidUpto) {
-                Section("Compliance") {
-                    Fact(label: "EC status", value: humanize(property.ecStatus))
-                    Fact(label: "EC dated", value: humanDate(property.ecDate))
-                    Fact(label: "Mutation", value: humanize(property.mutationStatus))
-                    Fact(label: "Tax paid up to", value: property.taxPaidUpto)
                 }
             }
 
@@ -700,8 +690,9 @@ struct PropertyDetailScreen: View {
                 }
             }
         }
-        .navigationTitle(screenTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        // The hero is the title; repeating it in the bar was the screen's
+        // first duplicated fact.
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) { StarButton(type: "property", id: property.id) }

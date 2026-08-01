@@ -16,6 +16,10 @@ struct HoldingHero: View {
     /// "Held by Pattadar Agri Ventures Pvt Ltd" — who is on the title, when
     /// that is not simply you.
     let heldBy: String
+    /// "For sale" / "Disputed" / "Leased" — shown ONLY when the holding is not
+    /// simply owned. "Owned" is the resting state of every record here and
+    /// printing it was a row spent confirming the expected.
+    var statusChip: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -35,14 +39,23 @@ struct HoldingHero: View {
                     .foregroundStyle(.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if !heldBy.isEmpty {
-                Text("Held by \(heldBy)")
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(Color.white.opacity(0.16), in: Capsule())
-                    .foregroundStyle(.white)
-                    .padding(.top, 4)
+            HStack(spacing: 8) {
+                if !heldBy.isEmpty {
+                    Text("Held by \(heldBy)")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.white.opacity(0.16), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                if !statusChip.isEmpty {
+                    Text(statusChip)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.85), in: Capsule())
+                        .foregroundStyle(.black)
+                }
             }
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
@@ -53,49 +66,13 @@ struct HoldingHero: View {
     }
 }
 
-/// The four figures, two by two.
-struct HoldingStats: View {
-    let documents: Int
-    let places: Int
-    let readiness: Int
-    let spent: Double
-
-    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-
-    var body: some View {
-        LazyVGrid(columns: columns, spacing: 10) {
-            tile("\(documents)", "documents", .primary)
-            tile("\(places)", "places marked", .primary)
-            // Coloured, because this is the one that is a verdict rather than a
-            // count.
-            tile("\(readiness)%", "record-ready",
-                 readiness >= 100 ? .green : readiness >= 70 ? .orange : .red)
-            tile(spent > 0 ? compactRupees(spent) : "—", "spent", .primary)
-        }
-        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
-        .listRowBackground(Color.clear)
-    }
-
-    private func tile(_ value: String, _ label: String, _ tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(.title2, design: .serif).weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(tint)
-            Text(label).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-/// What is waiting on you, from the readiness checks.
+/// What is waiting on you, from the readiness checks — tightly.
 ///
-/// The score alone is a number people stop reading. Each failed check becomes a
-/// row, blocking ones first, because "mutation still pending" is a thing to do
-/// and "71%" is not.
+/// This used to be six full-height rows, each blocking one carrying the same
+/// sentence, below a tile that repeated the score they add up to. A person
+/// standing in a queue needs the list scannable in one glance: the verdict in
+/// the header, one line per gap, red before amber, and the blocking rule said
+/// ONCE, in the footer.
 struct NeedsYouSection: View {
     let readiness: Readiness
 
@@ -103,22 +80,29 @@ struct NeedsYouSection: View {
         if !readiness.failures.isEmpty {
             Section {
                 ForEach(ordered) { check in
-                    HStack(spacing: 12) {
-                        Image(systemName: check.blocking
-                              ? "exclamationmark.triangle.fill" : "circle.badge.exclamationmark")
-                            .foregroundStyle(check.blocking ? .red : .orange)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(check.problem).font(.subheadline.weight(.medium))
-                            if check.blocking {
-                                Text("Stops a sale or a loan until it is fixed")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(check.blocking ? Color.red : Color.orange)
+                            .frame(width: 7, height: 7)
+                        Text(check.problem)
+                            .font(.subheadline)
+                        Spacer(minLength: 0)
                     }
+                    .listRowInsets(EdgeInsets(top: 7, leading: 20, bottom: 7, trailing: 20))
                 }
             } header: {
-                Label("Needs you", systemImage: "person.badge.clock")
+                HStack {
+                    Label("Needs you", systemImage: "person.badge.clock")
+                    Spacer()
+                    Text("record-ready \(readiness.score)%")
+                        .foregroundStyle(readiness.score >= 100 ? .green
+                                         : readiness.score >= 70 ? .orange : .red)
+                        .fontWeight(.semibold)
+                }
+            } footer: {
+                if readiness.failures.contains(where: \.blocking) {
+                    Text("Red items stop a sale or a loan until they are fixed.")
+                }
             }
         }
     }
