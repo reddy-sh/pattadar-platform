@@ -21,17 +21,23 @@ struct HomeScreen: View {
                         greeting
                         // The shortcut row.
                         //
-                        // These are the questions people arrive with — what is
-                        // outstanding, who holds what, what has this cost — and
-                        // each was buried in a tab or nowhere at all. Scrolls
-                        // horizontally so adding a seventh does not shrink the
-                        // other six into unreadable chips.
+                        // These are the questions people arrive with — where
+                        // are my papers, who is in the family record, who holds
+                        // what, what has this cost — and each was buried in a
+                        // tab or nowhere at all. Scrolls horizontally so adding
+                        // a seventh does not shrink the other six into
+                        // unreadable chips. "Get it done" came off the front of
+                        // the row: the work-request list is service machinery,
+                        // not a question anyone opens the app holding.
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
-                                NavigationLink { GetItDoneScreen() } label: {
-                                    shortcut(openRequestSummary(
-                                        requests.map { (needsYou: $0.needsYou, closed: $0.closed) }),
-                                        "hammer.fill")
+                                Button { app.selectedTab = .documents } label: {
+                                    shortcut("Documents", "doc.text.fill",
+                                             note: data.map { "\(documentCount($0))" } ?? "")
+                                }
+                                Button { app.openFamily = true; app.selectedTab = .you } label: {
+                                    shortcut("Family", "person.2.fill",
+                                             note: (data?.dashboardStats.totalGroups).map { "\($0)" } ?? "")
                                 }
                                 NavigationLink { HoldersScreen(holdings: holdings) } label: {
                                     shortcut("Who holds what", "person.text.rectangle.fill")
@@ -39,15 +45,10 @@ struct HomeScreen: View {
                                 NavigationLink { SpendScreen() } label: {
                                     shortcut("Spend", "indianrupeesign.circle.fill")
                                 }
-                                // The activity feed now lives entirely behind
-                                // this chip. It used to ALSO be a card at the
-                                // bottom of Home showing the same six events
-                                // this screen shows in full — the same facts
-                                // twice, with the copy pushing the land itself
-                                // further off the first screen. What the card
-                                // was actually good for was "has anything
-                                // happened", so that much is kept here: the age
-                                // of the newest entry, on the chip.
+                                // The activity feed lives entirely behind this
+                                // chip; what the old card on Home was good for —
+                                // "has anything happened" — is the age of the
+                                // newest entry, kept here.
                                 NavigationLink { ActivityScreen() } label: {
                                     shortcut("Timeline", "clock.arrow.circlepath", note: latestActivity)
                                 }
@@ -75,35 +76,14 @@ struct HomeScreen: View {
                                      count: c.count, passbooks: c.passbooks)
                         }
 
-                        // What is left after the holdings themselves.
-                        //
-                        // The passbook count moved under the acreage on the
-                        // farmland card, where it belongs to a figure; and the
-                        // estimated value has gone entirely. It was a market
-                        // rate nobody has entered, so it read "Not valued" on
-                        // every account — a tile whose only content was the
-                        // reason it was empty.
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                            // Each opens the list it counts.
-                            StatTile(value: "\(data.map(documentCount) ?? 0)",
-                                     label: "Documents", icon: "doc.text.fill", tint: .purple,
-                                     destination: .documents)
-                            StatTile(value: "\(data?.dashboardStats.totalGroups ?? 0)",
-                                     label: "Family groups", icon: "person.2.fill", tint: .pink,
-                                     destination: .you, onSelect: { app.openFamily = true })
-                        }
-
                         if !starred.isEmpty {
                             FavouritesCard(items: starred)
                         }
-                        // What is wrong and what is not record-ready used to be
-                        // two cards here — a dark ring saying 18%, and an amber
-                        // list of unpinned parcels and missing heirs. Both are
-                        // moving to one place that owns the whole subject, so
-                        // Home is what you HAVE and that surface is what needs
-                        // doing. Two answers to "what is wrong" on one screen
-                        // is how they end up disagreeing.
-                        if villages.count > 1 { VillageChart(slices: villages) }
+                        // Nothing else. The document and family counts moved
+                        // into the shortcut row; the village chart went the way
+                        // of the readiness ring and the attention list — Home
+                        // states what you have, and everything past the two
+                        // cards was a second screen's worth of restating it.
                     } else if app.lastFailure != nil {
                         LoadFailure(message: app.lastFailure)
                     } else {
@@ -145,7 +125,6 @@ struct HomeScreen: View {
         d.dashboardStats.totalDocuments
     }
     @State private var documentsSeen = 0
-    @State private var requests: [WorkRequest] = []
     @State private var showAdd = false
     @State private var reviewToAdd: ReviewQueue.Entry?
 
@@ -326,29 +305,12 @@ struct HomeScreen: View {
         }
     }
 
-    private var villages: [VillageChart.Slice] {
-        guard let h = holdings else { return [] }
-        var totals: [String: Double] = [:]
-        for p in h.parcels {
-            // A parcel whose passbook is missing is a broken link, not a
-            // village called "Unfiled": it is left off the chart rather than
-            // charted under a place name that does not exist.
-            guard let v = h.passbooks.first(where: { $0.id == p.passbookId })?.village,
-                  !v.isEmpty else { continue }
-            totals[v, default: 0] += p.extent
-        }
-        return totals.sorted { $0.value > $1.value }
-            .map { VillageChart.Slice(village: $0.key, acres: $0.value) }
-    }
-
     private func load() async {
         async let dash = app.load(Queries.dashboard, as: DashboardResponse.self)
         async let held = app.load(Queries.holdings, as: HoldingsResponse.self)
         async let docs = app.load(Queries.documents, as: DocumentsResponse.self)
         data = await dash
         holdings = await held
-        requests = (await app.load(Queries.workRequests,
-                                   as: WorkRequestsResponse.self))?.workRequests ?? []
         documentsSeen = (await docs?.registeredDocuments ?? []).count
         await app.loadFavourites()
         // Keep the widget in step with what the app just loaded.
