@@ -1,0 +1,54 @@
+[
+  {
+    "name": "same place",
+    "a": {
+      "latitude": 15.55,
+      "longitude": 79.28
+    },
+    "b": {
+      "latitude": 15.55,
+      "longitude": 79.28
+    },
+    "km": 0,
+    "suspect": false
+  },
+  {
+    "name": "the app default, 150km away",
+    "a": {
+      "latitude": 16.5,
+      "longitude": 80.6
+    },
+    "b": {
+      "latitude": 15.55,
+      "longitude": 79.28
+    },
+    "km": 176.238,
+    "suspect": true
+  },
+  {
+    "name": "Sunnyvale California",
+    "a": {
+      "latitude": 37.374353,
+      "longitude": -122.019307
+    },
+    "b": {
+      "latitude": 15.55,
+      "longitude": 79.28
+    },
+    "km": 13722.175,
+    "suspect": true
+  },
+  {
+    "name": "just inside the radius",
+    "a": {
+      "latitude": 15.95,
+      "longitude": 79.28
+    },
+    "b": {
+      "latitude": 15.55,
+      "longitude": 79.28
+    },
+    "km": 44.478,
+    "suspect": false
+  }
+]

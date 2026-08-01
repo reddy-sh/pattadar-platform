@@ -137,8 +137,11 @@ function useLiveOrSample<T>(key: string, fetcher: () => Promise<T>, empty: () =>
       }
     },
     // A screen that believes it is offline must not sit there believing it:
-    // recheck when the app comes back to the foreground.
-    refetchOnMount: 'always',
+    // recheck when the app comes back to the foreground. That now actually
+    // happens (lib/queryLifecycle wires focusManager to AppState), so this no
+    // longer has to compensate by refetching on EVERY mount — navigating
+    // between tabs re-uses the 30s-fresh cache instead of re-querying.
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
 }

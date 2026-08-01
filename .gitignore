@@ -25,10 +25,23 @@ __pycache__/
 *.tfvars
 !*.auto.tfvars.example
 
-# Mobile (Expo — generated in Phase 4)
+# Mobile (Expo — generated native projects, not the source)
 .expo/
-ios/
-android/
+apps/mobile/ios/
+apps/mobile/android/
+
+# Native iOS app: the sources ARE tracked; only Xcode's output is not.
+# A bare `ios/` here used to swallow the whole of apps/ios.
+apps/ios/**/build/
+apps/ios/**/.build/
+# verify.sh keeps the device build in its own derived-data directory so a
+# simulator build cannot be installed on a phone by accident. 280 MB of it.
+apps/ios/build-device/
+# SwiftPM's per-user Xcode state. Xcode tries to LOAD .swiftpm/xcode as a
+# project and fails the build when a CLI `swift build` has left one behind.
+apps/ios/**/.swiftpm/
+apps/ios/*.xcodeproj/
+apps/ios/**/xcuserdata/
 
 # OS / editor
 .DS_Store

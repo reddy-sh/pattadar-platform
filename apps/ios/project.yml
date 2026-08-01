@@ -1,0 +1,101 @@
+# XcodeGen spec — `brew install xcodegen && xcodegen generate` in apps/ios.
+#
+# The project file is generated rather than committed so it cannot drift from
+# the sources, and so a merge never has to resolve a pbxproj.
+name: Pattadar
+options:
+  bundleIdPrefix: com.pattadar
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  PattadarKit:
+    path: PattadarKit
+# The Run scheme carries the dev identity and server, so ⌘R in Xcode shows
+# YOUR records without anyone editing scheme settings by hand. Both are read
+# from the environment at launch, so a device build can override them.
+schemes:
+  Pattadar:
+    build:
+      targets:
+        Pattadar: all
+    run:
+      config: Debug
+      environmentVariables:
+        PATTADAR_USER: sankara.telukutla
+        # The tunnel, not 127.0.0.1: the simulator shares the Mac's network
+        # stack but a PHONE does not, and one address that works from both
+        # beats a scheme you have to edit depending on where you are running.
+        PATTADAR_API_URL: https://dissipative-dena-lovingly.ngrok-free.dev
+targets:
+  Pattadar:
+    type: application
+    platform: iOS
+    sources: [Pattadar/Sources]
+    # Same team as the React Native app, so a device build signs without any
+    # manual step in Xcode. Automatic signing lets Xcode manage the profile.
+    settings:
+      base:
+        DEVELOPMENT_TEAM: WME7N6KM67
+        CODE_SIGN_STYLE: Automatic
+        # A device build reaches the Mac over the tunnel, not localhost — the
+        # simulator shares the Mac's network stack, a phone does not.
+        # An id your team ALREADY has a provisioning profile for, so a device
+        # build signs with no Apple-account round trip. com.pattadar.app belongs
+        # to the React Native app; both must coexist on the phone.
+        PRODUCT_BUNDLE_IDENTIFIER: com.rfactory.pattadar
+    dependencies:
+      - package: PattadarKit
+      # ── Home Screen widget: OFF by default ───────────────────────────
+      # It needs a provisioning profile for com.rfactory.pattadar.widget and
+      # an App Group capability. Xcode can create neither while no Apple ID is
+      # signed in (Settings → Accounts), so leaving it on made every DEVICE
+      # build fail with six signing errors while the simulator was fine.
+      #
+      # To turn it on: sign into Xcode, then uncomment these two lines and the
+      # CODE_SIGN_ENTITLEMENTS line in each target, and `xcodegen generate`.
+      # - target: PattadarWidgetExtension
+      #   embed: true
+    info:
+      path: Pattadar/Info.plist
+      properties:
+        # Distinct from the React Native app's "Pattadar": both install on
+        # the same simulator, and two identical icons is how you end up
+        # opening the wrong one and finding an empty screen.
+        CFBundleDisplayName: Pattadar Native
+        UILaunchScreen: {}
+        # Local development talks to the Mac over http; remove with the tunnel.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocationWhenInUseUsageDescription: Pattadar uses your location only to help you place a pin on your land.
+        NSCameraUsageDescription: Pattadar uses the camera to photograph deeds and land.
+        NSPhotoLibraryUsageDescription: Pattadar reads deeds and passbooks from photos you choose.
+        # Baked into the BUNDLE, not the scheme.
+        #
+        # Scheme environment variables only reach the app when Xcode launches
+        # it. Tapping the icon, or installing with devicectl, gets none of
+        # them — so the app fell back to 127.0.0.1, which on a phone is the
+        # phone, and every screen said "could not connect to the server".
+        # These are the defaults; the env vars still override for development.
+        PattadarAPIURL: https://dissipative-dena-lovingly.ngrok-free.dev
+        PattadarUser: sankara.telukutla
+
+  PattadarWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources: [PattadarWidget]
+    dependencies:
+      - package: PattadarKit
+    settings:
+      base:
+        DEVELOPMENT_TEAM: WME7N6KM67
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.rfactory.pattadar.widget
+        # CODE_SIGN_ENTITLEMENTS: PattadarWidget/PattadarWidget.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: Your land
+    info:
+      path: PattadarWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Your land
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension

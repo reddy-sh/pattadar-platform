@@ -23,6 +23,7 @@ import {
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { GlassSurface } from '@/components/GlassSurface';
 import { useHoldingActions } from '@/data/hooks';
 
 type LatLng = { latitude: number; longitude: number };
@@ -379,7 +380,11 @@ export default function SetLocationScreen() {
       )}
 
       {results === null && (
-        <View style={[styles.sheet, { backgroundColor: theme.colors.surface }]}>
+        /* The one surface in the app that genuinely earns glass: it floats over
+           a live map, which is exactly the content Liquid Glass is meant to
+           refract. Falls back to an opaque surface where the OS has no such
+           material — see GlassSurface. */
+        <GlassSurface style={styles.sheet}>
           {/* Words first, coordinates second — a lat/lng pair tells nobody
               whether the pin landed in the right village. `accessibilityLiveRegion`
               so VoiceOver reads the new place out loud as the pin moves — the
@@ -419,7 +424,7 @@ export default function SetLocationScreen() {
           >
             {saved ? 'Update location' : 'Save this location'}
           </Button>
-        </View>
+        </GlassSurface>
       )}
 
       <Portal>
@@ -510,7 +515,9 @@ const styles = StyleSheet.create({
   manual: { position: 'absolute', right: 12, bottom: 64 },
   results: { flex: 1 },
   noHits: { padding: 16 },
-  sheet: { padding: 16, gap: 8, borderTopLeftRadius: 16, borderTopRightRadius: 16, elevation: 3 },
+  // Inset on all sides so the glass reads as a floating layer rather than
+  // a panel welded to the bottom edge.
+  sheet: { padding: 16, gap: 8, margin: 12 },
   warn: { borderRadius: 10, padding: 10 },
   manualFields: { gap: 12 },
 });

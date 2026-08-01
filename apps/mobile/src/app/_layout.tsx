@@ -8,6 +8,7 @@ import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { healApiBase } from '@/api/client';
+import { installQueryLifecycle } from '@/lib/queryLifecycle';
 import { paperDark, paperLight } from '@/theme/paper';
 
 const queryClient = new QueryClient();
@@ -20,6 +21,11 @@ export default function RootLayout() {
   // behind "can't reach the server", with the panel that could fix it hidden
   // behind a seven-tap gate. Check once at startup and fall back to the address
   // built into this app when the saved one is dead.
+  // react-query's focus/online defaults are browser-shaped and inert on a
+  // phone; this is what makes them mean something. Installed before anything
+  // queries, and once for the life of the app.
+  useEffect(() => installQueryLifecycle(), []);
+
   useEffect(() => {
     healApiBase()
       .then((url) => queryClient.invalidateQueries({ queryKey: ['pattadar'] }) ?? url)

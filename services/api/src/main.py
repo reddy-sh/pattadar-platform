@@ -565,6 +565,64 @@ class NoteType:
 
 
 @strawberry.type
+class LandFeatureType:
+    id: str
+    owner_user_id: str
+    entity_type: str
+    entity_id: str
+    #: corners | water | access | power | structure | crop | other
+    category: str
+    label: str
+    value: float
+    unit: str
+    #: A service number, a connection id.
+    reference: str
+    #: Who drilled it, built it, wound the motor.
+    vendor: str
+    #: "Yields 1.5 inch after summer" — how it is doing, not what it is.
+    condition: str
+    note: str
+    created_at: str
+
+
+@strawberry.type
+class LandExpenseType:
+    id: str
+    owner_user_id: str
+    entity_type: str
+    entity_id: str
+    #: Free text on purpose — see `land_expenses` in the schema.
+    category: str
+    title: str
+    amount: float
+    spent_on: str
+    vendor: str
+    note: str
+    created_at: str
+
+
+@strawberry.type
+class WorkRequestType:
+    id: str
+    owner_user_id: str
+    #: survey | legal | photos | drafting | errand | rent
+    kind: str
+    title: str
+    entity_type: str
+    entity_id: str
+    assignee: str
+    cost: float
+    #: How far along, indexing into the stage names for this kind.
+    stage: int
+    #: Waiting on the OWNER rather than on the person doing it.
+    needs_you: bool
+    note: str
+    due_date: str
+    closed: bool
+    created_at: str
+
+
+@strawberry.type
 class InvitationType:
     id: str
     scope_type: str
@@ -714,6 +772,14 @@ class ReferenceStatsType:
     sro_offices: int
     deed_types: int
     fee_schedule: int
+
+
+@strawberry.type
+class FavouriteType:
+    id: str
+    entity_type: str
+    entity_id: str
+    created_at: str
 
 
 @strawberry.type
@@ -1273,6 +1339,15 @@ class Query:
             return [to_type(DocumentType, r) for r in await cur.fetchall()]
 
     @strawberry.field
+    async def favourites(self, info: strawberry.Info) -> List[FavouriteType]:
+        """Everything this account has starred, across every kind of record."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM favourites WHERE owner_user_id=%s ORDER BY created_at DESC", (uid,))
+            return [to_type(FavouriteType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
     async def passbook_documents(self, info: strawberry.Info, passbook_id: str) -> List[DocumentType]:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
@@ -1292,6 +1367,40 @@ class Query:
                 "ORDER BY created_at DESC", (uid, entity_type, entity_id),
             )
             return [to_type(NoteType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def land_expenses(self, info: strawberry.Info) -> List[LandExpenseType]:
+        """What has been spent, newest first."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM land_expenses WHERE owner_user_id=%s ORDER BY spent_on DESC, created_at DESC",
+                (uid,))
+            return [to_type(LandExpenseType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def work_requests(self, info: strawberry.Info,
+                            include_closed: bool = True) -> List[WorkRequestType]:
+        """Work asked of somebody else, open first."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            sql = "SELECT * FROM work_requests WHERE owner_user_id=%s"
+            if not include_closed:
+                sql += " AND closed = FALSE"
+            cur = await conn.execute(sql + " ORDER BY closed, created_at DESC", (uid,))
+            return [to_type(WorkRequestType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def land_features(self, info: strawberry.Info, entity_type: str,
+                            entity_id: str) -> List[LandFeatureType]:
+        """What is on the land — borewells, corner stones, access, power."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM land_features WHERE owner_user_id=%s AND entity_type=%s "
+                "AND entity_id=%s ORDER BY category, created_at", (uid, entity_type, entity_id),
+            )
+            return [to_type(LandFeatureType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def groups(self, info: strawberry.Info) -> List[GroupType]:
@@ -1598,7 +1707,18 @@ class Query:
             pb_cnt = (await pb.fetchone())["cnt"]
             pc = await conn.execute(f"SELECT count(*) AS cnt FROM parcels WHERE passbook_id IN {own_pb}", (uid,))
             pc_cnt = (await pc.fetchone())["cnt"]
-            dc = await conn.execute(f"SELECT count(*) AS cnt FROM documents WHERE parcel_id IN {own_pc}", (uid,))
+            # Counts BOTH document tables.
+            #
+            # This counted `documents` alone, and only rows attached to a
+            # parcel — so every scanned deed, which lives in
+            # `registered_documents`, was invisible. The dashboard reported 0
+            # documents while the Documents tab listed five, and the app
+            # contradicted itself about how much of the owner's paperwork it
+            # held.
+            dc = await conn.execute(
+                f"SELECT (SELECT count(*) FROM documents WHERE parcel_id IN {own_pc}) "
+                f"     + (SELECT count(*) FROM registered_documents WHERE owner_user_id = %s) AS cnt",
+                (uid, uid))
             dc_cnt = (await dc.fetchone())["cnt"]
             # Unified table now carries all beneficiaries (post-migration backfill),
             # so a single count avoids double-counting migrated rows.
@@ -2360,6 +2480,43 @@ class Mutation:
             return to_type(PropertyType, row)
 
     @strawberry.mutation
+    async def update_passbook(
+        self, info: strawberry.Info, id: str,
+        pattadar_no: Optional[str] = None, owner_name: Optional[str] = None,
+        father_husband_name: Optional[str] = None, state: Optional[str] = None,
+        district: Optional[str] = None, mandal: Optional[str] = None,
+        village: Optional[str] = None, group_id: Optional[str] = None,
+    ) -> PassbookType:
+        """Correct a khata's details.
+
+        There was no way to edit one at all: a passbook scanned with the owner's
+        name misread, or filed under the wrong village, could only be deleted
+        and re-entered — which takes its parcels with it.
+
+        Every argument is optional and only non-None values are written, so a
+        client that sends one field cannot blank the rest.
+        """
+        uid = _uid_from_info(info) or "system"
+        fields = {
+            "pattadar_no": pattadar_no, "owner_name": owner_name,
+            "father_husband_name": father_husband_name, "state": state,
+            "district": district, "mandal": mandal, "village": village,
+            "group_id": group_id,
+        }
+        sets = {k: v for k, v in fields.items() if v is not None}
+        async with pool.connection() as conn:
+            own = await (await conn.execute(
+                "SELECT pattadar_no FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            if not own:
+                raise NotAuthorized("Not authorized for this khata")
+            if sets:
+                cols = ", ".join(f"{k}=%s" for k in sets)
+                await conn.execute(f"UPDATE passbooks SET {cols} WHERE id=%s", (*sets.values(), id))
+            row = await (await conn.execute("SELECT * FROM passbooks WHERE id=%s", (id,))).fetchone()
+            await log_audit(conn, uid, "update_passbook", id, _named("", row["pattadar_no"], row["village"]))
+            return to_type(PassbookType, row)
+
+    @strawberry.mutation
     async def update_parcel(
         self, info: strawberry.Info, id: str,
         survey_no: Optional[str] = None, subdivision: Optional[str] = None,
@@ -2638,6 +2795,155 @@ class Mutation:
             return to_type(NoteType, row)
 
     @strawberry.mutation
+    async def add_land_expense(
+        self, info: strawberry.Info, title: str, amount: float, category: str = "other",
+        entity_type: str = "", entity_id: str = "", spent_on: str = "",
+        vendor: str = "", note: str = "",
+    ) -> LandExpenseType:
+        uid = _uid_from_info(info) or "system"
+        eid = new_id()
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "INSERT INTO land_expenses (id, owner_user_id, entity_type, entity_id, category, "
+                "title, amount, spent_on, vendor, note, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (eid, uid, entity_type, entity_id, category, title, amount, spent_on,
+                 vendor, note, datetime.utcnow().isoformat()),
+            )
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "add_land_expense", entity_id or eid, title)
+            return to_type(LandExpenseType, row)
+
+    @strawberry.mutation
+    async def delete_land_expense(self, info: strawberry.Info, id: str) -> bool:
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM land_expenses WHERE id=%s AND owner_user_id=%s RETURNING title",
+                (id, uid))
+            row = await cur.fetchone()
+            if row:
+                await log_audit(conn, uid, "delete_land_expense", id, row["title"])
+            return row is not None
+
+    @strawberry.mutation
+    async def add_work_request(
+        self, info: strawberry.Info, kind: str, title: str,
+        entity_type: str = "", entity_id: str = "", assignee: str = "",
+        cost: float = 0, note: str = "", due_date: str = "",
+    ) -> WorkRequestType:
+        uid = _uid_from_info(info) or "system"
+        rid = new_id()
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "INSERT INTO work_requests (id, owner_user_id, kind, title, entity_type, "
+                "entity_id, assignee, cost, stage, needs_you, note, due_date, closed, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,FALSE,%s,%s,FALSE,%s) RETURNING *",
+                (rid, uid, kind, title, entity_type, entity_id, assignee, cost,
+                 note, due_date, datetime.utcnow().isoformat()),
+            )
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "add_work_request", rid, title)
+            return to_type(WorkRequestType, row)
+
+    @strawberry.mutation
+    async def update_work_request(
+        self, info: strawberry.Info, id: str, stage: Optional[int] = None,
+        assignee: Optional[str] = None, cost: Optional[float] = None,
+        needs_you: Optional[bool] = None, note: Optional[str] = None,
+        due_date: Optional[str] = None, closed: Optional[bool] = None,
+    ) -> WorkRequestType:
+        uid = _uid_from_info(info) or "system"
+        fields = {"stage": stage, "assignee": assignee, "cost": cost,
+                  "needs_you": needs_you, "note": note, "due_date": due_date, "closed": closed}
+        sets = {k: v for k, v in fields.items() if v is not None}
+        async with pool.connection() as conn:
+            if not sets:
+                cur = await conn.execute(
+                    "SELECT * FROM work_requests WHERE id=%s AND owner_user_id=%s", (id, uid))
+                return to_type(WorkRequestType, await cur.fetchone())
+            clause = ", ".join(f"{k}=%s" for k in sets)
+            cur = await conn.execute(
+                f"UPDATE work_requests SET {clause} WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (*sets.values(), id, uid),
+            )
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "update_work_request", id, row["title"])
+            return to_type(WorkRequestType, row)
+
+    @strawberry.mutation
+    async def delete_work_request(self, info: strawberry.Info, id: str) -> bool:
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM work_requests WHERE id=%s AND owner_user_id=%s RETURNING title",
+                (id, uid))
+            row = await cur.fetchone()
+            if row:
+                await log_audit(conn, uid, "delete_work_request", id, row["title"])
+            return row is not None
+
+    @strawberry.mutation
+    async def add_land_feature(
+        self, info: strawberry.Info, entity_type: str, entity_id: str,
+        category: str, label: str, value: float = 0, unit: str = "",
+        reference: str = "", vendor: str = "", condition: str = "", note: str = "",
+    ) -> LandFeatureType:
+        """Record something that is physically on the land."""
+        uid = _uid_from_info(info) or "system"
+        fid = new_id()
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "INSERT INTO land_features (id, owner_user_id, entity_type, entity_id, category, "
+                "label, value, unit, reference, vendor, condition, note, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (fid, uid, entity_type, entity_id, category, label, value, unit,
+                 reference, vendor, condition, note, datetime.utcnow().isoformat()),
+            )
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "add_land_feature", entity_id, label or category)
+            return to_type(LandFeatureType, row)
+
+    @strawberry.mutation
+    async def update_land_feature(
+        self, info: strawberry.Info, id: str, label: Optional[str] = None,
+        value: Optional[float] = None, unit: Optional[str] = None,
+        reference: Optional[str] = None, note: Optional[str] = None,
+        category: Optional[str] = None, vendor: Optional[str] = None,
+        condition: Optional[str] = None,
+    ) -> LandFeatureType:
+        uid = _uid_from_info(info) or "system"
+        fields = {"label": label, "value": value, "unit": unit,
+                  "reference": reference, "note": note, "category": category,
+                  "vendor": vendor, "condition": condition}
+        sets = {k: v for k, v in fields.items() if v is not None}
+        async with pool.connection() as conn:
+            if not sets:
+                cur = await conn.execute(
+                    "SELECT * FROM land_features WHERE id=%s AND owner_user_id=%s", (id, uid))
+                return to_type(LandFeatureType, await cur.fetchone())
+            clause = ", ".join(f"{k}=%s" for k in sets)
+            cur = await conn.execute(
+                f"UPDATE land_features SET {clause} WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (*sets.values(), id, uid),
+            )
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "update_land_feature", row["entity_id"], row["label"])
+            return to_type(LandFeatureType, row)
+
+    @strawberry.mutation
+    async def delete_land_feature(self, info: strawberry.Info, id: str) -> bool:
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM land_features WHERE id=%s AND owner_user_id=%s RETURNING entity_id, label",
+                (id, uid))
+            row = await cur.fetchone()
+            if row:
+                await log_audit(conn, uid, "delete_land_feature", row["entity_id"], row["label"])
+            return row is not None
+
+    @strawberry.mutation
     async def delete_note(self, info: strawberry.Info, id: str) -> bool:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
@@ -2803,6 +3109,29 @@ class Mutation:
                 await log_audit(conn, uid, "assign_property_to_group", property_id,
                                 "Assigned to a group" if group_id else "Made personal")
             return cur.rowcount > 0
+
+    @strawberry.mutation
+    async def toggle_favourite(self, info: strawberry.Info, entity_type: str, entity_id: str) -> bool:
+        """Star or unstar a record. Returns the state AFTER the toggle.
+
+        Deliberately server-side rather than a device preference: the same
+        account uses two web heads, and a star that exists on one phone only
+        is a worse answer than no star at all.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM favourites WHERE owner_user_id=%s AND entity_type=%s AND entity_id=%s RETURNING id",
+                (uid, entity_type, entity_id))
+            if await cur.fetchone():
+                await log_audit(conn, uid, "unfavourite", entity_id, entity_type)
+                return False
+            await conn.execute(
+                "INSERT INTO favourites (id, owner_user_id, entity_type, entity_id, created_at) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (new_id(), uid, entity_type, entity_id, datetime.utcnow().isoformat()))
+            await log_audit(conn, uid, "favourite", entity_id, entity_type)
+            return True
 
     @strawberry.mutation
     async def set_stake(self, info: strawberry.Info, kind: str, id: str, stake: str) -> bool:
@@ -3450,6 +3779,35 @@ class Mutation:
             return to_type(UserType, row)
 
     @strawberry.mutation
+    async def update_me(self, info: strawberry.Info, name: str, email: str = "") -> UserType:
+        """Change your own display name and email.
+
+        There was no way to do this. `me` auto-provisions a row with `name` set
+        to the user id, so anybody who had not been edited directly in the
+        database was greeted by their own login string — and the screen called
+        "You" could not change a single thing about you.
+
+        An empty value LEAVES the stored one rather than blanking it, matching
+        the rule used by every other update here: a form that submits what it
+        did not ask about is how fields get silently erased.
+        """
+        uid = _uid_from_info(info) or "guest"
+        clean_name = (name or "").strip()
+        clean_email = (email or "").strip()
+        async with pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO users (id, name, email) VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                (uid, uid, ""),
+            )
+            cur = await conn.execute(
+                "UPDATE users SET name = COALESCE(NULLIF(%s, ''), name), "
+                "email = COALESCE(NULLIF(%s, ''), email) WHERE id=%s RETURNING *",
+                (clean_name, clean_email, uid),
+            )
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "update_profile", uid, "name or email changed")
+            return to_type(UserType, row)
+
     async def update_profile(
         self,
         info: strawberry.Info,
@@ -3938,6 +4296,21 @@ async def init_db() -> None:
             "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS key_points TEXT NOT NULL DEFAULT ''")
 
         await conn.execute("""
+            CREATE TABLE IF NOT EXISTS favourites (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        # One row per person per thing; the unique index is what makes the
+        # toggle idempotent under a double tap.
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS favourites_unique "
+            "ON favourites (owner_user_id, entity_type, entity_id)")
+
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS document_parties (
                 id TEXT PRIMARY KEY,
                 document_id TEXT NOT NULL,
@@ -4008,6 +4381,93 @@ async def init_db() -> None:
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_entity ON notes(owner_user_id, entity_type, entity_id)")
+
+        # What is ON the land, as opposed to what the papers say about it.
+        #
+        # A borewell's depth, the motor's horsepower, the electricity service
+        # number, how wide the access track is, which corner stone is which —
+        # none of it appears on any deed, all of it is expensive to rediscover,
+        # and today it lives in one person's memory. When that person is not
+        # around, a 320 ft borewell becomes "somewhere around 300, ask the man
+        # who drilled it".
+        #
+        # `value` and `unit` are kept apart so a depth can be totalled, sorted
+        # and converted later; `note` holds what cannot be reduced to a number.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS land_features (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL DEFAULT 'system',
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'other',
+                label TEXT NOT NULL DEFAULT '',
+                value REAL NOT NULL DEFAULT 0,
+                unit TEXT NOT NULL DEFAULT '',
+                reference TEXT NOT NULL DEFAULT '',
+                vendor TEXT NOT NULL DEFAULT '',
+                condition TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        # Added after the table shipped, so existing rows get them too.
+        for col in ("vendor", "condition"):
+            await conn.execute(
+                f"ALTER TABLE land_features ADD COLUMN IF NOT EXISTS {col} TEXT NOT NULL DEFAULT ''")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_features_entity "
+            "ON land_features(owner_user_id, entity_type, entity_id)")
+
+        # Work somebody else has to do standing on the land or queueing at an
+        # office: a survey, a title opinion, site photos, an errand at the MRO.
+        #
+        # This is a TRACKER, not a marketplace. Nothing here takes payment or
+        # dispatches anyone — it records what was asked for, who is doing it,
+        # what it costs and how far along it is, because that is the part people
+        # actually lose track of. A request that stalls at "papers sent" for two
+        # months is the thing this exists to make visible.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS work_requests (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL DEFAULT 'system',
+                kind TEXT NOT NULL DEFAULT 'errand',
+                title TEXT NOT NULL DEFAULT '',
+                entity_type TEXT NOT NULL DEFAULT '',
+                entity_id TEXT NOT NULL DEFAULT '',
+                assignee TEXT NOT NULL DEFAULT '',
+                cost REAL NOT NULL DEFAULT 0,
+                stage INTEGER NOT NULL DEFAULT 0,
+                needs_you BOOLEAN NOT NULL DEFAULT FALSE,
+                note TEXT NOT NULL DEFAULT '',
+                due_date TEXT NOT NULL DEFAULT '',
+                closed BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_requests_owner "
+            "ON work_requests(owner_user_id, closed)")
+
+        # What the land has COST — stamp duty, fencing, a survey, the tax.
+        # Different from what it is worth, and the one a person is actually
+        # asked to produce at tax time or when a co-owner asks what was spent.
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS land_expenses (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL DEFAULT 'system',
+                entity_type TEXT NOT NULL DEFAULT '',
+                entity_id TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'other',
+                title TEXT NOT NULL DEFAULT '',
+                amount REAL NOT NULL DEFAULT 0,
+                spent_on TEXT NOT NULL DEFAULT '',
+                vendor TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_expenses_owner ON land_expenses(owner_user_id)")
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS family_members (
@@ -5028,10 +5488,31 @@ _DOC_IMPORT_SYSTEM = (
     '"survey_no":"<survey/C.G number>","plot_no":"<plot number>","extent":"<area as written>",'
     '"classification":"<house-site|agricultural|commercial|other>",'
     '"boundaries":{"north":"","south":"","east":"","west":""},'
+    '"total_pages":<number of pages in the file>,'
+    '"stamp_papers":{"total_value":<number>,"serials":"<e.g. 110 to 119>","count":<number>,'
+    '"denominations":[{"value":<number>,"count":<number>}],'
+    '"purchased_by":"<name in English>","purchased_for":"<SELF or the name>"},'
+    '"layout_name":"<layout / colony / nagar name in English>",'
+    '"plot_nos":["<each plot number sold, e.g. 70A>"],'
+    '"rate_per_unit":<number>,"rate_unit":"<Sq.yard|Sq.ft|Acre>",'
+    '"parent_survey_extent":"<the WHOLE survey number\'s extent as written, e.g. 8-74 Cents>",'
+    '"boundary_lengths":{"north":"","south":"","east":"","west":""},'
     '"prior_document":"<prior deed no/year>","gpa_document":"<GPA doc no/year>","scanning_id":"<scanning id>",'
+    '"prior_document_details":{"number":"<e.g. 10024/1981>","registration_date":"<YYYY-MM-DD>",'
+    '"office":"<registering office in English>","book_volume_pages":"<e.g. Book 1, Vol 1488, Pages 168>",'
+    '"original_seller":"<name in English>","original_buyer":"<name in English>"},'
+    '"attachments":{"route_map":<bool>,"landmarks":["<landmark named on the site plan>"],'
+    '"identity_verification":"<what is present: thumbprints, photographs, \'\' if none>",'
+    '"declaration":"<the compliance declaration cited, e.g. Section 27 & 64 Stamp Act>"},'
     '"parties":[{"role":"<seller|buyer>","name":"<English>","parentage":"<S/o|W/o|D/o ...>","age":"<age>","address":"<English>","is_gpa":<bool>}],'
     '"headline":"<one line, max 90 chars, see below>",'
     '"key_points":["<3 to 5 short factual lines, see below>"],'
+    '"pattadar_no":"<passbook/khata number — PASSBOOK & ROR ONLY>",'
+    '"owner_name":"<pattadar name in English — PASSBOOK & ROR ONLY>",'
+    '"father_husband_name":"<S/o or W/o name — PASSBOOK & ROR ONLY>",'
+    '"parcels":[{"survey_no":"","subdivision":"","extent":"<as written, WITH its unit>",'
+    '"unit":"<Acres|Guntas|Cents|Hectares|Sq.yards>","classification":"<agri|non-agri>",'
+    '"acquisition_source":"<purchase|inheritance|gift|partition|government>"}],'
     '"summary":"<2-3 short paragraphs, see below>",'
     '"caveats":["<anything unreadable, ambiguous or worth checking — [] if none>"],'
     '"confidence":"<high|medium|low>"}\n'
@@ -5065,6 +5546,15 @@ _DOC_IMPORT_SYSTEM = (
     "blurred, a figure that appears twice with different values, an extent written ambiguously, "
     "a party whose role was hard to determine, handwriting you had to interpret. Be specific "
     "and brief. An empty list is correct when the document read cleanly — do NOT invent doubt.\n"
+    "IF THE DOCUMENT IS A PATTADAR PASSBOOK, ROR, 1-B OR ADANGAL, the fields above that are "
+    "marked PASSBOOK & ROR ONLY are the important ones, and `parcels` is the point of the "
+    "document: it lists EVERY survey number the pattadar holds in that village, and each row "
+    "must appear. `pattadar_no` is the khata / passbook number printed on it. `owner_name` is "
+    "the pattadar. Leave `parties`, `consideration` and the registration fields empty for these "
+    "— a passbook is a record of holding, not a transfer between two people.\n"
+    "EXTENT — write it exactly as the paper does INCLUDING the unit: \"2.20 acres\", "
+    "\"40 guntas\", \"418-1/2 sq. yards\". The number alone is ambiguous, and a figure read as "
+    "the wrong unit misstates the holding by thousands of times.\n"
     "PARTY ROLES — read carefully, DO NOT SWAP these two:\n"
     "  • వ్రాసి ఇచ్చినవారు / వ్రాయించి ఇచ్చినవారు (vrasi/vrayinchi ichchinavaru) = the executant / vendor "
     "who WRITES AND GIVES the deed → role = \"seller\" (the PREVIOUS owner).\n"
@@ -5078,6 +5568,21 @@ _DOC_IMPORT_SYSTEM = (
     "the authority to act (వ్రాయించుకొన్నవారు), takes role \"buyer\" and is marked is_gpa true. "
     "Apply the same rule to an agreement-of-sale-cum-GPA. "
     "Map each party strictly by which Telugu heading it appears under — never guess from name order.\n"
+    "DOCUMENT NUMBER — the registered number is the single field used to find this deed "
+    "again, in an EC search or the registrar\'s index, so look for it before giving up. On an "
+    "Andhra Pradesh deed it appears as \"ద.నెం.\" / \"దస్తావేజు నెంబరు\" / \"Doc.No.\" / "
+    "\"Document No.\" / \"R.No.\" / \"Regd. No.\", usually written NUMBER/YEAR (8034/2006) in the "
+    "registration endorsement on the LAST pages or in a stamp at the top of the first page — not "
+    "in the body of the text. Put the number alone in `document_no` and the year in `reg_year`. "
+    "Do NOT put the year in `document_no`: a year in that field reads as a deed number that does "
+    "not exist and sends somebody searching the index for it. If the endorsement is genuinely "
+    "absent or unreadable, leave `document_no` empty AND say so in a caveat.\n"
+    "STAMP PAPERS — a registered deed is written on a set of non-judicial stamp papers, and the set is evidence in itself: the serial run, the denominations and who bought them are what a lawyer checks first for a forged or substituted page. List every denomination with its count, and give `total_value` as their SUM — not the consideration, which is a different number.\n"
+    "PLOT vs SURVEY EXTENT — `extent` is the area actually conveyed by THIS deed; `parent_survey_extent` is the extent of the whole survey number it was cut from. Recording the parent extent as the holding would overstate the land by many times, so keep them apart and leave either empty rather than copying one into the other.\n"
+    "RATE — `rate_per_unit` is the price per square yard/foot/acre stated on the page. Do NOT compute it by dividing the consideration; if the paper does not state a rate, leave it 0.\n"
+    "BOUNDARY LENGTHS — the schedule often gives a measurement beside each direction (\"North: 30 ft wide road\", \"East: 66 ft\"). Put the DESCRIPTION of what abuts in `boundaries` and the MEASUREMENT in `boundary_lengths`, each as written. A road named as a boundary is a description, its width is a length; they are not the same fact.\n"
+    "PRIOR LINK DOCUMENT — the deed by which the present seller acquired the property. It is the title chain, and its number, date, office and the two names on it are what makes the chain checkable. If the prior deed was executed through a GPA agent, name the principal as `original_seller` and say so in a caveat.\n"
+    "ATTACHMENTS — state only what is actually bound into the file: a route map or site plan, thumbprints or photographs under Section 32A, a stamp-duty declaration. These are presence facts; do not describe what a document of this kind usually contains.\n"
     "Boundaries are the chuttupakkala haddulu (N/S/E/W) of the schedule property. Prefer English transliteration of "
     "Telugu names/places. Output MUST be valid JSON and nothing else."
 )

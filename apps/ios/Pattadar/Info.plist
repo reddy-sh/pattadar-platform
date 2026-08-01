@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Pattadar Native</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Pattadar uses the camera to photograph deeds and land.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Pattadar uses your location only to help you place a pin on your land.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pattadar reads deeds and passbooks from photos you choose.</string>
+	<key>PattadarAPIURL</key>
+	<string>https://dissipative-dena-lovingly.ngrok-free.dev</string>
+	<key>PattadarUser</key>
+	<string>sankara.telukutla</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+</dict>
+</plist>

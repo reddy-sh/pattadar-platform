@@ -1,0 +1,56 @@
+[
+  {
+    "value": 40,
+    "label": "Guntas",
+    "key": "gunta",
+    "acres": 1
+  },
+  {
+    "value": 40,
+    "label": "gunta",
+    "key": "gunta",
+    "acres": 1
+  },
+  {
+    "value": 1,
+    "label": "acre",
+    "key": "acre",
+    "acres": 1
+  },
+  {
+    "value": 100,
+    "label": "Cents",
+    "key": "cent",
+    "acres": 1
+  },
+  {
+    "value": 4840,
+    "label": "Sq. yards",
+    "key": "sqyd",
+    "acres": 1
+  },
+  {
+    "value": 43560,
+    "label": "Sq. feet",
+    "key": "sqft",
+    "acres": 1
+  },
+  {
+    "value": 1,
+    "label": "Hectares",
+    "key": "hectare",
+    "acres": 2.4710538108356292
+  },
+  {
+    "value": 2.5,
+    "label": "Acres-Guntas",
+    "key": "acre",
+    "acres": 2.5
+  },
+  {
+    "value": 605,
+    "label": "Ankanam",
+    "key": "ankanam",
+    "acres": 1
+  }
+]

@@ -55,6 +55,7 @@ export {
   UPDATE_PARCEL_PRICE_MUTATION,
   VERIFY_BENEFICIARY_MUTATION,
 } from './api/operations';
+export { isOnline, type NetworkStateLike } from './api/network';
 export { assetGainPct, parcelValue, propertyValue, splitShares, totalLoans } from './portfolio/value';
 export {
   LOW_SIGNAL_ACTIONS,

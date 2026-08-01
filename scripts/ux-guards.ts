@@ -921,5 +921,46 @@ check(
   'an environment-derived redirect_uri is rejected by Cognito',
 );
 
+// ── react-query's browser defaults are wired to the phone ────────────────
+// refetchOnWindowFocus waited on a DOM event React Native never fires, so
+// returning from the background never refreshed and the offline banner stuck
+// until a manual pull. onlineManager read navigator.onLine, which is absent.
+const lifecycle = code('apps/mobile/src/lib/queryLifecycle.ts');
+check(
+  'focus is driven by AppState',
+  /focusManager\.setFocused\(status === 'active'\)/.test(lifecycle),
+);
+check(
+  'online is driven by real network state',
+  /onlineManager\.setOnline\(isOnline\(s\)\)/.test(lifecycle),
+);
+check(
+  'the lifecycle is actually installed',
+  /installQueryLifecycle\(\)/.test(code('apps/mobile/src/app/_layout.tsx')),
+  'a wiring module nobody calls is the unreachable-component pattern again',
+);
+check(
+  'mount no longer refetches unconditionally',
+  !/refetchOnMount: 'always'/.test(code('apps/mobile/src/data/hooks.ts')),
+  'that only existed to compensate for focus refetch never firing',
+);
+
+// ── The Swift port cannot silently diverge on land arithmetic ────────────
+// packages/core defines what an extent means; Swift cannot import it, so the
+// rules exist twice. The vectors are the contract that keeps them equal.
+import { existsSync } from 'node:fs';
+for (const f of ['units', 'areas', 'geo']) {
+  check(
+    `vectors/${f}.json exists for the Swift port`,
+    existsSync(join(ROOT, 'packages', 'core', 'vectors', `${f}.json`)),
+    'regenerate with `bun run scripts/emit-vectors.ts`',
+  );
+}
+check(
+  'the Swift tests read the vectors rather than a copy',
+  existsSync(join(ROOT, 'apps/ios/PattadarKit/Tests/PattadarKitTests/Vectors')),
+  'a second copy of the vectors defeats the whole mechanism',
+);
+
 console.log(failures === 0 ? 'UX GUARDS PASS' : `UX GUARDS FAILED (${failures})`);
 process.exit(failures === 0 ? 0 : 1);
