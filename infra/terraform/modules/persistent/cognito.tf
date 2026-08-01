@@ -191,6 +191,62 @@ resource "aws_cognito_user_pool_client" "spa" {
   prevent_user_existence_errors = "ENABLED"
 }
 
+# --- Native app client (iOS; public, code + PKCE, custom-scheme callback) ----
+#
+# Prod already has this client — it was made in the console during the iOS
+# spike and has been drift ever since. This resource codifies it; adopt the
+# live one rather than creating a twin:
+#
+#   cd envs/prod/persistent
+#   terraform import 'module.persistent.aws_cognito_user_pool_client.mobile' \
+#     ap-south-1_XfgAF21Z3/44gv48ihjlgub7h0lnvjbdmj89
+#
+# Dev has no mobile client yet; the next dev apply creates one.
+
+resource "aws_cognito_user_pool_client" "mobile" {
+  name         = "${local.prefix}-mobile"
+  user_pool_id = aws_cognito_user_pool.pattadar.id
+
+  generate_secret = false
+
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+
+  # ASWebAuthenticationSession custom scheme, registered in the app's
+  # Info.plist. Not https on purpose: the callback never leaves the device.
+  callback_urls = ["pattadar://auth"]
+  logout_urls   = ["pattadar://signout"]
+
+  depends_on = [
+    aws_cognito_identity_provider.google,
+    aws_cognito_identity_provider.facebook,
+    aws_cognito_identity_provider.apple,
+  ]
+
+  # Hosted UI does the authenticating; the client itself only ever redeems
+  # refresh tokens.
+  explicit_auth_flows = ["ALLOW_REFRESH_TOKEN_AUTH"]
+
+  supported_identity_providers = concat(
+    ["COGNITO"],
+    var.enable_google_idp ? ["Google"] : [],
+  )
+
+  access_token_validity  = 60
+  id_token_validity      = 60
+  refresh_token_validity = 30
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "days"
+  }
+
+  enable_token_revocation       = true
+  prevent_user_existence_errors = "ENABLED"
+}
+
 # --- Hosted UI domain -------------------------------------------------------
 
 resource "aws_cognito_user_pool_domain" "main" {

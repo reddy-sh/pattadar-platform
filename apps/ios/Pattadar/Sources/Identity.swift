@@ -69,13 +69,19 @@ enum Identity {
     }
 }
 
-/// Choose an identity. Shown when none has been chosen, and from You → Switch.
+/// Sign in. Shown when no identity has been chosen, and from You → Switch.
+///
+/// The front door is real now: Cognito's hosted UI, a Google button and an
+/// email-and-password form on the founder's own domain. The header trick that
+/// used to BE this screen still exists, but as what it always was — a
+/// developer's tool — folded away and labelled as one.
 struct SignInScreen: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var user = ""
     @State private var checking = false
     @State private var problem = ""
+    @State private var devOpen = false
 
     var body: some View {
         NavigationStack {
@@ -93,13 +99,11 @@ struct SignInScreen: View {
                 }
 
                 Section {
-                    FormRow(label: "User", text: $user, prompt: "sankara.telukutla", required: true)
-                } header: {
-                    Text("Who are you?")
+                    PrimaryButton(title: "Sign in", busy: checking) {
+                        Task { await signInWithCognito() }
+                    }
                 } footer: {
-                    // Said plainly. Anyone who knows a user id can read that
-                    // user's records until Cognito lands.
-                    Text("This build identifies you with a header, not a password — there is no sign-in yet, and anyone who knows a user id can read that user's records. Real sign-in arrives with the Cognito client.")
+                    Text("Opens auth.pattadar.com — sign in with Google or your email. Use the account whose email your records belong to.")
                 }
 
                 if !problem.isEmpty {
@@ -107,25 +111,55 @@ struct SignInScreen: View {
                 }
 
                 Section {
-                    PrimaryButton(title: "Continue", busy: checking,
-                                  disabled: user.trimmingCharacters(in: .whitespaces).isEmpty) {
-                        Task { await go() }
+                    DisclosureGroup("Development", isExpanded: $devOpen) {
+                        FormRow(label: "User", text: $user, prompt: "u01", required: false)
+                        Button("Continue as this user") { Task { await adoptHeaderUser() } }
+                            .disabled(checking || user.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
+                } footer: {
+                    // Said plainly. The dev API trusts this header, and anyone
+                    // who knows a user id can read that user's records there.
+                    Text("Developer door: identifies you to the dev API with a header instead of a password. The production gateway ignores it.")
                 }
             }
             .navigationTitle("Sign in")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { if user.isEmpty { user = app.api.config.userID } }
         }
     }
 
-    private func go() async {
+    /// The real thing: hosted UI → tokens → the identity the gateway would
+    /// derive from those same tokens.
+    private func signInWithCognito() async {
         checking = true
         problem = ""
         defer { checking = false }
+        do {
+            let email = try await CognitoAuth.shared.signIn()
+            let id = CognitoAuth.userID(fromEmail: email)
+            // Verify the identity reaches the server before adopting it, so a
+            // dead tunnel shows here rather than as an empty app.
+            app.setUser(id)
+            guard await app.load(Queries.dashboard, as: DashboardResponse.self) != nil else {
+                problem = app.lastFailure ?? "Signed in, but the server could not be reached."
+                return
+            }
+            Identity.set(id)
+            dismiss()
+        } catch CognitoAuth.AuthError.cancelled {
+            // Closed the sheet. Not an error; nothing to say.
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    private func adoptHeaderUser() async {
+        checking = true
+        problem = ""
+        defer { checking = false }
+        // Choosing a header identity and holding Cognito tokens for a
+        // different one would be two answers to "who are you"; drop the tokens.
+        await CognitoAuth.shared.signOut()
         let clean = user.trimmingCharacters(in: .whitespaces).lowercased()
-        // Verify the identity resolves to something before adopting it, so a
-        // typo shows here rather than as an empty app.
         app.setUser(clean)
         if await app.load(Queries.dashboard, as: DashboardResponse.self) == nil {
             problem = app.lastFailure ?? "Could not reach the server."

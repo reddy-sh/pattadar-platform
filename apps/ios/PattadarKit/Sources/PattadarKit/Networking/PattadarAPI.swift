@@ -9,13 +9,21 @@ import Foundation
 public struct PattadarAPI: Sendable {
     public struct Config: Sendable {
         public var baseURL: URL
-        /// Trust header. To be replaced by `Authorization: Bearer` in the same
-        /// change that adds it to the RN client — not before, or this client
-        /// locks itself out of an API that has no Cognito path yet.
+        /// Trust header. Still sent because the dev API has no Cognito path —
+        /// it is how this client is identified when talking straight to the
+        /// API. The gateway STRIPS it from every request it proxies, so
+        /// carrying both is safe: whichever service answers uses the identity
+        /// it trusts.
         public var userID: String
-        public init(baseURL: URL, userID: String) {
+        /// A Cognito access token, when someone has really signed in. Empty
+        /// means none. Sent as `Authorization: Bearer` on every request, so
+        /// pointing `baseURL` at the gateway is a config change, not a code
+        /// change.
+        public var authorization: String
+        public init(baseURL: URL, userID: String, authorization: String = "") {
             self.baseURL = baseURL
             self.userID = userID
+            self.authorization = authorization
         }
     }
 
@@ -62,6 +70,9 @@ public struct PattadarAPI: Sendable {
         r.setValue("1", forHTTPHeaderField: "ngrok-skip-browser-warning")
         if !config.userID.isEmpty {
             r.setValue(config.userID, forHTTPHeaderField: "x-user-id")
+        }
+        if !config.authorization.isEmpty {
+            r.setValue("Bearer \(config.authorization)", forHTTPHeaderField: "Authorization")
         }
         return r
     }
@@ -118,6 +129,7 @@ public struct PattadarAPI: Sendable {
     ) async throws -> [String: Any] {
         var headers = ["Bypass-Tunnel-Reminder": "1", "ngrok-skip-browser-warning": "1"]
         if !config.userID.isEmpty { headers["x-user-id"] = config.userID }
+        if !config.authorization.isEmpty { headers["Authorization"] = "Bearer \(config.authorization)" }
 
         let (status, data): (Int, Data)
         do {

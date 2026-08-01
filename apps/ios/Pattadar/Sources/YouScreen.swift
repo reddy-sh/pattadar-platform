@@ -173,13 +173,14 @@ struct YouScreen: View {
 
                 Section {
                     Fact(label: "Server", value: app.api.config.baseURL.host ?? "—")
-                    Fact(label: "Signed in as", value: app.api.config.userID)
+                    Fact(label: "Signed in as", value: CognitoAuth.shared.email ?? app.api.config.userID)
                 } header: {
                     Text("Connection")
                 } footer: {
-                    // Said plainly: this build trusts a header, and anyone who
-                    // knows a user id can read that user's records.
-                    Text("This build identifies you with a header, not a password. Real sign-in arrives with the Cognito client.")
+                    // Which door was used, said plainly either way.
+                    Text(CognitoAuth.shared.isSignedIn
+                         ? "Signed in with your Pattadar account. Requests carry a signed token; the dev header rides along only for the dev API."
+                         : "Not really signed in: this session identifies you to the dev API with a header, not a password. Sign out and back in to use your Pattadar account.")
                 }
             }
             .navigationTitle("You")

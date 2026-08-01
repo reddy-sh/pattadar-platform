@@ -182,7 +182,14 @@ resource "aws_ecs_task_definition" "gateway" {
         { name = "PG_USER", value = "pattadar_app" },
         { name = "PG_DATABASE", value = "hub" },
         { name = "COGNITO_USER_POOL_ID", value = local.persistent.cognito_user_pool_id },
-        { name = "COGNITO_CLIENT_ID", value = local.persistent.cognito_spa_client_id },
+        # Comma-separated allowlist: the gateway accepts tokens minted for the
+        # web SPA or the native iOS client, and nothing else. try() keeps the
+        # runtime plannable until persistent has been applied with the mobile
+        # client output.
+        { name = "COGNITO_CLIENT_ID", value = join(",", compact([
+          local.persistent.cognito_spa_client_id,
+          try(local.persistent.cognito_mobile_client_id, ""),
+        ])) },
         { name = "COGNITO_REGION", value = data.aws_region.current.region },
         { name = "API_BASE_URL", value = "http://api:8080" },
         { name = "ASSISTANT_BASE_URL", value = "http://assistant:8080" },

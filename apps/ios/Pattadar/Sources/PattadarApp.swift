@@ -129,11 +129,15 @@ final class AppModel {
             }
         }
 
-        do {
-            try reader.start(endpoint: endpoint, config: api.config, fileURL: fileURL, name: name)
-        } catch {
-            readState = .failed("Couldn’t prepare the file — \(error.localizedDescription)")
-            return
+        Task {
+            // A fresh token before a long upload: the read may outlive this
+            // process, and nobody will be around to answer a 401.
+            await freshenAuth()
+            do {
+                try reader.start(endpoint: endpoint, config: api.config, fileURL: fileURL, name: name)
+            } catch {
+                readState = .failed("Couldn’t prepare the file — \(error.localizedDescription)")
+            }
         }
 
         // The elapsed counter is the only part that has to live in this process;
@@ -297,11 +301,27 @@ final class AppModel {
 
     /// Switch identity without rebuilding the client's other settings.
     func setUser(_ user: String) {
-        api = PattadarAPI(config: .init(baseURL: api.config.baseURL, userID: user))
+        api = PattadarAPI(config: .init(baseURL: api.config.baseURL, userID: user,
+                                        authorization: api.config.authorization))
         favourites = []
     }
 
+    /// Attach a live Cognito token to the client, refreshing it first if it
+    /// is about to lapse. Called before requests rather than on a timer — a
+    /// timer is one more thing that can be wrong while the phone sleeps.
+    func freshenAuth() async {
+        let token = await CognitoAuth.shared.validAccessToken() ?? ""
+        if api.config.authorization != token {
+            api = PattadarAPI(config: .init(baseURL: api.config.baseURL,
+                                            userID: api.config.userID,
+                                            authorization: token))
+        }
+    }
+
     func signOut() {
+        // Revoke first, forget after — best-effort, so signing out with no
+        // signal still signs out.
+        Task { await CognitoAuth.shared.signOut() }
         Identity.clear()
         favourites = []
         clearRead()
@@ -351,6 +371,7 @@ final class AppModel {
     /// One place, because every add-flow needs the same four steps and the RN
     /// app grew three subtly different copies of them.
     func fileDocument(_ r: ScanResult, linkTo target: LinkTarget) async throws {
+        await freshenAuth()
         struct Filed: Decodable { let createRegisteredDocument: IDPayload? }
         let payload = String(
             data: try JSONSerialization.data(withJSONObject: r.fields, options: [.sortedKeys]),
@@ -387,6 +408,7 @@ final class AppModel {
 
     /// Run a query, remembering the failure instead of throwing into a view.
     func load<T: Decodable & Sendable>(_ document: String, variables: [String: any Sendable] = [:], as: T.Type) async -> T? {
+        await freshenAuth()
         do {
             let value = try await api.query(document, variables: variables, as: T.self)
             lastFailure = nil

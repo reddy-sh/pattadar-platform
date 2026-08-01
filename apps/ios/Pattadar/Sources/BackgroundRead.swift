@@ -114,6 +114,9 @@ final class BackgroundRead: NSObject {
         if !config.userID.isEmpty {
             request.setValue(config.userID, forHTTPHeaderField: "x-user-id")
         }
+        if !config.authorization.isEmpty {
+            request.setValue("Bearer \(config.authorization)", forHTTPHeaderField: "Authorization")
+        }
 
         pending = Pending(endpointPath: endpoint.requestPath, originalName: name,
                           documentPath: fileURL.path, bodyPath: bodyURL.path,

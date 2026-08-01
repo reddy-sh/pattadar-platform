@@ -70,6 +70,12 @@ targets:
         NSLocationWhenInUseUsageDescription: Pattadar uses your location only to help you place a pin on your land.
         NSCameraUsageDescription: Pattadar uses the camera to photograph deeds and land.
         NSPhotoLibraryUsageDescription: Pattadar reads deeds and passbooks from photos you choose.
+        # Cognito's sign-in callback (pattadar://auth on the pattadar-mobile
+        # app client). ASWebAuthenticationSession catches it itself, but the
+        # scheme is registered so the OS knows it is ours.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.rfactory.pattadar.auth
+            CFBundleURLSchemes: [pattadar]
         # Baked into the BUNDLE, not the scheme.
         #
         # Scheme environment variables only reach the app when Xcode launches
