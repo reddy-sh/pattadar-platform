@@ -122,7 +122,12 @@ struct HoldingDetailScreen: View {
                             villageCentroid: villageCentroid,
                             entityType: "parcel", entityId: parcel.id,
                             address: parcel.address.isEmpty ? parcelWhere : parcel.address,
+                            boundary: parcel.boundary,
                             pin: $pin) { save($0) }
+
+            // The surveyed outline — the FMB sketch, redrawn from corners.
+            BoundarySection(entityType: "parcel", entityId: parcel.id,
+                            recordedAcres: parcel.extent, boundary: parcel.boundary)
 
             LinkedDocumentsSection(documents: documents)
 
@@ -342,8 +347,31 @@ struct LocationSection: View {
     /// available on the picker, where somebody comparing against a survey
     /// record is the one asking.
     var address: String = ""
+    /// The surveyed outline, when corners are on file — drawn over the
+    /// preview so the map shows the LAND, not just a point near it.
+    var boundary: String = ""
     @Binding var pin: LatLng?
     let onSave: (LatLng) -> Void
+
+    private var corners: [LatLng] { parseBoundary(boundary) }
+
+    /// Framed on the outline when there is one, on the pin when not.
+    private var previewRegion: MKCoordinateRegion {
+        if !corners.isEmpty {
+            let lats = corners.map(\.latitude), lngs = corners.map(\.longitude)
+            let latSpan = (lats.max()! - lats.min()!) * 1.6
+            let lngSpan = (lngs.max()! - lngs.min()!) * 1.6
+            return MKCoordinateRegion(
+                center: .init(latitude: (lats.max()! + lats.min()!) / 2,
+                              longitude: (lngs.max()! + lngs.min()!) / 2),
+                span: .init(latitudeDelta: max(latSpan, 0.003),
+                            longitudeDelta: max(lngSpan, 0.003)))
+        }
+        let centre = pin ?? LatLng(latitude: 16.5, longitude: 80.5)
+        return MKCoordinateRegion(
+            center: .init(latitude: centre.latitude, longitude: centre.longitude),
+            span: .init(latitudeDelta: 0.01, longitudeDelta: 0.01))
+    }
 
     var body: some View {
         // "Places", not "Location".
@@ -359,14 +387,23 @@ struct LocationSection: View {
                              villageCentroid: villageCentroid,
                              pin: $pin, onSave: onSave)
             } label: {
-                if let pin {
-                    Map(initialPosition: .region(MKCoordinateRegion(
-                        center: .init(latitude: pin.latitude, longitude: pin.longitude),
-                        span: .init(latitudeDelta: 0.01, longitudeDelta: 0.01)))) {
+                if pin != nil || !corners.isEmpty {
+                    Map(initialPosition: .region(previewRegion)) {
                         // A bare pin: the marker used to carry the title, which
                         // the screen's own title already says.
-                        Marker("", systemImage: "mappin",
-                               coordinate: .init(latitude: pin.latitude, longitude: pin.longitude))
+                        if let pin {
+                            Marker("", systemImage: "mappin",
+                                   coordinate: .init(latitude: pin.latitude, longitude: pin.longitude))
+                        }
+                        // The outline over the imagery — this is the drawing a
+                        // buyer walks the field with.
+                        if !corners.isEmpty {
+                            MapPolygon(coordinates: corners.map {
+                                CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                            })
+                            .foregroundStyle(.green.opacity(0.18))
+                            .stroke(.green, lineWidth: 2)
+                        }
                     }
                     // A preview must not steal the scroll gesture; the whole
                     // card is one tap target.
@@ -408,7 +445,8 @@ struct LocationSection: View {
             }
             // On the row, not inside the label: a modifier that configures a
             // List row has no effect applied to a link's contents.
-            .listRowInsets(pin == nil ? nil : EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+            .listRowInsets(pin == nil && corners.isEmpty
+                           ? nil : EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
         }
     }
 }
@@ -511,7 +549,14 @@ struct PropertyDetailScreen: View {
                                                property.district]),
                             entityType: "property", entityId: property.id,
                             address: property.address.isEmpty ? whereLine : property.address,
+                            boundary: property.boundary,
                             pin: $pin) { save($0) }
+
+            // The surveyed outline. A plot's recorded area arrives in its own
+            // unit; the comparison is in acres because the drawn figure is.
+            BoundarySection(entityType: "property", entityId: property.id,
+                            recordedAcres: toAcres(property.landArea, unitKey(property.landUnit)),
+                            boundary: property.boundary)
 
             LinkedDocumentsSection(documents: documents)
 

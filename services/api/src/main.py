@@ -233,6 +233,9 @@ class ParcelType:
     parent_parcel_id: str
     source: str
     created_at: str
+    # The surveyed outline: "lat,lng;lat,lng;…" in corner order, as printed in
+    # an FMB point table. The pin says where the land is; this says its shape.
+    boundary: str = ""
     # Extended dossier — manual entry now; auto-filled from AP-IGRS later.
     status: str = "owned"            # owned | for-sale | sold | disputed
     label: str = ""
@@ -349,6 +352,8 @@ class PropertyType:
     city: str = ""
     district: str = ""
     geo_point: str = ""
+    # Corner-ordered "lat,lng;lat,lng;…" — same convention as the parcel's.
+    boundary: str = ""
     land_area: float = 0.0
     land_unit: str = "Sq.yd"
     builtup_area: float = 0.0
@@ -2480,6 +2485,46 @@ class Mutation:
             return to_type(PropertyType, row)
 
     @strawberry.mutation
+    async def update_parcel_boundary(self, info: strawberry.Info, parcel_id: str, boundary: str) -> ParcelType:
+        """Save the parcel's surveyed outline — corner-ordered "lat,lng;lat,lng;…".
+
+        Its own mutation, like the geo pair above: a dedicated write can never
+        erase the fields it does not mention.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE parcels SET boundary=%s WHERE id=%s AND passbook_id IN "
+                "(SELECT id FROM passbooks WHERE owner_user_id=%s) RETURNING *",
+                (boundary, parcel_id, uid))
+            row = await cur.fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this parcel")
+            corners = len([p for p in boundary.split(";") if p.strip()])
+            await log_audit(conn, uid, "update_parcel_boundary", parcel_id,
+                            f"boundary set · {corners} corners" if boundary else "boundary cleared")
+            return to_type(ParcelType, row)
+
+    @strawberry.mutation
+    async def update_property_boundary(self, info: strawberry.Info, property_id: str, boundary: str) -> PropertyType:
+        """Save a property's surveyed outline — same convention as the parcel's."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE properties SET boundary=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (boundary, property_id, uid))
+            row = await cur.fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this property")
+            corners = len([p for p in boundary.split(";") if p.strip()])
+            await log_audit(
+                conn, uid, "update_property_boundary", property_id,
+                (f"Boundary set · {corners} corners" if boundary else "Boundary cleared")
+                + f" · {_named('', row['label'], row['address'])}".rstrip(' ·'),
+            )
+            return to_type(PropertyType, row)
+
+    @strawberry.mutation
     async def update_passbook(
         self, info: strawberry.Info, id: str,
         pattadar_no: Optional[str] = None, owner_name: Optional[str] = None,
@@ -4058,6 +4103,8 @@ async def init_db() -> None:
         """)
         await conn.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS parent_parcel_id TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'")
+        # The surveyed outline, corner-ordered "lat,lng;…" (FMB point table).
+        await conn.execute("ALTER TABLE parcels ADD COLUMN IF NOT EXISTS boundary TEXT NOT NULL DEFAULT ''")
         # Per-field record state (CL-289). One row per (parcel, field_key) so a
         # government pull can upsert idempotently. `state` distinguishes
         # unknown (never answered, counts as missing) from not_available
@@ -4221,6 +4268,7 @@ async def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT ''
             )
         """)
+        await conn.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS boundary TEXT NOT NULL DEFAULT ''")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS property_owners (
                 id TEXT PRIMARY KEY,

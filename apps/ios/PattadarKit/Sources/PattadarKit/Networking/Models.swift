@@ -16,6 +16,8 @@ public struct Parcel: Decodable, Identifiable, Sendable {
     public let label: String
     public let address: String
     public let geoPoint: String
+    /// The surveyed outline: corner-ordered "lat,lng;…" from an FMB table.
+    public let boundary: String
     public let stake: String
     public let currentOwner: String
     // The chuttupakkala haddulu — what the deed says the land abuts.
@@ -60,6 +62,8 @@ public struct Property: Decodable, Identifiable, Sendable {
     public let city: String
     public let district: String
     public let geoPoint: String
+    /// Corner-ordered "lat,lng;…" — same convention as the parcel's.
+    public let boundary: String
     public let landArea: Double
     public let landUnit: String
     public let builtupArea: Double

@@ -10,9 +10,9 @@ import Foundation
 public enum Queries {
     public static let holdings = """
     query {
-      parcels { id passbookId surveyNo subdivision extent unit classification acquisitionSource status label address geoPoint stake currentOwner boundaryNorth boundarySouth boundaryEast boundaryWest purchasePrice purchaseDate guidelineValue marketValue stampDuty loanAmount encumbranceStatus regDocNo sro regDate ecStatus ecDate mutationStatus taxPaidUpto litigation litigationNote createdAt }
+      parcels { id passbookId surveyNo subdivision extent unit classification acquisitionSource status label address geoPoint boundary stake currentOwner boundaryNorth boundarySouth boundaryEast boundaryWest purchasePrice purchaseDate guidelineValue marketValue stampDuty loanAmount encumbranceStatus regDocNo sro regDate ecStatus ecDate mutationStatus taxPaidUpto litigation litigationNote createdAt }
       passbooks { id pattadarNo ownerName village mandal district groupId }
-      properties { id type label address locality city district geoPoint landArea landUnit builtupArea builtupUnit acquisitionMode holdingStatus stake currentOwner groupId purchasePrice purchaseDate guidelineValue marketValue currentValue regDocNo sro regDate ghmcAssessmentNo khataNo reraNo ecStatus ecDate mutationStatus taxPaidUpto litigation litigationNote notes attributes createdAt }
+      properties { id type label address locality city district geoPoint boundary landArea landUnit builtupArea builtupUnit acquisitionMode holdingStatus stake currentOwner groupId purchasePrice purchaseDate guidelineValue marketValue currentValue regDocNo sro regDate ghmcAssessmentNo khataNo reraNo ecStatus ecDate mutationStatus taxPaidUpto litigation litigationNote notes attributes createdAt }
     }
     """
 
@@ -98,6 +98,14 @@ public enum Queries {
 
     public static let updatePropertyGeo = """
     mutation($id:String!,$geoPoint:String!){ updatePropertyGeo(propertyId:$id, geoPoint:$geoPoint){ id } }
+    """
+
+    public static let updateParcelBoundary = """
+    mutation($id:String!,$boundary:String!){ updateParcelBoundary(parcelId:$id, boundary:$boundary){ id } }
+    """
+
+    public static let updatePropertyBoundary = """
+    mutation($id:String!,$boundary:String!){ updatePropertyBoundary(propertyId:$id, boundary:$boundary){ id } }
     """
 }
 

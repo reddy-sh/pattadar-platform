@@ -11,7 +11,7 @@ private func parcel(_ id: String, _ survey: String, _ acres: Double,
                     sub: String = "", classification: String = "agri") -> Parcel {
     Parcel(id: id, passbookId: "pb", surveyNo: survey, subdivision: sub, extent: acres,
            unit: "Acres", classification: classification, acquisitionSource: "", status: "",
-           label: "", address: "", geoPoint: "", stake: "", currentOwner: "",
+           label: "", address: "", geoPoint: "", boundary: "", stake: "", currentOwner: "",
            boundaryNorth: "", boundarySouth: "", boundaryEast: "", boundaryWest: "",
            purchasePrice: 0, purchaseDate: "", guidelineValue: 0, marketValue: 0,
            stampDuty: 0, loanAmount: 0, encumbranceStatus: "", regDocNo: "", sro: "",
