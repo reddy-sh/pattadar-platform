@@ -196,20 +196,45 @@ struct HomeScreen: View {
         return relativeTime(newest.timestamp)
     }
 
-    /// The top of the screen, and now the only thing at the top of it.
+    /// The top of the screen: the date in small type, the greeting in serif,
+    /// and your own face on the right — which is the way to the account.
     ///
-    /// This was two lines under a large "Home" title: "Namaste, Sankara" over
-    /// "Good morning · శుభోదయం". Three headings before a single fact — the
-    /// navigation bar naming a tab the tab bar had already named, then a
-    /// greeting, then the same greeting again in the other register.
+    /// The face is the point. The account had sunk to the last tab, and every
+    /// app this person already uses puts *them* in the top corner; a person
+    /// looking for "me" looks there first. The Telugu line went in the same
+    /// pass — it said "good afternoon" directly beneath "Good afternoon",
+    /// the same greeting twice in two scripts — and the date took its place,
+    /// which at least says something the greeting does not.
     private var greeting: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(name.isEmpty ? timeOfDay.english : "\(timeOfDay.english), \(callingName)")
-                .font(.title2.weight(.semibold))
-            Text(timeOfDay.telugu).font(.subheadline).foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dateLine)
+                    .font(.footnote).foregroundStyle(.secondary)
+                Text(name.isEmpty ? "\(timeOfDay)." : "\(timeOfDay), \(callingName).")
+                    // Serif, like every headline in the design language — the
+                    // register of a printed record, not an app's chrome.
+                    .font(.system(size: 30, weight: .semibold, design: .serif))
+                    .minimumScaleFactor(0.75)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button {
+                app.selectedTab = .you
+            } label: {
+                Avatar(name: name, size: 42, isSelf: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Your account")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 4)
+    }
+
+    /// "Saturday, 1 August" — the one line of the header that changes daily.
+    private var dateLine: String {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, d MMMM"
+        return f.string(from: Date())
     }
 
     private var name: String { data?.me?.name ?? "" }
@@ -226,12 +251,12 @@ struct HomeScreen: View {
         return parts.count >= 3 ? parts.dropLast().joined(separator: " ") : name
     }
 
-    private var timeOfDay: (english: String, telugu: String) {
+    private var timeOfDay: String {
         switch Calendar.current.component(.hour, from: Date()) {
-        case 4..<12: ("Good morning", "శుభోదయం")
-        case 12..<17: ("Good afternoon", "శుభ మధ్యాహ్నం")
-        case 17..<21: ("Good evening", "శుభ సాయంత్రం")
-        default: ("Working late", "శుభ రాత్రి")
+        case 4..<12: "Good morning"
+        case 12..<17: "Good afternoon"
+        case 17..<21: "Good evening"
+        default: "Working late"
         }
     }
 

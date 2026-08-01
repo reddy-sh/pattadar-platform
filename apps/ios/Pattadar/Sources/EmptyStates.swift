@@ -105,9 +105,13 @@ struct Avatar: View {
         return letters.isEmpty ? "?" : String(letters).uppercased()
     }
 
-    /// Stable per name, so the same person is the same colour everywhere.
+    /// Stable per name, so the same person is the same colour everywhere —
+    /// including across launches. `hashValue` is seeded per process, which
+    /// made the "stable" colour change every time the app opened; summing
+    /// the scalars is dull but the same for ever.
     private var colour: Color {
         let palette: [Color] = [.blue, .green, .orange, .pink, .purple, .teal, .indigo]
-        return palette[abs(name.hashValue) % palette.count]
+        let h = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+        return palette[h % palette.count]
     }
 }

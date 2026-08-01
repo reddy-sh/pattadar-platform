@@ -425,8 +425,11 @@ struct RootTabs: View {
             // filing a paper is the thing people open this app to do, and it
             // was three taps deep behind a "+" in a corner. Family moves to the
             // You screen, which is where the people in your records live.
-            Color.clear.tabItem { Label("File", systemImage: "plus.circle.fill") }
-                .tag(AppModel.Tab.add)
+            Color.clear.tabItem {
+                Image(uiImage: Self.filingIcon)
+                Text("File")
+            }
+            .tag(AppModel.Tab.add)
             // "Documents" describes a folder. "Vault" says what it is for:
             // the papers that prove the land is yours, kept where they can be
             // found.
@@ -459,6 +462,36 @@ struct RootTabs: View {
             avatarVersion = UUID()
         }
     }
+
+    /// The one ACTION on the tab bar, drawn as one.
+    ///
+    /// A tab item renders its image as a template in the bar's grey, which
+    /// dressed the filing button as a fifth destination — four places to go
+    /// and a button, all in the same voice. Filling the circle and leaving
+    /// the plus white is what says "this one does something".
+    ///
+    /// Drawn by hand rather than via an SF Symbol palette: `.alwaysOriginal`
+    /// is the only way a tab item keeps its own colours, and the beta's
+    /// symbol renderer recoloured the palette version green on the bar.
+    /// Plain fills cannot be reinterpreted.
+    private static let filingIcon: UIImage = {
+        let size: CGFloat = 30
+        let rect = CGRect(x: 0, y: 0, width: size, height: size)
+        return UIGraphicsImageRenderer(size: rect.size).image { _ in
+            UIColor.systemBlue.setFill()
+            UIBezierPath(ovalIn: rect).fill()
+            // The plus: two rounded bars, sized like the symbol's own.
+            let arm: CGFloat = size * 0.46
+            let thick: CGFloat = size * 0.10
+            UIColor.white.setFill()
+            UIBezierPath(roundedRect: CGRect(x: (size - arm) / 2, y: (size - thick) / 2,
+                                             width: arm, height: thick),
+                         cornerRadius: thick / 2).fill()
+            UIBezierPath(roundedRect: CGRect(x: (size - thick) / 2, y: (size - arm) / 2,
+                                             width: thick, height: arm),
+                         cornerRadius: thick / 2).fill()
+        }.withRenderingMode(.alwaysOriginal)
+    }()
 }
 
 extension Notification.Name {
