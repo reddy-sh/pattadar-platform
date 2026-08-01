@@ -197,7 +197,9 @@ struct HoldingDetailScreen: View {
                 }
             }
 
-            OnTheLandSection(features: features)
+            OnTheLandSection(entityType: "parcel", entityId: parcel.id,
+                             features: features,
+                             onChanged: { Task { await loadDossier() } })
 
             OwnerHistorySection(owners: dossier?.parcels.first { $0.id == parcel.id }?.owners ?? [])
 
@@ -374,17 +376,13 @@ struct LocationSection: View {
     }
 
     var body: some View {
-        // "Places", not "Location".
-        //
-        // A pin answers roughly where the land is and nothing else. What people
-        // need to record is where the corner stones are, which side the borewell
-        // sits on, where the track meets the road — so the card opens Places,
-        // and the map is one of its three views.
-        Section("Places") {
+        // "Maps", plural on purpose: the imagery and the surveyor's sketch
+        // are two drawings of the same land, and this card opens both.
+        Section("Maps") {
             NavigationLink {
                 PlacesScreen(title: title, place: place, address: address,
                              photos: photos, entityType: entityType, entityId: entityId,
-                             villageCentroid: villageCentroid,
+                             villageCentroid: villageCentroid, boundary: boundary,
                              pin: $pin, onSave: onSave)
             } label: {
                 if pin != nil || !corners.isEmpty {
@@ -420,7 +418,7 @@ struct LocationSection: View {
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        Label("Places", systemImage: "mappin.and.ellipse")
+                        Label("Maps", systemImage: "map")
                             .font(.caption.weight(.medium))
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(.thinMaterial, in: Capsule())
@@ -432,9 +430,9 @@ struct LocationSection: View {
                     // and offers the one action available.
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Places").font(.subheadline.weight(.medium))
+                            Text("Maps").font(.subheadline.weight(.medium))
                             Text(canAimAt(place)
-                                 ? "Pin, sketch and what is on the land"
+                                 ? "The pin, and the boundary drawn on the map"
                                  : "No village recorded yet — search for the place on the map")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
@@ -649,7 +647,9 @@ struct PropertyDetailScreen: View {
                 }
             }
 
-            OnTheLandSection(features: features)
+            OnTheLandSection(entityType: "property", entityId: property.id,
+                             features: features,
+                             onChanged: { Task { await loadDossier() } })
 
 
             // MONEY LAST of the record sections.
