@@ -19,17 +19,6 @@ struct HomeScreen: View {
                                      onManual: { showAdd = true })
                     } else if data != nil {
                         greeting
-                        // The only card that answers "would these papers stand
-                        // up" — above the totals, because an acre count does
-                        // not tell you whether you could sell it.
-                        if !readinessItems.isEmpty {
-                            RecordReadyCard(score: overallReadiness,
-                                            blurb: readinessBlurb(readinessItems),
-                                            blockingCount: blockingCount) {
-                                app.holdingsFilter = .needsAttention
-                                app.selectedTab = .properties
-                            }
-                        }
                         // The shortcut row.
                         //
                         // These are the questions people arrive with — what is
@@ -107,8 +96,13 @@ struct HomeScreen: View {
                         if !starred.isEmpty {
                             FavouritesCard(items: starred)
                         }
-                        // After the widgets, where it was.
-                        if !attention.isEmpty { AttentionCard(items: attention) }
+                        // What is wrong and what is not record-ready used to be
+                        // two cards here — a dark ring saying 18%, and an amber
+                        // list of unpinned parcels and missing heirs. Both are
+                        // moving to one place that owns the whole subject, so
+                        // Home is what you HAVE and that surface is what needs
+                        // doing. Two answers to "what is wrong" on one screen
+                        // is how they end up disagreeing.
                         if villages.count > 1 { VillageChart(slices: villages) }
                     } else if app.lastFailure != nil {
                         LoadFailure(message: app.lastFailure)
@@ -123,7 +117,13 @@ struct HomeScreen: View {
                 .padding(.bottom, 40)
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Home")
+            // No navigation bar on this screen.
+            //
+            // A large "Home" title cost about 60 points at the top to repeat
+            // the word already lit up in the tab bar, and pushed the greeting —
+            // and everything after it — that much further down. Pushed screens
+            // still get their own bars; only the root goes without.
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showAdd) { AddPropertyScreen().onDisappear { Task { await load() } } }
             .sheet(item: $reviewToAdd) { entry in
                 AddHoldingScreen(passbooks: [], parcels: holdings?.parcels ?? [], review: entry)
@@ -145,7 +145,6 @@ struct HomeScreen: View {
         d.dashboardStats.totalDocuments
     }
     @State private var documentsSeen = 0
-    @State private var documents: [RegisteredDocument] = []
     @State private var requests: [WorkRequest] = []
     @State private var showAdd = false
     @State private var reviewToAdd: ReviewQueue.Entry?
@@ -197,28 +196,42 @@ struct HomeScreen: View {
         return relativeTime(newest.timestamp)
     }
 
+    /// The top of the screen, and now the only thing at the top of it.
+    ///
+    /// This was two lines under a large "Home" title: "Namaste, Sankara" over
+    /// "Good morning · శుభోదయం". Three headings before a single fact — the
+    /// navigation bar naming a tab the tab bar had already named, then a
+    /// greeting, then the same greeting again in the other register.
     private var greeting: some View {
-        HStack(spacing: 10) {
-            Text("🙏").font(.system(size: 30))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name.isEmpty ? "Namaste" : "Namaste, \(name.split(separator: " ").first.map(String.init) ?? name)")
-                    .font(.title3.weight(.semibold))
-                Text(timeOfDay).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
+        VStack(alignment: .leading, spacing: 1) {
+            Text(name.isEmpty ? timeOfDay.english : "\(timeOfDay.english), \(callingName)")
+                .font(.title2.weight(.semibold))
+            Text(timeOfDay.telugu).font(.subheadline).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
     }
 
     private var name: String { data?.me?.name ?? "" }
 
+    /// What somebody is actually called.
+    ///
+    /// "Sankara Reddy Telukutla" is greeted as "Sankara Reddy": in Andhra the
+    /// house name is the part that gets dropped in conversation, and the given
+    /// name alone was too curt for the top of a person's own records. Names of
+    /// one or two parts are left whole — dropping a part there would greet
+    /// "Ravi Kumar" as "Ravi".
+    private var callingName: String {
+        let parts = name.split(separator: " ").map(String.init)
+        return parts.count >= 3 ? parts.dropLast().joined(separator: " ") : name
+    }
 
-    private var timeOfDay: String {
+    private var timeOfDay: (english: String, telugu: String) {
         switch Calendar.current.component(.hour, from: Date()) {
-        case 4..<12: "Good morning · శుభోదయం"
-        case 12..<17: "Good afternoon · శుభ మధ్యాహ్నం"
-        case 17..<21: "Good evening · శుభ సాయంత్రం"
-        default: "Working late · శుభ రాత్రి"
+        case 4..<12: ("Good morning", "శుభోదయం")
+        case 12..<17: ("Good afternoon", "శుభ మధ్యాహ్నం")
+        case 17..<21: ("Good evening", "శుభ సాయంత్రం")
+        default: ("Working late", "శుభ రాత్రి")
         }
     }
 
@@ -292,96 +305,15 @@ struct HomeScreen: View {
         guard let h = holdings else { return [] }
         var totals: [String: Double] = [:]
         for p in h.parcels {
-            // Orphans are reported on the attention card, not charted as a
-            // village called "Unfiled".
+            // A parcel whose passbook is missing is a broken link, not a
+            // village called "Unfiled": it is left off the chart rather than
+            // charted under a place name that does not exist.
             guard let v = h.passbooks.first(where: { $0.id == p.passbookId })?.village,
                   !v.isEmpty else { continue }
             totals[v, default: 0] += p.extent
         }
         return totals.sorted { $0.value > $1.value }
             .map { VillageChart.Slice(village: $0.key, acres: $0.value) }
-    }
-
-    /// Each holding assessed against what a buyer's advocate would ask for.
-    private var readinessItems: [(name: String, readiness: Readiness)] {
-        guard let h = holdings else { return [] }
-        let year = Calendar.current.component(.year, from: Date())
-        let documentedParcels = Set(documents.map(\.parcelId))
-        let documentedProperties = Set(documents.map(\.propertyId))
-
-        let parcels = h.parcels.map { p -> (String, Readiness) in
-            let name = "Sy \(p.surveyNo)"
-            return (name, assessReadiness(ReadinessInput(
-                hasTitleDocument: documentedParcels.contains(p.id),
-                hasLocation: parseGeoPoint(p.geoPoint) != nil,
-                hasRegistrationNumber: !p.regDocNo.isEmpty,
-                mutationStatus: p.mutationStatus, ecStatus: p.ecStatus,
-                taxPaidUpto: p.taxPaidUpto, litigation: p.litigation), thisYear: year))
-        }
-        let properties = h.properties.map { p -> (String, Readiness) in
-            let name = p.label.isEmpty ? (p.city.isEmpty ? "Property" : p.city) : p.label
-            return (name, assessReadiness(ReadinessInput(
-                hasTitleDocument: documentedProperties.contains(p.id),
-                hasLocation: parseGeoPoint(p.geoPoint) != nil,
-                hasRegistrationNumber: !p.regDocNo.isEmpty,
-                mutationStatus: p.mutationStatus, ecStatus: p.ecStatus,
-                taxPaidUpto: p.taxPaidUpto, litigation: p.litigation), thisYear: year))
-        }
-        return parcels + properties
-    }
-
-    /// The share of ALL checks across ALL holdings, not an average of averages —
-    /// one perfect parcel must not paper over four broken ones.
-    private var overallReadiness: Int {
-        let all = readinessItems.flatMap { $0.readiness.checks }
-        guard !all.isEmpty else { return 0 }
-        return Int((Double(all.filter(\.passed).count) / Double(all.count)) * 100)
-    }
-
-    private var blockingCount: Int {
-        readinessItems.filter { !$0.readiness.blocking.isEmpty }.count
-    }
-
-    private var attention: [AttentionCard.Item] {
-        var out: [AttentionCard.Item] = []
-        if let h = holdings {
-            let unpinned = h.parcels.filter { parseGeoPoint($0.geoPoint) == nil }.count
-            if unpinned > 0 {
-                // "1 parcel have" — the verb has to agree with the count, and
-                // this line is the first sentence on the screen.
-                out.append(.init(text: unpinned == 1
-                                    ? "1 parcel has no location pinned"
-                                    : "\(unpinned) parcels have no location pinned",
-                                 icon: "mappin.slash", tint: .orange,
-                                 destination: .properties, filter: .needsAttention))
-            }
-        }
-        if let d = data, d.dashboardStats.totalGroups > 0, d.dashboardStats.totalBeneficiaries == 0 {
-            out.append(.init(text: "No heirs recorded — your land has no stated succession",
-                             icon: "person.badge.shield.checkmark", tint: .red,
-                             destination: .you, opensFamily: true))
-        }
-        if let h = holdings {
-            // Charting these as a village named "Unfiled" rendered a broken
-            // link as a place name.
-            let orphaned = h.parcels.filter { p in
-                !h.passbooks.contains { $0.id == p.passbookId }
-            }.count
-            if orphaned > 0 {
-                out.append(.init(
-                    text: orphaned == 1
-                        ? "1 parcel is not filed under any passbook"
-                        : "\(orphaned) parcels are not filed under any passbook",
-                    icon: "questionmark.folder", tint: .orange,
-                    destination: .properties))
-            }
-        }
-        if let d = data, d.dashboardStats.pendingInvitations > 0 {
-            out.append(.init(text: "\(d.dashboardStats.pendingInvitations) invitation\(d.dashboardStats.pendingInvitations == 1 ? "" : "s") still pending",
-                             icon: "envelope.badge", tint: .blue,
-                             destination: .you, opensFamily: true))
-        }
-        return out
     }
 
     private func load() async {
@@ -392,8 +324,7 @@ struct HomeScreen: View {
         holdings = await held
         requests = (await app.load(Queries.workRequests,
                                    as: WorkRequestsResponse.self))?.workRequests ?? []
-        documents = await docs?.registeredDocuments ?? []
-        documentsSeen = documents.count
+        documentsSeen = (await docs?.registeredDocuments ?? []).count
         await app.loadFavourites()
         // Keep the widget in step with what the app just loaded.
         if let d = data {
