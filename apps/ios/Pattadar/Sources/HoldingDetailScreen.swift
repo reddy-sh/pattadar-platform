@@ -247,6 +247,9 @@ struct HoldingDetailScreen: View {
             pin = parseGeoPoint(parcel.geoPoint)
             await loadDossier()
         }
+        // Filing happens on other screens (the ⊕ sheet, the vault); a pull
+        // brings this record up to date without leaving and coming back.
+        .refreshable { await loadDossier() }
     }
 
     private func loadDossier() async {
@@ -738,6 +741,7 @@ struct PropertyDetailScreen: View {
             if cachedGroups == nil { cachedGroups = parseAttributes() }
         }
         .task { await loadDossier() }
+        .refreshable { await loadDossier() }
     }
 
     private func loadDossier() async {

@@ -43,6 +43,10 @@ struct PlacesScreen: View {
     @State private var mode: Mode = .map
     @State private var editingCorners = false
     @State private var openFMB: RegisteredDocument?
+    /// Deleted here, gone here: the caller's document list is a snapshot, so
+    /// removals are tracked locally rather than waiting for a reload.
+    @State private var removedDocIDs: Set<String> = []
+    @State private var confirmRemoveDoc: RegisteredDocument?
     /// Side lengths drawn on the imagery. Remembered across screens and
     /// launches — someone who turns measurements on wants them on.
     @AppStorage("pattadar.maps.measurements") private var showMeasurements = true
@@ -87,6 +91,7 @@ struct PlacesScreen: View {
     /// which are UUIDs by the time they get here.
     private var fmbSheets: [RegisteredDocument] {
         documents.filter { d in
+            guard !removedDocIDs.contains(d.id) else { return false }
             let what = (d.docType + " " + d.headline).lowercased()
             return what.contains("fmb") || what.contains("field measurement")
         }
@@ -332,13 +337,29 @@ struct PlacesScreen: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(fmbSheets) { doc in
-                    if LocalFiles.url(for: doc.id) != nil {
-                        Button { openFMB = doc } label: {
-                            fmbRow(doc, note: "The survey office's drawing · tap to open")
+                    Group {
+                        if LocalFiles.url(for: doc.id) != nil {
+                            Button { openFMB = doc } label: {
+                                fmbRow(doc, note: "The survey office's drawing · tap to open")
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            fmbRow(doc, note: "Details only — no file stored on this device")
                         }
-                        .buttonStyle(.plain)
-                    } else {
-                        fmbRow(doc, note: "Details only — no file stored for this document")
+                    }
+                    // The full lifecycle where the sheet is used: open it,
+                    // or remove it and file a better copy with ⊕. Removal is
+                    // behind a hold + confirmation — an FMB is not a thing to
+                    // lose to a stray tap.
+                    .contextMenu {
+                        if LocalFiles.url(for: doc.id) != nil {
+                            Button { openFMB = doc } label: {
+                                Label("Open", systemImage: "doc.text.magnifyingglass")
+                            }
+                        }
+                        Button(role: .destructive) { confirmRemoveDoc = doc } label: {
+                            Label("Remove document", systemImage: "trash")
+                        }
                     }
                 }
             }
@@ -347,6 +368,28 @@ struct PlacesScreen: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+        .confirmationDialog("Remove this document?",
+                            isPresented: Binding(get: { confirmRemoveDoc != nil },
+                                                 set: { if !$0 { confirmRemoveDoc = nil } }),
+                            titleVisibility: .visible) {
+            Button("Remove", role: .destructive) {
+                if let doc = confirmRemoveDoc { Task { await removeDocument(doc) } }
+            }
+            Button("Keep it", role: .cancel) { confirmRemoveDoc = nil }
+        } message: {
+            Text("What was read from it goes with it. The boundary corners stay — they are part of the record, not of the file. File a fresh copy any time with ⊕.")
+        }
+    }
+
+    /// Same rule as the vault: the bytes must not outlive the record that
+    /// explains them — and the row disappears the moment the record does.
+    private func removeDocument(_ doc: RegisteredDocument) async {
+        struct Ack: Decodable { let deleteRegisteredDocument: Bool? }
+        guard await app.load(Mutations.deleteRegisteredDocument,
+                             variables: ["id": doc.id], as: Ack.self) != nil else { return }
+        LocalFiles.remove(documentID: doc.id)
+        removedDocIDs.insert(doc.id)
+        confirmRemoveDoc = nil
     }
 
     private func fmbRow(_ doc: RegisteredDocument, note: String) -> some View {
