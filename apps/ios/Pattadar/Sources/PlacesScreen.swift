@@ -2,18 +2,16 @@ import MapKit
 import PattadarKit
 import SwiftUI
 
-/// Maps — the land drawn, two ways.
+/// Maps — the land drawn, two ways, edge to edge.
 ///
-/// Replaces the single map card, which answered one question ("roughly where
-/// is it") and no others. **Map** is the land on imagery: the pin, and the
-/// surveyed outline drawn over the fields it actually covers. **Sketch** is
-/// the same corners as the surveyor draws them — white paper, side lengths,
-/// north up — the drawing a person compares against the FMB sheet in their
-/// hand.
+/// **Map** is the land on imagery: the pin, and the surveyed outline drawn
+/// over the fields it actually covers — filling the screen, because a map in
+/// a 300-point card answers "roughly where" and nothing else. **Sketch** is
+/// the same corners as the surveyor draws them — side lengths, north up —
+/// with the filed FMB sheet a tap away for comparison.
 ///
 /// Features moved OUT of here to the holding screen itself: what is on the
-/// land is a fact about the holding, not about the map, and it was buried a
-/// segment deep where nobody stumbles on it.
+/// land is a fact about the holding, not about the map.
 struct PlacesScreen: View {
     @Environment(AppModel.self) private var app
 
@@ -28,6 +26,8 @@ struct PlacesScreen: View {
     /// The holding's filed documents — the Sketch tab shows the FMB sheet
     /// among them beside the drawing it was drawn from.
     var documents: [RegisteredDocument] = []
+    /// Recorded extent in acres; the sketch holds the drawn figure against it.
+    var recordedAcres: Double = 0
     let villageCentroid: LatLng?
     /// Corner-ordered "lat,lng;…". Local state so an edit made here redraws
     /// here — the caller's model is a snapshot.
@@ -57,25 +57,21 @@ struct PlacesScreen: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("The land on the map, and as the surveyor draws it.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-
-                Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-
-                switch mode {
-                case .map: mapView
-                case .sketch: sketchView
-                }
+        // No scroll view: both tabs OWN the screen, and the controls float
+        // over the drawing instead of queueing beneath it.
+        VStack(spacing: 10) {
+            Picker("View", selection: $mode) {
+                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
             }
-            .padding(.vertical, 12)
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            switch mode {
+            case .map: mapView
+            case .sketch: sketchView
+            }
         }
+        .padding(.top, 8)
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Maps")
         .navigationBarTitleDisplayMode(.inline)
@@ -83,6 +79,19 @@ struct PlacesScreen: View {
             BoundaryEditorSheet(entityType: entityType, entityId: entityId,
                                 initial: boundary) { saved in
                 boundary = saved
+            }
+        }
+        .sheet(item: $openFMB) { doc in
+            if let url = LocalFiles.url(for: doc.id) {
+                FileViewer(
+                    url: url,
+                    title: doc.docType.isEmpty ? "FMB sheet" : doc.docType,
+                    shareName: shareFileName(
+                        docType: doc.docType.isEmpty ? "FMB" : doc.docType,
+                        village: doc.village,
+                        date: [doc.registrationDate, doc.regYear, doc.createdAt]
+                            .first { !$0.isEmpty } ?? "",
+                        fallbackExtension: url.pathExtension))
             }
         }
     }
@@ -106,51 +115,71 @@ struct PlacesScreen: View {
     }
 
     @ViewBuilder private var mapView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if pin != nil || !corners.isEmpty {
-                Map(initialPosition: .region(mapRegion)) {
-                    if let pin {
-                        Marker("", systemImage: "mappin",
-                               coordinate: .init(latitude: pin.latitude, longitude: pin.longitude))
-                    }
-                    // The sketch, on the map: the same corners the Sketch tab
-                    // draws on paper, here drawn over the actual fields.
-                    if !corners.isEmpty {
-                        MapPolygon(coordinates: corners.map {
-                            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-                        })
-                        .foregroundStyle(.green.opacity(0.18))
-                        .stroke(.green, lineWidth: 2)
-                    }
+        if pin != nil || !corners.isEmpty {
+            Map(initialPosition: .region(mapRegion)) {
+                if let pin {
+                    Marker("", systemImage: "mappin",
+                           coordinate: .init(latitude: pin.latitude, longitude: pin.longitude))
                 }
-                .mapStyle(.hybrid)
-                .frame(height: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
+                // The sketch, on the map: the same corners the Sketch tab
+                // draws on paper, here drawn over the actual fields.
+                if !corners.isEmpty {
+                    MapPolygon(coordinates: corners.map {
+                        CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                    })
+                    .foregroundStyle(.green.opacity(0.18))
+                    .stroke(.green, lineWidth: 2)
+                }
+            }
+            .mapStyle(.hybrid)
+            // Edge to edge, under the floating tab bar. The controls sit ON
+            // the map; a full-screen drawing does not queue its buttons below
+            // the fold.
+            .ignoresSafeArea(edges: .bottom)
+            .overlay(alignment: .bottomLeading) {
                 if !address.isEmpty {
                     Label(address, systemImage: "mappin.and.ellipse")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(.thinMaterial, in: Capsule())
+                        .padding(.leading, 16)
+                        .padding(.bottom, 108)
                 }
-            } else {
+            }
+            .overlay(alignment: .bottomTrailing) {
+                NavigationLink {
+                    SetLocationScreen(title: title, place: place, saved: pin, onSave: onSave)
+                } label: {
+                    Label(pin == nil ? "Set location" : "Move pin",
+                          systemImage: "mappin.and.ellipse")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(.thinMaterial, in: Capsule())
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, 64)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
                 emptyCard(icon: "mappin.slash",
                           title: "Nothing on the map yet",
                           body: canAimAt(place)
                             ? "Opens the map at \(place.components(separatedBy: ",").first ?? place)."
                             : "No village recorded, so the map has nowhere to start.")
+                NavigationLink {
+                    SetLocationScreen(title: title, place: place, saved: pin, onSave: onSave)
+                } label: {
+                    Label("Set the exact location", systemImage: "mappin.and.ellipse")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(.secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                Spacer()
             }
-
-            NavigationLink {
-                SetLocationScreen(title: title, place: place, saved: pin, onSave: onSave)
-            } label: {
-                Label(pin == nil ? "Set the exact location" : "Move the pin",
-                      systemImage: "mappin.and.ellipse")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
+            .padding(.horizontal, 16)
         }
-        .padding(.horizontal, 16)
     }
 
     // MARK: - Sketch
@@ -163,8 +192,9 @@ struct PlacesScreen: View {
                     title: "No corners on file",
                     body: "The FMB sheet ends in a point table — each corner as latitude and longitude. Enter those corners and this draws the surveyor's sketch: the outline, every side's length, and the extent it encloses.")
             } else {
+                // The drawing takes every point the screen can give it.
                 BoundarySketch(corners: corners)
-                    .frame(height: 280)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack {
                     Text("\(corners.count) corners")
                     Spacer()
@@ -173,6 +203,15 @@ struct PlacesScreen: View {
                 }
                 .font(.subheadline)
                 .padding(.horizontal, 4)
+
+                let warning = boundaryExtentMismatch(drawnAcres: boundaryAcres(corners),
+                                                     recordedAcres: recordedAcres)
+                if !warning.isEmpty {
+                    // The one sentence that makes the sketch worth checking:
+                    // the outline and the record disagree about how much land
+                    // this is.
+                    Text(warning).font(.caption).foregroundStyle(.orange)
+                }
             }
 
             Button { editingCorners = true } label: {
@@ -203,21 +242,11 @@ struct PlacesScreen: View {
                     }
                 }
             }
+
+            if corners.isEmpty { Spacer() }
         }
         .padding(.horizontal, 16)
-        .sheet(item: $openFMB) { doc in
-            if let url = LocalFiles.url(for: doc.id) {
-                FileViewer(
-                    url: url,
-                    title: doc.docType.isEmpty ? "FMB sheet" : doc.docType,
-                    shareName: shareFileName(
-                        docType: doc.docType.isEmpty ? "FMB" : doc.docType,
-                        village: doc.village,
-                        date: [doc.registrationDate, doc.regYear, doc.createdAt]
-                            .first { !$0.isEmpty } ?? "",
-                        fallbackExtension: url.pathExtension))
-            }
-        }
+        .padding(.bottom, 8)
     }
 
     private func fmbRow(_ doc: RegisteredDocument, note: String) -> some View {

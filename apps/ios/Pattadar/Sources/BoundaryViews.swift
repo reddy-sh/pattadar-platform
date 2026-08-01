@@ -2,86 +2,10 @@ import MapKit
 import PattadarKit
 import SwiftUI
 
-/// The FMB sketch, drawn live from stored corners.
-///
-/// An FMB sheet ends in a point table — each corner as latitude and
-/// longitude. Given those corners the app draws what the surveyor drew: the
-/// outline, the length of every side, and the enclosed extent. The lengths
-/// are not copied from the sheet, they are RECOMPUTED from the corners — on
-/// the Mangalakunta sheet the projection reproduces the printed 58.04 m to
-/// within centimetres (pinned by BoundaryTests), which is what makes the
-/// drawing evidence rather than illustration.
-struct BoundarySection: View {
-    @Environment(AppModel.self) private var app
-
-    let entityType: String   // "parcel" | "property"
-    let entityId: String
-    /// Recorded extent in acres; 0 means nothing to compare against.
-    let recordedAcres: Double
-    /// Local truth after an edit — the passed-in model is a snapshot and does
-    /// not reload underneath this screen.
-    @State var boundary: String
-    @State private var editing = false
-
-    private var corners: [LatLng] { parseBoundary(boundary) }
-
-    var body: some View {
-        Section {
-            if corners.isEmpty {
-                Button { editing = true } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Add boundary corners").font(.subheadline.weight(.medium))
-                            Text("From the FMB point table — each corner's latitude and longitude")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "skew").foregroundStyle(Color.accentColor)
-                    }
-                }
-                .buttonStyle(.plain)
-            } else {
-                BoundarySketch(corners: corners)
-                    .frame(height: 230)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                summary
-                Button { editing = true } label: {
-                    Label("Edit corners", systemImage: "square.and.pencil")
-                        .font(.subheadline)
-                }
-            }
-        } header: {
-            Text("Boundary")
-        } footer: {
-            if !corners.isEmpty {
-                let warning = boundaryExtentMismatch(drawnAcres: boundaryAcres(corners),
-                                                     recordedAcres: recordedAcres)
-                if !warning.isEmpty {
-                    // The one sentence that makes the sketch worth checking:
-                    // the outline and the record disagree about how much land
-                    // this is.
-                    Text(warning)
-                }
-            }
-        }
-        .sheet(isPresented: $editing) {
-            BoundaryEditorSheet(entityType: entityType, entityId: entityId,
-                                initial: boundary) { saved in
-                boundary = saved
-            }
-        }
-    }
-
-    private var summary: some View {
-        HStack {
-            Text("\(corners.count) corners")
-            Spacer()
-            Text(String(format: "%.2f acres drawn", boundaryAcres(corners)))
-                .monospacedDigit().foregroundStyle(.secondary)
-        }
-        .font(.subheadline)
-    }
-}
+// The boundary lives on the Maps screen now — the Sketch tab draws it, edits
+// it and holds it against the recorded extent. The detail screens show the
+// polygon on their map preview and nothing more; a second sketch there was
+// the same drawing twice on one screen.
 
 /// The outline itself: polygon, side lengths, north arrow. North is up —
 /// that is not decoration, it is the convention every FMB reader expects.

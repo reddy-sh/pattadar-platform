@@ -123,11 +123,8 @@ struct HoldingDetailScreen: View {
                             entityType: "parcel", entityId: parcel.id,
                             address: parcel.address.isEmpty ? parcelWhere : parcel.address,
                             boundary: parcel.boundary, documents: documents,
+                            recordedAcres: parcel.extent,
                             pin: $pin) { save($0) }
-
-            // The surveyed outline — the FMB sketch, redrawn from corners.
-            BoundarySection(entityType: "parcel", entityId: parcel.id,
-                            recordedAcres: parcel.extent, boundary: parcel.boundary)
 
             LinkedDocumentsSection(documents: documents)
 
@@ -355,6 +352,8 @@ struct LocationSection: View {
     /// Filed documents, for the Maps screen's Sketch tab to find the FMB
     /// sheet among.
     var documents: [RegisteredDocument] = []
+    /// Recorded extent in acres, for the sketch's drawn-vs-recorded check.
+    var recordedAcres: Double = 0
     @Binding var pin: LatLng?
     let onSave: (LatLng) -> Void
 
@@ -385,7 +384,7 @@ struct LocationSection: View {
             NavigationLink {
                 PlacesScreen(title: title, place: place, address: address,
                              photos: photos, entityType: entityType, entityId: entityId,
-                             documents: documents,
+                             documents: documents, recordedAcres: recordedAcres,
                              villageCentroid: villageCentroid, boundary: boundary,
                              pin: $pin, onSave: onSave)
             } label: {
@@ -552,13 +551,8 @@ struct PropertyDetailScreen: View {
                             entityType: "property", entityId: property.id,
                             address: property.address.isEmpty ? whereLine : property.address,
                             boundary: property.boundary, documents: documents,
-                            pin: $pin) { save($0) }
-
-            // The surveyed outline. A plot's recorded area arrives in its own
-            // unit; the comparison is in acres because the drawn figure is.
-            BoundarySection(entityType: "property", entityId: property.id,
                             recordedAcres: toAcres(property.landArea, unitKey(property.landUnit)),
-                            boundary: property.boundary)
+                            pin: $pin) { save($0) }
 
             LinkedDocumentsSection(documents: documents)
 
