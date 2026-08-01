@@ -43,8 +43,44 @@ struct PlacesScreen: View {
     @State private var mode: Mode = .map
     @State private var editingCorners = false
     @State private var openFMB: RegisteredDocument?
+    /// Side lengths drawn on the imagery. Remembered across screens and
+    /// launches — someone who turns measurements on wants them on.
+    @AppStorage("pattadar.maps.measurements") private var showMeasurements = true
+    @AppStorage("pattadar.maps.introSeen") private var introSeen = false
+    @State private var showHelp = false
 
     private var corners: [LatLng] { parseBoundary(boundary) }
+
+    /// Each side's midpoint and computed length, for labelling on the map.
+    /// The geographic midpoint of two corners is exact enough at field scale.
+    private struct SideLabel: Identifiable {
+        let id: Int
+        let mid: CLLocationCoordinate2D
+        let text: String
+    }
+
+    private var sideLabels: [SideLabel] {
+        let lengths = boundarySideMetres(corners)
+        return (0..<corners.count).map { i in
+            let a = corners[i], b = corners[(i + 1) % corners.count]
+            return SideLabel(
+                id: i,
+                mid: .init(latitude: (a.latitude + b.latitude) / 2,
+                           longitude: (a.longitude + b.longitude) / 2),
+                text: sideLengthText(lengths[i]))
+        }
+    }
+
+    private struct CornerDot: Identifiable {
+        let id: Int
+        let at: CLLocationCoordinate2D
+    }
+
+    private var cornerDots: [CornerDot] {
+        corners.enumerated().map { i, c in
+            CornerDot(id: i, at: .init(latitude: c.latitude, longitude: c.longitude))
+        }
+    }
 
     /// The FMB sheets among this holding's documents. Matched on what the
     /// document says it is — "FMB", "field measurement" — not on file names,
@@ -75,6 +111,21 @@ struct PlacesScreen: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Maps")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showHelp = true } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .accessibilityLabel("How to read this screen")
+            }
+        }
+        // Shown once, by itself, the first time anyone lands here — this
+        // screen is the heart of the app, and its rules (what is computed,
+        // what is evidence, what is not a survey) deserve one telling.
+        .onAppear {
+            if !introSeen { introSeen = true; showHelp = true }
+        }
+        .sheet(isPresented: $showHelp) { MapsHelpSheet() }
         .sheet(isPresented: $editingCorners) {
             BoundaryEditorSheet(entityType: entityType, entityId: entityId,
                                 initial: boundary) { saved in
@@ -129,6 +180,28 @@ struct PlacesScreen: View {
                     })
                     .foregroundStyle(.green.opacity(0.18))
                     .stroke(.green, lineWidth: 2)
+
+                    // The measurements, on the land itself: each side's
+                    // computed length at its midpoint, a dot at each corner.
+                    // Switchable, because sometimes the question is "where is
+                    // it" and the numbers are in the way.
+                    if showMeasurements {
+                        ForEach(cornerDots) { dot in
+                            Annotation("", coordinate: dot.at) {
+                                Circle().fill(.green)
+                                    .stroke(.white, lineWidth: 1.5)
+                                    .frame(width: 9, height: 9)
+                            }
+                        }
+                        ForEach(sideLabels) { side in
+                            Annotation("", coordinate: side.mid) {
+                                Text(side.text)
+                                    .font(.caption2.weight(.semibold).monospacedDigit())
+                                    .padding(.horizontal, 6).padding(.vertical, 3)
+                                    .background(.thinMaterial, in: Capsule())
+                            }
+                        }
+                    }
                 }
             }
             .mapStyle(.hybrid)
@@ -136,6 +209,33 @@ struct PlacesScreen: View {
             // the map; a full-screen drawing does not queue its buttons below
             // the fold.
             .ignoresSafeArea(edges: .bottom)
+            // The measurement switch and the drawn extent, floating at the
+            // top of the imagery.
+            .overlay(alignment: .topTrailing) {
+                if !corners.isEmpty {
+                    Button { showMeasurements.toggle() } label: {
+                        Label("Measurements", systemImage: "ruler")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(showMeasurements ? Color.accentColor : .secondary)
+                            .frame(width: 40, height: 40)
+                            .background(.thinMaterial, in: Circle())
+                    }
+                    .accessibilityLabel(showMeasurements ? "Hide measurements" : "Show measurements")
+                    .padding(.trailing, 16)
+                    .padding(.top, 12)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if !corners.isEmpty && showMeasurements {
+                    Text(String(format: "%.2f acres drawn", boundaryAcres(corners)))
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(.thinMaterial, in: Capsule())
+                        .padding(.leading, 16)
+                        .padding(.top, 12)
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 if !address.isEmpty {
                     Label(address, systemImage: "mappin.and.ellipse")
@@ -281,5 +381,67 @@ struct PlacesScreen: View {
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground),
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// How to read the Maps screen — shown once on first visit, and behind ⓘ
+/// for ever after.
+///
+/// This screen is where a paper survey becomes something a person can stand
+/// on the land and check, so its rules are stated rather than implied. The
+/// last card is the one that must never be softened: the drawing is computed
+/// from entered corners, and it is a reading of the record, not a survey.
+struct MapsHelpSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    row(icon: "map",
+                        title: "The map is your land, outlined",
+                        body: "The green boundary is drawn from the corners of your FMB sheet over today's satellite imagery — so you can see exactly which fields the record covers, and what stands on them now.")
+
+                    row(icon: "ruler",
+                        title: "Every length is measured, not copied",
+                        body: "The distances on each side are computed from the corners you entered — the same way the surveyor computed them. Tap the ruler to show or hide them. If a printed length on your sheet disagrees with the one drawn here, a corner was mistyped.")
+
+                    row(icon: "scribble.variable",
+                        title: "Sketch is the surveyor's view",
+                        body: "The same corners on white paper, north up, with every side's length — beside the FMB sheet itself once it is filed. This is the drawing to hold against the paper in your hand.")
+
+                    row(icon: "list.number",
+                        title: "Enter corners in walking order",
+                        body: "From the FMB point table, one corner per line as latitude, longitude — in the order you would walk the boundary. Start at any corner; the drawing closes the loop back to it. If the drawn acreage is far from the record's, one corner is off by a digit — check the corner dots against the sheet.")
+
+                    row(icon: "exclamationmark.triangle",
+                        title: "A record, not a survey",
+                        body: "This drawing is computed from corners you typed in. It is your copy of what the FMB says — useful for checking, showing and remembering — but it is not a licensed survey, and a boundary dispute is settled by the government's records, not by this screen.")
+                }
+                .padding(20)
+            }
+            .navigationTitle("Reading this screen")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func row(icon: String, title: String, body: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 38, height: 38)
+                .background(Color.accentColor.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(body).font(.footnote).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
