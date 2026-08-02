@@ -413,10 +413,25 @@ struct DocumentDetailScreen: View {
                                         + (party.isGPA ? " · via GPA holder" : ""),
                                     value: party.name, field: "parties"))
         }
-        let what: [DocDetailRow] = [
+        // The whereabouts chain, the way the schedule itself opens: the
+        // string of places that make this land findable by any office.
+        let whereItIs: [DocDetailRow] = [
             .init(label: "Village", value: doc.village, field: "village"),
+            .init(label: "Mandal", value: doc.mandal, field: "mandal"),
+            .init(label: "District", value: doc.district, field: "district"),
             .init(label: "Survey number", value: doc.surveyNo, field: "survey_no"),
             .init(label: "Plot number", value: doc.plotNo, field: "plot_no"),
+        ].filter { !$0.value.isEmpty }
+        // The four హద్దులు, deed order — తూర్పు first. These are the key
+        // information on the paper: in a dispute, these four lines are the
+        // argument.
+        let boundaries: [DocDetailRow] = [
+            .init(label: "East · తూర్పు", value: doc.boundaryEast, field: "boundaries"),
+            .init(label: "South · దక్షిణం", value: doc.boundarySouth, field: "boundaries"),
+            .init(label: "West · పడమర", value: doc.boundaryWest, field: "boundaries"),
+            .init(label: "North · ఉత్తరం", value: doc.boundaryNorth, field: "boundaries"),
+        ].filter { !$0.value.isEmpty }
+        let what: [DocDetailRow] = [
             .init(label: "Extent", value: doc.extent, field: "extent"),
         ].filter { !$0.value.isEmpty }
         let money: [DocDetailRow] = [
@@ -428,7 +443,8 @@ struct DocumentDetailScreen: View {
             .init(label: "Registered on", value: humanDate(doc.registrationDate), field: "registration_date"),
             .init(label: "Sub-registrar", value: doc.sro, field: "sro"),
         ].filter { !$0.value.isEmpty }
-        return [("Who", who), ("What", what), ("Money", money), ("Registration", registration)]
+        return [("Who", who), ("Where it is", whereItIs), ("Boundaries · హద్దులు", boundaries),
+                ("What", what), ("Money", money), ("Registration", registration)]
     }
 
     private func remove() async {

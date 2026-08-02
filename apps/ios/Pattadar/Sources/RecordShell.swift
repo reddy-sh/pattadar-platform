@@ -384,6 +384,135 @@ struct ActionFact: View {
     }
 }
 
+// MARK: - Where it is, and what bounds it
+
+/// The whereabouts chain and the four boundaries — the two groups every
+/// schedule opens with, in the order the schedule writes them.
+///
+/// A Telugu deed's షెడ్యూలు begins with the chain of places (district,
+/// revenue division, mandal, panchayat, village, survey number) and then the
+/// four హద్దులు — తూర్పు first, the traditional order East, South, West,
+/// North. Every plot, field and flat has both, deed or no deed; a rental
+/// with no paper at all still has a whereabouts and four sides.
+struct WhereItIsSection: View {
+    /// (label, value) — only non-empty rows render, but the SECTION always
+    /// renders: an empty whereabouts is a gap to fix, not a thing to hide.
+    let rows: [(String, String)]
+
+    var body: some View {
+        let filled = rows.filter { !$0.1.trimmingCharacters(in: .whitespaces).isEmpty }
+        if !filled.isEmpty {
+            Section("Where it is") {
+                ForEach(filled, id: \.0) { label, value in
+                    Fact(label: label, value: value)
+                }
+            }
+        }
+    }
+}
+
+/// The four sides, always shown, bilingual, in the deed's own order.
+struct BoundarySides {
+    var east = ""
+    var south = ""
+    var west = ""
+    var north = ""
+
+    var isEmpty: Bool { [east, south, west, north].allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty } }
+
+    /// Deed order with the Telugu the paper itself uses.
+    var ordered: [(key: String, label: String, value: String)] {
+        [("east", "East · తూర్పు", east),
+         ("south", "South · దక్షిణం", south),
+         ("west", "West · పడమర", west),
+         ("north", "North · ఉత్తరం", north)]
+    }
+}
+
+struct BoundarySidesSection: View {
+    let sides: BoundarySides
+    /// Present when the schedule can be edited here.
+    var onEdit: (() -> Void)? = nil
+
+    var body: some View {
+        Section {
+            if sides.isEmpty {
+                if let onEdit {
+                    Button(action: onEdit) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Add the four boundaries").font(.subheadline.weight(.medium))
+                                Text("What abuts each side — the హద్దులు from the deed's schedule")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "square.dashed").foregroundStyle(Color.accentColor)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                ForEach(sides.ordered, id: \.key) { side in
+                    Fact(label: side.label, value: side.value)
+                }
+                if let onEdit {
+                    Button("Edit boundaries", action: onEdit)
+                        .font(.subheadline)
+                }
+            }
+        } header: {
+            Label("Boundaries · హద్దులు", systemImage: "square.dashed")
+        } footer: {
+            if !sides.isEmpty {
+                Text("What the record says the land abuts, in the schedule's own order. In a partition dispute, these four lines are the argument.")
+            }
+        }
+    }
+}
+
+/// Four fields, deed order, saved through whatever write the caller owns.
+struct BoundarySidesEditor: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State var sides: BoundarySides
+    /// Returns nil on success, or the problem to show.
+    let onSave: (BoundarySides) async -> String?
+
+    @State private var saving = false
+    @State private var problem = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    FormRow(label: "East · తూర్పు", text: $sides.east, prompt: "Canal")
+                    FormRow(label: "South · దక్షిణం", text: $sides.south, prompt: "Seller's remaining land")
+                    FormRow(label: "West · పడమర", text: $sides.west, prompt: "Village boundary")
+                    FormRow(label: "North · ఉత్తరం", text: $sides.north, prompt: "Neighbour's land")
+                } footer: {
+                    Text("As the schedule writes them — తూర్పు first. Names, not directions: \"Ravi Rathamma's land\", \"Ketagudipi to Jagannadhapuram boundary\".")
+                }
+                if !problem.isEmpty {
+                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                }
+                Section {
+                    PrimaryButton(title: "Save boundaries", busy: saving, disabled: sides.isEmpty) {
+                        Task {
+                            saving = true
+                            defer { saving = false }
+                            if let failure = await onSave(sides) { problem = failure }
+                            else { dismiss() }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Boundaries")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+}
+
 // MARK: - Overview pieces
 
 /// Quick actions, as tinted chips.

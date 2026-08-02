@@ -41,8 +41,9 @@ public enum Queries {
     public static let documents = """
     query {
       registeredDocuments {
-        id ref fileRef docType documentNo regYear sro village district surveyNo plotNo
+        id ref fileRef docType documentNo regYear sro village mandal district surveyNo plotNo
         extent consideration registrationDate passbookId parcelId propertyId
+        boundaryNorth boundarySouth boundaryEast boundaryWest
         headline summary keyPointList caveatList createdAt reading
       }
     }
@@ -125,6 +126,12 @@ public enum Queries {
 
     public static let updatePropertyBoundary = """
     mutation($id:String!,$boundary:String!){ updatePropertyBoundary(propertyId:$id, boundary:$boundary){ id } }
+    """
+
+    /// Just the attributes blob — the deed's extras, including the four
+    /// boundary sides. Narrow on purpose: it cannot touch another field.
+    public static let updatePropertyAttributes = """
+    mutation($id:String!,$attributes:String!){ updateProperty(id:$id, attributes:$attributes){ id } }
     """
 }
 

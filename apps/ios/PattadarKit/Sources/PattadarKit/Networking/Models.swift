@@ -104,6 +104,14 @@ public struct RegisteredDocument: Decodable, Identifiable, Sendable {
     public let docType: String
     public let sro: String
     public let village: String
+    public let mandal: String
+    public let district: String
+    /// The four హద్దులు from the deed's schedule — the argument in any
+    /// partition dispute, and the key information on the paper.
+    public let boundaryNorth: String
+    public let boundarySouth: String
+    public let boundaryEast: String
+    public let boundaryWest: String
     public let surveyNo: String
     public let plotNo: String
     public let extent: String

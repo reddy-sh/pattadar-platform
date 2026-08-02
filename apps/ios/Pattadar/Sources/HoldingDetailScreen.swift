@@ -97,6 +97,15 @@ struct HoldingDetailScreen: View {
     @State private var requesting = false
     /// The boundary corner editor, opened straight from "Draw it".
     @State private var drawingBoundary = false
+    /// The four-sides editor, and the saved schedule once edited here — the
+    /// passed-in parcel is a snapshot and does not reload under this screen.
+    @State private var editingSides = false
+    @State private var savedSides: BoundarySides?
+
+    private var currentSides: BoundarySides {
+        savedSides ?? BoundarySides(east: parcel.boundaryEast, south: parcel.boundarySouth,
+                                    west: parcel.boundaryWest, north: parcel.boundaryNorth)
+    }
 
     /// The holder, once — hero fact strip, nowhere else.
     private var holderName: String {
@@ -169,6 +178,19 @@ struct HoldingDetailScreen: View {
                 Task { await loadDossier() }
             }
         }
+        .sheet(isPresented: $editingSides) {
+            BoundarySidesEditor(sides: currentSides) { sides in
+                guard await app.load(Queries.updateParcelSides,
+                                     variables: ["id": parcel.id, "north": sides.north,
+                                                 "south": sides.south, "east": sides.east,
+                                                 "west": sides.west],
+                                     as: AnyMutationResult.self) != nil else {
+                    return app.lastFailure ?? "Could not save the boundaries."
+                }
+                savedSides = sides
+                return nil
+            }
+        }
         .sheet(isPresented: $editing) { EditParcelScreen(parcel: parcel) { } }
         .sheet(isPresented: $attaching) {
             AttachDocumentSheet(
@@ -238,6 +260,17 @@ struct HoldingDetailScreen: View {
             }
         }
 
+        // The whereabouts chain, above the boundaries — the schedule's own
+        // order: places first, then the four sides those places contain.
+        WhereItIsSection(rows: [
+            ("Village", passbook?.village ?? ""),
+            ("Mandal", passbook?.mandal ?? ""),
+            ("District", passbook?.district ?? ""),
+            ("Address", parcel.address),
+        ])
+
+        BoundarySidesSection(sides: currentSides) { editingSides = true }
+
         Section("Extent") {
             ActionFact(label: "On the record", value: areaText(parcel.extent, .acre))
             ActionFact(label: "Measured", value: measuredAcres > 0
@@ -280,16 +313,6 @@ struct HoldingDetailScreen: View {
             ActionFact(label: "Litigation", value: parcel.litigation ? "Under litigation" : "None declared")
             if parcel.litigation, !parcel.litigationNote.isEmpty {
                 Text(parcel.litigationNote).font(.callout).foregroundStyle(.red)
-            }
-        }
-
-        if !allBlank(parcel.boundaryNorth, parcel.boundarySouth,
-                     parcel.boundaryEast, parcel.boundaryWest) {
-            Section("Boundaries on the deed") {
-                Fact(label: "North", value: parcel.boundaryNorth)
-                Fact(label: "South", value: parcel.boundarySouth)
-                Fact(label: "East", value: parcel.boundaryEast)
-                Fact(label: "West", value: parcel.boundaryWest)
             }
         }
 
@@ -684,6 +707,42 @@ struct PropertyDetailScreen: View {
     @State private var fixing: ReadinessCheck?
     @State private var requesting = false
     @State private var drawingBoundary = false
+    /// The four-sides editor; edits land in the attributes blob, and the
+    /// local copy keeps the screen honest until the next reload.
+    @State private var editingSides = false
+    @State private var savedSides: BoundarySides?
+
+    private var currentSides: BoundarySides {
+        if let savedSides { return savedSides }
+        var sides = BoundarySides()
+        for (label, value) in attributeGroups.boundaries {
+            switch label.lowercased() {
+            case "east": sides.east = value
+            case "south": sides.south = value
+            case "west": sides.west = value
+            case "north": sides.north = value
+            default: break
+            }
+        }
+        return sides
+    }
+
+    /// The attributes blob with the four sides replaced — everything else the
+    /// deed reader stored is preserved untouched.
+    private func attributesReplacingSides(_ sides: BoundarySides) -> String {
+        var raw = (try? JSONSerialization.jsonObject(with: Data(property.attributes.utf8)))
+            as? [String: String] ?? [:]
+        raw["Boundary east"] = sides.east
+        raw["Boundary south"] = sides.south
+        raw["Boundary west"] = sides.west
+        raw["Boundary north"] = sides.north
+        for (k, v) in raw where v.trimmingCharacters(in: .whitespaces).isEmpty {
+            raw.removeValue(forKey: k)
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: raw, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return property.attributes }
+        return text
+    }
 
     private var kind: HoldingKind { HoldingKind.of(propertyType: property.type) }
 
@@ -779,6 +838,18 @@ struct PropertyDetailScreen: View {
                 Task { await loadDossier() }
             }
         }
+        .sheet(isPresented: $editingSides) {
+            BoundarySidesEditor(sides: currentSides) { sides in
+                guard await app.load(Queries.updatePropertyAttributes,
+                                     variables: ["id": property.id,
+                                                 "attributes": attributesReplacingSides(sides)],
+                                     as: AnyMutationResult.self) != nil else {
+                    return app.lastFailure ?? "Could not save the boundaries."
+                }
+                savedSides = sides
+                return nil
+            }
+        }
         .sheet(isPresented: $editing) { EditPropertyScreen(property: property) { } }
         .sheet(isPresented: $attaching) {
             AttachDocumentSheet(
@@ -859,6 +930,15 @@ struct PropertyDetailScreen: View {
             }
         }
 
+        // The whereabouts chain, then the four sides — the schedule's order.
+        WhereItIsSection(rows: [
+            ("Village", property.city),
+            ("Mandal", property.locality),
+            ("District", property.district),
+        ] + attributeGroups.rest.filter { $0.0.lowercased().contains("survey") })
+
+        BoundarySidesSection(sides: currentSides) { editingSides = true }
+
         Section("Extent") {
             ActionFact(label: "On the record",
                        value: property.landArea > 0 ? area(property.landArea, property.landUnit) : "",
@@ -901,18 +981,6 @@ struct PropertyDetailScreen: View {
                        value: property.litigation ? "Under litigation" : "None declared")
             if property.litigation, !property.litigationNote.isEmpty {
                 Text(property.litigationNote).font(.callout).foregroundStyle(.red)
-            }
-        }
-
-        if !attributeGroups.boundaries.isEmpty {
-            Section {
-                ForEach(attributeGroups.boundaries, id: \.0) { side, value in
-                    Fact(label: side, value: value)
-                }
-            } header: {
-                Label("Boundaries on the deed", systemImage: "square.dashed")
-            } footer: {
-                Text("What the deed says the land abuts — the chuttupakkala haddulu. Measurements in brackets.")
             }
         }
 
