@@ -100,6 +100,19 @@ struct BoundaryTests {
         #expect(boundaryPointsText("garbage").isEmpty)
     }
 
+    @Test func acresAndCentsAreNeverCents() {
+        // "Ac 25-00" is twenty-five acres — the reading that called it
+        // "25.00 cents" shrank a real holding a hundredfold.
+        let a = parseExtent("Ac 25-00")
+        #expect(a.unit == .acre && abs(a.value - 25.0) < 1e-9)
+        let b = parseExtent("Acres 25-30 cents")
+        #expect(b.unit == .acre && abs(b.value - 25.30) < 1e-9)
+        // A genuine cents figure stays cents; sq-yard fractions still work.
+        #expect(parseExtent("5 cents").unit == .cent)
+        let yards = parseExtent("418-1/2 sq. yards")
+        #expect(yards.unit == .sqyd && abs(yards.value - 418.5) < 1e-9)
+    }
+
     @Test func mismatchSpeaksOnlyWhenSure() {
         #expect(boundaryExtentMismatch(drawnAcres: 2.0, recordedAcres: 2.1).isEmpty)
         #expect(!boundaryExtentMismatch(drawnAcres: 2.0, recordedAcres: 3.0).isEmpty)

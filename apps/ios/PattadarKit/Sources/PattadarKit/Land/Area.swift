@@ -61,6 +61,16 @@ func firstMatch(_ pattern: String, in s: String) -> [String]? {
 /// The unit has to come from the same string as the number, or it is a guess.
 public func parseExtent(_ raw: String?, default fallback: UnitKey = .sqyd) -> (value: Double, unit: UnitKey) {
     let full = (raw ?? "").lowercased()
+
+    // AP deeds write acres-and-cents with a hyphen: "Ac 25-30" is 25 acres
+    // and 30 cents — 25.30 acres, since 100 cents make an acre. It is not a
+    // fraction and not 25.30 cents; a reading that got this wrong shrank a
+    // holding a hundredfold, from 25 acres to a quarter of one.
+    if let m = firstMatch(#"(?:\bac\b|\bacs\b|acres?)[\s.]*([0-9]+)\s*-\s*([0-9]{1,2})\b"#, in: full),
+       let acres = Double(m[1]), let cents = Double(m[2]) {
+        return (acres + cents / 100, .acre)
+    }
+
     let value = parseAreaSqYd(raw)
 
     // The unit belongs to the FIRST number, not to whatever unit word appears

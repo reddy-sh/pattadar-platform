@@ -722,7 +722,12 @@ struct PropertyDetailScreen: View {
                                 property.khataNo.isEmpty ? "" : "Khata \(property.khataNo)"]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                        title: screenTitle,
-                       subtitle: [property.label, whereLine]
+                       // The label earns its place only when it says something
+                       // the where-line does not — "Mangalakunta · Mangalakunta"
+                       // was the same word wearing two hats.
+                       subtitle: (whereLine.lowercased().contains(property.label.lowercased())
+                                  && !property.label.isEmpty
+                                  ? [whereLine] : [property.label, whereLine])
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                        facts: heroFacts,
                        readiness: readiness,

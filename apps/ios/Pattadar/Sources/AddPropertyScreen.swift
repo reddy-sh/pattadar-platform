@@ -16,6 +16,9 @@ struct AddPropertyScreen: View {
     @State private var locality = ""
     @State private var district = ""
     @State private var landArea = ""
+    /// The unit the deed itself states. Hard-coding "Sq.yd" here turned a
+    /// 25-acre schedule into a 25-square-yard plot.
+    @State private var landUnit: UnitKey = .sqyd
     @State private var builtup = ""
     @State private var price = ""
     @State private var saving = false
@@ -76,7 +79,7 @@ struct AddPropertyScreen: View {
                         FormRow(label: "Village / town", text: $city, prompt: "Nallapadu")
                         FormRow(label: "Mandal", text: $locality, prompt: "Guntur Rural")
                         FormRow(label: "District", text: $district, prompt: "Guntur")
-                        FormRow(label: "Land area", text: $landArea, prompt: "0",
+                        FormRow(label: "Land area (\(landUnit.label))", text: $landArea, prompt: "0",
                                 keyboard: .decimalPad, suffix: "Sq.yd")
                         FormRow(label: "Purchase price", text: $price, prompt: "0",
                                 keyboard: .numberPad, suffix: "₹")
@@ -173,10 +176,13 @@ struct AddPropertyScreen: View {
         city = village.isEmpty ? s("mandal") : village
         locality = s("mandal")
         district = s("district")
-        // A deed states extent in square yards, which is what this form uses.
-        // "418-1/2 sq. yards" is 418.5, not 41812 — see parseAreaSqYd.
-        let area = parseAreaSqYd(s("extent"))
-        landArea = area > 0 ? String(format: "%g", area) : ""
+        // The extent in the deed's OWN unit. Urban site deeds say square
+        // yards, agricultural deeds say acres (often as "Ac 25-00", which is
+        // acres-and-cents); assuming square yards turned 25 acres into 25
+        // square yards. "418-1/2 sq. yards" still parses as 418.5.
+        let parsed = parseExtent(s("extent"), default: .sqyd)
+        landArea = parsed.value > 0 ? String(format: "%g", parsed.value) : ""
+        if parsed.value > 0 { landUnit = parsed.unit }
         if let c = f["consideration"] as? Double, c > 0 { price = String(Int(c)) }
 
         // "2056/2010" only when BOTH halves are on the page. Joining a blank
@@ -216,7 +222,7 @@ struct AddPropertyScreen: View {
         let vars: [String: any Sendable] = [
             "type": type, "label": label.trimmingCharacters(in: .whitespaces),
             "address": address, "locality": locality, "city": city, "district": district,
-            "landArea": Double(landArea) ?? 0, "landUnit": "Sq.yd",
+            "landArea": Double(landArea) ?? 0, "landUnit": landUnit.label,
             "builtupArea": Double(builtup) ?? 0, "builtupUnit": "Sq.ft",
             "acquisitionMode": acquisitionMode.isEmpty ? "purchase" : acquisitionMode,
             "projectId": "", "groupId": "",
