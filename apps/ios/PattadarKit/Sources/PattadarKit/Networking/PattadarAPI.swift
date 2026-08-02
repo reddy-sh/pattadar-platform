@@ -53,12 +53,29 @@ public struct PattadarAPI: Sendable {
         public var description: String {
             switch self {
             case .transport(let m): m
-            case .http(let code, let body): "The server answered \(code). \(body.prefix(160))"
+            case .http(let code, let body): Self.describeHTTP(code, body)
             case .graphQL(let msgs): msgs.joined(separator: "; ")
             case .emptyExtraction(let what):
                 "Nothing could be read from this \(what). Try a clearer copy, or enter the details by hand."
             case .cancelled: "Stopped."
             }
+        }
+
+        /// A human sentence for an HTTP failure.
+        ///
+        /// The tunnel and the gateway answer their own failures with full HTML
+        /// pages, and the app was printing "<!DOCTYPE html><html class=…" in
+        /// red across a farmer's screen. Markup is never a message: when the
+        /// body is a web page, say what the situation IS — briefly down —
+        /// rather than quoting the machinery.
+        static func describeHTTP(_ code: Int, _ body: String) -> String {
+            let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.hasPrefix("<") {
+                return code == 502 || code == 503 || code == 504
+                    ? "The server is briefly unavailable — it may be restarting. Pull to refresh in a moment."
+                    : "The server answered \(code)."
+            }
+            return "The server answered \(code). \(text.prefix(160))"
         }
     }
 
