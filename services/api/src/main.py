@@ -5545,6 +5545,7 @@ _DOC_IMPORT_SYSTEM = (
     '"rate_per_unit":<number>,"rate_unit":"<Sq.yard|Sq.ft|Acre>",'
     '"parent_survey_extent":"<the WHOLE survey number\'s extent as written, e.g. 8-74 Cents>",'
     '"boundary_lengths":{"north":"","south":"","east":"","west":""},'
+    '"boundary_points":[{"lat":<number>,"lng":<number>}],'
     '"prior_document":"<prior deed no/year>","gpa_document":"<GPA doc no/year>","scanning_id":"<scanning id>",'
     '"prior_document_details":{"number":"<e.g. 10024/1981>","registration_date":"<YYYY-MM-DD>",'
     '"office":"<registering office in English>","book_volume_pages":"<e.g. Book 1, Vol 1488, Pages 168>",'
@@ -5564,6 +5565,13 @@ _DOC_IMPORT_SYSTEM = (
     '"summary":"<2-3 short paragraphs, see below>",'
     '"caveats":["<anything unreadable, ambiguous or worth checking — [] if none>"],'
     '"confidence":"<high|medium|low>"}\n'
+    "BOUNDARY_POINTS — an FMB, survey sketch or resurvey sheet usually ends in a POINT TABLE: "
+    "one row per corner with columns like Point Id, Easting, Northing, Latitude, Longitude. "
+    "When such a table is present, extract EVERY row's latitude and longitude as "
+    "`boundary_points`, in the table's own order, copying the printed decimals exactly. Use the "
+    "Latitude/Longitude columns only — NEVER convert Easting/Northing yourself, and NEVER "
+    "estimate a coordinate from the drawing. A registered deed occasionally lists corner "
+    "coordinates in its schedule; extract those the same way. No coordinate table → [].\n"
     "THE NARRATIVE MUST AGREE WITH `parties`. Work out the roles FIRST, then write the headline, "
     "key points and summary from them. The \"seller\" is the person who PARTED WITH the property; "
     "the \"buyer\" is the person who RECEIVED it. Never write that the buyer sold, or that the "

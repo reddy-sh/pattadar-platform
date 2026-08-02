@@ -398,12 +398,75 @@ final class AppModel {
         case .none:
             break
         }
+        // What the document knew about the GROUND, adopted by the holding:
+        // an FMB's point table becomes the drawn boundary, a deed's schedule
+        // becomes the four sides. Only into fields that are still empty —
+        // nothing a person entered is ever overwritten by a reading — and
+        // best-effort, because a document that filed correctly must never be
+        // reported as a failure over a bonus it could not deliver.
+        await adoptGround(from: r.fields, into: target)
         let name = documentFileName(
             docType: r.fields["doc_type"] as? String ?? "",
             village: r.fields["village"] as? String ?? "",
             surveyNo: r.fields["survey_no"] as? String ?? "",
             originalName: r.originalName)
         try? LocalFiles.save(documentID: docID, from: r.fileURL, displayName: name)
+    }
+
+    /// Adopt a filed document's ground facts into the holding it was filed
+    /// against. The FMB point table (`boundary_points`) becomes the drawn
+    /// boundary; a deed's schedule (`boundaries`) becomes the four sides on a
+    /// parcel. Empty fields only, silent on failure.
+    private func adoptGround(from fields: [String: Any], into target: LinkTarget) async {
+        let corners = boundaryPointsText(fields["boundary_points"])
+        let schedule = fields["boundaries"] as? [String: Any] ?? [:]
+        func side(_ key: String) -> String {
+            (schedule[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let sides = (n: side("north"), s: side("south"), e: side("east"), w: side("west"))
+        let hasSides = ![sides.n, sides.s, sides.e, sides.w].allSatisfy(\.isEmpty)
+        guard !corners.isEmpty || hasSides else { return }
+
+        switch target {
+        case .parcel(let id):
+            struct One: Decodable { let parcel: Ground? }
+            struct Ground: Decodable {
+                let boundary: String
+                let boundaryNorth, boundarySouth, boundaryEast, boundaryWest: String
+            }
+            guard let current = (await load(Queries.parcelGround,
+                                            variables: ["id": id], as: One.self))?.parcel
+            else { return }
+            if !corners.isEmpty, current.boundary.isEmpty {
+                _ = await load(Queries.updateParcelBoundary,
+                               variables: ["id": id, "boundary": corners],
+                               as: AnyMutationResult.self)
+            }
+            if hasSides, allBlank(current.boundaryNorth, current.boundarySouth,
+                                  current.boundaryEast, current.boundaryWest) {
+                _ = await load(Queries.updateParcelSides,
+                               variables: ["id": id, "north": sides.n, "south": sides.s,
+                                           "east": sides.e, "west": sides.w],
+                               as: AnyMutationResult.self)
+            }
+        case .property(let id):
+            // A property's deed schedule already lives in its attributes blob;
+            // only the drawn boundary is adopted here.
+            struct One: Decodable { let property: Ground? }
+            struct Ground: Decodable { let boundary: String }
+            guard !corners.isEmpty,
+                  let current = (await load(Queries.propertyGround,
+                                            variables: ["id": id], as: One.self))?.property,
+                  current.boundary.isEmpty
+            else { return }
+            _ = await load(Queries.updatePropertyBoundary,
+                           variables: ["id": id, "boundary": corners],
+                           as: AnyMutationResult.self)
+        case .passbook, .none:
+            // A passbook is a bundle of parcels; there is no single ground to
+            // give the corners to.
+            break
+        }
     }
 
     /// Run a query, remembering the failure instead of throwing into a view.

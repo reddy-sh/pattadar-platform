@@ -64,6 +64,42 @@ struct BoundaryTests {
         #expect(parseBoundary("95.0,79.3;15.6,79.3;15.7,79.4").count == 0)
     }
 
+    @Test func readerPointsBecomeTheWireFormat() {
+        // Exactly what the reader returned for this sheet on 2026-08-01:
+        // nine dicts, lat/lng as numbers, table order.
+        let extracted: [[String: Any]] = [
+            ["lat": 15.66026, "lng": 79.31919],
+            ["lat": 15.66072, "lng": 79.31944],
+            ["lat": 15.66567, "lng": 79.32177],
+            ["lat": 15.65922, "lng": 79.32252],
+            ["lat": 15.66053, "lng": 79.32334],
+            ["lat": 15.66464, "lng": 79.32437],
+            ["lat": 15.66486, "lng": 79.32344],
+            ["lat": 15.66514, "lng": 79.32274],
+            ["lat": 15.65872, "lng": 79.32146],
+        ]
+        let corners = parseBoundary(boundaryPointsText(extracted))
+        #expect(corners.count == 9)
+        #expect(corners.first == p1)
+        #expect(corners.last == p9)
+    }
+
+    @Test func readerPointsSurviveStringsAndRubbish() {
+        // String coordinates and alternate key names still parse; a junk row
+        // is dropped rather than poisoning the rest.
+        let mixed: [[String: Any]] = [
+            ["latitude": "15.66026", "longitude": "79.31919"],
+            ["lat": 15.66072, "lon": 79.31944],
+            ["lat": "not a number", "lng": 79.0],
+            ["lat": 15.65872, "lng": 79.32146],
+        ]
+        #expect(parseBoundary(boundaryPointsText(mixed)).count == 3)
+        // Two good corners is no boundary; nothing at all is no boundary.
+        #expect(boundaryPointsText([["lat": 15.1, "lng": 79.1]]).isEmpty)
+        #expect(boundaryPointsText(nil).isEmpty)
+        #expect(boundaryPointsText("garbage").isEmpty)
+    }
+
     @Test func mismatchSpeaksOnlyWhenSure() {
         #expect(boundaryExtentMismatch(drawnAcres: 2.0, recordedAcres: 2.1).isEmpty)
         #expect(!boundaryExtentMismatch(drawnAcres: 2.0, recordedAcres: 3.0).isEmpty)

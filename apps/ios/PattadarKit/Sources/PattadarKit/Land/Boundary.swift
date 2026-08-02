@@ -38,6 +38,31 @@ public func boundaryText(_ corners: [LatLng]) -> String {
         .joined(separator: ";")
 }
 
+/// The reader's `boundary_points` — the FMB point table as extracted — into
+/// the wire format. Tolerant about key names and number-vs-string values,
+/// because it crosses a JSON boundary; strict about everything else: bad
+/// rows are dropped, and fewer than 3 good corners is no boundary.
+public func boundaryPointsText(_ raw: Any?) -> String {
+    guard let list = raw as? [[String: Any]] else { return "" }
+    let corners = list.compactMap { point -> LatLng? in
+        func number(_ keys: [String]) -> Double? {
+            for key in keys {
+                if let v = point[key] as? Double { return v }
+                if let v = point[key] as? Int { return Double(v) }
+                if let s = point[key] as? String,
+                   let v = Double(s.trimmingCharacters(in: .whitespaces)) { return v }
+            }
+            return nil
+        }
+        guard let lat = number(["lat", "latitude"]),
+              let lng = number(["lng", "lon", "long", "longitude"]),
+              abs(lat) <= 90, abs(lng) <= 180, lat != 0 || lng != 0
+        else { return nil }
+        return LatLng(latitude: lat, longitude: lng)
+    }
+    return corners.count >= 3 ? boundaryText(corners) : ""
+}
+
 /// Corners projected to metres in a local frame — x east, y north, origin at
 /// the centroid of the corners. This is what both the sketch and the area
 /// are computed from, so they can never disagree.

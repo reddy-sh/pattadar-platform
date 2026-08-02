@@ -104,6 +104,25 @@ public enum Queries {
     mutation($id:String!,$boundary:String!){ updateParcelBoundary(parcelId:$id, boundary:$boundary){ id } }
     """
 
+    /// What the holding already knows about its ground — read before a filed
+    /// document's boundaries are adopted, so nothing entered by hand is ever
+    /// overwritten by a machine reading.
+    public static let parcelGround = """
+    query($id:String!){ parcel(id:$id){ id boundary boundaryNorth boundarySouth boundaryEast boundaryWest } }
+    """
+
+    public static let propertyGround = """
+    query($id:String!){ property(id:$id){ id boundary } }
+    """
+
+    /// Only the deed's boundary schedule — the four sides, nothing else, so
+    /// this write can never touch another field.
+    public static let updateParcelSides = """
+    mutation($id:String!,$north:String!,$south:String!,$east:String!,$west:String!){
+      updateParcel(id:$id, boundaryNorth:$north, boundarySouth:$south, boundaryEast:$east, boundaryWest:$west){ id }
+    }
+    """
+
     public static let updatePropertyBoundary = """
     mutation($id:String!,$boundary:String!){ updatePropertyBoundary(propertyId:$id, boundary:$boundary){ id } }
     """
