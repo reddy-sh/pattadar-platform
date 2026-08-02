@@ -679,169 +679,67 @@ struct PropertyDetailScreen: View {
             : "\(headlineExtent) \(kindLabel)"
     }
 
+    /// Which of the shell's views is rendered — same shell as the parcel.
+    @State private var seg = "Overview"
+    @State private var fixing: ReadinessCheck?
+    @State private var requesting = false
+    @State private var drawingBoundary = false
+
+    private var kind: HoldingKind { HoldingKind.of(propertyType: property.type) }
+
+    /// The land tab's name changes with what stands on it.
+    private var landTabName: String { kind == .plot ? "On the land" : "On the property" }
+
+    private var segTabs: [String] {
+        ["Overview", "The record", "Documents", "People", landTabName, "Timeline"]
+    }
+
+    /// Per-kind hero gradient from the handoff: plot slate, built green.
+    private var heroGradient: [Color] {
+        kind == .plot || kind == .commercial
+            ? [Color(red: 0.184, green: 0.227, blue: 0.290), Color(red: 0.141, green: 0.180, blue: 0.227)]
+            : [Color(red: 0.184, green: 0.267, blue: 0.220), Color(red: 0.133, green: 0.196, blue: 0.165)]
+    }
+
+    private var measuredAcres: Double { boundaryAcres(parseBoundary(property.boundary)) }
+
+    private var heroFacts: [(label: String, value: String)] {
+        var out: [(String, String)] = []
+        if !headlineExtent.isEmpty { out.append(("Extent", headlineExtent)) }
+        if property.builtupArea > 0 && property.landArea > 0 {
+            out.append(("Built-up", area(property.builtupArea, property.builtupUnit)))
+        } else {
+            out.append(("Type", humanize(property.type)))
+        }
+        out.append(("Held by", property.currentOwner.isEmpty ? "—" : property.currentOwner))
+        return out
+    }
+
     var body: some View {
         List {
-            // The identity, once — like the parcel screen.
-            HoldingHero(kicker: [HoldingKind.of(propertyType: property.type).noun,
-                                 property.khataNo.isEmpty ? "" : "Khata \(property.khataNo)"]
+            // The identity, once — the same shell as a parcel, tinted by kind.
+            RecordHero(kicker: [kind.noun,
+                                property.khataNo.isEmpty ? "" : "Khata \(property.khataNo)"]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
-                        title: screenTitle,
-                        subtitle: [property.label, whereLine]
+                       title: screenTitle,
+                       subtitle: [property.label, whereLine]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
-                        heldBy: property.currentOwner,
-                        statusChip: property.holdingStatus.lowercased() == "owned"
-                            ? "" : humanize(property.holdingStatus))
+                       facts: heroFacts,
+                       readiness: readiness,
+                       statusChip: property.holdingStatus.lowercased() == "owned"
+                            ? "" : humanize(property.holdingStatus),
+                       gradient: heroGradient)
 
-            NeedsYouSection(readiness: readiness)
+            SegChips(tabs: segTabs, selection: $seg)
 
-            // WHERE it is, before the paperwork about it.
-            LocationSection(title: screenTitle,
-                            // Village first: a mandal name geocodes to an
-                            // administrative centre, not to the land. The
-                            // mandal still belongs in the string — it is what
-                            // separates two villages that share a name.
-                            place: placeQuery([property.city, property.locality,
-                                               property.district]),
-                            entityType: "property", entityId: property.id,
-                            address: property.address.isEmpty ? whereLine : property.address,
-                            boundary: property.boundary, documents: documents,
-                            recordedAcres: toAcres(property.landArea, unitKey(property.landUnit)),
-                            pin: $pin) { save($0) }
-
-            // THE PAPER TRAIL, as one subject: the registered identity and
-            // the compliance answers an advocate asks for in one breath.
-            if !allBlank(property.regDocNo, property.sro, property.regDate,
-                         property.khataNo, property.ghmcAssessmentNo, property.reraNo,
-                         property.ecStatus, property.ecDate,
-                         property.mutationStatus, property.taxPaidUpto) {
-                Section("Title & compliance") {
-                    Fact(label: "Document no.", value: property.regDocNo)
-                    Fact(label: "Sub-registrar", value: property.sro)
-                    Fact(label: "Registered on", value: humanDate(property.regDate))
-                    Fact(label: "Assessment no.", value: property.ghmcAssessmentNo)
-                    Fact(label: "RERA no.", value: property.reraNo)
-                    Fact(label: "EC status", value: humanize(property.ecStatus))
-                    Fact(label: "EC dated", value: humanDate(property.ecDate))
-                    Fact(label: "Mutation", value: humanize(property.mutationStatus))
-                    Fact(label: "Tax paid up to", value: property.taxPaidUpto)
-                }
+            switch seg {
+            case "The record": recordTab
+            case "Documents": documentsTab
+            case "People": peopleTab
+            case landTabName: landTab
+            case "Timeline": timelineTab
+            default: overviewTab
             }
-
-            LinkedDocumentsSection(documents: documents) { attaching = true }
-
-            // WHO transferred it, and to whom.
-            //
-            // A name alone does not identify a person in a land record — half a
-            // village shares a surname — so the parentage, age and address the
-            // deed gives are what match this seller to the buyer on the previous
-            // deed. All of it was read and then discarded.
-            if !attributeGroups.parties.isEmpty {
-                Section {
-                    ForEach(attributeGroups.parties, id: \.0) { label, value in
-                        Fact(label: label, value: value)
-                    }
-                } header: {
-                    Label("Parties to the deed", systemImage: "person.2.fill")
-                } footer: {
-                    Text("As written on the paper. A GPA holder signs FOR the owner — where one is named, the owner is the principal, not the agent.")
-                }
-            }
-
-            if property.litigation && !property.litigationNote.isEmpty {
-                Section {
-                    Text(property.litigationNote).font(.callout)
-                } header: {
-                    Label("Litigation", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                }
-            }
-
-            // Only what the hero did NOT already say. Status is its chip,
-            // the owner its held-by line.
-            if !allBlank(property.acquisitionMode, property.address) {
-                Section("Holding") {
-                    if !property.stake.isEmpty,
-                       property.stake.caseInsensitiveCompare(property.holdingStatus) != .orderedSame {
-                        Fact(label: "My stake", value: humanize(property.stake))
-                    }
-                    Fact(label: "Acquired via", value: humanize(property.acquisitionMode))
-                    // The street address only when it says more than the
-                    // village line already did.
-                    if !property.address.isEmpty,
-                       property.address.caseInsensitiveCompare(whereLine) != .orderedSame {
-                        Fact(label: "Address", value: property.address)
-                    }
-                    // Land as well as built-up, when a building has both.
-                    if property.builtupArea > 0 && property.landArea > 0 {
-                        Fact(label: "Land", value: area(property.landArea, property.landUnit), mono: true)
-                    }
-                }
-            }
-
-            // The four boundaries are ONE fact, and a section of their own.
-            //
-            // Alphabetical sorting interleaved them with route maps and plot
-            // numbers — "Attached landmarks, Attached route map, Boundary east,
-            // Boundary north…". What abuts the land on each side is read as a
-            // set, clockwise from north, because that is how a schedule is
-            // written and how a surveyor walks it.
-            if !attributeGroups.boundaries.isEmpty {
-                Section {
-                    ForEach(attributeGroups.boundaries, id: \.0) { side, value in
-                        Fact(label: side, value: value)
-                    }
-                } header: {
-                    Label("Boundaries", systemImage: "square.dashed")
-                } footer: {
-                    Text("What the deed says the land abuts — the chuttupakkala haddulu. Measurements in brackets.")
-                }
-            }
-
-            // Type-specific extras the deed reader pulled out: layout, plot
-            // numbers, rate, stamp papers, the prior deed, what is bound in.
-            if !attributeGroups.rest.isEmpty {
-                Section("Details from the deed") {
-                    ForEach(attributeGroups.rest, id: \.0) { key, value in
-                        Fact(label: humanize(key), value: value)
-                    }
-                }
-            }
-
-            OnTheLandSection(entityType: "property", entityId: property.id,
-                             features: features,
-                             onChanged: { Task { await loadDossier() } })
-
-
-            // MONEY LAST of the record sections.
-            //
-            // A purchase price is not a description of the land — it is what was
-            // paid once, often decades ago and often understated on the deed.
-            // Sitting third from the top it read as the property's worth. It
-            // belongs after the land, the papers and the place.
-            if property.purchasePrice > 0 || property.currentValue > 0
-                || property.marketValue > 0 || property.guidelineValue > 0 || spentHere > 0 {
-                Section {
-                    Fact(label: "Purchase price", value: money(property.purchasePrice), mono: true)
-                    Fact(label: "Purchased on", value: humanDate(property.purchaseDate))
-                    Fact(label: "Guideline value", value: money(property.guidelineValue), mono: true)
-                    Fact(label: "Market value", value: money(property.marketValue), mono: true)
-                    Fact(label: "Current value", value: money(property.currentValue), mono: true)
-                    Fact(label: "Spent on this property", value: spentHere > 0 ? money(spentHere) : "", mono: true)
-                } header: {
-                    Text("Money")
-                } footer: {
-                    Text("What a deed records is not what the land is worth today.")
-                }
-            }
-
-            if !property.notes.isEmpty {
-                Section("Notes") { Text(property.notes).font(.callout) }
-            }
-
-            NotesSection(entityType: "property", entityId: property.id,
-                         notes: dossier?.notes ?? []) { Task { await loadDossier() } }
-
-            RecordHistorySection(events: dossier?.auditEvents ?? [])
 
             Section {
                 Button { editing = true } label: { Label("Edit property", systemImage: "pencil.line") }
@@ -860,6 +758,20 @@ struct PropertyDetailScreen: View {
                 ShareLink(item: propertyShare.text) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
+            }
+        }
+        .sheet(item: $fixing) { check in
+            FixSheet(check: check,
+                     onSelf: { runFix(check) },
+                     onAgent: { requesting = true })
+        }
+        .sheet(isPresented: $requesting) {
+            NavigationStack { GetItDoneScreen(showsClose: true) }
+        }
+        .sheet(isPresented: $drawingBoundary) {
+            BoundaryEditorSheet(entityType: "property", entityId: property.id,
+                                initial: property.boundary) { _ in
+                Task { await loadDossier() }
             }
         }
         .sheet(isPresented: $editing) { EditPropertyScreen(property: property) { } }
@@ -893,6 +805,263 @@ struct PropertyDetailScreen: View {
         }
         .task { await loadDossier() }
         .refreshable { await loadDossier() }
+    }
+
+    private func runFix(_ check: ReadinessCheck) {
+        switch check.id {
+        case "title", "ec", "tax": attaching = true
+        case "location": seg = "The record"
+        default: editing = true
+        }
+    }
+
+    // MARK: - Overview
+
+    @ViewBuilder private var overviewTab: some View {
+        NeedsYouCard(readiness: readiness) { fixing = $0 }
+
+        QuickActionsRow(actions: [
+            .init(id: "Document", icon: "doc.badge.plus") { attaching = true },
+            .init(id: "Boundary", icon: "skew") { drawingBoundary = true },
+            .init(id: "Feature", icon: "leaf") { seg = landTabName },
+            .init(id: "Request", icon: "person.badge.clock") { requesting = true },
+        ])
+
+        CountsList(documents: documents.count,
+                   boundaryDrawn: !parseBoundary(property.boundary).isEmpty,
+                   spent: spentHere,
+                   onDocuments: { seg = "Documents" },
+                   onBoundary: { seg = "The record" })
+    }
+
+    // MARK: - The record
+
+    @ViewBuilder private var recordTab: some View {
+        Section("Identity") {
+            ActionFact(label: "Type", value: humanize(property.type))
+            ActionFact(label: "Khata no.", value: property.khataNo,
+                       onAction: { editing = true })
+            ActionFact(label: "Assessment no.", value: property.ghmcAssessmentNo,
+                       onAction: { editing = true })
+            ActionFact(label: "RERA no.", value: property.reraNo)
+            if !property.stake.isEmpty,
+               property.stake.caseInsensitiveCompare(property.holdingStatus) != .orderedSame {
+                ActionFact(label: "My stake", value: humanize(property.stake))
+            }
+            if !property.address.isEmpty,
+               property.address.caseInsensitiveCompare(whereLine) != .orderedSame {
+                ActionFact(label: "Address", value: property.address)
+            }
+        }
+
+        Section("Extent") {
+            ActionFact(label: "On the record",
+                       value: property.landArea > 0 ? area(property.landArea, property.landUnit) : "",
+                       onAction: { editing = true })
+            if property.builtupArea > 0 {
+                ActionFact(label: "Built-up", value: area(property.builtupArea, property.builtupUnit))
+            }
+            ActionFact(label: "Measured", value: measuredAcres > 0
+                        ? String(format: "%.2f acres", measuredAcres) : "",
+                       actionWord: "Draw it",
+                       hint: measuredAcres > 0 ? "from the drawn boundary" : "",
+                       onAction: { drawingBoundary = true })
+        }
+
+        Section("Registration") {
+            ActionFact(label: "Document no.", value: property.regDocNo,
+                       onAction: { editing = true })
+            ActionFact(label: "Registered on", value: humanDate(property.regDate),
+                       onAction: { editing = true })
+            ActionFact(label: "Sub-registrar", value: property.sro,
+                       onAction: { editing = true })
+            ActionFact(label: "Acquired via", value: humanize(property.acquisitionMode))
+            ActionFact(label: "Consideration", value: property.purchasePrice > 0
+                        ? money(property.purchasePrice) : "",
+                       onAction: { editing = true })
+        }
+
+        Section("Clean title checks") {
+            ActionFact(label: "EC status", value: humanize(property.ecStatus),
+                       actionWord: "Get EC",
+                       onAction: { fixing = readiness.checks.first { $0.id == "ec" } })
+            ActionFact(label: "EC dated", value: humanDate(property.ecDate))
+            ActionFact(label: "Mutation", value: humanize(property.mutationStatus),
+                       actionWord: "File it",
+                       onAction: { fixing = readiness.checks.first { $0.id == "mutation" } })
+            ActionFact(label: "Tax paid up to", value: property.taxPaidUpto,
+                       actionWord: "File it",
+                       onAction: { fixing = readiness.checks.first { $0.id == "tax" } })
+            ActionFact(label: "Litigation",
+                       value: property.litigation ? "Under litigation" : "None declared")
+            if property.litigation, !property.litigationNote.isEmpty {
+                Text(property.litigationNote).font(.callout).foregroundStyle(.red)
+            }
+        }
+
+        if !attributeGroups.boundaries.isEmpty {
+            Section {
+                ForEach(attributeGroups.boundaries, id: \.0) { side, value in
+                    Fact(label: side, value: value)
+                }
+            } header: {
+                Label("Boundaries on the deed", systemImage: "square.dashed")
+            } footer: {
+                Text("What the deed says the land abuts — the chuttupakkala haddulu. Measurements in brackets.")
+            }
+        }
+
+        if !attributeGroups.rest.isEmpty {
+            Section("Details from the deed") {
+                ForEach(attributeGroups.rest, id: \.0) { key, value in
+                    Fact(label: humanize(key), value: value)
+                }
+            }
+        }
+
+        if property.currentValue > 0 || property.marketValue > 0
+            || property.guidelineValue > 0 || spentHere > 0 {
+            Section {
+                Fact(label: "Guideline value", value: money(property.guidelineValue), mono: true)
+                Fact(label: "Market value", value: money(property.marketValue), mono: true)
+                Fact(label: "Current value", value: money(property.currentValue), mono: true)
+                Fact(label: "Spent on this property", value: spentHere > 0 ? money(spentHere) : "", mono: true)
+            } header: {
+                Text("Money")
+            } footer: {
+                Text("What a deed records is not what the land is worth today.")
+            }
+        }
+
+        // WHERE it is: the map beside the paper it must match.
+        LocationSection(title: screenTitle,
+                            // Village first: a mandal name geocodes to an
+                            // administrative centre, not to the land. The
+                            // mandal still belongs in the string — it is what
+                            // separates two villages that share a name.
+                            place: placeQuery([property.city, property.locality,
+                                               property.district]),
+                            entityType: "property", entityId: property.id,
+                            address: property.address.isEmpty ? whereLine : property.address,
+                            boundary: property.boundary, documents: documents,
+                            recordedAcres: toAcres(property.landArea, unitKey(property.landUnit)),
+                            pin: $pin) { save($0) }
+    }
+
+    // MARK: - Documents
+
+    @ViewBuilder private var documentsTab: some View {
+        LinkedDocumentsSection(documents: documents) { attaching = true }
+        StillExpectedSection(missing: expectedDocuments) { _ in attaching = true }
+    }
+
+    /// The papers this KIND of holding is asked for — a plot is asked for its
+    /// layout and LRS, a flat for its OC — matched against what is filed.
+    private var expectedDocuments: [StillExpectedSection.Expected] {
+        let filed = documents.map { $0.docType.lowercased() }
+        func missing(_ match: String) -> Bool { !filed.contains { $0.contains(match) } }
+        var out: [StillExpectedSection.Expected] = []
+        if missing("deed") && property.regDocNo.isEmpty {
+            out.append(.init(id: "deed", name: "Registered sale deed",
+                             why: "The document that makes it yours"))
+        }
+        if kind == .plot {
+            if missing("layout") && missing("map") {
+                out.append(.init(id: "layout", name: "Approved layout plan",
+                                 why: "Shows your plot in the sanctioned layout"))
+            }
+            if missing("lrs") {
+                out.append(.init(id: "lrs", name: "LRS proceedings",
+                                 why: "Without it you cannot build"))
+            }
+        } else {
+            if missing("occupancy") && missing("oc") {
+                out.append(.init(id: "oc", name: "Occupancy certificate",
+                                 why: "Hard to sell or mortgage without it"))
+            }
+        }
+        if missing("encumbrance") && readiness.checks.first(where: { $0.id == "ec" })?.passed != true {
+            out.append(.init(id: "ec", name: "Encumbrance certificate",
+                             why: "Shows any loan sitting on it"))
+        }
+        if missing("tax") && readiness.checks.first(where: { $0.id == "tax" })?.passed != true {
+            out.append(.init(id: "tax", name: "Property tax receipt",
+                             why: "Arrears surface at sale"))
+        }
+        return out
+    }
+
+    // MARK: - People
+
+    @ViewBuilder private var peopleTab: some View {
+        Section("Held by") {
+            HStack(spacing: 12) {
+                Avatar(name: property.currentOwner, size: 40, isSelf: false)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(property.currentOwner.isEmpty ? "Not recorded" : property.currentOwner)
+                        .font(.subheadline.weight(.semibold))
+                    Text("On the record" + (property.acquisitionMode.isEmpty
+                        ? "" : " · via \(humanize(property.acquisitionMode).lowercased())"))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        // WHO transferred it, and to whom — the deed's own words. A name
+        // alone does not identify a person in a land record; the parentage,
+        // age and address are what match this seller to the buyer on the
+        // previous deed.
+        if !attributeGroups.parties.isEmpty {
+            Section {
+                ForEach(attributeGroups.parties, id: \.0) { label, value in
+                    Fact(label: label, value: value)
+                }
+            } header: {
+                Label("Parties to the deed", systemImage: "person.2.fill")
+            } footer: {
+                Text("As written on the paper. A GPA holder signs FOR the owner — where one is named, the owner is the principal, not the agent.")
+            }
+        }
+
+        Section {
+            Button {
+                app.openFamily = true
+                app.selectedTab = .you
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Beneficiaries").font(.subheadline.weight(.medium))
+                        Text("Who inherits this — land is lost more often to a paper nobody could find than to a dispute.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "person.badge.shield.checkmark")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - On the land / property
+
+    @ViewBuilder private var landTab: some View {
+        OnTheLandSection(entityType: "property", entityId: property.id,
+                         features: features,
+                         onChanged: { Task { await loadDossier() } })
+    }
+
+    // MARK: - Timeline
+
+    @ViewBuilder private var timelineTab: some View {
+        if !property.notes.isEmpty {
+            Section("Notes") { Text(property.notes).font(.callout) }
+        }
+
+        NotesSection(entityType: "property", entityId: property.id,
+                     notes: dossier?.notes ?? []) { Task { await loadDossier() } }
+
+        RecordHistorySection(events: dossier?.auditEvents ?? [])
     }
 
     private func loadDossier() async {
