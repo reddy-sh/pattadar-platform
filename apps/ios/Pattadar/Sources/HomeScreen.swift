@@ -252,21 +252,41 @@ struct HomeScreen: View {
             Set(parcels.map(\.passbookId).filter { known.contains($0) }).count
         }
 
-        // Farmland: acres, from parcels.
+        // THE UNIT FOLLOWS THE LAND, NOT THE FILING.
+        //
+        // A 25-acre field bought on a deed arrives as a "property", and the
+        // old grouping converted it into 1,21,000 square yards on the plots
+        // card — a number nobody in India says. People know their land as
+        // ACRES of fields and SQUARE YARDS of sites, and the two are never
+        // combined: acre-measured holdings count on the farmland card in
+        // acres wherever they are filed, and yard-measured sites stay on the
+        // plots card in yards.
+        func isAcreMeasured(_ p: Property) -> Bool {
+            switch unitKey(p.landUnit) {
+            case .acre, .cent, .gunta, .hectare: p.landArea > 0
+            default: false
+            }
+        }
+
         let agri = h.parcels.filter { !$0.classification.lowercased().contains("non") }
-        if !agri.isEmpty {
+        let acreProperties = h.properties.filter(isAcreMeasured)
+        if !agri.isEmpty || !acreProperties.isEmpty {
+            let propertyAcres = acreProperties.reduce(0.0) {
+                $0 + toAcres($1.landArea, unitKey($1.landUnit))
+            }
             rows.append(.init(kind: .farmland,
-                              amount: agri.reduce(0) { $0 + $1.extent },
-                              count: agri.count,
+                              amount: agri.reduce(0) { $0 + $1.extent } + propertyAcres,
+                              count: agri.count + acreProperties.count,
                               passbooks: passbookCount(agri)))
         }
         // Non-agricultural parcels are sites held under a passbook — square
         // yards, like any other site.
         let nonAgri = h.parcels.filter { $0.classification.lowercased().contains("non") }
 
-        // Properties, grouped by what they actually are.
+        // Properties, grouped by what they actually are — minus the acre-
+        // measured ones, which are farmland whatever their filing says.
         var byKind: [HoldingKind: [Property]] = [:]
-        for p in h.properties {
+        for p in h.properties where !isAcreMeasured(p) {
             byKind[HoldingKind.of(propertyType: p.type), default: []].append(p)
         }
         // Fold the non-agricultural parcels in with the sites.

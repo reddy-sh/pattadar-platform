@@ -129,7 +129,9 @@ struct KindCard: View {
     /// from years ago or a guess, and printing a guess in the same breath as a
     /// measured extent lends it the extent's authority.
     private var subtitle: String {
-        let noun = kind == .farmland ? "parcel" : "property"
+        // "Holding" for farmland: an acre-measured field filed as a property
+        // counts here too, and calling it a parcel would be one word wrong.
+        let noun = kind == .farmland ? "holding" : "property"
         let plural = count == 1 ? "" : (noun == "property" ? "ies" : "s")
         var parts = ["\(count) \(noun == "property" && count != 1 ? "propert" : noun)\(plural)"]
         if passbooks > 0 {

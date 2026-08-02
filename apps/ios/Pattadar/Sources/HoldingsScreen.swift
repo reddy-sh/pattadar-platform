@@ -445,20 +445,41 @@ struct HoldingsScreen: View {
         .tint(.yellow)
     }
 
-    /// One unit when the group is all one kind, acres when it is mixed.
+    /// Acres and square yards, stated separately and never combined.
+    ///
+    /// The unit follows the LAND, not the filing: a 25-acre field bought on a
+    /// deed is acres even though it sits among "properties", and converting
+    /// it produced a village header of "121000 sq. yd" — a number nobody in
+    /// India says. People know their fields in acres and their sites in
+    /// square yards; a mixed village reads "25.00 ac · 191 sq. yd".
     private func subtotal(_ items: [Holding]) -> String {
-        let acres = items.reduce(0) { $0 + $1.acres }
-        let kinds = Set(items.map { $0.kind })
-        guard kinds.count == 1, let kind = kinds.first else {
-            return String(format: "%.2f ac", acres)
+        var acres = 0.0
+        var sqyd = 0.0
+        for h in items {
+            switch h {
+            case .parcel(let p, _):
+                if p.classification.lowercased().contains("non") {
+                    sqyd += fromAcres(p.extent, .sqyd)
+                } else {
+                    acres += p.extent
+                }
+            case .property(let p):
+                switch unitKey(p.landUnit) {
+                case .acre, .cent, .gunta, .hectare:
+                    acres += toAcres(p.landArea, unitKey(p.landUnit))
+                default:
+                    if let a = headlineArea(propertyType: p.type,
+                                            landArea: p.landArea, landUnit: p.landUnit,
+                                            builtupArea: p.builtupArea, builtupUnit: p.builtupUnit) {
+                        sqyd += convert(a.value, from: a.unit, to: .sqyd)
+                    }
+                }
+            }
         }
-        let amount = fromAcres(acres, kind.unit)
-        switch kind.unit {
-        case .acre: return String(format: "%.2f ac", amount)
-        case .sqyd: return String(format: "%.0f sq. yd", amount)
-        case .sqft: return String(format: "%.0f sq. ft", amount)
-        default: return String(format: "%.2f %@", amount, kind.unit.label)
-        }
+        var parts: [String] = []
+        if acres > 0 { parts.append(String(format: "%.2f ac", acres)) }
+        if sqyd > 0 { parts.append(String(format: "%.0f sq. yd", sqyd)) }
+        return parts.joined(separator: " · ")
     }
 
     private var emptyState: some View {
