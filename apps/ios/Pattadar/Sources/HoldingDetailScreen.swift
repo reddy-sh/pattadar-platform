@@ -87,137 +87,54 @@ struct HoldingDetailScreen: View {
             .foregroundStyle(tint)
     }
 
+    /// Which of the shell's views is rendered. Chips FILTER sections — the
+    /// handoff is explicit that they must not scroll-to-anchor.
+    @State private var seg = "Overview"
+    private static let segs = ["Overview", "The record", "Documents", "People", "On the land", "Timeline"]
+    /// The gap being fixed, when a Needs-you row was tapped.
+    @State private var fixing: ReadinessCheck?
+    /// "Have Pattadar do it" lands on the request screen.
+    @State private var requesting = false
+    /// The boundary corner editor, opened straight from "Draw it".
+    @State private var drawingBoundary = false
+
+    /// The holder, once — hero fact strip, nowhere else.
+    private var holderName: String {
+        parcel.currentOwner.isEmpty ? (passbook?.ownerName ?? "") : parcel.currentOwner
+    }
+
+    /// Measured extent from the primary boundary, 0 when none is drawn.
+    private var measuredAcres: Double {
+        boundaryAcres(parseBoundary(parcel.boundary))
+    }
+
     var body: some View {
         List {
-            // The identity, once. Classification and khata in the kicker, the
-            // holder on the chip, a worry-state (for sale, disputed) worn as a
-            // chip beside it — none of these appear again below.
-            HoldingHero(kicker: [classificationLabel,
-                                 passbook.map { "Khata \($0.pattadarNo)" } ?? ""]
+            // The identity, once: classification and khata in the eyebrow,
+            // extent and holder in the fact strip, the verdict as the ring.
+            RecordHero(kicker: [classificationLabel,
+                                passbook.map { "Khata \($0.pattadarNo)" } ?? ""]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
-                        title: screenTitle,
-                        subtitle: parcelWhere,
-                        heldBy: parcel.currentOwner.isEmpty
-                            ? (passbook?.ownerName ?? "") : parcel.currentOwner,
-                        statusChip: parcel.status.lowercased() == "owned"
+                       title: "Sy " + parcel.surveyNo
+                            + (parcel.subdivision.isEmpty ? "" : "/\(parcel.subdivision)"),
+                       subtitle: parcelWhere,
+                       facts: [("Extent", areaText(parcel.extent, .acre)),
+                               ("Class", classificationLabel),
+                               ("Held by", holderName.isEmpty ? "—" : holderName)],
+                       readiness: readiness,
+                       statusChip: parcel.status.lowercased() == "owned"
                             ? "" : humanize(parcel.status))
 
-            // What is wrong, immediately under what it is — the one list a
-            // person opens this screen to act on.
-            NeedsYouSection(readiness: readiness)
+            SegChips(tabs: Self.segs, selection: $seg)
 
-            // Then WHERE it is — the land itself before the paperwork.
-            LocationSection(title: "Sy \(parcel.surveyNo)",
-                            // The MANDAL belongs here: village + district alone
-                            // does not separate two villages of the same name.
-                            place: placeQuery([passbook?.village, passbook?.mandal,
-                                               passbook?.district,
-                                               parcel.address.isEmpty ? nil : parcel.address]),
-                            photos: dossier?.parcelPhotos ?? [],
-                            villageCentroid: villageCentroid,
-                            entityType: "parcel", entityId: parcel.id,
-                            address: parcel.address.isEmpty ? parcelWhere : parcel.address,
-                            boundary: parcel.boundary, documents: documents,
-                            recordedAcres: parcel.extent,
-                            pin: $pin) { save($0) }
-
-            // THE PAPER TRAIL, as one subject. Registration, encumbrance,
-            // mutation and tax are the questions an advocate or a bank asks
-            // in one breath — they were three sections apart, with the same
-            // facts hinted at again by four tiles above. One section, in the
-            // order the questions come.
-            if !allBlank(parcel.regDocNo, parcel.sro, parcel.regDate,
-                         parcel.ecStatus, parcel.ecDate, parcel.mutationStatus,
-                         parcel.taxPaidUpto, parcel.encumbranceStatus) {
-                Section("Title & compliance") {
-                    Fact(label: "Document no.", value: parcel.regDocNo)
-                    Fact(label: "Sub-registrar", value: parcel.sro)
-                    Fact(label: "Registered on", value: humanDate(parcel.regDate))
-                    Fact(label: "Encumbrance", value: humanize(parcel.encumbranceStatus))
-                    Fact(label: "EC status", value: humanize(parcel.ecStatus))
-                    Fact(label: "EC dated", value: humanDate(parcel.ecDate))
-                    Fact(label: "Mutation", value: humanize(parcel.mutationStatus))
-                    Fact(label: "Tax paid up to", value: parcel.taxPaidUpto)
-                }
+            switch seg {
+            case "The record": recordTab
+            case "Documents": documentsTab
+            case "People": peopleTab
+            case "On the land": onTheLandTab
+            case "Timeline": timelineTab
+            default: overviewTab
             }
-
-            LinkedDocumentsSection(documents: documents) { attaching = true }
-
-            if parcel.litigation {
-                Section {
-                    Label("This land is under litigation", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                    if !parcel.litigationNote.isEmpty {
-                        Text(parcel.litigationNote).font(.callout)
-                    }
-                }
-            }
-
-            // What the deed SAYS the land abuts — the chuttupakkala haddulu.
-            if !allBlank(parcel.boundaryNorth, parcel.boundarySouth,
-                         parcel.boundaryEast, parcel.boundaryWest) {
-                Section("Boundaries on the deed") {
-                    Fact(label: "North", value: parcel.boundaryNorth)
-                    Fact(label: "South", value: parcel.boundarySouth)
-                    Fact(label: "East", value: parcel.boundaryEast)
-                    Fact(label: "West", value: parcel.boundaryWest)
-                }
-            }
-
-            // What the hero could not say: how it was acquired, a stake that
-            // differs from the status, an address that says more than the
-            // village line. Everything else this section used to hold —
-            // status, classification, owner, passbook — is on the hero now.
-            if !parcel.acquisitionSource.isEmpty
-                || (!parcel.stake.isEmpty
-                    && parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame)
-                || (!parcel.address.isEmpty
-                    && parcel.address.caseInsensitiveCompare(parcelWhere) != .orderedSame) {
-                Section("Holding") {
-                    if !parcel.stake.isEmpty,
-                       parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame {
-                        Fact(label: "My stake", value: humanize(parcel.stake))
-                    }
-                    Fact(label: "Acquired via", value: humanize(parcel.acquisitionSource))
-                    if !parcel.address.isEmpty,
-                       parcel.address.caseInsensitiveCompare(parcelWhere) != .orderedSame {
-                        Fact(label: "Address", value: parcel.address)
-                    }
-                }
-            }
-
-            OnTheLandSection(entityType: "parcel", entityId: parcel.id,
-                             features: features,
-                             onChanged: { Task { await loadDossier() } })
-
-            if parcel.purchasePrice > 0 || parcel.marketValue > 0
-                || parcel.guidelineValue > 0 || parcel.loanAmount > 0 || spentHere > 0 {
-                Section {
-                    Fact(label: "Purchase price", value: money(parcel.purchasePrice), mono: true)
-                    Fact(label: "Purchased on", value: humanDate(parcel.purchaseDate))
-                    Fact(label: "Guideline value", value: money(parcel.guidelineValue), mono: true)
-                    Fact(label: "Market value", value: money(parcel.marketValue), mono: true)
-                    Fact(label: "Stamp duty", value: money(parcel.stampDuty), mono: true)
-                    Fact(label: "Loan outstanding", value: money(parcel.loanAmount), mono: true)
-                    // The "spent" tile, now a row among the money it belongs to.
-                    Fact(label: "Spent on this land", value: spentHere > 0 ? money(spentHere) : "", mono: true)
-                } header: {
-                    Text("Money")
-                } footer: {
-                    Text("What a deed records is not what the land is worth today.")
-                }
-            }
-
-            OwnerHistorySection(owners: dossier?.parcels.first { $0.id == parcel.id }?.owners ?? [])
-
-            PhotoSection(photos: dossier?.parcelPhotos ?? [],
-                         villageCentroid: villageCentroid,
-                         placeName: passbook?.village ?? "")
-
-            NotesSection(entityType: "parcel", entityId: parcel.id,
-                         notes: dossier?.notes ?? []) { Task { await loadDossier() } }
-
-            RecordHistorySection(events: dossier?.auditEvents ?? [])
 
             Section {
                 Button { editing = true } label: { Label("Edit parcel", systemImage: "pencil.line") }
@@ -236,6 +153,20 @@ struct HoldingDetailScreen: View {
                 ShareLink(item: parcelShare.text) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
+            }
+        }
+        .sheet(item: $fixing) { check in
+            FixSheet(check: check,
+                     onSelf: { runFix(check) },
+                     onAgent: { requesting = true })
+        }
+        .sheet(isPresented: $requesting) {
+            NavigationStack { GetItDoneScreen(showsClose: true) }
+        }
+        .sheet(isPresented: $drawingBoundary) {
+            BoundaryEditorSheet(entityType: "parcel", entityId: parcel.id,
+                                initial: parcel.boundary) { _ in
+                Task { await loadDossier() }
             }
         }
         .sheet(isPresented: $editing) { EditParcelScreen(parcel: parcel) { } }
@@ -262,6 +193,235 @@ struct HoldingDetailScreen: View {
         // Filing happens on other screens (the ⊕ sheet, the vault); a pull
         // brings this record up to date without leaving and coming back.
         .refreshable { await loadDossier() }
+    }
+
+    /// The do-it-yourself route for each gap, wired to the flow that fixes it.
+    private func runFix(_ check: ReadinessCheck) {
+        switch check.id {
+        case "title", "ec", "tax": attaching = true
+        case "location": seg = "The record"
+        case "mutation", "registration", "litigation": editing = true
+        default: editing = true
+        }
+    }
+
+    // MARK: - Overview
+
+    @ViewBuilder private var overviewTab: some View {
+        NeedsYouCard(readiness: readiness) { fixing = $0 }
+
+        QuickActionsRow(actions: [
+            .init(id: "Document", icon: "doc.badge.plus") { attaching = true },
+            .init(id: "Boundary", icon: "skew") { drawingBoundary = true },
+            .init(id: "Feature", icon: "leaf") { seg = "On the land" },
+            .init(id: "Request", icon: "person.badge.clock") { requesting = true },
+        ])
+
+        CountsList(documents: documents.count,
+                   boundaryDrawn: !parseBoundary(parcel.boundary).isEmpty,
+                   spent: spentHere,
+                   onDocuments: { seg = "Documents" },
+                   onBoundary: { seg = "The record" })
+    }
+
+    // MARK: - The record
+
+    @ViewBuilder private var recordTab: some View {
+        Section("Identity") {
+            ActionFact(label: "Survey no.", value: parcel.surveyNo)
+            ActionFact(label: "Subdivision", value: parcel.subdivision)
+            ActionFact(label: "Khata / passbook", value: passbook?.pattadarNo ?? "")
+            ActionFact(label: "Classification", value: classificationLabel)
+            if !parcel.stake.isEmpty,
+               parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame {
+                ActionFact(label: "My stake", value: humanize(parcel.stake))
+            }
+        }
+
+        Section("Extent") {
+            ActionFact(label: "On the record", value: areaText(parcel.extent, .acre))
+            ActionFact(label: "Measured", value: measuredAcres > 0
+                        ? String(format: "%.2f acres", measuredAcres) : "",
+                       actionWord: "Draw it",
+                       hint: measuredAcres > 0 ? "from the drawn boundary" : "",
+                       onAction: { drawingBoundary = true })
+            if measuredAcres > 0, parcel.extent > 0 {
+                ActionFact(label: "Difference",
+                           value: String(format: "%+.2f acres", measuredAcres - parcel.extent),
+                           hint: abs(measuredAcres - parcel.extent) > parcel.extent * 0.075
+                                ? "usually a corner in the wrong place" : "")
+            }
+        }
+
+        Section("Registration") {
+            ActionFact(label: "Document no.", value: parcel.regDocNo,
+                       actionWord: "Add", onAction: { editing = true })
+            ActionFact(label: "Registered on", value: humanDate(parcel.regDate),
+                       actionWord: "Add", onAction: { editing = true })
+            ActionFact(label: "Sub-registrar", value: parcel.sro,
+                       actionWord: "Add", onAction: { editing = true })
+            ActionFact(label: "Acquired via", value: humanize(parcel.acquisitionSource))
+            ActionFact(label: "Consideration", value: parcel.purchasePrice > 0
+                        ? money(parcel.purchasePrice) : "",
+                       actionWord: "Add", onAction: { editing = true })
+        }
+
+        Section("Clean title checks") {
+            ActionFact(label: "Encumbrance", value: humanize(parcel.encumbranceStatus),
+                       actionWord: "Get EC", onAction: { fixing = readiness.checks.first { $0.id == "ec" } })
+            ActionFact(label: "EC dated", value: humanDate(parcel.ecDate))
+            ActionFact(label: "Mutation", value: humanize(parcel.mutationStatus),
+                       actionWord: "File it",
+                       hint: readiness.checks.first { $0.id == "mutation" }?.passed == false
+                            ? "still in the seller's name" : "",
+                       onAction: { fixing = readiness.checks.first { $0.id == "mutation" } })
+            ActionFact(label: "Land tax paid to", value: parcel.taxPaidUpto,
+                       actionWord: "File it", onAction: { fixing = readiness.checks.first { $0.id == "tax" } })
+            ActionFact(label: "Litigation", value: parcel.litigation ? "Under litigation" : "None declared")
+            if parcel.litigation, !parcel.litigationNote.isEmpty {
+                Text(parcel.litigationNote).font(.callout).foregroundStyle(.red)
+            }
+        }
+
+        if !allBlank(parcel.boundaryNorth, parcel.boundarySouth,
+                     parcel.boundaryEast, parcel.boundaryWest) {
+            Section("Boundaries on the deed") {
+                Fact(label: "North", value: parcel.boundaryNorth)
+                Fact(label: "South", value: parcel.boundarySouth)
+                Fact(label: "East", value: parcel.boundaryEast)
+                Fact(label: "West", value: parcel.boundaryWest)
+            }
+        }
+
+        if parcel.marketValue > 0 || parcel.guidelineValue > 0 || parcel.loanAmount > 0
+            || parcel.stampDuty > 0 || spentHere > 0 {
+            Section {
+                Fact(label: "Guideline value", value: money(parcel.guidelineValue), mono: true)
+                Fact(label: "Market value", value: money(parcel.marketValue), mono: true)
+                Fact(label: "Stamp duty", value: money(parcel.stampDuty), mono: true)
+                Fact(label: "Loan outstanding", value: money(parcel.loanAmount), mono: true)
+                Fact(label: "Spent on this land", value: spentHere > 0 ? money(spentHere) : "", mono: true)
+            } header: {
+                Text("Money")
+            } footer: {
+                Text("What a deed records is not what the land is worth today.")
+            }
+        }
+
+        // WHERE it is: the map preview lives on this tab — the record of the
+        // ground beside the record of the paper.
+        LocationSection(title: "Sy \(parcel.surveyNo)",
+                            // The MANDAL belongs here: village + district alone
+                            // does not separate two villages of the same name.
+                            place: placeQuery([passbook?.village, passbook?.mandal,
+                                               passbook?.district,
+                                               parcel.address.isEmpty ? nil : parcel.address]),
+                            photos: dossier?.parcelPhotos ?? [],
+                            villageCentroid: villageCentroid,
+                            entityType: "parcel", entityId: parcel.id,
+                            address: parcel.address.isEmpty ? parcelWhere : parcel.address,
+                            boundary: parcel.boundary, documents: documents,
+                            recordedAcres: parcel.extent,
+                            pin: $pin) { save($0) }
+    }
+
+    // MARK: - Documents
+
+    @ViewBuilder private var documentsTab: some View {
+        LinkedDocumentsSection(documents: documents) { attaching = true }
+        StillExpectedSection(missing: expectedDocuments) { _ in attaching = true }
+    }
+
+    /// What agricultural land is asked for and does not yet have on file —
+    /// matched against the filed documents and the record's own fields.
+    private var expectedDocuments: [StillExpectedSection.Expected] {
+        let filed = documents.map { $0.docType.lowercased() }
+        func missing(_ match: String) -> Bool { !filed.contains { $0.contains(match) } }
+        var out: [StillExpectedSection.Expected] = []
+        if missing("deed") && parcel.regDocNo.isEmpty {
+            out.append(.init(id: "deed", name: "Registered sale deed",
+                             why: "The document that makes it yours"))
+        }
+        if missing("ror") && missing("adangal") && missing("passbook") {
+            out.append(.init(id: "ror", name: "1-B / Adangal extract",
+                             why: "Proof the record moved to you"))
+        }
+        if missing("encumbrance") && !readinessCheckPassed("ec") {
+            out.append(.init(id: "ec", name: "Encumbrance certificate",
+                             why: "Shows any loan sitting on the land"))
+        }
+        if missing("tax") && !readinessCheckPassed("tax") {
+            out.append(.init(id: "tax", name: "Land tax receipt",
+                             why: "Arrears surface at sale"))
+        }
+        if missing("fmb") {
+            out.append(.init(id: "fmb", name: "FMB sheet",
+                             why: "The surveyor's own drawing of the boundary"))
+        }
+        return out
+    }
+
+    private func readinessCheckPassed(_ id: String) -> Bool {
+        readiness.checks.first { $0.id == id }?.passed ?? false
+    }
+
+    // MARK: - People
+
+    @ViewBuilder private var peopleTab: some View {
+        Section("Held by") {
+            HStack(spacing: 12) {
+                Avatar(name: holderName, size: 40, isSelf: false)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(holderName.isEmpty ? "Not recorded" : holderName)
+                        .font(.subheadline.weight(.semibold))
+                    Text("On the record" + (parcel.acquisitionSource.isEmpty
+                        ? "" : " · via \(humanize(parcel.acquisitionSource).lowercased())"))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        OwnerHistorySection(owners: dossier?.parcels.first { $0.id == parcel.id }?.owners ?? [])
+
+        Section {
+            Button {
+                app.openFamily = true
+                app.selectedTab = .you
+            } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Beneficiaries").font(.subheadline.weight(.medium))
+                        Text("Who inherits this — land is lost more often to a paper nobody could find than to a dispute.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "person.badge.shield.checkmark")
+                        .foregroundStyle(.orange)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - On the land
+
+    @ViewBuilder private var onTheLandTab: some View {
+        OnTheLandSection(entityType: "parcel", entityId: parcel.id,
+                         features: features,
+                         onChanged: { Task { await loadDossier() } })
+
+        PhotoSection(photos: dossier?.parcelPhotos ?? [],
+                     villageCentroid: villageCentroid,
+                     placeName: passbook?.village ?? "")
+    }
+
+    // MARK: - Timeline
+
+    @ViewBuilder private var timelineTab: some View {
+        NotesSection(entityType: "parcel", entityId: parcel.id,
+                     notes: dossier?.notes ?? []) { Task { await loadDossier() } }
+
+        RecordHistorySection(events: dossier?.auditEvents ?? [])
     }
 
     private func loadDossier() async {
