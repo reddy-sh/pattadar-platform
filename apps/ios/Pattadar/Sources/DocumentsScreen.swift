@@ -133,31 +133,59 @@ struct DocumentDetailScreen: View {
     @State private var problem = ""
     @State private var reminded = false
     @State private var holdings: HoldingsResponse?
+    /// The full extraction, parsed once per appearance.
+    @State private var parsedReading: DocReading?
+    /// The summary in the language of the source. One tap, both ways.
+    @State private var showTelugu = false
+    /// The page the full-screen scan opens on, when one was tapped.
+    @State private var openAtPage: PageSelection?
+
+    struct PageSelection: Identifiable { let id: Int }
+
+    private var reading: DocReading {
+        if let parsedReading { return parsedReading }
+        return DocReading(json: doc.reading)
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // The paper itself, named the way a filing clerk would: what
-                // kind it is and which land it concerns, then the headline.
+                // The paper itself, named the way the registrar's index names
+                // it: its kind as a chip, "Sale deed · 2815 / 2020" in serif,
+                // where and when it was registered, then the file's own facts.
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(kicker)
-                        .font(.caption.weight(.medium))
-                        .kerning(1.2)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                    Text(doc.docType.isEmpty ? documentKind(doc.docType).label : doc.docType)
-                        .font(.system(.title, design: .serif).weight(.semibold))
-                    if !doc.headline.isEmpty {
-                        Divider()
-                        Text(doc.headline).font(.headline).fontWeight(.regular)
+                    HStack(spacing: 8) {
+                        Text((doc.docType.isEmpty ? "Document" : doc.docType).uppercased())
+                            .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
+                            .padding(.horizontal, 9).padding(.vertical, 4)
+                            .background(documentTintColor(doc.docType).opacity(0.16), in: Capsule())
+                            .foregroundStyle(documentTintColor(doc.docType))
+                        if !reading.language.isEmpty {
+                            Text(reading.language)
+                                .font(.caption).foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    Text(filedLine)
+                    Text(headerTitle)
+                        .font(.system(size: 28, weight: .semibold, design: .serif))
+                    if !registeredLine.isEmpty {
+                        Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Text(metaLine)
                         .font(.caption).foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
                 .background(Color(.secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                // The pages themselves, labelled with what each one IS —
+                // deed, endorsement, adangal. Tap opens the scan there.
+                if let fileURL = LocalFiles.url(for: doc.id) {
+                    PDFPageStrip(url: fileURL, reading: reading) { page in
+                        openAtPage = PageSelection(id: page)
+                    }
+                }
 
                 // What this paper covers. A passbook naming two survey numbers
                 // is filed against both, and the link has to run in this
@@ -200,14 +228,42 @@ struct DocumentDetailScreen: View {
 
                 // Paragraphs stay paragraphs: losing the blank lines turns the
                 // story back into the wall of text this replaced.
-                ForEach(paragraphs, id: \.self) { para in
-                    Text(para).font(.body)
+                if !paragraphs.isEmpty || !reading.summaryTe.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("What this says").font(.headline)
+                            Spacer()
+                            // The source is Telugu; the reader should not have
+                            // to be an English reader to check it.
+                            if !reading.summaryTe.isEmpty {
+                                Button(showTelugu ? "In English" : "తెలుగులో") {
+                                    withAnimation(.snappy) { showTelugu.toggle() }
+                                }
+                                .font(.subheadline.weight(.medium))
+                            }
+                        }
+                        ForEach(shownParagraphs, id: \.self) { para in
+                            Text(para).font(.body)
+                        }
+                        if !reading.watchOut.isEmpty {
+                            Divider()
+                            // The one line most likely to bite later, in amber
+                            // where the eye lands after the story.
+                            Label(reading.watchOut, systemImage: "exclamationmark.triangle.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
 
                 if !doc.summary.isEmpty || !doc.headline.isEmpty {
-                    Label("Read by AI from this file. It can be wrong — check it against the paper before relying on it.",
-                          systemImage: "sparkles")
-                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Label(readByLine, systemImage: "sparkles")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 if !doc.caveatList.isEmpty {
@@ -264,20 +320,12 @@ struct DocumentDetailScreen: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
-                if !facts.isEmpty {
-                    GroupBox("What was read from it") {
-                        VStack(spacing: 0) {
-                            ForEach(Array(facts.enumerated()), id: \.offset) { i, f in
-                                if i > 0 { Divider() }
-                                HStack {
-                                    Text(f.0).foregroundStyle(.secondary)
-                                    Spacer(minLength: 12)
-                                    Text(f.1).fontWeight(.medium).multilineTextAlignment(.trailing)
-                                }
-                                .padding(.vertical, 7)
-                            }
-                        }
-                    }
+                DocDetailsSection(groups: detailGroups, reading: reading) { page in
+                    if LocalFiles.url(for: doc.id) != nil { openAtPage = PageSelection(id: page) }
+                }
+
+                FileContentsSection(reading: reading) { page in
+                    if LocalFiles.url(for: doc.id) != nil { openAtPage = PageSelection(id: page) }
                 }
                 if !problem.isEmpty { Text(problem).foregroundStyle(.red).font(.callout) }
 
@@ -301,6 +349,86 @@ struct DocumentDetailScreen: View {
             // document, not separate things that survive it.
             Text("What was read from it — this summary, the parties and the extracted details — goes with it.")
         }
+        .fullScreenCover(item: $openAtPage) { selection in
+            if let url = LocalFiles.url(for: doc.id) {
+                PDFFullScreen(url: url, title: headerTitle, startPage: selection.id)
+            }
+        }
+        .onAppear { if parsedReading == nil { parsedReading = DocReading(json: doc.reading) } }
+    }
+
+    /// "Sale deed · 2815 / 2020" — kind, number, year, the registrar's own way
+    /// of naming it. Falls back to the kind alone for papers with no number.
+    private var headerTitle: String {
+        let kind = doc.docType.isEmpty ? documentKind(doc.docType).label : doc.docType
+        let number = [doc.documentNo, doc.regYear].filter { !$0.isEmpty }.joined(separator: " / ")
+        return number.isEmpty ? kind : "\(kind) · \(number)"
+    }
+
+    private var registeredLine: String {
+        var parts: [String] = []
+        if !doc.registrationDate.isEmpty { parts.append("Registered \(humanDate(doc.registrationDate))") }
+        if !doc.sro.isEmpty { parts.append(doc.sro) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Pages · size · filed — the file's own facts, one quiet line.
+    private var metaLine: String {
+        var parts: [String] = []
+        if reading.totalPages > 0 { parts.append("\(reading.totalPages) pages") }
+        if let url = LocalFiles.url(for: doc.id),
+           let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
+        parts.append(filedLine)
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// The summary in whichever language is switched on.
+    private var shownParagraphs: [String] {
+        let text = showTelugu && !reading.summaryTe.isEmpty ? reading.summaryTe : doc.summary
+        return text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// "Read by the agent · 11 fields · 3 need you"
+    private var readByLine: String {
+        var line = "Read by the agent — it can be wrong; check it against the paper"
+        if !reading.fieldPages.isEmpty {
+            line = "Read by the agent · \(reading.fieldPages.count) fields"
+            if !reading.fieldConfidence.isEmpty {
+                line += " · \(reading.fieldConfidence.count) need you"
+            }
+        }
+        return line
+    }
+
+    /// One standard schema for every document: Who · What · Money ·
+    /// Registration.
+    private var detailGroups: [(title: String, rows: [DocDetailRow])] {
+        var who: [DocDetailRow] = []
+        for party in reading.parties {
+            who.append(DocDetailRow(label: party.role.capitalized
+                                        + (party.isGPA ? " · via GPA holder" : ""),
+                                    value: party.name, field: "parties"))
+        }
+        let what: [DocDetailRow] = [
+            .init(label: "Village", value: doc.village, field: "village"),
+            .init(label: "Survey number", value: doc.surveyNo, field: "survey_no"),
+            .init(label: "Plot number", value: doc.plotNo, field: "plot_no"),
+            .init(label: "Extent", value: doc.extent, field: "extent"),
+        ].filter { !$0.value.isEmpty }
+        let money: [DocDetailRow] = [
+            .init(label: "Consideration", value: doc.consideration > 0 ? rupees(doc.consideration) : "",
+                  field: "consideration"),
+        ].filter { !$0.value.isEmpty }
+        let registration: [DocDetailRow] = [
+            .init(label: "Document no.", value: doc.documentNo, field: "document_no"),
+            .init(label: "Registered on", value: humanDate(doc.registrationDate), field: "registration_date"),
+            .init(label: "Sub-registrar", value: doc.sro, field: "sro"),
+        ].filter { !$0.value.isEmpty }
+        return [("Who", who), ("What", what), ("Money", money), ("Registration", registration)]
     }
 
     private func remove() async {

@@ -43,7 +43,7 @@ public enum Queries {
       registeredDocuments {
         id ref fileRef docType documentNo regYear sro village district surveyNo plotNo
         extent consideration registrationDate passbookId parcelId propertyId
-        headline summary keyPointList caveatList createdAt
+        headline summary keyPointList caveatList createdAt reading
       }
     }
     """

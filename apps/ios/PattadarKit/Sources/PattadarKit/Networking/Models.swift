@@ -100,6 +100,7 @@ public struct Property: Decodable, Identifiable, Sendable {
 public struct RegisteredDocument: Decodable, Identifiable, Sendable {
     public let id: String
     public let ref: String
+    public let documentNo: String
     public let docType: String
     public let sro: String
     public let village: String
@@ -122,6 +123,9 @@ public struct RegisteredDocument: Decodable, Identifiable, Sendable {
     public let keyPointList: [String]
     public let caveatList: [String]
     public let createdAt: String
+    /// The full extraction, verbatim JSON — the document viewer's source of
+    /// truth. Empty on documents filed before it existed.
+    public let reading: String
 }
 
 public struct HoldingsResponse: Decodable, Sendable {

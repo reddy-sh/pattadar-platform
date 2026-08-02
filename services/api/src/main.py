@@ -866,6 +866,10 @@ class RegisteredDocumentType:
     caveats: strawberry.Private[str]
     key_points: strawberry.Private[str]
     created_at: str
+    # The full extraction, verbatim JSON — the document viewer's source of
+    # truth for language, the Telugu summary, page ranges, per-field pages
+    # and confidence. Empty on rows filed before it existed.
+    reading: str = ""
 
     @strawberry.field
     def key_point_list(self) -> List[str]:
@@ -3520,8 +3524,8 @@ class Mutation:
                 "registration_date, execution_date, consideration, stamp_duty, transfer_duty, registration_fee, "
                 "user_charges, total_fee, village, mandal, district, survey_no, plot_no, extent, classification, "
                 "boundary_north, boundary_south, boundary_east, boundary_west, prior_document, gpa_document, "
-                "scanning_id, file_ref, summary, caveats, headline, key_points, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "scanning_id, file_ref, summary, caveats, headline, key_points, reading, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (did, uid, _s("doc_type"), _s("document_no"), _s("reg_year"), _s("book_no"), _s("sro"),
                  _s("registration_date"), _s("execution_date"), _n("consideration"), _n("stamp_duty"), _n("transfer_duty"),
                  _n("registration_fee"), _n("user_charges"), _n("total_fee"), _s("village"), _s("mandal"), _s("district"),
@@ -3532,6 +3536,7 @@ class Mutation:
                  _s("summary"), json.dumps([str(c) for c in (data.get("caveats") or []) if str(c).strip()]),
                  _s("headline"),
                  json.dumps([str(k) for k in (data.get("key_points") or []) if str(k).strip()]),
+                 payload,
                  now),
             )
             for p in (data.get("parties") or []):
@@ -4326,6 +4331,12 @@ async def init_db() -> None:
         # somewhere to live (create_property_from_document).
         await conn.execute(
             "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS property_id TEXT NOT NULL DEFAULT ''")
+        # The full extraction payload, verbatim JSON. The columns above are the
+        # LIST view of a document; the viewer reads this — language, the Telugu
+        # summary, page ranges, per-field pages and confidence — and future
+        # fields land here without another migration.
+        await conn.execute(
+            "ALTER TABLE registered_documents ADD COLUMN IF NOT EXISTS reading TEXT NOT NULL DEFAULT ''")
         # What the AI read, in words, kept ON the document row. A summary is a
         # statement ABOUT one particular file — it has no meaning apart from it,
         # so it is a column here rather than a record of its own, and it goes
@@ -5563,8 +5574,25 @@ _DOC_IMPORT_SYSTEM = (
     '"unit":"<Acres|Guntas|Cents|Hectares|Sq.yards>","classification":"<agri|non-agri>",'
     '"acquisition_source":"<purchase|inheritance|gift|partition|government>"}],'
     '"summary":"<2-3 short paragraphs, see below>",'
+    '"summary_te":"<the same summary in TELUGU — natural Telugu, not transliteration>",'
+    '"language":"<what the document is written in, e.g. Telugu | English | Telugu, with an English endorsement>",'
+    '"watch_out":"<ONE sentence naming the thing most likely to bite later — a khata ambiguity, a missing page, a survey number only on an annexure. \'\' if nothing>",'
+    '"contents":[{"pages":"<e.g. 1-9>","kind":"<Sale Deed|Registration Endorsement|ROR/Adangal|Route Map|Photos|Other>"}],'
+    '"field_pages":{"<field name>":<page number the value was read from>},'
+    '"field_confidence":{"<field name>":"<clean|check|unsure> — ONLY fields that are not clean"},'
     '"caveats":["<anything unreadable, ambiguous or worth checking — [] if none>"],'
     '"confidence":"<high|medium|low>"}\n'
+    "CONTENTS — a registered file is often SEVERAL documents bound together: the deed itself, "
+    "the registration endorsement with photographs and thumb impressions, an adangal or ROR "
+    "print, a route map. Classify the page ranges FIRST and list every range in `contents`, in "
+    "page order, covering all pages. A single-document file is one range. A page printed "
+    "sideways is still its document — say so in caveats if it was hard to read.\n"
+    "FIELD_PAGES / FIELD_CONFIDENCE — for each top-level extracted field you filled "
+    "(document_no, registration_date, consideration, extent, survey_no, village, parties, "
+    "boundaries…), record in `field_pages` the page its value was read from. In "
+    "`field_confidence` list ONLY the fields you are not fully sure of: \"check\" when a careful "
+    "person should glance at the page, \"unsure\" when you may well be wrong. A field absent "
+    "from `field_confidence` is clean. Never mark a field clean to be polite.\n"
     "BOUNDARY_POINTS — an FMB, survey sketch or resurvey sheet usually ends in a POINT TABLE: "
     "one row per corner with columns like Point Id, Easting, Northing, Latitude, Longitude. "
     "When such a table is present, extract EVERY row's latitude and longitude as "

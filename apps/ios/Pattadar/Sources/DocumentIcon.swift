@@ -43,8 +43,13 @@ struct DocumentIcon: View {
 
     /// The kit names the tint so it stays free of SwiftUI; the mapping lives
     /// here, where colours belong.
-    private var color: Color {
-        switch kind.tint {
+    private var color: Color { documentTintColor(docType) }
+}
+
+/// The kind's colour, for anything that dresses a document — the icon tile,
+/// the viewer's kind chip.
+func documentTintColor(_ docType: String) -> Color {
+    switch documentKind(docType).tint {
         case "blue": .blue
         case "pink": .pink
         case "orange": .orange
@@ -56,6 +61,5 @@ struct DocumentIcon: View {
         case "mint": .mint
         case "gray": .gray
         default: .secondary
-        }
     }
 }
