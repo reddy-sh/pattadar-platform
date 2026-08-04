@@ -100,6 +100,14 @@ enum Holding: Identifiable {
         }
     }
 
+    /// The surveyed outline, "lat,lng;…" — empty when none is drawn.
+    var boundary: String {
+        switch self {
+        case .parcel(let p, _): p.boundary
+        case .property(let p): p.boundary
+        }
+    }
+
     /// Which family of holding this is — decides the unit it is quoted in.
     var kind: HoldingKind {
         switch self {

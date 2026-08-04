@@ -33,6 +33,16 @@ struct PropertiesMap: View {
                         .tint(tint(item.holding.kind))
                         .tag(item.holding.id)
                 }
+                // The surveyed outlines, over the imagery — the best thing on
+                // this map. A holding with corners shows its actual shape,
+                // pinned or not.
+                ForEach(holdings.filter { !parseBoundary($0.boundary).isEmpty }, id: \.id) { h in
+                    MapPolygon(coordinates: parseBoundary(h.boundary).map {
+                        CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                    })
+                    .foregroundStyle(tint(h.kind).opacity(0.18))
+                    .stroke(tint(h.kind), lineWidth: 2)
+                }
             }
             .mapStyle(.hybrid(elevation: .realistic))   // fields read better from imagery
             .ignoresSafeArea(edges: .bottom)

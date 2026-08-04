@@ -1,4 +1,5 @@
 import Charts
+import MapKit
 import PattadarKit
 import SwiftUI
 
@@ -528,5 +529,82 @@ struct RecordReadyCard: View {
     private var ringColour: Color {
         blockingCount > 0 ? Color(red: 0.86, green: 0.35, blue: 0.42)
             : score >= 100 ? .green : .orange
+    }
+}
+
+
+/// All of it, on one map — the Home card.
+///
+/// Pins for every located holding, the surveyed outlines where corners are on
+/// file, on hybrid imagery, framed to hold everything. Non-interactive as a
+/// preview (a card must not steal the scroll); tapping opens the full map.
+struct HomeMapCard: View {
+    let holdings: [Holding]
+
+    private var pins: [Holding] { holdings.filter { $0.pin != nil } }
+    private var outlined: [Holding] { holdings.filter { !parseBoundary($0.boundary).isEmpty } }
+
+    /// Framed on everything that can be placed: corners and pins together.
+    private var region: MKCoordinateRegion? {
+        var lats: [Double] = []
+        var lngs: [Double] = []
+        for h in holdings {
+            if let p = h.pin { lats.append(p.latitude); lngs.append(p.longitude) }
+            for c in parseBoundary(h.boundary) {
+                lats.append(c.latitude); lngs.append(c.longitude)
+            }
+        }
+        guard let latMin = lats.min(), let latMax = lats.max(),
+              let lngMin = lngs.min(), let lngMax = lngs.max() else { return nil }
+        return MKCoordinateRegion(
+            center: .init(latitude: (latMin + latMax) / 2, longitude: (lngMin + lngMax) / 2),
+            span: .init(latitudeDelta: max((latMax - latMin) * 1.5, 0.02),
+                        longitudeDelta: max((lngMax - lngMin) * 1.5, 0.02)))
+    }
+
+    var body: some View {
+        if let region {
+            NavigationLink {
+                PropertiesMap(holdings: holdings)
+            } label: {
+                Map(initialPosition: .region(region)) {
+                    ForEach(pins, id: \.id) { h in
+                        if let p = h.pin {
+                            Marker("", systemImage: h.kind.icon,
+                                   coordinate: .init(latitude: p.latitude, longitude: p.longitude))
+                        }
+                    }
+                    ForEach(outlined, id: \.id) { h in
+                        MapPolygon(coordinates: parseBoundary(h.boundary).map {
+                            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                        })
+                        .foregroundStyle(.green.opacity(0.2))
+                        .stroke(.green, lineWidth: 2)
+                    }
+                }
+                .mapStyle(.hybrid)
+                .allowsHitTesting(false)
+                .frame(height: 160)
+                .overlay(alignment: .bottomLeading) {
+                    // What is NOT on this map yet, said on the map.
+                    if pins.count < holdings.count {
+                        Text("\(pins.count) of \(holdings.count) pinned")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.thinMaterial, in: Capsule())
+                            .padding(10)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    Label("Your land", systemImage: "map")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(.thinMaterial, in: Capsule())
+                        .padding(10)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
     }
 }

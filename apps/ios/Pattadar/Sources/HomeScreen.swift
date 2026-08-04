@@ -42,6 +42,24 @@ struct HomeScreen: View {
                                      count: c.count, passbooks: c.passbooks)
                         }
 
+                        // What the holdings NEED, after what they are — the
+                        // top-level door to the fix sheets that live on each
+                        // holding. Hidden when every check passes: a green
+                        // card saying "all fine" is noise.
+                        if readinessItems.contains(where: { !$0.readiness.isReady }) {
+                            RecordReadyCard(score: overallReadiness,
+                                            blurb: readinessBlurb(readinessItems),
+                                            blockingCount: readinessItems.filter { !$0.readiness.blocking.isEmpty }.count) {
+                                app.holdingsFilter = .needsAttention
+                                app.selectedTab = .properties
+                            }
+                        }
+
+                        // All of it, on one map — pins and surveyed outlines
+                        // together. For a land app this is the most glanceable
+                        // card Home can carry, and it was three taps deep.
+                        HomeMapCard(holdings: allHoldings)
+
                         // The shortcut row, after the facts.
                         //
                         // These are doors, not answers — where are my papers,
@@ -62,7 +80,10 @@ struct HomeScreen: View {
                                     shortcut("Who holds what", "person.text.rectangle.fill")
                                 }
                                 NavigationLink { SpendScreen() } label: {
-                                    shortcut("Spend", "indianrupeesign.circle.fill")
+                                    // This financial year's total, answered on
+                                    // the chip like Documents and Timeline.
+                                    shortcut("Spend", "indianrupeesign.circle.fill",
+                                             note: spentThisFY > 0 ? compactRupees(spentThisFY) : "")
                                 }
                                 // The activity feed lives entirely behind this
                                 // chip; what the old card on Home was good for —
@@ -124,6 +145,8 @@ struct HomeScreen: View {
         d.dashboardStats.totalDocuments
     }
     @State private var documentsSeen = 0
+    @State private var documents: [RegisteredDocument] = []
+    @State private var expenses: [LandExpense] = []
     @State private var showAdd = false
     @State private var reviewToAdd: ReviewQueue.Entry?
 
@@ -140,13 +163,17 @@ struct HomeScreen: View {
         name.split(separator: " ").first.map(String.init) ?? ""
     }
 
+    /// Every holding as the list/map type — parcels joined to their passbooks.
+    private var allHoldings: [Holding] {
+        guard let h = holdings else { return [] }
+        let parcels = h.parcels.map { p in Holding.parcel(p, h.passbooks.first { $0.id == p.passbookId }) }
+        return parcels + h.properties.map { Holding.property($0) }
+    }
+
     /// What you starred, at the top of Home — the point of starring is that
     /// these are the ones you come back to.
     private var starred: [Holding] {
-        guard let h = holdings else { return [] }
-        let parcels = h.parcels.map { p in Holding.parcel(p, h.passbooks.first { $0.id == p.passbookId }) }
-        return (parcels + h.properties.map { Holding.property($0) })
-            .filter { app.isFavourite($0.entityType, $0.entityId) }
+        allHoldings.filter { app.isFavourite($0.entityType, $0.entityId) }
     }
 
     /// 🙏 Namaste — the greeting people here actually use, and the emoji that
@@ -165,6 +192,58 @@ struct HomeScreen: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
         .background(Capsule().fill(Color(.secondarySystemGroupedBackground)))
+    }
+
+    /// Each holding assessed against what a buyer's advocate would ask for —
+    /// the same checks, fix sheets and copy the holding screens use; this is
+    /// only their front door.
+    private var readinessItems: [(name: String, readiness: Readiness)] {
+        guard let h = holdings else { return [] }
+        let year = Calendar.current.component(.year, from: Date())
+        let documentedParcels = Set(documents.map(\.parcelId))
+        let documentedProperties = Set(documents.map(\.propertyId))
+
+        let parcels = h.parcels.map { p -> (String, Readiness) in
+            ("Sy \(p.surveyNo)", assessReadiness(ReadinessInput(
+                hasTitleDocument: documentedParcels.contains(p.id),
+                hasLocation: parseGeoPoint(p.geoPoint) != nil,
+                hasRegistrationNumber: !p.regDocNo.isEmpty,
+                mutationStatus: p.mutationStatus, ecStatus: p.ecStatus,
+                taxPaidUpto: p.taxPaidUpto, litigation: p.litigation), thisYear: year))
+        }
+        let properties = h.properties.map { p -> (String, Readiness) in
+            let name = p.label.isEmpty ? (p.city.isEmpty ? "Property" : p.city) : p.label
+            return (name, assessReadiness(ReadinessInput(
+                hasTitleDocument: documentedProperties.contains(p.id),
+                hasLocation: parseGeoPoint(p.geoPoint) != nil,
+                hasRegistrationNumber: !p.regDocNo.isEmpty,
+                mutationStatus: p.mutationStatus, ecStatus: p.ecStatus,
+                taxPaidUpto: p.taxPaidUpto, litigation: p.litigation), thisYear: year))
+        }
+        return parcels + properties
+    }
+
+    /// The share of ALL checks across ALL holdings, not an average of
+    /// averages — one perfect parcel must not paper over four broken ones.
+    private var overallReadiness: Int {
+        let all = readinessItems.flatMap { $0.readiness.checks }
+        guard !all.isEmpty else { return 0 }
+        return Int((Double(all.filter(\.passed).count) / Double(all.count)) * 100)
+    }
+
+    /// This financial year's spend, for the chip. April to March — the year
+    /// every receipt and tax demand here runs on.
+    private var spentThisFY: Double {
+        let cal = Calendar.current
+        let now = Date()
+        let year = cal.component(.year, from: now)
+        let fyStartYear = cal.component(.month, from: now) >= 4 ? year : year - 1
+        let start = cal.date(from: DateComponents(year: fyStartYear, month: 4, day: 1))!
+        return expenses.filter { e in
+            guard let d = ISO8601DateFormatter().date(from: e.spentOn)
+                    ?? parseAuditTime(e.spentOn) else { return false }
+            return d >= start
+        }.reduce(0) { $0 + $1.amount }
     }
 
     /// How long ago the last thing happened. Empty on an account where nothing
@@ -328,9 +407,12 @@ struct HomeScreen: View {
         async let dash = app.load(Queries.dashboard, as: DashboardResponse.self)
         async let held = app.load(Queries.holdings, as: HoldingsResponse.self)
         async let docs = app.load(Queries.documents, as: DocumentsResponse.self)
+        async let spend = app.load(Queries.landExpenses, as: LandExpensesResponse.self)
         data = await dash
         holdings = await held
-        documentsSeen = (await docs?.registeredDocuments ?? []).count
+        documents = await docs?.registeredDocuments ?? []
+        documentsSeen = documents.count
+        expenses = (await spend)?.landExpenses ?? []
         await app.loadFavourites()
         // Keep the widget in step with what the app just loaded.
         if let d = data {
