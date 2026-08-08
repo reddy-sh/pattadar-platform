@@ -46,6 +46,10 @@ output "cognito_spa_client_id" {
   value = module.persistent.cognito_spa_client_id
 }
 
+output "cognito_mobile_client_id" {
+  value = module.persistent.cognito_mobile_client_id
+}
+
 output "cognito_issuer" {
   value = module.persistent.cognito_issuer
 }
