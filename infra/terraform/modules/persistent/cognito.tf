@@ -207,7 +207,12 @@ resource "aws_cognito_user_pool_client" "mobile" {
   name         = "${local.prefix}-mobile"
   user_pool_id = aws_cognito_user_pool.pattadar.id
 
-  generate_secret = false
+  # NO generate_secret here, deliberately. The live prod client was created
+  # via the CLI with the attribute unset, and Terraform treats writing it —
+  # even as `false`, the same effective value — as a REPLACEMENT trigger. A
+  # replaced client gets a new id, which would brick every installed app and
+  # revoke every refresh token. Unset and false mean the same thing: public
+  # client, no secret.
 
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_flows_user_pool_client = true
