@@ -31,13 +31,17 @@ targets:
   Pattadar:
     type: application
     platform: iOS
-    sources: [Pattadar/Sources]
+    sources:
+      - Pattadar/Sources
+      # The icon: the Rye P, white on brick red — the wordmark's own mark.
+      - Pattadar/Assets.xcassets
     # Same team as the React Native app, so a device build signs without any
     # manual step in Xcode. Automatic signing lets Xcode manage the profile.
     settings:
       base:
         DEVELOPMENT_TEAM: WME7N6KM67
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # A device build reaches the Mac over the tunnel, not localhost — the
         # simulator shares the Mac's network stack, a phone does not.
         # An id your team ALREADY has a provisioning profile for, so a device
@@ -59,10 +63,10 @@ targets:
     info:
       path: Pattadar/Info.plist
       properties:
-        # Distinct from the React Native app's "Pattadar": both install on
-        # the same simulator, and two identical icons is how you end up
-        # opening the wrong one and finding an empty screen.
-        CFBundleDisplayName: Pattadar Native
+        # Plain "Pattadar" now — this IS the app. The React Native build,
+        # where still installed, is the one that must give way; two identical
+        # names on one phone means deleting the RN app, not renaming this one.
+        CFBundleDisplayName: Pattadar
         UILaunchScreen: {}
         # Local development talks to the Mac over http; remove with the tunnel.
         NSAppTransportSecurity:
