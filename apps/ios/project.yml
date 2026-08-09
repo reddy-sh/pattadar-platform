@@ -23,10 +23,9 @@ schemes:
       config: Debug
       environmentVariables:
         PATTADAR_USER: sankara.telukutla
-        # The tunnel, not 127.0.0.1: the simulator shares the Mac's network
-        # stack but a PHONE does not, and one address that works from both
-        # beats a scheme you have to edit depending on where you are running.
-        PATTADAR_API_URL: https://dissipative-dena-lovingly.ngrok-free.dev
+        # Local API for development runs from Xcode; the installed app
+        # defaults to production (see the bundle plist below).
+        PATTADAR_API_URL: http://127.0.0.1:8080
 targets:
   Pattadar:
     type: application
@@ -84,10 +83,17 @@ targets:
         #
         # Scheme environment variables only reach the app when Xcode launches
         # it. Tapping the icon, or installing with devicectl, gets none of
-        # them — so the app fell back to 127.0.0.1, which on a phone is the
-        # phone, and every screen said "could not connect to the server".
-        # These are the defaults; the env vars still override for development.
-        PattadarAPIURL: https://dissipative-dena-lovingly.ngrok-free.dev
+        # them — these are the defaults; the env vars still override for
+        # development.
+        #
+        # PRODUCTION, through the gateway. The tunnel to the founder's laptop
+        # is retired: a laptop is a part-time server, and the app died every
+        # time the lid closed. api.<domain> goes to the ALB directly rather
+        # than through CloudFront, because a deed read runs ~90 seconds and
+        # CloudFront caps origin reads at 60 — the ALB and the gateway both
+        # allow 200. Identity is the Cognito token; the gateway strips the
+        # header below and every other identity claim a client makes.
+        PattadarAPIURL: https://api.pattadar.com/api/gateway/pattadar
         PattadarUser: sankara.telukutla
 
   PattadarWidgetExtension:
