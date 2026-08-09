@@ -11,12 +11,28 @@ struct HomeScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    if data != nil && isEmptyAccount {
-                        // Nothing recorded yet — a grid of zeros reports a
-                        // fault; this reports a beginning.
+                    if data != nil && !hasHoldings {
+                        // No land on file — a beginning, not a fault. But the
+                        // beginning must not HIDE what does exist: readings
+                        // waiting for review and documents already in the
+                        // vault survive an emptied portfolio, and a screen
+                        // that pretends otherwise looks broken.
+                        greeting
+                        if !app.pendingReviews.isEmpty {
+                            ReviewCard(entries: app.pendingReviews,
+                                       onOpen: { reviewToAdd = $0 },
+                                       onDiscard: { app.discardReview($0.id) })
+                        }
                         WelcomeState(name: firstName,
                                      onScan: { showAdd = true },
-                                     onManual: { showAdd = true })
+                                     onManual: { showAdd = true },
+                                     showsGreeting: false)
+                        if documentsSeen > 0 {
+                            Button { app.selectedTab = .documents } label: {
+                                shortcut("\(documentsSeen) document\(documentsSeen == 1 ? "" : "s") in the vault",
+                                         "doc.text.fill")
+                            }
+                        }
                     } else if data != nil {
                         greeting
 
@@ -159,13 +175,14 @@ struct HomeScreen: View {
     @State private var showAdd = false
     @State private var reviewToAdd: ReviewQueue.Entry?
 
-    /// Nothing at all — not merely nothing in one category.
-    private var isEmptyAccount: Bool {
+    /// Any LAND on file. Documents deliberately do not count: an account
+    /// with vault papers but no holdings still needs to be shown the way in,
+    /// not a dashboard of nothing.
+    private var hasHoldings: Bool {
         let h = holdings
-        return (h?.parcels.isEmpty ?? true)
-            && (h?.properties.isEmpty ?? true)
-            && (h?.passbooks.isEmpty ?? true)
-            && documentsSeen == 0
+        return !(h?.parcels.isEmpty ?? true)
+            || !(h?.properties.isEmpty ?? true)
+            || !(h?.passbooks.isEmpty ?? true)
     }
 
     private var firstName: String {

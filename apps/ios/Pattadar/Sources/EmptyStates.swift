@@ -11,17 +11,22 @@ struct WelcomeState: View {
     let name: String
     let onScan: () -> Void
     let onManual: () -> Void
+    /// Off when the screen above already greets — two Namastes in one
+    /// viewport is one too many.
+    var showsGreeting = true
 
     var body: some View {
         VStack(spacing: 18) {
-            Text("🙏").font(.system(size: 54))
+            if showsGreeting {
+                Text("🙏").font(.system(size: 54))
 
-            VStack(spacing: 6) {
-                Text(name.isEmpty ? "Namaste" : "Namaste, \(name)")
-                    .font(.title2.weight(.semibold))
-                Text("Your land, your records — in one place, and yours alone.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 6) {
+                    Text(name.isEmpty ? "Namaste" : "Namaste, \(name)")
+                        .font(.title2.weight(.semibold))
+                    Text("Your land, your records — in one place, and yours alone.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
 
             VStack(alignment: .leading, spacing: 14) {
