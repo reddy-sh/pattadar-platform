@@ -39,12 +39,16 @@ public func vaultKeyInfo(
     if kind.contains("deed") || kind.contains("gpa") || kind.contains("mortgage") {
         return joined([docNoLine, extent, buyer()])
     }
-    // Revenue records: the khata, whose name is on it, where.
+    // Revenue records: the khata, whose name is on it, where — and when the
+    // record lists several survey entries, say how many, because that IS
+    // what is inside the file.
     if kind.contains("ror") || kind.contains("adangal") || kind.contains("passbook")
         || kind.contains("pahani") || kind.contains("1-b") || kind.contains("1b") {
         let khata = [str("pattadar_no"), str("khata_no")].first { !$0.isEmpty } ?? ""
         let holder = [str("owner_name"), buyer()].first { !$0.isEmpty } ?? ""
-        return joined([khata.isEmpty ? "" : "Khata \(khata)", holder, village])
+        let entries = (reading["parcels"] as? [[String: Any]])?.count ?? 0
+        return joined([khata.isEmpty ? "" : "Khata \(khata)", holder, village,
+                       entries > 1 ? "\(entries) entries" : ""])
     }
     // Survey drawings: which land, how much it draws.
     if kind.contains("fmb") || kind.contains("map") || kind.contains("field measurement") {

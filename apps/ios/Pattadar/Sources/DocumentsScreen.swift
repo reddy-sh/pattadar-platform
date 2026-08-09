@@ -63,24 +63,19 @@ struct DocumentsScreen: View {
                                     DocumentIcon(docType: d.docType,
                                                  hasFile: LocalFiles.url(for: d.id) != nil)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        // The YEAR beside the kind: five RORs of
-                                        // one village are told apart by date, and
-                                        // the kind alone repeated five times said
-                                        // nothing.
-                                        Text(d.docType.isEmpty ? documentKind(d.docType).label : d.docType)
-                                            .fontWeight(.semibold)
-                                        + Text(rowYear(d).isEmpty ? "" : "  ·  \(rowYear(d))")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                        // KEY FACTS at the master level, chosen per
-                                        // KIND: a deed is known by number, extent
-                                        // and who it made the owner; a 1-B by khata
-                                        // and holder; an FMB by village and extent.
-                                        // No caveats here — they belong to the
-                                        // detail screen, and rows wearing warnings
-                                        // drowned the facts.
+                                        // WHAT IS INSIDE is the title — each row's
+                                        // bold line is unique content ("Khata 567 ·
+                                        // Telukutla Swetha"), because five rows all
+                                        // titled "ROR/Adangal" distinguished
+                                        // nothing. The kind and year demote to the
+                                        // small line; the icon says the kind too.
                                         Text(masterLine(d))
-                                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                            .fontWeight(.semibold)
+                                            .lineLimit(1)
+                                        Text([d.docType.isEmpty ? documentKind(d.docType).label : d.docType,
+                                              rowYear(d)]
+                                            .filter { !$0.isEmpty }.joined(separator: " · "))
+                                            .font(.caption).foregroundStyle(.secondary)
                                         if LocalFiles.url(for: d.id) == nil {
                                             Text("Details only — no file stored")
                                                 .font(.caption2).foregroundStyle(.tertiary)
@@ -147,7 +142,8 @@ struct DocumentsScreen: View {
                                 surveyNo: d.surveyNo, extent: d.extent,
                                 reading: reading)
         if !line.isEmpty { return line }
-        return d.headline.isEmpty ? subtitle(d) : d.headline
+        if !d.headline.isEmpty { return d.headline }
+        return d.docType.isEmpty ? documentKind(d.docType).label : d.docType
     }
 
     /// The year a person recognises the document by.
