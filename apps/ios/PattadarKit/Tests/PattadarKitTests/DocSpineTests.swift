@@ -194,6 +194,16 @@ struct DocSpineTests {
         #expect(s.quantumLine == "DOB 2 April 1981")
     }
 
+    @Test func theNumberReadsBackOffTheLocalCard() {
+        // The founder's own e-Aadhaar text layer, as PDFKit extracts it.
+        let cardText = "మీ ఆధార్ సంఖ్య / Your Aadhaar No. :\n5499 8605 8203\nనా ఆధార్, నా గుర్తింపు"
+        #expect(firstIdentityNumber(in: cardText) == "5499 8605 8203")
+        #expect(firstIdentityNumber(in: "PAN: ABCDE1234F") == "ABCDE1234F")
+        #expect(firstIdentityNumber(in: "549986058203") == "5499 8605 8203")
+        // Enrolment numbers, phones, PINs and dates never read as the number.
+        #expect(firstIdentityNumber(in: "Enrolment No.: 2052/31604/73664 · 9866424000 · 523246 · 02/04/1981") == nil)
+    }
+
     @Test func proseNeverCarriesAnOpenIdentityNumber() {
         // The founder's own Aadhaar upload: the reader wrote the number into
         // a key point. Whatever the reader emits, the screen masks.

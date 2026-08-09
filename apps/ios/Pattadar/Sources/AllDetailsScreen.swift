@@ -1,5 +1,7 @@
+import PDFKit
 import PattadarKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Page 2 of a document: every field, its page, its flags — then the file
 /// map. Page 1 answers; this page proves. Identity numbers arrive masked and
@@ -13,6 +15,9 @@ struct DocumentAllDetailsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if spine.family == "identity" {
+                    IdentitySection(doc: doc, spine: spine)
+                }
                 DocDetailsSection(groups: detailGroups, reading: reading) { page in
                     if LocalFiles.url(for: doc.id) != nil {
                         openAtPage = DocumentDetailScreen.PageSelection(id: page)
@@ -89,5 +94,137 @@ struct DocumentAllDetailsScreen: View {
         ].filter { !$0.value.isEmpty }
         return [("Who", who), ("Where it is", whereItIs), ("Boundaries · హద్దులు", boundaries),
                 ("What", what), ("Money", money), ("Registration", registration)]
+    }
+}
+
+/// The identity card's own rows: the number, revealed from the SCAN ON THIS
+/// PHONE at tap time — the cloud only ever holds the masked form, and the
+/// full number lives in the file that never left the device — and the full
+/// printed address, both with copy. The number's clipboard clears itself.
+struct IdentitySection: View {
+    let doc: RegisteredDocument
+    let spine: DocSpine
+
+    @State private var revealedNumber: String?
+    @State private var revealStamp: Date?
+    @State private var numberCopied = false
+    @State private var addressCopied = false
+    @State private var problem = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("IDENTITY")
+                .font(.caption.weight(.medium)).kerning(1.1)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(numberLabel).font(.subheadline).foregroundStyle(.secondary)
+                        Text(revealedNumber == nil
+                             ? "Read from the scan on this phone — nothing is fetched"
+                             : "Re-masks in a minute")
+                            .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 12)
+                    Text(revealedNumber ?? spine.identityLabel)
+                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+                .padding(.vertical, 10)
+                HStack(spacing: 16) {
+                    Button(revealedNumber == nil ? "Reveal" : "Hide") { toggleReveal() }
+                    if revealedNumber != nil {
+                        Button {
+                            copyNumber()
+                        } label: {
+                            Label(numberCopied ? "Copied — clears in a minute" : "Copy the number",
+                                  systemImage: numberCopied ? "checkmark" : "doc.on.doc")
+                        }
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.borderless)
+                .padding(.bottom, 10)
+                if !problem.isEmpty {
+                    Text(problem)
+                        .font(.caption).foregroundStyle(.orange)
+                        .padding(.bottom, 10)
+                }
+                Divider()
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("Address on card").font(.subheadline).foregroundStyle(.secondary)
+                    Spacer(minLength: 12)
+                    Text(fullAddress)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.trailing)
+                }
+                .padding(.vertical, 10)
+                Button {
+                    UIPasteboard.general.string = fullAddress
+                    addressCopied = true
+                } label: {
+                    Label(addressCopied ? "Copied" : "Copy the address",
+                          systemImage: addressCopied ? "checkmark" : "doc.on.doc")
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.borderless)
+                .padding(.bottom, 10)
+            }
+            .padding(.horizontal, 14)
+            .background(Color(.secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private var numberLabel: String {
+        doc.docType.lowercased().contains("pan") ? "PAN" : "Aadhaar no."
+    }
+
+    /// The full address exactly as printed: the reader's `address` field when
+    /// it exists, else the key point that carries it, else the split parts.
+    private var fullAddress: String {
+        let raw = (try? JSONSerialization.jsonObject(with: Data(doc.reading.utf8))) as? [String: Any] ?? [:]
+        if let a = raw["address"] as? String,
+           !a.trimmingCharacters(in: .whitespaces).isEmpty { return a }
+        if let bullet = doc.keyPointList.first(where: { $0.lowercased().hasPrefix("address") }) {
+            return bullet.replacingOccurrences(of: #"^[Aa]ddress\s*[:\-–]\s*"#,
+                                               with: "", options: .regularExpression)
+        }
+        return [doc.village, doc.mandal, doc.district].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    private func toggleReveal() {
+        if revealedNumber != nil {
+            revealedNumber = nil
+            numberCopied = false
+            return
+        }
+        guard let url = LocalFiles.url(for: doc.id),
+              let pdf = PDFDocument(url: url), let text = pdf.string,
+              let number = firstIdentityNumber(in: text) else {
+            problem = "The number could not be read from this scan — open the file to see the card itself."
+            return
+        }
+        problem = ""
+        let stamp = Date()
+        revealStamp = stamp
+        revealedNumber = number
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+            if revealStamp == stamp {
+                revealedNumber = nil
+                numberCopied = false
+            }
+        }
+    }
+
+    private func copyNumber() {
+        guard let revealedNumber else { return }
+        // The clipboard clears ITSELF — a number pasted into a bank form must
+        // not still be riding the pasteboard at dinner.
+        UIPasteboard.general.setItems(
+            [[UTType.utf8PlainText.identifier: revealedNumber]],
+            options: [.expirationDate: Date().addingTimeInterval(60)])
+        numberCopied = true
     }
 }

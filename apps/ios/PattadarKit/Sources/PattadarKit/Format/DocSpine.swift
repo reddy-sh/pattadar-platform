@@ -357,6 +357,26 @@ public func displayIdentity(_ value: String) -> String {
     isSensitiveIdentityValue(value) ? maskedIdentity(value) : value
 }
 
+/// The first Aadhaar- or PAN-shaped number found INSIDE a text blob — for
+/// reading the number off the user's OWN local scan at reveal time. The
+/// cloud only ever holds the masked form; the full number lives in the file
+/// on the phone, and this is how a deliberate tap gets it back.
+public func firstIdentityNumber(in text: String) -> String? {
+    for pattern in [#"\d{4}[\s-]\d{4}[\s-]\d{4}"#,
+                    #"(?<!\d)\d{12}(?!\d)"#,
+                    #"(?<![A-Z])[A-Z]{5}\d{4}[A-Z](?![A-Z])"#] {
+        guard let r = text.range(of: pattern, options: .regularExpression) else { continue }
+        let v = String(text[r])
+        // An unbroken 12-digit run reads back in the card's own 4-4-4 shape.
+        if v.count == 12, v.allSatisfy(\.isNumber) {
+            let c = Array(v)
+            return "\(String(c[0...3])) \(String(c[4...7])) \(String(c[8...11]))"
+        }
+        return v.replacingOccurrences(of: "-", with: " ")
+    }
+    return nil
+}
+
 /// Masks every Aadhaar- or PAN-shaped number INSIDE running text. The
 /// reader's prose — key points, summaries, caveats — must never carry an
 /// open identity number, even when the reader was told not to emit one.
