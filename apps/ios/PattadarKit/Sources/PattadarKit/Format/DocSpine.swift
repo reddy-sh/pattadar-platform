@@ -241,6 +241,12 @@ public func docSpine(
     if amount > 0 { quantumParts.append(rupees(amount)) }
     let entries = (reading["parcels"] as? [[String: Any]])?.count ?? 0
     if entries > 1 { quantumParts.append("\(entries) entries") }
+    // An identity document measures nothing — its quantum slot carries the
+    // date of birth, the founder's own spine table for Aadhaar.
+    if family == "identity" {
+        let dob = rs("dob")
+        quantumParts = dob.isEmpty ? [] : ["DOB \(humanDate(dob))"]
+    }
     let quantumLine = quantumParts.joined(separator: " · ")
 
     // Review: the reader's items, else caveats promoted with medium severity.

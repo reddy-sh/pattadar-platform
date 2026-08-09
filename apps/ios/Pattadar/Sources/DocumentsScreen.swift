@@ -172,6 +172,11 @@ struct DocumentsScreen: View {
     /// at all is titled by its headline, never by its bare kind.
     private func primaryLine(_ r: VaultRow) -> String {
         let type = r.doc.docType.isEmpty ? documentKind(r.doc.docType).label : r.doc.docType
+        // An identity card is known by its PERSON — "Aadhaar · Ravi
+        // Rathamma"; the masked number demotes to the second line.
+        if r.spine.family == "identity", !r.spine.primaryPerson.isEmpty {
+            return "\(type) · \(r.spine.primaryPerson)"
+        }
         if !r.spine.identityLabel.isEmpty { return "\(type) · \(r.spine.identityLabel)" }
         if !r.doc.headline.isEmpty { return maskSensitiveText(r.doc.headline) }
         return type
@@ -182,6 +187,11 @@ struct DocumentsScreen: View {
     /// suppressed slot returns the moment the heading stops naming it.
     private func secondaryLine(_ r: VaultRow) -> String {
         let s = r.spine
+        // Identity papers: masked number + DOB, whatever the grouping — the
+        // address village is where the person lives, not where land is.
+        if s.family == "identity" {
+            return [s.identityLabel, s.quantumLine].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
         let parts: [String] = switch groupBy {
         case .property: [s.quantumLine, s.partiesLine]
         case .person: [s.placeLine, s.quantumLine]
@@ -278,7 +288,12 @@ struct DocumentsScreen: View {
                 var base = r.spine.surveys.first.map { surveyParts($0).no } ?? ""
                 while base.count > 1, base.hasPrefix("0") { base.removeFirst() }
                 let key: String
-                if v.isEmpty {
+                if r.spine.family == "identity" {
+                    // An Aadhaar's village is an ADDRESS. Identity papers get
+                    // their own shelf instead of posing as a holding's.
+                    key = "person·identity"
+                    if display[key] == nil { display[key] = "Personal & identity" }
+                } else if v.isEmpty {
                     key = ""
                     if display[key] == nil { display[key] = "No place named" }
                 } else {
@@ -724,6 +739,26 @@ struct DocumentDetailScreen: View {
     /// At most four tiles, absent slots omitted — the grid reflows to what
     /// is actually known.
     private var spineTiles: [(k: String, v: String, n: String)] {
+        // An identity card's four slots are the card's own: number (masked),
+        // name, date of birth, address. Land vocabulary would mislabel every
+        // one of them.
+        if spine.family == "identity" {
+            var tiles: [(k: String, v: String, n: String)] = []
+            if !spine.identityLabel.isEmpty {
+                tiles.append(("Number", spine.identityLabel, "Revealed only in details"))
+            }
+            if !spine.partiesLine.isEmpty {
+                tiles.append(("Full name", spine.partiesLine, ""))
+            }
+            if !spine.quantumLine.isEmpty {
+                tiles.append(("Date of birth",
+                              spine.quantumLine.replacingOccurrences(of: "DOB ", with: ""), ""))
+            }
+            if !doc.village.isEmpty {
+                tiles.append(("Address on card", doc.village, doc.mandal))
+            }
+            return Array(tiles.prefix(4))
+        }
         var tiles: [(k: String, v: String, n: String)] = []
         if !spine.identityLabel.isEmpty {
             tiles.append((identitySlotName, spine.identityLabel, doc.sro))

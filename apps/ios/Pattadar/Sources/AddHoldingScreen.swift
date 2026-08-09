@@ -44,6 +44,10 @@ struct AddHoldingScreen: View {
         case property
         /// A deed for a single agricultural parcel under an existing passbook.
         case parcel
+        /// A paper that is not a holding at all — an identity card, an EC, a
+        /// receipt, a map, an unknown. It files into the vault; nobody is
+        /// asked to invent a property around an Aadhaar card.
+        case vault
         var id: String { "\(self)" }
     }
 
@@ -135,6 +139,8 @@ struct AddHoldingScreen: View {
                     AddPropertyScreen(initialScan: scanned).onDisappear { dismiss() }
                 case .parcel:
                     AddParcelScreen(passbooks: knownPassbooks, initialScan: scanned).onDisappear { dismiss() }
+                case .vault:
+                    FileToVaultScreen(scan: scanned).onDisappear { dismiss() }
                 }
             }
             .confirmationDialog("What are you adding?", isPresented: $chooseManually, titleVisibility: .visible) {
@@ -160,11 +166,20 @@ struct AddHoldingScreen: View {
             || type.contains("1-b") || type.contains("1b")
             || !(r.fields["parcels"] as? [[String: Any]] ?? []).isEmpty {
             route = .passbook
+        } else if type.contains("deed") || type.contains("sale") || type.contains("gpa")
+            || type.contains("mortgage") || type.contains("conveyance") {
+            // A deed creates or joins a holding. Farmland from a deed still
+            // has to hang off a passbook.
+            route = classification.contains("agricultur") && !knownPassbooks.isEmpty
+                ? .parcel : .property
         } else if classification.contains("agricultur") && !knownPassbooks.isEmpty {
-            // Farmland from a deed still has to hang off a passbook.
             route = .parcel
         } else {
-            route = .property
+            // Everything else — an Aadhaar, an EC, a receipt, a court order,
+            // a paper the reader could not place — is a PAPER. Opening a
+            // "New property" form around it asked the person to answer a
+            // question the document had already declined to.
+            route = .vault
         }
     }
 
@@ -173,6 +188,7 @@ struct AddHoldingScreen: View {
         case .passbook: "This is a passbook — it lists several holdings"
         case .parcel: "This is agricultural land"
         case .property: "This is a plot or building"
+        case .vault: "This is a paper for your vault"
         }
     }
 
@@ -181,6 +197,7 @@ struct AddHoldingScreen: View {
         case .passbook: "book.closed.fill"
         case .parcel: "leaf.fill"
         case .property: "building.2.fill"
+        case .vault: "lock.doc.fill"
         }
     }
 
@@ -192,6 +209,8 @@ struct AddHoldingScreen: View {
             "It will be filed under one of your passbooks."
         case .property:
             "Sites, flats and buildings are recorded on their own."
+        case .vault:
+            "It is filed as a document — attach it to a holding or a person whenever you need."
         }
     }
 }

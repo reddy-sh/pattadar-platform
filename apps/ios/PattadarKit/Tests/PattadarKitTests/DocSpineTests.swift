@@ -179,6 +179,21 @@ struct DocSpineTests {
         #expect(s.placeLine == "Mangalakunta · Sy 128/1")
     }
 
+    @Test func anIdentityCardSpinesAsAPerson() {
+        // The reader emits the number pre-masked, the holder in owner_name,
+        // the DOB in dob — and the spine's quantum slot carries the DOB, the
+        // way the founder's own spine table writes an Aadhaar.
+        let reading: [String: Any] = [
+            "owner_name": "Sankara Reddy Telukutla",
+            "dob": "1981-04-02",
+        ]
+        let s = docSpine(docType: "Aadhaar", documentNo: "XXXX XXXX 8203", reading: reading)
+        #expect(s.family == "identity")
+        #expect(s.partiesLine == "Sankara Reddy Telukutla")
+        #expect(s.primaryPerson == "Sankara Reddy Telukutla")
+        #expect(s.quantumLine == "DOB 2 April 1981")
+    }
+
     @Test func proseNeverCarriesAnOpenIdentityNumber() {
         // The founder's own Aadhaar upload: the reader wrote the number into
         // a key point. Whatever the reader emits, the screen masks.
