@@ -46,6 +46,49 @@ struct DocumentIcon: View {
     private var color: Color { documentTintColor(docType) }
 }
 
+/// The vault tile: family colour, kind letters, year — what a clerk scribbles
+/// on the corner of a file. "SD 2024" on deed blue answers which paper this
+/// is before the row is read; the icon-only tile made every deed identical.
+struct VaultTile: View {
+    let docType: String
+    let family: String
+    var year: String = ""
+    var hasFile: Bool = true
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(documentMono(docType))
+                .font(.system(size: 12, weight: .heavy))
+                .kerning(0.3)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            if !year.isEmpty {
+                Text(year)
+                    .font(.system(size: 8.5, weight: .semibold)).monospacedDigit()
+                    .opacity(0.62)
+            }
+        }
+        .foregroundStyle(hasFile ? color : color.opacity(0.55))
+        .frame(width: 38, height: 44)
+        .background(color.opacity(hasFile ? 0.15 : 0.08),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            if !hasFile {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .padding(3)
+                    .background(.background, in: Circle())
+                    .offset(x: 4, y: 4)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel([familyLabel(family), year, hasFile ? "" : "no file stored"]
+            .filter { !$0.isEmpty }.joined(separator: ", "))
+    }
+
+    private var color: Color { familyTintColor(family) }
+}
+
 /// The family's colour — one palette for vault tiles, filter chips, the page
 /// map and dossier rows, so the same paper never wears two colours on
 /// adjacent screens. The kit names it (`familyTint`); the `Color` lives here.

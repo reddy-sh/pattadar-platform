@@ -4,22 +4,39 @@ import SwiftUI
 
 struct DocumentsScreen: View {
     @Environment(AppModel.self) private var app
-    @State private var docs: [RegisteredDocument] = []
+    /// Every document with its spine, parsed ONCE at load. Rows, search,
+    /// grouping and badges all read this cache — re-parsing the reading blob
+    /// per render stutters at a few hundred documents.
+    @State private var rows: [VaultRow] = []
     @State private var loaded = false
     @State private var showAdd = false
     @State private var query = ""
-    @State private var filter: VaultFilter = .everything
+    @State private var groupBy: VaultGrouping = .property
+    /// "all", "review", or a family key.
+    @State private var filter = "all"
 
-    /// Search across everything a person would half-remember about a paper: the
-    /// kind, the survey number, the village, the document number, the year.
-    private var shown: [RegisteredDocument] {
+    struct VaultRow: Identifiable {
+        let doc: RegisteredDocument
+        let spine: DocSpine
+        let year: String
+        var id: String { doc.id }
+    }
+
+    /// Search reads the spine — identity, place, parties, quantum: the things
+    /// a person half-remembers about a paper — plus the type and the office.
+    private var shown: [VaultRow] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return docs.filter { d in
-            let inFilter = filter == .everything || filter.matches(d.docType)
+        return rows.filter { r in
+            let inFilter = switch filter {
+            case "all": true
+            case "review": !r.spine.actionable.isEmpty
+            default: r.spine.family == filter
+            }
             guard inFilter else { return false }
             guard !q.isEmpty else { return true }
-            return [d.docType, d.headline, d.village, d.surveyNo, d.plotNo,
-                    d.regYear, d.sro, d.summary]
+            return [r.spine.identityLabel, r.spine.placeLine, r.spine.partiesLine,
+                    r.spine.quantumLine, r.doc.docType, r.doc.headline,
+                    r.doc.regYear, r.doc.sro]
                 .contains { $0.lowercased().contains(q) }
         }
     }
@@ -28,79 +45,75 @@ struct DocumentsScreen: View {
         NavigationStack {
             List {
                 Section {
-                    // The chips live in the list rather than a toolbar so they
-                    // scroll away — a filter row pinned above 40 documents eats
+                    // The controls live in the list rather than a toolbar so
+                    // they scroll away — rows pinned above 40 documents eat
                     // the screen on a small phone.
+                    Picker("Group by", selection: $groupBy) {
+                        ForEach(VaultGrouping.allCases) { g in
+                            Text(g.title).tag(g)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                    .listRowBackground(Color.clear)
+
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(VaultFilter.allCases) { f in
-                                Button { filter = f } label: {
-                                    Text(f.title)
-                                        .font(.subheadline)
-                                        .padding(.horizontal, 14).padding(.vertical, 8)
-                                        .background(filter == f ? Color.accentColor
-                                                    : Color(.tertiarySystemFill), in: Capsule())
-                                        .foregroundStyle(filter == f ? .white : .primary)
-                                }
-                                .buttonStyle(.plain)
+                            ForEach(filterChips, id: \.key) { chip in
+                                filterChipView(chip)
                             }
                         }
                         .padding(.vertical, 2)
                     }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
                     .listRowBackground(Color.clear)
                 }
 
-                // Grouped by the PLACE the paper is about — the same way the
-                // Properties list groups, and the way a family almirah is
-                // actually organised: the Mangala Kunta papers together, the
-                // Katragunta papers together.
-                ForEach(groupedByVillage, id: \.village) { group in
+                // ONE amber banner, and only when something is genuinely
+                // unsettled. Tapping it applies the review filter — the
+                // banner is the filter, offered.
+                if filter != "review", needsYou.things > 0 {
                     Section {
-                        ForEach(group.docs) { d in
-                            NavigationLink { DocumentDetailScreen(doc: d) } label: {
-                                HStack(spacing: 12) {
-                                    DocumentIcon(docType: d.docType,
-                                                 hasFile: LocalFiles.url(for: d.id) != nil)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        // WHAT IS INSIDE is the title — each row's
-                                        // bold line is unique content ("Khata 567 ·
-                                        // Telukutla Swetha"), because five rows all
-                                        // titled "ROR/Adangal" distinguished
-                                        // nothing. The kind and year demote to the
-                                        // small line; the icon says the kind too.
-                                        Text(masterLine(d))
-                                            .fontWeight(.semibold)
-                                            .lineLimit(1)
-                                        Text([d.docType.isEmpty ? documentKind(d.docType).label : d.docType,
-                                              rowYear(d)]
-                                            .filter { !$0.isEmpty }.joined(separator: " · "))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                        if LocalFiles.url(for: d.id) == nil {
-                                            Text("Details only — no file stored")
-                                                .font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                    }
-                                }
+                        Button {
+                            withAnimation(.snappy) { filter = "review" }
+                        } label: { reviewBanner }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    }
+                }
+
+                ForEach(grouped, id: \.key) { group in
+                    Section {
+                        ForEach(group.rows) { r in
+                            NavigationLink { DocumentDetailScreen(doc: r.doc) } label: {
+                                rowView(r)
                             }
                         }
                     } header: {
-                        Text(group.village)
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(group.key)
+                            Spacer()
+                            Text(group.rows.count == 1
+                                 ? "1 document" : "\(group.rows.count) documents")
+                        }
                     }
                 }
-                if loaded && docs.isEmpty {
+                if loaded && rows.isEmpty {
                     ContentUnavailableView("No documents yet", systemImage: "doc.text",
                                            description: Text("Scan a deed and its details are read for you."))
                 } else if loaded && shown.isEmpty {
                     ContentUnavailableView("Nothing matches", systemImage: "magnifyingglass",
-                                           description: Text("Try the survey number, the village, or the year."))
+                                           description: Text("Try the survey number, the khata, a name, or the year."))
                 }
             }
             .navigationTitle("Vault")
-            .searchable(text: $query, prompt: "Sale deed, EC, Sy. 128, 2016…")
+            .searchable(text: $query, prompt: "Sy. 128/1A · Khata 397 · a name · 2016…")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(docs.count) filed")
+                    // A mirror, not a mystery: the pill follows the filter.
+                    Text(filter == "all" && query.isEmpty
+                         ? "\(rows.count) filed" : "\(shown.count) shown")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 ToolbarItem(placement: .primaryAction) {
@@ -115,36 +128,201 @@ struct DocumentsScreen: View {
         }
     }
 
-    /// The papers of one place, together. Documents naming no place file
-    /// under their own heading at the end rather than polluting a village's.
-    private var groupedByVillage: [(village: String, docs: [RegisteredDocument])] {
-        let by = Dictionary(grouping: shown) { d in
-            d.village.trimmingCharacters(in: .whitespaces).isEmpty
-                ? "No place named" : d.village
+    // MARK: - Row
+
+    @ViewBuilder private func rowView(_ r: VaultRow) -> some View {
+        let hasFile = LocalFiles.url(for: r.doc.id) != nil
+        HStack(spacing: 12) {
+            VaultTile(docType: r.doc.docType, family: r.spine.family,
+                      year: r.year, hasFile: hasFile)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(primaryLine(r))
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                let secondary = secondaryLine(r)
+                if !secondary.isEmpty {
+                    Text(secondary)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if !hasFile {
+                    Text("Details only — no file stored")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            Spacer(minLength: 0)
+            if !r.spine.actionable.isEmpty {
+                // Under the review filter the chip already says "to check";
+                // the badge drops the words and keeps the count.
+                Text(filter == "review"
+                     ? "\(r.spine.actionable.count)"
+                     : "\(r.spine.actionable.count) to check")
+                    .font(.system(size: 11, weight: .bold)).monospacedDigit()
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.15), in: Capsule())
+                    .foregroundStyle(.orange)
+            }
         }
-        return by.sorted {
-            if $0.key == "No place named" { return false }
-            if $1.key == "No place named" { return true }
-            return $0.key < $1.key
-        }.map { (village: $0.key, docs: $0.value) }
     }
 
-    /// The kit picks the facts per kind; the headline is the last resort for
-    /// a reading that produced nothing identifying at all.
-    private func masterLine(_ d: RegisteredDocument) -> String {
-        let reading = (try? JSONSerialization.jsonObject(
-            with: Data(d.reading.utf8))) as? [String: Any] ?? [:]
-        // village: "" ON PURPOSE — the section header already names the
-        // place, and "Mangalakunta · Sy 01" under a "Mangalakunta" heading
-        // said the village twice on every row.
-        let line = vaultKeyInfo(docType: d.docType, documentNo: d.documentNo,
-                                regYear: d.regYear, village: "",
-                                surveyNo: d.surveyNo, extent: d.extent,
-                                reading: reading)
-        if !line.isEmpty { return line }
-        if !d.headline.isEmpty { return d.headline }
-        return d.docType.isEmpty ? documentKind(d.docType).label : d.docType
+    /// Type + identity — "Sale Deed · 6337 / 2024", "ROR/Adangal · Khata 567"
+    /// — the registrar's own way of naming a paper. A record with no number
+    /// at all is titled by its headline, never by its bare kind.
+    private func primaryLine(_ r: VaultRow) -> String {
+        let type = r.doc.docType.isEmpty ? documentKind(r.doc.docType).label : r.doc.docType
+        if !r.spine.identityLabel.isEmpty { return "\(type) · \(r.spine.identityLabel)" }
+        if !r.doc.headline.isEmpty { return r.doc.headline }
+        return type
     }
+
+    /// The header never repeats inside its own rows: under a place heading
+    /// the place is dropped; under a person heading the parties are. The
+    /// suppressed slot returns the moment the heading stops naming it.
+    private func secondaryLine(_ r: VaultRow) -> String {
+        let s = r.spine
+        let parts: [String] = switch groupBy {
+        case .property: [s.quantumLine, s.partiesLine]
+        case .person: [s.placeLine, s.quantumLine]
+        case .type, .recent: [s.placeLine, s.quantumLine]
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    // MARK: - Filter chips & banner
+
+    /// Only the families actually in this vault get chips — a chip that can
+    /// only ever say "Nothing matches" is furniture.
+    private var filterChips: [(key: String, label: String, tint: Color?)] {
+        var chips: [(key: String, label: String, tint: Color?)] = [("all", "All", nil)]
+        if rows.contains(where: { !$0.spine.actionable.isEmpty }) {
+            chips.append(("review", "Needs review", .orange))
+        }
+        let families = ["title", "revenue", "map", "identity", "search", "old_record", "unsorted"]
+        chips += families
+            .filter { f in rows.contains { $0.spine.family == f } }
+            .map { ($0, familyLabel($0), familyTintColor($0)) }
+        return chips
+    }
+
+    @ViewBuilder private func filterChipView(_ chip: (key: String, label: String, tint: Color?)) -> some View {
+        let active = filter == chip.key
+        let tint = chip.tint ?? Color.accentColor
+        Button { withAnimation(.snappy) { filter = chip.key } } label: {
+            HStack(spacing: 6) {
+                if let dot = chip.tint {
+                    Circle().fill(dot).frame(width: 6, height: 6)
+                }
+                Text(chip.label)
+                    .font(.subheadline.weight(active ? .semibold : .regular))
+            }
+            .padding(.horizontal, 13).padding(.vertical, 8)
+            .background(active ? tint.opacity(0.18) : Color(.tertiarySystemFill),
+                        in: Capsule())
+            .foregroundStyle(active ? tint : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var needsYou: (things: Int, docs: Int) {
+        let flagged = rows.filter { !$0.spine.actionable.isEmpty }
+        return (flagged.reduce(0) { $0 + $1.spine.actionable.count }, flagged.count)
+    }
+
+    private var reviewBanner: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(bannerHead)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+                Text("Tap to see only those papers")
+                    .font(.caption).foregroundStyle(.orange.opacity(0.7))
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold)).foregroundStyle(.orange.opacity(0.6))
+        }
+        .padding(13)
+        .background(Color.orange.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(Color.orange.opacity(0.22), lineWidth: 1))
+    }
+
+    private var bannerHead: String {
+        let (things, docCount) = needsYou
+        if things == 1 { return "1 thing needs you" }
+        if docCount == 1 { return "\(things) things need you in one document" }
+        return "\(things) things need you across \(docCount) documents"
+    }
+
+    // MARK: - Grouping
+
+    /// All four modes key off spine slots: Property → place, Type → family,
+    /// Person → nameKey(primaryPerson), Recent → when it was filed.
+    private var grouped: [(key: String, rows: [VaultRow])] {
+        switch groupBy {
+        case .property:
+            // The holding key: village + BASE survey number, so Sy 1/1A files
+            // with Sy 1 — the almirah shelf, not the FMB sheet. A multi-survey
+            // paper (a 1B) shelves under its first survey; its full list stays
+            // on the row and the page.
+            return sortedGroups(by: { r in
+                let v = r.spine.village.trimmingCharacters(in: .whitespaces)
+                guard !v.isEmpty else { return "No place named" }
+                let base = r.spine.surveys.first.map { surveyParts($0).no } ?? ""
+                return base.isEmpty ? v : "\(v) · Sy \(base)"
+            }, last: "No place named")
+        case .type:
+            let order = ["title", "revenue", "map", "identity", "search", "old_record", "unsorted"]
+            let by = Dictionary(grouping: shown) { $0.spine.family }
+            return order.compactMap { f in by[f].map { (familyLabel(f), $0) } }
+        case .person:
+            // People merge on the fuzzy key — "Telukutla Sankara Reddy" and
+            // "Sankara Reddy Telukutla" are one shelf, shown by the first
+            // spelling seen.
+            var display: [String: String] = [:]
+            var buckets: [String: [VaultRow]] = [:]
+            for r in shown {
+                let person = r.spine.primaryPerson.trimmingCharacters(in: .whitespaces)
+                let key = person.isEmpty ? "" : nameKey(person)
+                if display[key] == nil {
+                    display[key] = person.isEmpty ? "No person named" : person
+                }
+                buckets[key, default: []].append(r)
+            }
+            return buckets.keys.sorted { a, b in
+                if a.isEmpty { return false }
+                if b.isEmpty { return true }
+                return display[a]! < display[b]!
+            }.map { (display[$0]!, buckets[$0]!) }
+        case .recent:
+            let now = Date()
+            func bucket(_ r: VaultRow) -> String {
+                guard let d = parseAuditTime(r.doc.createdAt) else { return "Earlier" }
+                let days = now.timeIntervalSince(d) / 86_400
+                if days < 1 { return "Today" }
+                if days < 7 { return "This week" }
+                if days < 30 { return "This month" }
+                return "Earlier"
+            }
+            let by = Dictionary(grouping: shown, by: bucket)
+            return ["Today", "This week", "This month", "Earlier"].compactMap { k in
+                by[k].map { (k, $0.sorted { $0.doc.createdAt > $1.doc.createdAt }) }
+            }
+        }
+    }
+
+    private func sortedGroups(by key: (VaultRow) -> String, last: String)
+        -> [(key: String, rows: [VaultRow])] {
+        Dictionary(grouping: shown, by: key).sorted {
+            if $0.key == last { return false }
+            if $1.key == last { return true }
+            return $0.key < $1.key
+        }.map { ($0.key, $0.value) }
+    }
+
+    // MARK: - Load
 
     /// The year a person recognises the document by.
     private func rowYear(_ d: RegisteredDocument) -> String {
@@ -153,12 +331,20 @@ struct DocumentsScreen: View {
         return year(from: d.createdAt) ?? ""
     }
 
-    private func subtitle(_ d: RegisteredDocument) -> String {
-        [d.village, d.surveyNo.isEmpty ? "" : "Sy \(d.surveyNo)"].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
     private func load() async {
-        if let r = await app.load(Queries.documents, as: DocumentsResponse.self) { docs = r.registeredDocuments }
+        if let r = await app.load(Queries.documents, as: DocumentsResponse.self) {
+            rows = r.registeredDocuments.map { d in
+                let reading = (try? JSONSerialization.jsonObject(
+                    with: Data(d.reading.utf8))) as? [String: Any] ?? [:]
+                return VaultRow(
+                    doc: d,
+                    spine: docSpine(docType: d.docType, documentNo: d.documentNo,
+                                    regYear: d.regYear, village: d.village,
+                                    surveyNo: d.surveyNo, extent: d.extent,
+                                    consideration: d.consideration, reading: reading),
+                    year: rowYear(d))
+            }
+        }
         loaded = true
     }
 }
@@ -437,9 +623,11 @@ struct DocumentDetailScreen: View {
         // ("Khata 567 · Telukutla Swetha"): the kind is already the chip
         // above, and repeating it in serif said nothing about THIS file.
         if !number.isEmpty { return "\(kind) · \(number)" }
-        let content = vaultKeyInfo(docType: doc.docType, village: doc.village,
-                                   surveyNo: doc.surveyNo, extent: doc.extent,
-                                   reading: rawReading)
+        let spine = docSpine(docType: doc.docType, village: doc.village,
+                             surveyNo: doc.surveyNo, extent: doc.extent,
+                             reading: rawReading)
+        let content = [spine.identityLabel, spine.partiesLine]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
         return content.isEmpty ? kind : content
     }
 
@@ -619,30 +807,19 @@ struct DocumentDetailScreen: View {
 }
 
 
-/// The four ways people ask for a paper: is it title, is it a revenue record,
-/// is it a receipt, is it an agreement. Derived from the document kind rather
-/// than a stored tag, so a scan files itself.
-enum VaultFilter: String, CaseIterable, Identifiable {
-    case everything, title, revenue, tax, agreements
+/// The four ways a vault is asked for: by the land, by the kind of paper, by
+/// the person, by when it arrived. All four key off the spine, so they are
+/// modes of one list rather than four screens.
+enum VaultGrouping: String, CaseIterable, Identifiable {
+    case property, type, person, recent
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .everything: "Everything"
-        case .title: "Title"
-        case .revenue: "Revenue records"
-        case .tax: "Tax"
-        case .agreements: "Agreements"
-        }
-    }
-
-    func matches(_ docType: String) -> Bool {
-        switch documentKind(docType) {
-        case .saleDeed, .giftDeed, .partition, .will: self == .title
-        case .passbook, .mutation: self == .revenue
-        case .taxReceipt: self == .tax
-        case .powerOfAttorney, .encumbrance: self == .agreements
-        case .identity, .other: self == .everything
+        case .property: "Property"
+        case .type: "Type"
+        case .person: "Person"
+        case .recent: "Recent"
         }
     }
 }

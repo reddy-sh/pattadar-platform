@@ -17,6 +17,8 @@ public struct DocSpine: Sendable {
     /// Village · Sy 1 — normalised, the strongest grouping key.
     public let placeLine: String
     public let village: String
+    /// Every survey number the paper names, display form ("128/1A").
+    public let surveys: [String]
     /// "Ravi Rathamma → Sankara Reddy" for deeds; the holder for revenue
     /// records; the person for identity documents.
     public let partiesLine: String
@@ -47,6 +49,15 @@ public struct DocSpine: Sendable {
             self.page = page
         }
     }
+}
+
+public extension DocSpine {
+    /// What the LIST is allowed to be loud about. Reader-emitted review items
+    /// badge rows and feed the banner; caveats promoted from legacy prose
+    /// itemise on the document page but stay quiet in the list — the same
+    /// rule that once took chatty caveats off the master list. Amber earns
+    /// attention by staying honest.
+    var actionable: [ReviewItem] { review.filter { $0.code != "caveat" } }
 }
 
 /// Family from the doc type, for readings that predate the family key.
@@ -172,14 +183,16 @@ public func docSpine(
     let placeDict = spine["place"] as? [String: Any]
     let spineVillage = s(placeDict, "village")
     let effVillage = spineVillage.isEmpty ? village : spineVillage
-    var sy = surveyNo
+    var surveyList: [String] = surveyNo.trimmingCharacters(in: .whitespaces).isEmpty
+        ? [] : [surveyNo.trimmingCharacters(in: .whitespaces)]
     if let surveys = placeDict?["survey"] as? [[String: Any]], !surveys.isEmpty {
-        sy = surveys.compactMap { d -> String? in
+        surveyList = surveys.compactMap { d -> String? in
             let no = (d["no"] as? String) ?? (d["no"] as? Int).map(String.init) ?? ""
             let sub = (d["sub"] as? String) ?? ""
             return no.isEmpty ? nil : (sub.isEmpty ? no : "\(no)/\(sub)")
-        }.joined(separator: ", ")
+        }
     }
+    let sy = surveyList.joined(separator: ", ")
     let placeLine = [effVillage, sy.isEmpty ? "" : "Sy \(sy)"]
         .filter { !$0.isEmpty }.joined(separator: " · ")
 
@@ -254,8 +267,8 @@ public func docSpine(
     }
 
     return DocSpine(family: family, identityLabel: identity, placeLine: placeLine,
-                    village: effVillage, partiesLine: partiesLine, primaryPerson: primary,
-                    quantumLine: quantumLine, review: review)
+                    village: effVillage, surveys: surveyList, partiesLine: partiesLine,
+                    primaryPerson: primary, quantumLine: quantumLine, review: review)
 }
 
 // MARK: - Normalisation (the six rules that cause most mismatches)

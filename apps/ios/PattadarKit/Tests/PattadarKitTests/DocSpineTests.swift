@@ -134,6 +134,20 @@ struct DocSpineTests {
         #expect(documentMono("Sethwar") == "SE")
     }
 
+    @Test func legacyCaveatsStayQuietInTheList() {
+        // The caveat itemises on the document page (review.count == 1) but
+        // never badges a row or inflates the banner (actionable is empty).
+        let s = docSpine(docType: "Sale Deed", reading: deedReading)
+        #expect(s.review.count == 1)
+        #expect(s.actionable.isEmpty)
+        // A reader-emitted item is loud in both places.
+        let read: [String: Any] = [
+            "review": [["code": "stale_extract", "severity": "low",
+                        "text": "Extract older than 12 months.", "page": 1]],
+        ]
+        #expect(docSpine(docType: "1B", reading: read).actionable.count == 1)
+    }
+
     @Test func reviewIdentityIsStable() {
         // Spines are recomputed on every refresh; the rows must not churn.
         let a = docSpine(docType: "Sale Deed", reading: deedReading)
