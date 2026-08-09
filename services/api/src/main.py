@@ -11,6 +11,7 @@ import logging
 import httpx
 import strawberry
 from . import notify
+from . import fmb_geometry
 from datetime import date, datetime
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -5572,7 +5573,10 @@ _DOC_IMPORT_SYSTEM = (
     '"rate_per_unit":<number>,"rate_unit":"<Sq.yard|Sq.ft|Acre>",'
     '"parent_survey_extent":"<the WHOLE survey number\'s extent as written, e.g. 8-74 Cents>",'
     '"boundary_lengths":{"north":"","south":"","east":"","west":""},'
-    '"boundary_points":[{"lat":<number>,"lng":<number>}],'
+    '"boundary_points":[{"id":<Point Id as printed>,"easting":<number>,"northing":<number>,"lat":<number>,"lng":<number>}],'
+    '"printed_side_lengths":[<FMB ONLY — every side length printed along the MAPPED PORTION\'s edges, metres, copied exactly>],'
+    '"red_line_lengths":[<FMB ONLY — the lengths drawn in RED: measured lines, not walked boundaries>],'
+    '"portion_extent":"<FMB ONLY — the extent written INSIDE the mapped portion, exactly as printed, e.g. Ac 60.00 Cent>",'
     '"prior_document":"<prior deed no/year>","gpa_document":"<GPA doc no/year>","scanning_id":"<scanning id>",'
     '"prior_document_details":{"number":"<e.g. 10024/1981>","registration_date":"<YYYY-MM-DD>",'
     '"office":"<registering office in English>","book_volume_pages":"<e.g. Book 1, Vol 1488, Pages 168>",'
@@ -5615,11 +5619,20 @@ _DOC_IMPORT_SYSTEM = (
     + _EXTENT_NOTATION_RULE +
     "BOUNDARY_POINTS — an FMB, survey sketch or resurvey sheet usually ends in a POINT TABLE: "
     "one row per corner with columns like Point Id, Easting, Northing, Latitude, Longitude. "
-    "When such a table is present, extract EVERY row's latitude and longitude as "
-    "`boundary_points`, in the table's own order, copying the printed decimals exactly. Use the "
-    "Latitude/Longitude columns only — NEVER convert Easting/Northing yourself, and NEVER "
-    "estimate a coordinate from the drawing. A registered deed occasionally lists corner "
-    "coordinates in its schedule; extract those the same way. No coordinate table → [].\n"
+    "When such a table is present, extract EVERY row — id, easting, northing, latitude and "
+    "longitude — as `boundary_points`, in the table's own order, copying the printed decimals "
+    "EXACTLY, all four of them; the geometry that is derived from this table is only as good "
+    "as the digits. NEVER convert between systems yourself, and NEVER estimate a coordinate "
+    "from the drawing. A registered deed occasionally lists corner coordinates in its schedule; "
+    "extract those the same way (id = row number). No coordinate table → [].\n"
+    "FMB SHEETS also carry: side lengths printed along the mapped portion's edges — copy every "
+    "one into `printed_side_lengths` exactly as printed (only the portion being mapped, not the "
+    "outer field's other sides); any length drawn in RED into `red_line_lengths` too; the extent "
+    "written inside the portion into `portion_extent` and the header extent into "
+    "`parent_survey_extent`; and the neighbouring village or survey number written OUTSIDE each "
+    "side of the sheet into `boundaries` by compass side (north/south/east/west). The ring "
+    "order, per-side bearings, area and cross-checks are computed deterministically after you — "
+    "extract, never calculate.\n"
     "THE NARRATIVE MUST AGREE WITH `parties`. Work out the roles FIRST, then write the headline, "
     "key points and summary from them. The \"seller\" is the person who PARTED WITH the property; "
     "the \"buyer\" is the person who RECEIVED it. Never write that the buyer sold, or that the "
@@ -5796,6 +5809,13 @@ async def import_registered_document(file: UploadFile = File(...)):
                "Nothing could be read from this document. It may be a scan of photographs rather "
                "than text — try a clearer copy, or enter the details by hand.")
         return JSONResponse(status_code=502, content={"error": msg})
+    # A vector FMB's corner table becomes the §13 stored shape here — ring,
+    # sides, bearings, area, cross-checks — so every screen downstream
+    # computes nothing but unit conversion.
+    try:
+        fmb_geometry.attach_geometry(fields)
+    except Exception as e:
+        _log.warning("FMB geometry derivation failed (file=%s): %r", file.filename or "", e)
     return {"fields": fields, "raw": text}
 
 
