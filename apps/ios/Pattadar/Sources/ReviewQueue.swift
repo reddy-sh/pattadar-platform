@@ -14,6 +14,7 @@ import PattadarKit
 /// read by a machine is a proposal, and the whole design of this app is that a
 /// human accepts it before it becomes a land record.
 @MainActor
+@Observable
 final class ReviewQueue {
     static let shared = ReviewQueue()
 
@@ -39,7 +40,9 @@ final class ReviewQueue {
         }
     }
 
-    private lazy var fileURL: URL = {
+    // Not state, just a path — and `lazy` cannot live under @Observable's
+    // macro without being told so.
+    @ObservationIgnored private lazy var fileURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,
                                            in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

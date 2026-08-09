@@ -418,6 +418,8 @@ struct ReviewCard: View {
     let entries: [ReviewQueue.Entry]
     let onOpen: (ReviewQueue.Entry) -> Void
     let onDiscard: (ReviewQueue.Entry) -> Void
+    /// Throwing one away is deliberate: confirmed, never a stray tap.
+    @State private var confirmDiscard: ReviewQueue.Entry?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -429,33 +431,54 @@ struct ReviewCard: View {
                 .font(.caption).foregroundStyle(.secondary)
 
             ForEach(entries) { e in
-                Button { onOpen(e) } label: {
-                    HStack(spacing: 12) {
-                        DocumentIcon(docType: (e.fields["doc_type"] as? String) ?? "", size: 34)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(headline(e)).font(.subheadline.weight(.medium))
-                                .foregroundStyle(.primary).lineLimit(2)
-                            Text(relativeTime(ISO8601DateFormatter().string(from: e.readAt)))
-                                .font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    // Open and discard are SIBLING buttons, not nested — and
+                    // not a swipe: `.swipeActions` only works inside a List,
+                    // and this card lives in Home's scroll view, where the
+                    // swipe rendered but answered nothing.
+                    Button { onOpen(e) } label: {
+                        HStack(spacing: 12) {
+                            DocumentIcon(docType: (e.fields["doc_type"] as? String) ?? "", size: 34)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(headline(e)).font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary).lineLimit(2)
+                                Text(relativeTime(ISO8601DateFormatter().string(from: e.readAt)))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                         }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .swipeActions {
-                    // Throwing one away is deliberate and separate from walking
-                    // away, which leaves it here.
-                    Button(role: .destructive) { onDiscard(e) } label: {
-                        Label("Discard", systemImage: "trash")
+                    .buttonStyle(.plain)
+
+                    Button { confirmDiscard = e } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.red.opacity(0.85))
+                            .frame(width: 34, height: 34)
+                            .background(Color.red.opacity(0.12), in: Circle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Discard this reading")
                 }
             }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 18)
             .fill(Color.accentColor.opacity(0.12)))
+        .confirmationDialog("Discard this reading?",
+                            isPresented: Binding(get: { confirmDiscard != nil },
+                                                 set: { if !$0 { confirmDiscard = nil } }),
+                            titleVisibility: .visible) {
+            Button("Discard", role: .destructive) {
+                if let e = confirmDiscard { onDiscard(e) }
+                confirmDiscard = nil
+            }
+            Button("Keep it", role: .cancel) { confirmDiscard = nil }
+        } message: {
+            Text(confirmDiscard.map { headline($0) } ?? "")
+        }
     }
 
     private func headline(_ e: ReviewQueue.Entry) -> String {
