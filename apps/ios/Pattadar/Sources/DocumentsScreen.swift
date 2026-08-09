@@ -139,8 +139,11 @@ struct DocumentsScreen: View {
     private func masterLine(_ d: RegisteredDocument) -> String {
         let reading = (try? JSONSerialization.jsonObject(
             with: Data(d.reading.utf8))) as? [String: Any] ?? [:]
+        // village: "" ON PURPOSE — the section header already names the
+        // place, and "Mangalakunta · Sy 01" under a "Mangalakunta" heading
+        // said the village twice on every row.
         let line = vaultKeyInfo(docType: d.docType, documentNo: d.documentNo,
-                                regYear: d.regYear, village: d.village,
+                                regYear: d.regYear, village: "",
                                 surveyNo: d.surveyNo, extent: d.extent,
                                 reading: reading)
         if !line.isEmpty { return line }
