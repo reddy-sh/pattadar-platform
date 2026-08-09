@@ -6,22 +6,26 @@ import Testing
 /// What a document is called when it leaves the phone. The storage UUID is a
 /// key, not a name, and it is the recipient who pays for the difference.
 
-@Test("A shared document is named for what it is")
-func shareNameReadsLikeTheDocument() {
+@Test("A shared document follows the pattadar-<kind>-<place>-<year> convention")
+func shareNameFollowsTheConvention() {
     #expect(shareFileName(docType: "Sale Deed", village: "Nallapadu",
                           date: "04-01-2003", fallbackExtension: "pdf")
-            == "Sale Deed - Nallapadu - 2003.pdf")
+            == "pattadar-sale-deed-nallapadu-2003.pdf")
+    // The founder's own example: an FMB leaves as pattadar-fmb-….
+    #expect(shareFileName(docType: "FMB", village: "Mangalakunta",
+                          date: "2024", fallbackExtension: "pdf")
+            == "pattadar-fmb-mangalakunta-2024.pdf")
 }
 
 @Test("Missing pieces are left out, never rendered as blanks")
 func absentPartsAreOmitted() {
     #expect(shareFileName(docType: "Sale Deed", village: "", date: "", fallbackExtension: "pdf")
-            == "Sale Deed.pdf")
+            == "pattadar-sale-deed.pdf")
     #expect(shareFileName(docType: "", village: "Katragunta", date: "", fallbackExtension: "jpg")
-            == "Document - Katragunta.jpg")
-    // Never "Sale Deed -  - .pdf".
+            == "pattadar-document-katragunta.jpg")
+    // Never "pattadar-sale-deed--.pdf".
     #expect(!shareFileName(docType: "Sale Deed", village: "", date: "", fallbackExtension: "pdf")
-        .contains(" - "))
+        .contains("--"))
 }
 
 @Test("A year is found in any shape a registration date arrives in")
@@ -42,6 +46,9 @@ func illegalCharactersAreRemoved() {
     #expect(!n.contains("/"), "a slash makes this a path, not a filename")
     #expect(!n.contains(":"))
     #expect(n.hasSuffix(".pdf"))
+    #expect(n == "pattadar-sale-gift-deed-nallapadu-2003.pdf")
+    #expect(fileSlug("FMB / survey map") == "fmb-survey-map")
+    #expect(fileSlug("   ") == "")
     // A leading dot hides the file on every Unix system it lands on.
     #expect(!sanitizeFileName(".hidden").hasPrefix("."))
     #expect(sanitizeFileName("   ") == "Document")

@@ -5,8 +5,11 @@ import Foundation
 /// Files are stored as `doc-<uuid>.pdf` because storage needs a key that cannot
 /// collide. That key is not a NAME: sending "doc-26deb553-6a8f-4c11.pdf" to a
 /// lawyer or a brother hands them something they must open to identify and
-/// cannot find again by searching. What leaves the app should read like what it
-/// is — "Sale deed · Nallapadu · 2003".
+/// cannot find again by searching. What leaves the app follows the founder's
+/// convention — "pattadar-fmb-mangalakunta-2024.pdf": the app's own name
+/// first, so every file the platform ever produced sorts and searches
+/// together, then what it is, where, and when, in a slug every filesystem
+/// and messaging app treats kindly.
 ///
 /// Only the outgoing copy is renamed. The stored file keeps its UUID, because
 /// that is what every row in the database points at.
@@ -16,13 +19,23 @@ public func shareFileName(docType: String, village: String, date: String,
         ? documentKind(docType).label
         : docType.trimmingCharacters(in: .whitespaces)
 
-    var parts = [kind]
-    let place = village.trimmingCharacters(in: .whitespaces)
+    var parts = ["pattadar", fileSlug(kind)]
+    let place = fileSlug(village)
     if !place.isEmpty { parts.append(place) }
     if let year = year(from: date) { parts.append(year) }
 
     let ext = fallbackExtension.isEmpty ? "pdf" : fallbackExtension
-    return sanitizeFileName(parts.joined(separator: " - ")) + "." + ext
+    let name = parts.filter { !$0.isEmpty }.joined(separator: "-")
+    return String(name.prefix(80)) + "." + ext
+}
+
+/// "FMB / survey map" → "fmb-survey-map": lowercase, alphanumerics only,
+/// single hyphens — nothing a filesystem, a URL or WhatsApp can mangle.
+public func fileSlug(_ raw: String) -> String {
+    raw.lowercased()
+        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .filter { !$0.isEmpty }
+        .joined(separator: "-")
 }
 
 /// The year, from any of the shapes a registration date arrives in:

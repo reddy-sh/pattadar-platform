@@ -398,6 +398,8 @@ struct DocumentDetailScreen: View {
     @State private var parsedReading: DocReading?
     /// The six-slot spine, computed once alongside the reading.
     @State private var parsedSpine: DocSpine?
+    /// The FMB's measurable shape, when the sheet gave one up.
+    @State private var parsedGeometry: FMBGeometry?
     /// The summary in the language of the source. One tap, both ways.
     @State private var showTelugu = false
     /// The review card, folded by default — one line loud, the rest on tap.
@@ -516,6 +518,13 @@ struct DocumentDetailScreen: View {
                     }
                     .background(Color(.separator).opacity(0.6))
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                // An FMB with a corner table becomes a map you can measure —
+                // drawn entirely from the server-derived geometry; this
+                // screen computes nothing but unit conversion.
+                if spine.family == "map", let g = parsedGeometry {
+                    FMBMapSection(geometry: g)
                 }
 
                 // A paper filed before deep reading degrades QUIETLY — grey
@@ -758,6 +767,7 @@ struct DocumentDetailScreen: View {
         .onAppear {
             if parsedReading == nil { parsedReading = DocReading(json: doc.reading) }
             if parsedSpine == nil { parsedSpine = computedSpine }
+            if parsedGeometry == nil { parsedGeometry = fmbGeometry(rawReading) }
         }
     }
 
