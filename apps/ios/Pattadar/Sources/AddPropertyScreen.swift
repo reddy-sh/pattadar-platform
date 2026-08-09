@@ -43,7 +43,8 @@ struct AddPropertyScreen: View {
     /// Every type, in one place. Splitting "plot" and "building" across two
     /// menu entries made people choose before they knew — and the deed had not
     /// even been read yet.
-    private let types = [("open_plot", "Open plot / site"),
+    private let types = [("agri_land", "Agricultural land"),
+                         ("open_plot", "Open plot / site"),
                          ("flat", "Flat / apartment"),
                          ("independent_house", "Independent house"),
                          ("villa", "Villa"),
@@ -80,7 +81,12 @@ struct AddPropertyScreen: View {
                         FormRow(label: "Mandal", text: $locality, prompt: "Guntur Rural")
                         FormRow(label: "District", text: $district, prompt: "Guntur")
                         FormRow(label: "Land area (\(landUnit.label))", text: $landArea, prompt: "0",
-                                keyboard: .decimalPad, suffix: "Sq.yd")
+                                keyboard: .decimalPad, suffix: landUnit.label)
+                            .onChange(of: type) { _, now in
+                                // Only when nothing was scanned — a parsed
+                                // deed's own unit always wins over the type.
+                                if scanned == nil { landUnit = defaultUnit(for: now) }
+                            }
                         FormRow(label: "Purchase price", text: $price, prompt: "0",
                                 keyboard: .numberPad, suffix: "₹")
                         if isBuilding {
@@ -131,6 +137,12 @@ struct AddPropertyScreen: View {
     /// Starting over means the fields the read filled go too. Leaving one
     /// deed's plot number beside another deed's price is worse than a blank
     /// form — it looks checked.
+    /// Manual entry has no deed to parse a unit from: farmland is entered in
+    /// acres, everything else in square yards.
+    private func defaultUnit(for type: String) -> UnitKey {
+        type == "agri_land" ? .acre : .sqyd
+    }
+
     private func clearPrefill() {
         regDocNo = ""; sro = ""; regDate = ""; purchaseDate = ""
         sellerName = ""; buyerName = ""; acquisitionMode = ""; address = ""

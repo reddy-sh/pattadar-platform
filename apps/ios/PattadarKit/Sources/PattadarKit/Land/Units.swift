@@ -121,6 +121,7 @@ public enum HoldingKind: String, CaseIterable, Sendable {
 
     public static func of(propertyType: String) -> HoldingKind {
         switch propertyType {
+        case "agri_land": .farmland
         case "open_plot": .plot
         case "commercial": .commercial
         case "flat", "independent_house", "villa": .home
