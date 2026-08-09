@@ -37,9 +37,18 @@ struct HomeScreen: View {
                         // to tell you, and they were sitting below a row of
                         // navigation chips — the answer below the menu. Full
                         // width and equal weight; none is subordinate.
+                        // Each card is the door to its own list: the acres
+                        // open Properties filtered to agricultural, the sites
+                        // to plots. A summary you cannot open is a dead end.
                         ForEach(categories) { c in
-                            KindCard(kind: c.kind, amount: c.amount,
-                                     count: c.count, passbooks: c.passbooks)
+                            Button {
+                                app.holdingsFilter = c.kind == .farmland ? .agricultural : .plots
+                                app.selectedTab = .properties
+                            } label: {
+                                KindCard(kind: c.kind, amount: c.amount,
+                                         count: c.count, passbooks: c.passbooks)
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         // What the holdings NEED, after what they are — the
