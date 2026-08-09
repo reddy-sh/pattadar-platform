@@ -275,6 +275,10 @@ struct AddPropertyScreen: View {
             }
             stage = ""
         }
+        // The reading became a record; its review-queue entry goes with it.
+        // Every other add-flow already did this — the property flow was the
+        // one door that left a ghost on Home's "waiting for you" list.
+        app.completeReview()
         app.clearRead()
         dismiss()
     }

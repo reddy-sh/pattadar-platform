@@ -10,11 +10,25 @@ import SwiftUI
 struct AddHoldingScreen: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    /// What you already hold, for the duplicate detector. Callers pass what
+    /// they have; the screen FETCHES when handed nothing — Home's review sheet
+    /// passed [] for weeks, the detector had nothing to match against, and a
+    /// second reading of khata 5001 became a twin passbook.
     let passbooks: [PassbookDetail]
     /// Needed to tell a NEW passbook from a fresh reading of one you hold.
     var parcels: [Parcel] = []
     /// Opened from the review list rather than from a fresh scan.
     var review: ReviewQueue.Entry? = nil
+    /// The fetched fallback when `passbooks` came in empty.
+    @State private var fetchedPassbooks: [PassbookDetail] = []
+    @State private var fetchedParcels: [Parcel] = []
+
+    private var knownPassbooks: [PassbookDetail] {
+        passbooks.isEmpty ? fetchedPassbooks : passbooks
+    }
+    private var knownParcels: [Parcel] {
+        parcels.isEmpty ? fetchedParcels : parcels
+    }
 
     @State private var manualOpen = false
     @State private var scanned: ScanResult?
@@ -84,6 +98,18 @@ struct AddHoldingScreen: View {
             // already landed belongs to the flow that asked for it — carrying
             // it into the NEXT one showed last time's document and could only
             // be cleared by restarting the app.
+            .task {
+                // The duplicate detector must know what exists, whoever
+                // opened this screen and however lazily.
+                if passbooks.isEmpty,
+                   let r = await app.load(Queries.passbooks, as: PassbooksResponse.self) {
+                    fetchedPassbooks = r.passbooks
+                }
+                if parcels.isEmpty,
+                   let h = await app.load(Queries.holdings, as: HoldingsResponse.self) {
+                    fetchedParcels = h.parcels
+                }
+            }
             .onAppear {
                 // A queued reading is what this screen is FOR when opened from
                 // the review list: adopt it and route on it immediately.
@@ -104,17 +130,17 @@ struct AddHoldingScreen: View {
             .fullScreenCover(item: $route) { r in
                 switch r {
                 case .passbook:
-                    AddPassbookScreen(initialScan: scanned, existing: passbooks, existingParcels: parcels).onDisappear { dismiss() }
+                    AddPassbookScreen(initialScan: scanned, existing: knownPassbooks, existingParcels: knownParcels).onDisappear { dismiss() }
                 case .property:
                     AddPropertyScreen(initialScan: scanned).onDisappear { dismiss() }
                 case .parcel:
-                    AddParcelScreen(passbooks: passbooks, initialScan: scanned).onDisappear { dismiss() }
+                    AddParcelScreen(passbooks: knownPassbooks, initialScan: scanned).onDisappear { dismiss() }
                 }
             }
             .confirmationDialog("What are you adding?", isPresented: $chooseManually, titleVisibility: .visible) {
                 Button("A passbook (1-B / ROR)") { route = .passbook }
                 Button("A plot, flat or building") { route = .property }
-                if !passbooks.isEmpty {
+                if !knownPassbooks.isEmpty {
                     Button("Farmland under a passbook") { route = .parcel }
                 }
                 Button("Cancel", role: .cancel) { }
@@ -134,7 +160,7 @@ struct AddHoldingScreen: View {
             || type.contains("1-b") || type.contains("1b")
             || !(r.fields["parcels"] as? [[String: Any]] ?? []).isEmpty {
             route = .passbook
-        } else if classification.contains("agricultur") && !passbooks.isEmpty {
+        } else if classification.contains("agricultur") && !knownPassbooks.isEmpty {
             // Farmland from a deed still has to hang off a passbook.
             route = .parcel
         } else {

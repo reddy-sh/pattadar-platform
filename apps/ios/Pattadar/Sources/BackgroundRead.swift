@@ -43,6 +43,11 @@ final class BackgroundRead: NSObject {
     /// result is still recorded and notified.
     var onProgress: ((Double) -> Void)?
     var onFinished: ((Result<[String: Any], Error>) -> Void)?
+    /// The review-queue entry the LAST finished read was filed under, so a
+    /// flow that consumes the result live can clear that entry when it saves.
+    /// Without this, every completed scan left a ghost on Home's "waiting for
+    /// you" list — four documents the founder had already filed.
+    private(set) var lastEnqueuedReviewID: String?
 
     private var session: URLSession!
     private var received: [Int: Data] = [:]
@@ -229,8 +234,9 @@ extension BackgroundRead: URLSessionDataDelegate {
             // result held only in memory is the reason a read finished and the
             // property was not there afterwards.
             if let p = self.pending {
-                ReviewQueue.shared.add(fields: fields, documentPath: p.documentPath,
-                                       originalName: p.originalName)
+                self.lastEnqueuedReviewID = ReviewQueue.shared.add(
+                    fields: fields, documentPath: p.documentPath,
+                    originalName: p.originalName)
             }
             self.onFinished?(.success(fields))
             let n = readReadyNotification(fields)

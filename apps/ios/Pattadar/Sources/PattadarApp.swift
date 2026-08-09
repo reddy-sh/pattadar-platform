@@ -121,6 +121,10 @@ final class AppModel {
             guard let self else { return }
             switch result {
             case .success(let fields):
+                // This result was ALSO queued for review (in case nobody was
+                // here). Somebody IS here — the flow that saves from this scan
+                // completes that entry, so it never haunts Home afterwards.
+                self.reviewInProgress = BackgroundRead.shared.lastEnqueuedReviewID
                 self.readResult = ScanResult(fields: fields, fileURL: fileURL, originalName: name)
                 self.readState = .done
             case .failure(let error):

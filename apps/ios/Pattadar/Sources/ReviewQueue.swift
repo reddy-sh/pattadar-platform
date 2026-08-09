@@ -67,18 +67,21 @@ final class ReviewQueue {
 
     /// Called from the upload delegate, which may be running in an app that was
     /// relaunched purely to receive this.
-    func add(fields: [String: Any], documentPath: String, originalName: String) {
+    @discardableResult
+    func add(fields: [String: Any], documentPath: String, originalName: String) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8)
-        else { return }
+        else { return nil }
         // The document itself lives in the app's own storage, not the temporary
         // directory the scan wrote it to — a temp file is gone by the time
         // somebody comes back to review it tomorrow.
         let kept = keepDocument(at: documentPath) ?? documentPath
-        entries.append(Entry(id: UUID().uuidString, fieldsJSON: json,
-                             documentPath: kept, originalName: originalName,
-                             readAt: Date()))
+        let entry = Entry(id: UUID().uuidString, fieldsJSON: json,
+                          documentPath: kept, originalName: originalName,
+                          readAt: Date())
+        entries.append(entry)
         save()
+        return entry.id
     }
 
     func remove(_ id: String) {
