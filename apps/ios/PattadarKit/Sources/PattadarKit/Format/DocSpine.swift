@@ -248,9 +248,20 @@ public func docSpine(
                 page: (item["page"] as? Int) ?? Int(item["page"] as? Double ?? 0))
         }
     }
-    if review.isEmpty, let caveats = reading["caveats"] as? [String] {
-        review = caveats.filter { !$0.isEmpty }.map {
-            DocSpine.ReviewItem(code: "caveat", severity: "medium", text: $0, page: 0)
+    if review.isEmpty {
+        // Legacy readings: watch_out is THE warning — the one line most
+        // likely to bite later — so it keeps its voice (actionable, high).
+        // Caveats are commentary; they itemise on the page but stay quiet
+        // in the list.
+        if let watch = reading["watch_out"] as? String,
+           !watch.trimmingCharacters(in: .whitespaces).isEmpty {
+            review.append(DocSpine.ReviewItem(
+                code: "watch_out", severity: "high", text: watch, page: 0))
+        }
+        if let caveats = reading["caveats"] as? [String] {
+            review += caveats.filter { !$0.isEmpty }.map {
+                DocSpine.ReviewItem(code: "caveat", severity: "medium", text: $0, page: 0)
+            }
         }
     }
 
@@ -308,6 +319,29 @@ public func nameKey(_ raw: String) -> String {
         .map(String.init)
         .filter { !honorifics.contains($0) && !$0.isEmpty }
     return tokens.sorted().joined(separator: " ")
+}
+
+/// A value that must not sit open on a screen: an Aadhaar number (12 digits,
+/// spaced or not) or a PAN. These render masked everywhere and are revealed
+/// only on a deliberate tap — the redesign must not be the moment numbers
+/// start appearing.
+public func isSensitiveIdentityValue(_ value: String) -> Bool {
+    let v = value.trimmingCharacters(in: .whitespaces)
+    if v.range(of: #"^\d{4}\s?\d{4}\s?\d{4}$"#, options: .regularExpression) != nil { return true }
+    if v.range(of: #"^[A-Z]{5}\d{4}[A-Z]$"#, options: .regularExpression) != nil { return true }
+    return false
+}
+
+/// "4821 9930 8412" → "×××× ×××× 8412". The last four stay — enough to tell
+/// two cards apart, not enough to use.
+public func maskedIdentity(_ value: String) -> String {
+    let chars = Array(value)
+    let alnum = chars.indices.filter { chars[$0].isLetter || chars[$0].isNumber }
+    let keep = Set(alnum.suffix(4))
+    return String(chars.indices.map { i -> Character in
+        guard chars[i].isLetter || chars[i].isNumber else { return chars[i] }
+        return keep.contains(i) ? chars[i] : "×"
+    })
 }
 
 /// When a deed states its extent in two units, they must reconcile. Within

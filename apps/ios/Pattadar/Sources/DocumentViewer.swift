@@ -211,13 +211,14 @@ struct FileContentsSection: View {
     let onOpen: (Int) -> Void
 
     var body: some View {
-        if reading.contents.count > 1 {
+        let runs = mergedRuns
+        if !runs.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("WHAT IS INSIDE THIS FILE")
                     .font(.caption.weight(.medium)).kerning(1.1)
                     .foregroundStyle(.secondary)
                 VStack(spacing: 0) {
-                    ForEach(Array(reading.contents.enumerated()), id: \.offset) { i, entry in
+                    ForEach(Array(runs.enumerated()), id: \.offset) { i, entry in
                         if i > 0 { Divider() }
                         Button {
                             let first = Int(entry.pages.split(whereSeparator: { "-–".contains($0) })
@@ -225,7 +226,14 @@ struct FileContentsSection: View {
                             onOpen(first - 1)
                         } label: {
                             HStack {
-                                DocumentIcon(docType: entry.kind, size: 30)
+                                let family = documentFamily(entry.kind)
+                                Text(documentMono(entry.kind))
+                                    .font(.system(size: 10.5, weight: .heavy)).kerning(0.3)
+                                    .lineLimit(1).minimumScaleFactor(0.7)
+                                    .frame(width: 28, height: 28)
+                                    .background(familyTintColor(family).opacity(0.14),
+                                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                    .foregroundStyle(familyTintColor(family))
                                 Text(entry.kind).font(.subheadline.weight(.medium))
                                     .foregroundStyle(.primary)
                                 Spacer(minLength: 8)
@@ -247,6 +255,31 @@ struct FileContentsSection: View {
             }
         }
     }
+
+    /// Consecutive same-kind pages are ONE run — "Sale deed body · p. 3–9",
+    /// not eleven alternating rows. A per-page classifier dump is not a table
+    /// of contents.
+    private var mergedRuns: [(pages: String, kind: String)] {
+        var out: [(pages: String, kind: String)] = []
+        for entry in reading.contents {
+            if let last = out.last, last.kind == entry.kind,
+               let lastBounds = bounds(last.pages), let cur = bounds(entry.pages),
+               cur.0 == lastBounds.1 + 1 {
+                out[out.count - 1] = ("\(lastBounds.0)–\(cur.1)", entry.kind)
+            } else {
+                out.append(entry)
+            }
+        }
+        return out
+    }
+
+    private func bounds(_ pages: String) -> (Int, Int)? {
+        let nums = pages.split(whereSeparator: { "-–".contains($0) })
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        if nums.count == 2 { return (nums[0], max(nums[0], nums[1])) }
+        if nums.count == 1 { return (nums[0], nums[0]) }
+        return nil
+    }
 }
 
 // MARK: - The details
@@ -266,6 +299,10 @@ struct DocDetailsSection: View {
     let groups: [(title: String, rows: [DocDetailRow])]
     let reading: DocReading
     let onOpenPage: (Int) -> Void
+    /// Rows whose identity number is currently open. A reveal re-masks itself:
+    /// sixty seconds is enough to read a number to a clerk, not enough to
+    /// forget the screen is on.
+    @State private var revealed: Set<String> = []
 
     var body: some View {
         ForEach(groups.filter { !$0.rows.isEmpty }, id: \.title) { group in
@@ -289,8 +326,11 @@ struct DocDetailsSection: View {
     @ViewBuilder private func rowView(_ row: DocDetailRow) -> some View {
         let page = reading.fieldPages[row.field]
         let confidence = reading.fieldConfidence[row.field]
+        let sensitive = isSensitiveIdentityValue(row.value)
+        let isOpen = revealed.contains(row.id)
         Button {
-            if let page { onOpenPage(page - 1) }
+            if sensitive { toggleReveal(row.id) }
+            else if let page { onOpenPage(page - 1) }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -303,10 +343,17 @@ struct DocDetailsSection: View {
                 }
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(row.value)
-                        .font(.subheadline.weight(.medium))
+                    Text(sensitive && !isOpen ? maskedIdentity(row.value) : row.value)
+                        .font(sensitive
+                              ? .system(.subheadline, design: .monospaced).weight(.medium)
+                              : .subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.trailing)
+                    if sensitive {
+                        Text(isOpen ? "Hide" : "Tap to reveal")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.tint)
+                    }
                     if let confidence { ConfidencePill(level: confidence) }
                 }
             }
@@ -314,6 +361,17 @@ struct DocDetailsSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(page == nil)
+        .disabled(!sensitive && page == nil)
+    }
+
+    private func toggleReveal(_ id: String) {
+        if revealed.contains(id) {
+            revealed.remove(id)
+        } else {
+            revealed.insert(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+                revealed.remove(id)
+            }
+        }
     }
 }

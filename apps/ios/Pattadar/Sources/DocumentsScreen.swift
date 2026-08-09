@@ -363,8 +363,12 @@ struct DocumentDetailScreen: View {
     @State private var holdings: HoldingsResponse?
     /// The full extraction, parsed once per appearance.
     @State private var parsedReading: DocReading?
+    /// The six-slot spine, computed once alongside the reading.
+    @State private var parsedSpine: DocSpine?
     /// The summary in the language of the source. One tap, both ways.
     @State private var showTelugu = false
+    /// The review card, folded by default — one line loud, the rest on tap.
+    @State private var showReview = false
     /// The page the full-screen scan opens on, when one was tapped.
     @State private var openAtPage: PageSelection?
 
@@ -375,45 +379,104 @@ struct DocumentDetailScreen: View {
         return DocReading(json: doc.reading)
     }
 
+    private var spine: DocSpine {
+        if let parsedSpine { return parsedSpine }
+        return computedSpine
+    }
+
+    private var computedSpine: DocSpine {
+        docSpine(docType: doc.docType, documentNo: doc.documentNo,
+                 regYear: doc.regYear, village: doc.village,
+                 surveyNo: doc.surveyNo, extent: doc.extent,
+                 consideration: doc.consideration, reading: rawReading)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // The paper itself, named the way the registrar's index names
-                // it: its kind as a chip, "Sale deed · 2815 / 2020" in serif,
-                // where and when it was registered, then the file's own facts.
+                // The paper itself, named once: the chip owns the kind, the
+                // serif headline owns the identity, one subline carries where
+                // and when. Nothing on this card repeats — the old header
+                // said "Sale Deed" three times.
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         Text((doc.docType.isEmpty ? "Document" : doc.docType).uppercased())
                             .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
                             .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(documentTintColor(doc.docType).opacity(0.16), in: Capsule())
-                            .foregroundStyle(documentTintColor(doc.docType))
+                            .background(familyTintColor(spine.family).opacity(0.16), in: Capsule())
+                            .foregroundStyle(familyTintColor(spine.family))
                         if !reading.language.isEmpty {
                             Text(reading.language)
                                 .font(.caption).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }
-                    Text(headerTitle)
-                        .font(.system(size: 28, weight: .semibold, design: .serif))
+                    Text(displayHeadline)
+                        .font(.system(size: 30, weight: .semibold, design: .serif))
                     if !registeredLine.isEmpty {
                         Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
                     }
-                    Text(metaLine)
-                        .font(.caption).foregroundStyle(.tertiary)
+                    if !metaLine.isEmpty {
+                        Text(metaLine).font(.caption).foregroundStyle(.tertiary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
                 .background(Color(.secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                // The pages themselves, labelled with what each one IS —
-                // deed, endorsement, adangal. Tap opens the scan there.
-                if let fileURL = LocalFiles.url(for: doc.id) {
-                    PDFPageStrip(url: fileURL, reading: reading) { page in
-                        openAtPage = PageSelection(id: page)
+                // The spine, made visible: four tiles at most, and what the
+                // reader could not fill is NOT a tile — its absence sits in
+                // the review card instead of rendering blank.
+                if !spineTiles.isEmpty {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
+                                        GridItem(.flexible(), spacing: 10)],
+                              spacing: 10) {
+                        ForEach(spineTiles, id: \.k) { tile in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(tile.k.uppercased())
+                                    .font(.system(size: 10, weight: .bold)).kerning(0.7)
+                                    .foregroundStyle(.secondary)
+                                Text(tile.v)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .lineLimit(2).minimumScaleFactor(0.75)
+                                if !tile.n.isEmpty {
+                                    Text(tile.n)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+                            .padding(13)
+                            .background(Color(.secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
                     }
                 }
+
+                // A paper filed before deep reading degrades QUIETLY — grey
+                // information, never amber alarm. Amber keeps its meaning.
+                if doc.reading.isEmpty {
+                    HStack(spacing: 11) {
+                        Image(systemName: "arrow.clockwise.circle")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Filed before deep reading")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Pages, checks and the paper trail arrive when a fresh scan is read.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(13)
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
+                // ONE review card. The caveat prose, the watch-out line and
+                // the "read by the agent" caption all collapse into it —
+                // itemised, severity-ordered, placed on its page.
+                if !spine.review.isEmpty { reviewCard }
 
                 // WHAT IS INSIDE the file — every survey entry the record
                 // lists, readable without opening the scan. The vault row
@@ -467,27 +530,54 @@ struct DocumentDetailScreen: View {
                     }
                 }
 
-                if !doc.keyPointList.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(doc.keyPointList, id: \.self) { point in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text("•").foregroundStyle(.tint)
-                                Text(point)
+                // The paper trail this deed itself cites — honest about its
+                // source: the deed's own words, not asserted links. Reader
+                // links[] upgrade these cards the day they exist.
+                if !railCards.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("PAPER TRAIL")
+                            .font(.caption.weight(.medium)).kerning(1.1)
+                            .foregroundStyle(.secondary)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 9) {
+                                ForEach(railCards, id: \.title) { card in
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(card.role.uppercased())
+                                            .font(.system(size: 9.5, weight: .bold)).kerning(0.6)
+                                            .foregroundStyle(card.missing
+                                                             ? Color.orange
+                                                             : familyTintColor(spine.family))
+                                        Text(card.title)
+                                            .font(.system(size: 13.5, weight: .semibold))
+                                            .lineLimit(2)
+                                        if !card.meta.isEmpty {
+                                            Text(card.meta)
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .frame(width: 150, alignment: .topLeading)
+                                    .padding(11)
+                                    .background(card.missing
+                                                ? Color.orange.opacity(0.05)
+                                                : Color(.secondarySystemGroupedBackground),
+                                                in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                        .strokeBorder(card.missing ? Color.orange.opacity(0.5) : .clear,
+                                                      style: StrokeStyle(lineWidth: 1,
+                                                                         dash: card.missing ? [4, 3] : [])))
+                                }
                             }
                         }
                     }
-                    .padding(.leading, 12)
-                    .overlay(alignment: .leading) {
-                        Rectangle().fill(.tint).frame(width: 3)
-                    }
                 }
 
-                // Paragraphs stay paragraphs: losing the blank lines turns the
-                // story back into the wall of text this replaced.
-                if !paragraphs.isEmpty || !reading.summaryTe.isEmpty {
+                // In plain words — the story, then the key facts, in either
+                // language. Paragraphs stay paragraphs. The warnings left for
+                // the review card; settled and unsettled are different facts.
+                if !paragraphs.isEmpty || !reading.summaryTe.isEmpty || !doc.keyPointList.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("What this says").font(.headline)
+                            Text("In plain words").font(.headline)
                             Spacer()
                             // The source is Telugu; the reader should not have
                             // to be an English reader to check it.
@@ -501,52 +591,18 @@ struct DocumentDetailScreen: View {
                         ForEach(shownParagraphs, id: \.self) { para in
                             Text(para).font(.body)
                         }
-                        if !reading.watchOut.isEmpty {
-                            Divider()
-                            // The one line most likely to bite later, in amber
-                            // where the eye lands after the story.
-                            Label(reading.watchOut, systemImage: "exclamationmark.triangle.fill")
-                                .font(.subheadline)
-                                .foregroundStyle(.orange)
+                        if !doc.keyPointList.isEmpty {
+                            if !shownParagraphs.isEmpty { Divider() }
+                            ForEach(doc.keyPointList, id: \.self) { point in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text("•").foregroundStyle(.tint)
+                                    Text(point).font(.subheadline)
+                                }
+                            }
                         }
                     }
                     .padding(16)
                     .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-
-                if !doc.summary.isEmpty || !doc.headline.isEmpty {
-                    HStack {
-                        Label(readByLine, systemImage: "sparkles")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-
-                if !doc.caveatList.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("We read this for you")
-                            .font(.headline).foregroundStyle(Color.accentColor)
-                        ForEach(doc.caveatList, id: \.self) { c in
-                            Text(c).font(.subheadline)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        // The reading is a proposal about somebody's land, so
-                        // it offers an action rather than ending in a shrug.
-                        Button { remind() } label: {
-                            Label(reminded ? "Reminder added" : "Add a reminder",
-                                  systemImage: reminded ? "checkmark" : "bell.badge")
-                                .font(.subheadline.weight(.medium))
-                                .padding(.horizontal, 16).padding(.vertical, 10)
-                                .background(Color.accentColor.opacity(reminded ? 0.12 : 1),
-                                            in: Capsule())
-                                .foregroundStyle(reminded ? Color.accentColor : .white)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(reminded)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                    .background(Color.accentColor.opacity(0.09),
                                 in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
 
@@ -576,24 +632,47 @@ struct DocumentDetailScreen: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
-                DocDetailsSection(groups: detailGroups, reading: reading) { page in
-                    if LocalFiles.url(for: doc.id) != nil { openAtPage = PageSelection(id: page) }
+                // Page 2 of 2: every field, its page, its flags, the file
+                // map. Page 1 answers; that page proves.
+                NavigationLink {
+                    DocumentAllDetailsScreen(doc: doc, reading: reading, spine: spine)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("All the details")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(detailsMeta)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .padding(14)
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                .buttonStyle(.plain)
 
-                FileContentsSection(reading: reading) { page in
-                    if LocalFiles.url(for: doc.id) != nil { openAtPage = PageSelection(id: page) }
-                }
                 if !problem.isEmpty { Text(problem).foregroundStyle(.red).font(.callout) }
-
-                Button(role: .destructive) { confirmDelete = true } label: {
-                    Label("Delete this document", systemImage: "trash.fill")
-                }
-                .padding(.top, 8)
             }
             .padding()
         }
         .navigationTitle(doc.docType.isEmpty ? "Document" : doc.docType)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // The destructive action leaves the scroll flow entirely.
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        Label("Delete this document", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
         .task {
             holdings = await app.load(Queries.holdings, as: HoldingsResponse.self)
         }
@@ -610,7 +689,157 @@ struct DocumentDetailScreen: View {
                 PDFFullScreen(url: url, title: headerTitle, startPage: selection.id)
             }
         }
-        .onAppear { if parsedReading == nil { parsedReading = DocReading(json: doc.reading) } }
+        .onAppear {
+            if parsedReading == nil { parsedReading = DocReading(json: doc.reading) }
+            if parsedSpine == nil { parsedSpine = computedSpine }
+        }
+    }
+
+    /// The serif line owns the IDENTITY — "6337 / 2024" — because the chip
+    /// above it already owns the kind. A record with no number is titled by
+    /// its content ("Khata 567 · Telukutla Swetha").
+    private var displayHeadline: String {
+        let number = [doc.documentNo, doc.regYear].filter { !$0.isEmpty }.joined(separator: " / ")
+        if !number.isEmpty { return number }
+        let content = [spine.identityLabel, spine.partiesLine]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+        if !content.isEmpty { return content }
+        return doc.docType.isEmpty ? "Document" : doc.docType
+    }
+
+    /// At most four tiles, absent slots omitted — the grid reflows to what
+    /// is actually known.
+    private var spineTiles: [(k: String, v: String, n: String)] {
+        var tiles: [(k: String, v: String, n: String)] = []
+        if !spine.identityLabel.isEmpty {
+            tiles.append((identitySlotName, spine.identityLabel, doc.sro))
+        }
+        let placeNote = [doc.village, doc.mandal].filter { !$0.isEmpty }.joined(separator: ", ")
+        if !spine.surveys.isEmpty {
+            tiles.append(("Property", "Sy " + spine.surveys.joined(separator: ", "), placeNote))
+        } else if !doc.village.isEmpty {
+            tiles.append(("Property", doc.village, doc.mandal))
+        }
+        if !doc.extent.isEmpty { tiles.append(("Extent", doc.extent, "")) }
+        if doc.consideration > 0 { tiles.append(("Consideration", rupees(doc.consideration), "")) }
+        if tiles.count < 4, !spine.partiesLine.isEmpty {
+            tiles.append((spine.partiesLine.contains("→") ? "From → To" : "Holder",
+                          spine.partiesLine, ""))
+        }
+        return Array(tiles.prefix(4))
+    }
+
+    /// What the identity slot is CALLED depends on who issued it.
+    private var identitySlotName: String {
+        switch spine.family {
+        case "revenue": "Account"
+        case "map": "Sheet / survey"
+        case "identity": "Number"
+        case "search": "Certificate"
+        case "old_record": "Record"
+        default: "Document no."
+        }
+    }
+
+    /// The one amber card: itemised, severity-dotted, placed on its page.
+    private var reviewCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(.snappy) { showReview.toggle() } } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.orange)
+                    Text(spine.review.count == 1
+                         ? "1 thing needs you"
+                         : "\(spine.review.count) things need you")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+                    Spacer(minLength: 0)
+                    Text(showReview ? "Hide" : "Show")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange.opacity(0.75))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if showReview {
+                VStack(alignment: .leading, spacing: 11) {
+                    ForEach(spine.review) { item in
+                        HStack(alignment: .top, spacing: 9) {
+                            Circle()
+                                .fill(item.severity == "high" ? Color.red : Color.orange)
+                                .frame(width: 6, height: 6)
+                                .padding(.top, 6)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(item.text).font(.subheadline)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                // Items promoted from legacy prose have no
+                                // page — the sentence renders alone, never a
+                                // dead chip or a "page 0".
+                                if item.page > 0, LocalFiles.url(for: doc.id) != nil {
+                                    Button {
+                                        openAtPage = PageSelection(id: item.page - 1)
+                                    } label: {
+                                        Label("page \(item.page)", systemImage: "doc.text.magnifyingglass")
+                                            .font(.caption.weight(.semibold))
+                                            .padding(.horizontal, 8).padding(.vertical, 4)
+                                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    // The reminder belongs to the items it snoozes.
+                    Button { remind() } label: {
+                        Label(reminded ? "Reminder set" : "Remind me in 7 days",
+                              systemImage: reminded ? "checkmark" : "bell.badge")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.orange)
+                    .disabled(reminded)
+                }
+                .padding(.top, 12)
+            }
+        }
+        .padding(13)
+        .background(Color.orange.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .stroke(Color.orange.opacity(0.22), lineWidth: 1))
+    }
+
+    /// v1 of the rail: reader-emitted links[] when they exist, else the prior
+    /// document this deed cites in its own recitals.
+    private var railCards: [(role: String, title: String, meta: String, missing: Bool)] {
+        var out: [(role: String, title: String, meta: String, missing: Bool)] = []
+        if let links = rawReading["links"] as? [[String: Any]], !links.isEmpty {
+            for link in links {
+                let cited = ((link["cited_as"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+                guard !cited.isEmpty else { continue }
+                let role = (link["role"] as? String) ?? "linked"
+                let missing = role == "referenced_missing" || link["to"] == nil || link["to"] is NSNull
+                out.append((missing ? "Missing" : humanize(role.replacingOccurrences(of: "_", with: " ")),
+                            cited, missing ? "Cited, not filed" : "", missing))
+            }
+        } else if let pd = rawReading["prior_document_details"] as? [String: Any] {
+            let number = ((pd["number"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+            if !number.isEmpty {
+                let meta = [(pd["office"] as? String) ?? "",
+                            humanDate((pd["registration_date"] as? String) ?? "")]
+                    .filter { !$0.isEmpty }.joined(separator: " · ")
+                out.append(("Prior title", "Document \(number)",
+                            meta.isEmpty ? "Cited by this deed" : meta, false))
+            }
+        }
+        return out
+    }
+
+    private var detailsMeta: String {
+        var parts: [String] = []
+        if !reading.fieldPages.isEmpty { parts.append("\(reading.fieldPages.count) fields read") }
+        if !spine.review.isEmpty { parts.append("\(spine.review.count) need you") }
+        if reading.totalPages > 0 { parts.append("\(reading.totalPages) pages") }
+        return parts.isEmpty ? "Every field, its page, its flags" : parts.joined(separator: " · ")
     }
 
     /// "Sale deed · 2815 / 2020" — kind, number, year, the registrar's own way
@@ -656,23 +885,30 @@ struct DocumentDetailScreen: View {
         return (name, parts.joined(separator: " · "))
     }
 
+    /// Where and when, ONCE: "Registered 7 March 2024 · Podili · 14 pages".
+    /// The old header said "Registered … Podili" twice in consecutive lines.
     private var registeredLine: String {
         var parts: [String] = []
-        if !doc.registrationDate.isEmpty { parts.append("Registered \(humanDate(doc.registrationDate))") }
+        if !doc.registrationDate.isEmpty {
+            parts.append("Registered \(humanDate(doc.registrationDate))")
+        } else if !doc.regYear.isEmpty {
+            parts.append("Registered \(doc.regYear)")
+        }
         if !doc.sro.isEmpty { parts.append(doc.sro) }
+        if reading.totalPages > 0 { parts.append("\(reading.totalPages) pages") }
         return parts.joined(separator: " · ")
     }
 
-    /// Pages · size · filed — the file's own facts, one quiet line.
+    /// Size · filed — the file's own facts, one quiet line, nothing the
+    /// subline already said.
     private var metaLine: String {
         var parts: [String] = []
-        if reading.totalPages > 0 { parts.append("\(reading.totalPages) pages") }
         if let url = LocalFiles.url(for: doc.id),
            let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int {
             parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
         }
-        parts.append(filedLine)
-        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        if !doc.createdAt.isEmpty { parts.append("filed \(relativeTime(doc.createdAt))") }
+        return parts.joined(separator: " · ")
     }
 
     /// The summary in whichever language is switched on.
@@ -681,61 +917,6 @@ struct DocumentDetailScreen: View {
         return text.components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-    }
-
-    /// "Read by the agent · 11 fields · 3 need you"
-    private var readByLine: String {
-        var line = "Read by the agent — it can be wrong; check it against the paper"
-        if !reading.fieldPages.isEmpty {
-            line = "Read by the agent · \(reading.fieldPages.count) fields"
-            if !reading.fieldConfidence.isEmpty {
-                line += " · \(reading.fieldConfidence.count) need you"
-            }
-        }
-        return line
-    }
-
-    /// One standard schema for every document: Who · What · Money ·
-    /// Registration.
-    private var detailGroups: [(title: String, rows: [DocDetailRow])] {
-        var who: [DocDetailRow] = []
-        for party in reading.parties {
-            who.append(DocDetailRow(label: party.role.capitalized
-                                        + (party.isGPA ? " · via GPA holder" : ""),
-                                    value: party.name, field: "parties"))
-        }
-        // The whereabouts chain, the way the schedule itself opens: the
-        // string of places that make this land findable by any office.
-        let whereItIs: [DocDetailRow] = [
-            .init(label: "Village", value: doc.village, field: "village"),
-            .init(label: "Mandal", value: doc.mandal, field: "mandal"),
-            .init(label: "District", value: doc.district, field: "district"),
-            .init(label: "Survey number", value: doc.surveyNo, field: "survey_no"),
-            .init(label: "Plot number", value: doc.plotNo, field: "plot_no"),
-        ].filter { !$0.value.isEmpty }
-        // The four హద్దులు, deed order — తూర్పు first. These are the key
-        // information on the paper: in a dispute, these four lines are the
-        // argument.
-        let boundaries: [DocDetailRow] = [
-            .init(label: "East · తూర్పు", value: doc.boundaryEast, field: "boundaries"),
-            .init(label: "South · దక్షిణం", value: doc.boundarySouth, field: "boundaries"),
-            .init(label: "West · పడమర", value: doc.boundaryWest, field: "boundaries"),
-            .init(label: "North · ఉత్తరం", value: doc.boundaryNorth, field: "boundaries"),
-        ].filter { !$0.value.isEmpty }
-        let what: [DocDetailRow] = [
-            .init(label: "Extent", value: doc.extent, field: "extent"),
-        ].filter { !$0.value.isEmpty }
-        let money: [DocDetailRow] = [
-            .init(label: "Consideration", value: doc.consideration > 0 ? rupees(doc.consideration) : "",
-                  field: "consideration"),
-        ].filter { !$0.value.isEmpty }
-        let registration: [DocDetailRow] = [
-            .init(label: "Document no.", value: doc.documentNo, field: "document_no"),
-            .init(label: "Registered on", value: humanDate(doc.registrationDate), field: "registration_date"),
-            .init(label: "Sub-registrar", value: doc.sro, field: "sro"),
-        ].filter { !$0.value.isEmpty }
-        return [("Who", who), ("Where it is", whereItIs), ("Boundaries · హద్దులు", boundaries),
-                ("What", what), ("Money", money), ("Registration", registration)]
     }
 
     private func remove() async {
@@ -768,19 +949,12 @@ struct DocumentDetailScreen: View {
         return out
     }
 
-    private var filedLine: String {
-        [doc.regYear.isEmpty ? "" : "Registered \(doc.regYear)",
-         doc.sro.isEmpty ? "" : doc.sro,
-         doc.createdAt.isEmpty ? "" : "filed \(relativeTime(doc.createdAt))"]
-            .filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    /// A local notification a week out, so a caveat about somebody's land does
-    /// not depend on them remembering to come back to this screen.
+    /// A local notification a week out, so a review item about somebody's
+    /// land does not depend on them remembering to come back to this screen.
     private func remind() {
         let content = UNMutableNotificationContent()
         content.title = "Check \(doc.docType.isEmpty ? "a document" : doc.docType)"
-        content.body = doc.caveatList.first ?? "Worth checking against the paper."
+        content.body = spine.review.first?.text ?? "Worth checking against the paper."
         content.sound = .default
         let when = UNTimeIntervalNotificationTrigger(timeInterval: 7 * 24 * 3600, repeats: false)
         UNUserNotificationCenter.current().add(

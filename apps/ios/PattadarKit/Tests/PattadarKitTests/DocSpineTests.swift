@@ -140,12 +140,31 @@ struct DocSpineTests {
         let s = docSpine(docType: "Sale Deed", reading: deedReading)
         #expect(s.review.count == 1)
         #expect(s.actionable.isEmpty)
+        // watch_out is the one legacy line that KEEPS its voice: high, first,
+        // and loud enough for the banner.
+        var withWatch = deedReading
+        withWatch["watch_out"] = "The GPA behind this sale is not attached."
+        let w = docSpine(docType: "Sale Deed", reading: withWatch)
+        #expect(w.review.count == 2)
+        #expect(w.review.first?.code == "watch_out" && w.review.first?.severity == "high")
+        #expect(w.actionable.count == 1)
         // A reader-emitted item is loud in both places.
         let read: [String: Any] = [
             "review": [["code": "stale_extract", "severity": "low",
                         "text": "Extract older than 12 months.", "page": 1]],
         ]
         #expect(docSpine(docType: "1B", reading: read).actionable.count == 1)
+    }
+
+    @Test func identityNumbersNeverSitOpen() {
+        #expect(isSensitiveIdentityValue("4821 9930 8412"))
+        #expect(isSensitiveIdentityValue("482199308412"))
+        #expect(isSensitiveIdentityValue("ABCDE1234F"))
+        // A document number, a year, a khata — not identity numbers.
+        #expect(!isSensitiveIdentityValue("6337 / 2024"))
+        #expect(!isSensitiveIdentityValue("Khata 397"))
+        #expect(maskedIdentity("4821 9930 8412") == "×××× ×××× 8412")
+        #expect(maskedIdentity("ABCDE1234F") == "××××××234F")
     }
 
     @Test func reviewIdentityIsStable() {
