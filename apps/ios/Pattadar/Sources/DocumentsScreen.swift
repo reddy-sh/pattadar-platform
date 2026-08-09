@@ -72,9 +72,14 @@ struct DocumentsScreen: View {
                                         + Text(rowYear(d).isEmpty ? "" : "  ·  \(rowYear(d))")
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
-                                        // Lead with what the document SAYS.
-                                        Text(d.headline.isEmpty ? subtitle(d) : d.headline)
-                                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                        // KEY FACTS at the master level — survey,
+                                        // extent, money, number — not the headline
+                                        // sentence, which repeats the village the
+                                        // section header already says and the kind
+                                        // the title already says. The full story
+                                        // lives on the detail screen.
+                                        Text(keyInfo(d))
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                         if LocalFiles.url(for: d.id) == nil {
                                             Text("Details only — no file stored")
                                                 .font(.caption2).foregroundStyle(.tertiary)
@@ -141,6 +146,20 @@ struct DocumentsScreen: View {
             if $1.key == "No place named" { return true }
             return $0.key < $1.key
         }.map { (village: $0.key, docs: $0.value) }
+    }
+
+    /// The distilled facts a person scans a shelf by: which land, how much,
+    /// for what, under which number. Falls back to the headline only when the
+    /// reading produced no columns at all.
+    private func keyInfo(_ d: RegisteredDocument) -> String {
+        var parts: [String] = []
+        if !d.surveyNo.isEmpty { parts.append("Sy \(d.surveyNo)") }
+        if !d.plotNo.isEmpty { parts.append("Plot \(d.plotNo)") }
+        if !d.extent.isEmpty { parts.append(d.extent) }
+        if d.consideration > 0 { parts.append(compactRupees(d.consideration)) }
+        if !d.documentNo.isEmpty { parts.append("Doc \(d.documentNo)") }
+        if parts.isEmpty { return d.headline.isEmpty ? subtitle(d) : d.headline }
+        return parts.joined(separator: " · ")
     }
 
     /// The year a person recognises the document by.
