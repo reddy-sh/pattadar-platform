@@ -29,31 +29,106 @@ public struct DocSpine: Sendable {
     /// itemised on the detail screen.
     public let review: [ReviewItem]
 
-    public struct ReviewItem: Sendable, Identifiable {
-        public let id = UUID()
+    public struct ReviewItem: Sendable, Identifiable, Equatable {
         public let code: String
         /// high | medium | low
         public let severity: String
         public let text: String
         public let page: Int
+
+        /// Derived, not random: a spine is recomputed freely (list refresh,
+        /// filter change) and SwiftUI must not tear the rows down each time.
+        public var id: String { "\(code)|\(page)|\(text)" }
+
+        public init(code: String, severity: String, text: String, page: Int) {
+            self.code = code
+            self.severity = severity
+            self.text = text
+            self.page = page
+        }
     }
 }
 
 /// Family from the doc type, for readings that predate the family key.
 public func documentFamily(_ docType: String) -> String {
     let t = docType.lowercased()
-    if t.contains("deed") || t.contains("gpa") || t.contains("will")
+    // Before "deed": a settlement REGISTER is an old record; a settlement deed
+    // is title. Bare "old" is never matched — "household" is not an old record.
+    if t.contains("sethwar") || t.contains("khasra") || t.contains("faisal")
+        || t.contains("settlement register") || t.contains("resettlement")
+        || t.contains("re-settlement") || t.contains("old record") { return "old_record" }
+    if t.contains("deed") || t.contains("gpa") || t.contains("attorney")
+        || t.contains("will") || t.contains("testament")
         || t.contains("agreement") || t.contains("mortgage") { return "title" }
     if t.contains("passbook") || t.contains("ror") || t.contains("adangal")
-        || t.contains("pahani") || t.contains("1b") || t.contains("1-b") { return "revenue" }
+        || t.contains("pahani") || t.contains("1b") || t.contains("1-b")
+        || t.contains("mutation") { return "revenue" }
     if t.contains("fmb") || t.contains("map") || t.contains("tippon")
         || t.contains("sketch") { return "map" }
-    if t.contains("aadhaar") || t.contains("aadhar") || t.contains("pan") { return "identity" }
+    if t.contains("aadhaar") || t.contains("aadhar") || t == "pan"
+        || t.contains("pan card") || t.contains("permanent account") { return "identity" }
     if t.contains("encumbrance") || t == "ec" || t.contains("tax")
-        || t.contains("receipt") || t.contains("challan") { return "search" }
-    if t.contains("sethwar") || t.contains("khasra") || t.contains("faisal")
-        || t.contains("old") { return "old_record" }
-    return "title"
+        || t.contains("receipt") || t.contains("kist") || t.contains("challan") { return "search" }
+    // Unknown papers say so. Defaulting to "title" would dress any unread
+    // scrap in deed blue — posing is worse than admitting.
+    return "unsorted"
+}
+
+/// The colour NAME for a family — SwiftUI-free like `DocumentKind.tint`; the
+/// app maps names to `Color`. One palette dresses tiles, chips, the page map
+/// and dossier rows, or adjacent screens disagree about the same paper.
+public func familyTint(_ family: String) -> String {
+    switch family {
+    case "title": "blue"
+    case "revenue": "green"
+    case "map": "cyan"
+    case "identity": "purple"
+    case "search": "orange"
+    case "old_record": "brown"
+    default: "gray"
+    }
+}
+
+/// What the filter chip calls the family.
+public func familyLabel(_ family: String) -> String {
+    switch family {
+    case "title": "Title"
+    case "revenue": "Revenue record"
+    case "map": "Map"
+    case "identity": "Identity"
+    case "search": "Search & tax"
+    case "old_record": "Old record"
+    default: "Unsorted"
+    }
+}
+
+/// The letters on the vault tile: what a clerk would scribble on the corner
+/// of the file. Two glyphs, kind-specific — "SD 2024" answers which sale deed
+/// before the row is read.
+public func documentMono(_ docType: String) -> String {
+    let t = docType.lowercased()
+    if t.contains("adangal") || t.contains("pahani") { return "AD" }
+    if t.contains("passbook") || t.contains("1b") || t.contains("1-b")
+        || t.contains("ror") { return "1B" }
+    if t.contains("mutation") { return "MU" }
+    if t.contains("fmb") || t.contains("tippon") || t.contains("map")
+        || t.contains("sketch") { return "FM" }
+    if t.contains("encumbrance") || t == "ec" || t.hasPrefix("ec ") { return "EC" }
+    if t.contains("aadhaar") || t.contains("aadhar") { return "AA" }
+    if t == "pan" || t.contains("pan card") || t.contains("permanent account") { return "PA" }
+    if t.contains("tax") || t.contains("receipt") || t.contains("kist")
+        || t.contains("challan") { return "₹" }
+    if t.contains("sethwar") { return "SE" }
+    if t.contains("khasra") { return "KH" }
+    if t.contains("gpa") || t.contains("attorney") { return "GP" }
+    if t.contains("gift") { return "GD" }
+    if t.contains("partition") { return "PD" }
+    if t.contains("will") || t.contains("testament") { return "WL" }
+    if t.contains("agreement") { return "AG" }
+    if t.contains("sale") || t.contains("deed") || t.contains("conveyance") { return "SD" }
+    let words = docType.split(whereSeparator: { !$0.isLetter }).prefix(2)
+    let initials = words.compactMap { $0.first.map(String.init) }.joined().uppercased()
+    return initials.isEmpty ? "?" : initials
 }
 
 /// Build the spine — from the reader's own spine when present, synthesised
@@ -142,7 +217,7 @@ public func docSpine(
         quantumParts.append(extent)
     }
     let amount = num(quantumDict, "amount_inr") > 0 ? num(quantumDict, "amount_inr") : consideration
-    if amount > 0 { quantumParts.append(indianRupees(amount)) }
+    if amount > 0 { quantumParts.append(rupees(amount)) }
     let entries = (reading["parcels"] as? [[String: Any]])?.count ?? 0
     if entries > 1 { quantumParts.append("\(entries) entries") }
     let quantumLine = quantumParts.joined(separator: " · ")
@@ -164,6 +239,18 @@ public func docSpine(
         review = caveats.filter { !$0.isEmpty }.map {
             DocSpine.ReviewItem(code: "caveat", severity: "medium", text: $0, page: 0)
         }
+    }
+
+    // The standard failure, caught at the spine: a deed that states its extent
+    // in two units must reconcile them. The reader usually flags this itself;
+    // this is the net under the reader.
+    let hectares = num(quantumDict, "extent_ha")
+    if !extentsAgree(acres: acres, hectares: hectares),
+       !review.contains(where: { $0.code == "unit_conflict" }) {
+        review.append(DocSpine.ReviewItem(
+            code: "unit_conflict", severity: "high",
+            text: "The extent's two units disagree — \(String(format: "%g", acres)) acres against \(String(format: "%g", hectares)) hectares. Trust neither until the schedule settles it.",
+            page: 0))
     }
 
     return DocSpine(family: family, identityLabel: identity, placeLine: placeLine,
@@ -218,13 +305,4 @@ public func extentsAgree(acres: Double, hectares: Double) -> Bool {
     let impliedAcres = hectares / 0.40468564224
     let ratio = acres / impliedAcres
     return ratio > 0.98 && ratio < 1.02
-}
-
-/// ₹50,00,000 — Indian grouping, no decimals for whole rupees.
-public func indianRupees(_ amount: Double) -> String {
-    let f = NumberFormatter()
-    f.numberStyle = .decimal
-    f.locale = Locale(identifier: "en_IN")
-    f.maximumFractionDigits = 0
-    return "₹" + (f.string(from: NSNumber(value: amount)) ?? String(Int(amount)))
 }

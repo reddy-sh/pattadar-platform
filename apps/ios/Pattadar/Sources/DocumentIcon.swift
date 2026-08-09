@@ -46,6 +46,21 @@ struct DocumentIcon: View {
     private var color: Color { documentTintColor(docType) }
 }
 
+/// The family's colour — one palette for vault tiles, filter chips, the page
+/// map and dossier rows, so the same paper never wears two colours on
+/// adjacent screens. The kit names it (`familyTint`); the `Color` lives here.
+func familyTintColor(_ family: String) -> Color {
+    switch familyTint(family) {
+    case "blue": .blue
+    case "green": .green
+    case "cyan": .cyan
+    case "purple": .purple
+    case "orange": .orange
+    case "brown": .brown
+    default: .gray
+    }
+}
+
 /// The kind's colour, for anything that dresses a document — the icon tile,
 /// the viewer's kind chip.
 func documentTintColor(_ docType: String) -> Color {

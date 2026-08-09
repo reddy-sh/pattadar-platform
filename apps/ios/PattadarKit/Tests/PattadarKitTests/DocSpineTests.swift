@@ -82,4 +82,62 @@ struct DocSpineTests {
         // One unit missing: nothing to reconcile, nothing to flag.
         #expect(extentsAgree(acres: 25, hectares: 0))
     }
+
+    @Test func theUnitConflictReachesTheReview() {
+        // The reconciliation is not advice — a disagreeing pair of units must
+        // surface as a high-severity review item even when the reader missed it.
+        let misread: [String: Any] = [
+            "spine": ["quantum": ["extent_ac": 0.25, "extent_ha": 10.0]],
+        ]
+        let s = docSpine(docType: "Sale Deed", reading: misread)
+        #expect(s.review.contains { $0.code == "unit_conflict" && $0.severity == "high" })
+
+        // A reader that already flagged it is not flagged twice.
+        let flagged: [String: Any] = [
+            "spine": ["quantum": ["extent_ac": 0.25, "extent_ha": 10.0]],
+            "review": [["code": "unit_conflict", "severity": "high",
+                        "text": "Schedule says cents; the hectare figure means acres.",
+                        "page": 5]],
+        ]
+        #expect(docSpine(docType: "Sale Deed", reading: flagged).review.count == 1)
+    }
+
+    @Test func unknownPapersAdmitIt() {
+        // Defaulting to "title" would dress any unread scrap in deed blue.
+        #expect(documentFamily("Panchanama") == "unsorted")
+        #expect(documentFamily("Household survey") == "unsorted")
+        // "old" alone never matches — but the real old records do.
+        #expect(documentFamily("Sethwar") == "old_record")
+        #expect(documentFamily("Re-settlement register") == "old_record")
+        // Mutation is a revenue proceeding, not a deed.
+        #expect(documentFamily("Mutation / ROR proceeding") == "revenue")
+    }
+
+    @Test func everyFamilyDressesItsOwnWay() {
+        let families = ["title", "revenue", "map", "identity", "search", "old_record"]
+        // Six families, six distinct colours — and the unknown wears grey.
+        #expect(Set(families.map(familyTint)).count == families.count)
+        #expect(familyTint("unsorted") == "gray")
+        #expect(familyLabel("search") == "Search & tax")
+        #expect(familyLabel("unsorted") == "Unsorted")
+    }
+
+    @Test func theTileLettersFollowTheKind() {
+        #expect(documentMono("Sale Deed") == "SD")
+        #expect(documentMono("GPA deed") == "GP")          // GPA beats "deed"
+        #expect(documentMono("ROR/Adangal") == "AD")
+        #expect(documentMono("Pattadar Passbook") == "1B")
+        #expect(documentMono("Encumbrance Certificate") == "EC")
+        #expect(documentMono("Kist receipt") == "₹")
+        #expect(documentMono("FMB") == "FM")
+        #expect(documentMono("Aadhaar") == "AA")
+        #expect(documentMono("Sethwar") == "SE")
+    }
+
+    @Test func reviewIdentityIsStable() {
+        // Spines are recomputed on every refresh; the rows must not churn.
+        let a = docSpine(docType: "Sale Deed", reading: deedReading)
+        let b = docSpine(docType: "Sale Deed", reading: deedReading)
+        #expect(a.review.map(\.id) == b.review.map(\.id))
+    }
 }
