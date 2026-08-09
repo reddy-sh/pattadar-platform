@@ -203,7 +203,17 @@ jobs:
         if: steps.tf.outputs.skip == 'false'
         env:
           CLUSTER: ${{ steps.tf.outputs.cluster }}
-        run: aws ecs update-service --cluster "$CLUSTER" --service web --force-new-deployment
+        run: |
+          # Until D2 creates the web service, there is nothing to roll — the
+          # image push above still matters (it is what unblocks the runtime
+          # apply), but a roll that cannot land is a skip, not a failure.
+          status="$(aws ecs describe-services --cluster "$CLUSTER" --services web \
+            --query 'services[0].status' --output text 2>/dev/null || true)"
+          if [ "$status" != "ACTIVE" ]; then
+            echo "::notice::web ECS service not present (status: ${status:-none}) — image pushed, roll skipped until D2 creates the service."
+            exit 0
+          fi
+          aws ecs update-service --cluster "$CLUSTER" --service web --force-new-deployment
 
   # TODO(Phase 1): service image builds — one job per service (gateway, api,
   # later assistant): docker build from services/<name>, tag with the git SHA,
