@@ -229,6 +229,34 @@ struct DocumentDetailScreen: View {
                     }
                 }
 
+                // WHAT IS INSIDE the file — every survey entry the record
+                // lists, readable without opening the scan. The vault row
+                // says "4 entries"; this is where the four are.
+                if !recordEntries.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("INSIDE THIS RECORD — \(recordEntries.count) \(recordEntries.count == 1 ? "ENTRY" : "ENTRIES")")
+                            .font(.caption.weight(.medium)).kerning(1.1)
+                            .foregroundStyle(.secondary)
+                        VStack(spacing: 0) {
+                            ForEach(Array(recordEntries.enumerated()), id: \.offset) { i, e in
+                                let row = entryLabel(e)
+                                HStack {
+                                    Text(row.name).font(.subheadline.weight(.medium))
+                                    Spacer(minLength: 12)
+                                    Text(row.detail)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.trailing)
+                                }
+                                .padding(.vertical, 9)
+                                if i < recordEntries.count - 1 { Divider() }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .background(Color(.secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                }
+
                 // What this paper covers. A passbook naming two survey numbers
                 // is filed against both, and the link has to run in this
                 // direction too — otherwise a document is a dead end.
@@ -404,7 +432,40 @@ struct DocumentDetailScreen: View {
     private var headerTitle: String {
         let kind = doc.docType.isEmpty ? documentKind(doc.docType).label : doc.docType
         let number = [doc.documentNo, doc.regYear].filter { !$0.isEmpty }.joined(separator: " / ")
-        return number.isEmpty ? kind : "\(kind) · \(number)"
+        // Registered papers keep the registrar's own naming — "Sale Deed ·
+        // 6337 / 2024". A record with NO number is titled by its content
+        // ("Khata 567 · Telukutla Swetha"): the kind is already the chip
+        // above, and repeating it in serif said nothing about THIS file.
+        if !number.isEmpty { return "\(kind) · \(number)" }
+        let content = vaultKeyInfo(docType: doc.docType, village: doc.village,
+                                   surveyNo: doc.surveyNo, extent: doc.extent,
+                                   reading: rawReading)
+        return content.isEmpty ? kind : content
+    }
+
+    /// The reading blob, raw — the entries table lives here.
+    private var rawReading: [String: Any] {
+        (try? JSONSerialization.jsonObject(with: Data(doc.reading.utf8))) as? [String: Any] ?? [:]
+    }
+
+    /// What is INSIDE the file: one row per survey entry the record lists.
+    private var recordEntries: [[String: Any]] {
+        rawReading["parcels"] as? [[String: Any]] ?? []
+    }
+
+    private func entryLabel(_ e: [String: Any]) -> (name: String, detail: String) {
+        let sy = (e["survey_no"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        let sub = (e["subdivision"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        let name = sy.isEmpty ? "Entry" : "Sy \(sy)" + (sub.isEmpty ? "" : "/\(sub)")
+        let rawExtent = e["extent"]
+        let parsed = parseExtent(rawExtent as? String, default: .acre)
+        let value = (rawExtent as? Double) ?? parsed.value
+        let unit = (e["unit"] as? String).map(unitKey) ?? parsed.unit
+        var parts: [String] = []
+        if value > 0 { parts.append(String(format: "%g %@", value, unit.label)) }
+        if let c = e["classification"] as? String, !c.isEmpty { parts.append(humanize(c)) }
+        if let a = e["acquisition_source"] as? String, !a.isEmpty { parts.append(humanize(a)) }
+        return (name, parts.joined(separator: " · "))
     }
 
     private var registeredLine: String {
