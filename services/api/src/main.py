@@ -5544,17 +5544,18 @@ _DOC_IMPORT_SYSTEM = (
     "STEP 1 — classify `doc_type` as EXACTLY one of: "
     '"Sale Deed","Gift Deed","Partition Deed","Settlement Deed","GPA","Mortgage",'
     '"Encumbrance Certificate","Pattadar Passbook","ROR/Adangal","FMB","Tax Receipt",'
-    '"Map","Legal Heir Certificate","Court Order","Photo","Other". '
+    '"Map","Legal Heir Certificate","Court Order","Aadhaar","PAN","Photo","Other". '
     "A conveyance for consideration = \"Sale Deed\"; a standalone General Power of Attorney = \"GPA\". "
     "A field-measurement book / survey sketch showing plot dimensions & boundaries = \"FMB\". "
     "A Record-of-Rights / 1-B / Adangal / Pahani land record = \"ROR/Adangal\". "
+    "An Aadhaar card or e-Aadhaar letter (UIDAI) = \"Aadhaar\"; a PAN card = \"PAN\". "
     "A plain map / site-plan = \"Map\"; a photograph with no legal text = \"Photo\". "
     "Anything you cannot confidently place = \"Other\".\n"
     "STEP 2 — extract ONLY the fields clearly present for that document. If the file is a map / "
     "photo / receipt, or a field is not clearly readable, leave it \"\" / [] / 0. NEVER guess, "
     "infer, or invent a value — an empty field is correct when the value is not plainly on the page.\n"
     "Return ONLY a compact JSON object (no markdown, no code fences, no commentary):\n"
-    '{"doc_type":"<one of the 16 values above>",'
+    '{"doc_type":"<one of the 18 values above>",'
     '"document_no":"<registered number e.g. 2056>","reg_year":"<e.g. 2010>","book_no":"<e.g. 1>",'
     '"sro":"<Sub-Registrar Office in English>","registration_date":"<YYYY-MM-DD>","execution_date":"<YYYY-MM-DD>",'
     '"consideration":<number>,"stamp_duty":<number>,"transfer_duty":<number>,"registration_fee":<number>,'
@@ -5646,6 +5647,16 @@ _DOC_IMPORT_SYSTEM = (
     "blurred, a figure that appears twice with different values, an extent written ambiguously, "
     "a party whose role was hard to determine, handwriting you had to interpret. Be specific "
     "and brief. An empty list is correct when the document read cleanly — do NOT invent doubt.\n"
+    "IF THE DOCUMENT IS AN AADHAAR OR PAN CARD, it is an identity document, not a land record. "
+    "NEVER write the full Aadhaar or PAN number ANYWHERE in your output — not in document_no, "
+    "not in the headline, key_points, summary, summary_te, watch_out or caveats. This record is "
+    "stored without the encryption the number would require, so the number must not leave this "
+    "extraction at all: give it ONLY masked to its last four (\"XXXX XXXX 8203\"), including in "
+    "`document_no`. Put the holder's name in `owner_name`, the S/o-W/o relation in "
+    "`father_husband_name`, the address parts in village/mandal/district, and the date of birth "
+    "and download date as key points. Leave every land field (survey_no, extent, consideration, "
+    "parties, boundaries, registration fields) empty — an identity card names a person, not "
+    "land.\n"
     "IF THE DOCUMENT IS A PATTADAR PASSBOOK, ROR, 1-B OR ADANGAL, the fields above that are "
     "marked PASSBOOK & ROR ONLY are the important ones, and `parcels` is the point of the "
     "document: it lists EVERY survey number the pattadar holds in that village, and each row "
