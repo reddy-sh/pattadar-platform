@@ -51,6 +51,8 @@ import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { fmtLocal } from '../../lib/format';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
 import { DeedImportDialog } from './DeedImportDialog';
+import { FmbMapViewer, parseFmbGeometry } from '../../components/FmbMapViewer';
+import type { FmbGeometry } from '../../components/FmbMapViewer';
 
 interface PassbookOpt {
   id: string;
@@ -70,7 +72,7 @@ function useRegisteredDeeds() {
     'registered-documents',
     async () => {
       const d = await gql<DeedsData & { registeredDocuments: RegisteredDocument[] }>(
-        `query { registeredDocuments { id ref docType documentNo regYear sro surveyNo plotNo consideration village district passbookId parcelId createdAt } passbooks { id ref pattadarNo ownerName village } }`,
+        `query { registeredDocuments { id ref docType documentNo regYear sro surveyNo plotNo consideration village district passbookId parcelId createdAt reading } passbooks { id ref pattadarNo ownerName village } }`,
       );
       return { deeds: d.registeredDocuments ?? [], passbooks: d.passbooks ?? [] };
     },
@@ -321,6 +323,7 @@ export function RegisteredDeedsTab({
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [menuFor, setMenuFor] = useState<{ el: HTMLElement; row: RegisteredDocument } | null>(null);
+  const [fmbFor, setFmbFor] = useState<{ geometry: FmbGeometry; village: string } | null>(null);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['pattadar', 'registered-documents'] });
@@ -531,6 +534,24 @@ export function RegisteredDeedsTab({
                       <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{r.ref}</TableCell>
                       <TableCell>
                         <Chip size="small" variant="outlined" label={r.docType || '—'} />
+                        {(() => {
+                          // An FMB whose sheet gave up a corner table carries
+                          // a measurable map — say so where the row is.
+                          const g = parseFmbGeometry((r as { reading?: string }).reading);
+                          return g ? (
+                            <Chip
+                              size="small"
+                              color="info"
+                              variant="outlined"
+                              label="Measure map"
+                              sx={{ ml: 0.75 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setFmbFor({ geometry: g, village: r.village || '' });
+                              }}
+                            />
+                          ) : null;
+                        })()}
                       </TableCell>
                       <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>
                         {r.documentNo || '—'}
@@ -591,6 +612,15 @@ export function RegisteredDeedsTab({
       )}
 
       <DeedImportDialog open={importOpen} onClose={() => setImportOpen(false)} onSaved={refresh} onToast={onToast} />
+
+      {fmbFor && (
+        <FmbMapViewer
+          open
+          onClose={() => setFmbFor(null)}
+          geometry={fmbFor.geometry}
+          village={fmbFor.village}
+        />
+      )}
 
       {/* Row actions menu (⋮) */}
       <Menu anchorEl={menuFor?.el} open={!!menuFor} onClose={() => setMenuFor(null)}>
