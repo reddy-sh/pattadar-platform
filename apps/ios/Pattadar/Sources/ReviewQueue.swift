@@ -1,5 +1,6 @@
 import Foundation
 import PattadarKit
+import UserNotifications
 
 /// Documents that have been read but not yet turned into records.
 ///
@@ -61,11 +62,20 @@ final class ReviewQueue {
         // row pointing at a missing file would fail silently at save time.
         entries = list.filter { FileManager.default.fileExists(atPath: $0.documentPath) }
         if entries.count != list.count { save() }
+        syncBadge()
     }
 
     private func save() {
         guard let data = try? JSONEncoder().encode(entries) else { return }
         try? data.write(to: fileURL, options: .atomic)
+        syncBadge()
+    }
+
+    /// The icon badge IS this queue: readings waiting on a person. It rises
+    /// when a background read lands, and falls only when someone files or
+    /// discards — opening the app is not the same as dealing with it.
+    private func syncBadge() {
+        UNUserNotificationCenter.current().setBadgeCount(entries.count)
     }
 
     /// Called from the upload delegate, which may be running in an app that was

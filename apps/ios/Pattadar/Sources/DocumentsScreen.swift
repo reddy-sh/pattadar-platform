@@ -402,6 +402,10 @@ struct DocumentDetailScreen: View {
     @State private var showTelugu = false
     /// The review card, folded by default — one line loud, the rest on tap.
     @State private var showReview = false
+    /// The identity tile's number while revealed — read off the local scan,
+    /// re-masked a minute later.
+    @State private var revealedTileNumber: String?
+    @State private var revealedTileStamp: Date?
     /// The page the full-screen scan opens on, when one was tapped.
     @State private var openAtPage: PageSelection?
 
@@ -469,24 +473,34 @@ struct DocumentDetailScreen: View {
                                         GridItem(.flexible(), spacing: 1)],
                               spacing: 1) {
                         ForEach(Array(cells.enumerated()), id: \.offset) { _, tile in
-                            VStack(alignment: .leading, spacing: 4) {
-                                if !tile.k.isEmpty {
-                                    Text(tile.k.uppercased())
-                                        .font(.system(size: 10, weight: .bold)).kerning(0.7)
-                                        .foregroundStyle(.secondary)
-                                    Text(tile.v)
-                                        .font(.system(size: 17, weight: .semibold))
-                                        .lineLimit(2).minimumScaleFactor(0.75)
-                                    if !tile.n.isEmpty {
-                                        Text(tile.n)
-                                            .font(.caption).foregroundStyle(.secondary)
-                                            .lineLimit(1)
+                            let revealable = !tile.k.isEmpty && tile.k == identityNumberTileKey
+                            Button {
+                                if revealable { toggleTileReveal() }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if !tile.k.isEmpty {
+                                        Text(tile.k.uppercased())
+                                            .font(.system(size: 10, weight: .bold)).kerning(0.7)
+                                            .foregroundStyle(.secondary)
+                                        Text(tile.v)
+                                            .font(.system(size: 17, weight: .semibold))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(2).minimumScaleFactor(0.75)
+                                        if !tile.n.isEmpty {
+                                            Text(tile.n)
+                                                .font(.caption)
+                                                .foregroundStyle(revealable ? Color.accentColor : Color.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
+                                .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+                                .padding(13)
+                                .background(Color(.secondarySystemGroupedBackground))
+                                .contentShape(Rectangle())
                             }
-                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
-                            .padding(13)
-                            .background(Color(.secondarySystemGroupedBackground))
+                            .buttonStyle(.plain)
+                            .disabled(!revealable)
                         }
                     }
                     .background(Color(.separator).opacity(0.6))
@@ -746,9 +760,12 @@ struct DocumentDetailScreen: View {
             var tiles: [(k: String, v: String, n: String)] = []
             if !spine.identityLabel.isEmpty {
                 // The card's own word for its number — "Aadhaar no.", "PAN" —
-                // never a generic "Number".
-                let numberKey = doc.docType.lowercased().contains("pan") ? "PAN" : "Aadhaar no."
-                tiles.append((numberKey, spine.identityLabel, "Tap in details to reveal"))
+                // never a generic "Number". The tile itself reveals on tap;
+                // a note that points somewhere else is a dead label.
+                tiles.append((identityNumberTileKey,
+                              revealedTileNumber ?? spine.identityLabel,
+                              revealedTileNumber == nil
+                              ? "Tap to reveal" : "Re-masks in a minute · copy in details"))
             }
             if !spine.partiesLine.isEmpty {
                 tiles.append(("Full name", spine.partiesLine, ""))
@@ -779,6 +796,31 @@ struct DocumentDetailScreen: View {
                           spine.partiesLine, ""))
         }
         return Array(tiles.prefix(4))
+    }
+
+    /// "Aadhaar no." / "PAN" — also how the grid knows which tile reveals.
+    private var identityNumberTileKey: String {
+        guard spine.family == "identity" else { return "" }
+        return doc.docType.lowercased().contains("pan") ? "PAN" : "Aadhaar no."
+    }
+
+    private func toggleTileReveal() {
+        if revealedTileNumber != nil {
+            revealedTileNumber = nil
+            return
+        }
+        guard let number = identityNumberFromLocalScan(documentID: doc.id) else {
+            // A scan with no text layer cannot be read back — show the card
+            // itself instead of a tap that does nothing.
+            if LocalFiles.url(for: doc.id) != nil { openAtPage = PageSelection(id: 0) }
+            return
+        }
+        let stamp = Date()
+        revealedTileStamp = stamp
+        revealedTileNumber = number
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+            if revealedTileStamp == stamp { revealedTileNumber = nil }
+        }
     }
 
     /// What the identity slot is CALLED depends on who issued it.

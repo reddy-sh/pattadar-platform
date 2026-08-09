@@ -97,6 +97,15 @@ struct DocumentAllDetailsScreen: View {
     }
 }
 
+/// The number read off the scan stored on THIS phone — nothing fetched,
+/// nothing stored. The cloud only ever holds the masked form; the full
+/// number lives in the file that never left the device.
+func identityNumberFromLocalScan(documentID: String) -> String? {
+    guard let url = LocalFiles.url(for: documentID),
+          let pdf = PDFDocument(url: url), let text = pdf.string else { return nil }
+    return firstIdentityNumber(in: text)
+}
+
 /// The identity card's own rows: the number, revealed from the SCAN ON THIS
 /// PHONE at tap time — the cloud only ever holds the masked form, and the
 /// full number lives in the file that never left the device — and the full
@@ -200,9 +209,7 @@ struct IdentitySection: View {
             numberCopied = false
             return
         }
-        guard let url = LocalFiles.url(for: doc.id),
-              let pdf = PDFDocument(url: url), let text = pdf.string,
-              let number = firstIdentityNumber(in: text) else {
+        guard let number = identityNumberFromLocalScan(documentID: doc.id) else {
             problem = "The number could not be read from this scan — open the file to see the card itself."
             return
         }

@@ -38,6 +38,10 @@ data "aws_iam_policy_document" "github_deploy_assume" {
       variable = "token.actions.githubusercontent.com:sub"
       values = [
         "repo:${var.github_repository}:ref:refs/heads/main",
+        # GitHub's immutable-subject rollout (Aug 2026): the sub arrives as
+        # owner@OWNER_ID/repo@REPO_ID. Every push-deploy failed on this
+        # mismatch until both shapes were trusted.
+        "repo:${join("@*/", split("/", var.github_repository))}@*:ref:refs/heads/main",
       ]
     }
   }

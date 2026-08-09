@@ -106,7 +106,7 @@ final class AppModel {
         // Asked at the one moment it is obviously useful: a wait long enough
         // that leaving is the reasonable thing to do.
         Task { _ = try? await UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound]) }
+            .requestAuthorization(options: [.alert, .sound, .badge]) }
 
         let reader = BackgroundRead.shared
         reader.onProgress = { [weak self] fraction in
