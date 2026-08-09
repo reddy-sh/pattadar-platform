@@ -5587,6 +5587,7 @@ _DOC_IMPORT_SYSTEM = (
     '"owner_name":"<pattadar name in English — PASSBOOK & ROR ONLY>",'
     '"father_husband_name":"<S/o or W/o name — PASSBOOK & ROR ONLY>",'
     '"dob":"<YYYY-MM-DD — date of birth, IDENTITY DOCUMENTS ONLY>",'
+    '"downloaded_on":"<YYYY-MM-DD — e-Aadhaar download / card issue date, IDENTITY DOCUMENTS ONLY>",'
     '"parcels":[{"survey_no":"","subdivision":"","extent":"<as written, WITH its unit>",'
     '"unit":"<Acres|Guntas|Cents|Hectares|Sq.yards>","classification":"<agri|non-agri>",'
     '"acquisition_source":"<purchase|inheritance|gift|partition|government>"}],'
@@ -5655,9 +5656,11 @@ _DOC_IMPORT_SYSTEM = (
     "extraction at all: give it ONLY masked to its last four (\"XXXX XXXX 8203\"), including in "
     "`document_no`. Put the holder's name in `owner_name`, the S/o-W/o relation in "
     "`father_husband_name`, the address parts in village/mandal/district, the date of birth in "
-    "`dob` (YYYY-MM-DD), and the download/issue date as a key point. Leave every land field "
-    "(survey_no, extent, consideration, parties, boundaries, registration fields) empty — an "
-    "identity card names a person, not land.\n"
+    "`dob` (YYYY-MM-DD), and the download or issue date in `downloaded_on` (YYYY-MM-DD). Leave "
+    "every land field (survey_no, extent, consideration, parties, boundaries, registration "
+    "fields) empty — an identity card names a person, not land. An identity document has NO "
+    "transfer and NO parties: OMIT the read-as-X-transferring-to-Y direction caveat entirely, "
+    "and caveat only what is genuinely unreadable or contradictory on the card.\n"
     "IF THE DOCUMENT IS A PATTADAR PASSBOOK, ROR, 1-B OR ADANGAL, the fields above that are "
     "marked PASSBOOK & ROR ONLY are the important ones, and `parcels` is the point of the "
     "document: it lists EVERY survey number the pattadar holds in that village, and each row "
