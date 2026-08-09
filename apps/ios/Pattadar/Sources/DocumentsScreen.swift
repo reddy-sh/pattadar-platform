@@ -173,7 +173,7 @@ struct DocumentsScreen: View {
     private func primaryLine(_ r: VaultRow) -> String {
         let type = r.doc.docType.isEmpty ? documentKind(r.doc.docType).label : r.doc.docType
         if !r.spine.identityLabel.isEmpty { return "\(type) · \(r.spine.identityLabel)" }
-        if !r.doc.headline.isEmpty { return r.doc.headline }
+        if !r.doc.headline.isEmpty { return maskSensitiveText(r.doc.headline) }
         return type
     }
 
@@ -620,7 +620,7 @@ struct DocumentDetailScreen: View {
                             ForEach(doc.keyPointList, id: \.self) { point in
                                 HStack(alignment: .top, spacing: 8) {
                                     Text("•").foregroundStyle(.tint)
-                                    Text(point).font(.subheadline)
+                                    Text(maskSensitiveText(point)).font(.subheadline)
                                 }
                             }
                         }
@@ -928,11 +928,13 @@ struct DocumentDetailScreen: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The summary in whichever language is switched on.
+    /// The summary in whichever language is switched on. Identity numbers
+    /// inside the prose render masked — the details rows are the one reveal
+    /// surface.
     private var shownParagraphs: [String] {
         let text = showTelugu && !reading.summaryTe.isEmpty ? reading.summaryTe : doc.summary
         return text.components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { maskSensitiveText($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { !$0.isEmpty }
     }
 

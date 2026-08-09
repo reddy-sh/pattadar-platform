@@ -179,6 +179,23 @@ struct DocSpineTests {
         #expect(s.placeLine == "Mangalakunta · Sy 128/1")
     }
 
+    @Test func proseNeverCarriesAnOpenIdentityNumber() {
+        // The founder's own Aadhaar upload: the reader wrote the number into
+        // a key point. Whatever the reader emits, the screen masks.
+        #expect(maskSensitiveText("Aadhaar number: 5499 8605 8203")
+                == "Aadhaar number: ×××× ×××× 8203")
+        #expect(maskSensitiveText("PAN ABCDE1234F is linked") == "PAN ××××××234F is linked")
+        #expect(maskSensitiveText("number 549986058203 on file")
+                == "number ××××××××8203 on file")
+        // A caveat built from that prose is masked at the spine too.
+        let reading: [String: Any] = ["caveats": ["Aadhaar 5499 8605 8203 read from page 1."]]
+        let s = docSpine(docType: "Aadhaar", reading: reading)
+        #expect(s.review.first?.text.contains("5499") == false)
+        // Land-record prose is untouched: doc numbers, khatas, years, extents.
+        let deed = "Sale Deed 6337/2024 for 25.00 acres under Khata 397"
+        #expect(maskSensitiveText(deed) == deed)
+    }
+
     @Test func identityNumbersNeverSitOpen() {
         #expect(isSensitiveIdentityValue("4821 9930 8412"))
         #expect(isSensitiveIdentityValue("482199308412"))

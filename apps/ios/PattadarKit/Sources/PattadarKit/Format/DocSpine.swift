@@ -244,6 +244,8 @@ public func docSpine(
     let quantumLine = quantumParts.joined(separator: " · ")
 
     // Review: the reader's items, else caveats promoted with medium severity.
+    // Texts pass through maskSensitiveText — reader prose has carried an open
+    // Aadhaar number before.
     var review: [DocSpine.ReviewItem] = []
     if let items = reading["review"] as? [[String: Any]] {
         review = items.compactMap { item in
@@ -252,7 +254,7 @@ public func docSpine(
             return DocSpine.ReviewItem(
                 code: item["code"] as? String ?? "review",
                 severity: item["severity"] as? String ?? "medium",
-                text: text,
+                text: maskSensitiveText(text),
                 page: (item["page"] as? Int) ?? Int(item["page"] as? Double ?? 0))
         }
     }
@@ -264,11 +266,13 @@ public func docSpine(
         if let watch = reading["watch_out"] as? String,
            !watch.trimmingCharacters(in: .whitespaces).isEmpty {
             review.append(DocSpine.ReviewItem(
-                code: "watch_out", severity: "high", text: watch, page: 0))
+                code: "watch_out", severity: "high",
+                text: maskSensitiveText(watch), page: 0))
         }
         if let caveats = reading["caveats"] as? [String] {
             review += caveats.filter { !$0.isEmpty }.map {
-                DocSpine.ReviewItem(code: "caveat", severity: "medium", text: $0, page: 0)
+                DocSpine.ReviewItem(code: "caveat", severity: "medium",
+                                    text: maskSensitiveText($0), page: 0)
             }
         }
     }
@@ -345,6 +349,24 @@ public func isSensitiveIdentityValue(_ value: String) -> Bool {
 /// instead of the spine.
 public func displayIdentity(_ value: String) -> String {
     isSensitiveIdentityValue(value) ? maskedIdentity(value) : value
+}
+
+/// Masks every Aadhaar- or PAN-shaped number INSIDE running text. The
+/// reader's prose — key points, summaries, caveats — must never carry an
+/// open identity number, even when the reader was told not to emit one.
+public func maskSensitiveText(_ text: String) -> String {
+    guard !text.isEmpty else { return text }
+    var out = text
+    for pattern in [#"\d{4}[\s-]\d{4}[\s-]\d{4}"#,
+                    #"(?<!\d)\d{12}(?!\d)"#,
+                    #"(?<![A-Z])[A-Z]{5}\d{4}[A-Z](?![A-Z])"#] {
+        // maskedIdentity leaves only the last four characters, so a replaced
+        // run can never match its pattern again and the loop terminates.
+        while let r = out.range(of: pattern, options: .regularExpression) {
+            out.replaceSubrange(r, with: maskedIdentity(String(out[r])))
+        }
+    }
+    return out
 }
 
 /// "4821 9930 8412" → "×××× ×××× 8412". The last four stay — enough to tell
