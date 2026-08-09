@@ -26,6 +26,7 @@ struct DocumentAllDetailsScreen: View {
             }
             .padding()
         }
+        .contentMargins(.bottom, 28, for: .scrollContent)
         .navigationTitle(navTitle)
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(item: $openAtPage) { selection in
@@ -36,9 +37,12 @@ struct DocumentAllDetailsScreen: View {
     }
 
     /// "Sale Deed · 6337 / 2024" — the registrar's own way of naming it.
+    /// displayIdentity keeps an Aadhaar-shaped documentNo masked up here;
+    /// the rows below are the one reveal surface.
     private var navTitle: String {
         let kind = doc.docType.isEmpty ? documentKind(doc.docType).label : doc.docType
-        let number = [doc.documentNo, doc.regYear].filter { !$0.isEmpty }.joined(separator: " / ")
+        let number = [displayIdentity(doc.documentNo), doc.regYear]
+            .filter { !$0.isEmpty }.joined(separator: " / ")
         if !number.isEmpty { return "\(kind) · \(number)" }
         return spine.identityLabel.isEmpty ? kind : "\(kind) · \(spine.identityLabel)"
     }

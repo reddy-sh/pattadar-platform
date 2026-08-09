@@ -156,6 +156,29 @@ struct DocSpineTests {
         #expect(docSpine(docType: "1B", reading: read).actionable.count == 1)
     }
 
+    @Test func theSpineItselfMasksASensitiveIdentity() {
+        // An Aadhaar whose own number reaches the identity slot — via a
+        // reader spine label or the documentNo column — is masked AT the
+        // spine, so every downstream row, tile and title inherits the safe
+        // form without knowing the rule.
+        let viaSpine: [String: Any] = [
+            "spine": ["identity": ["label": "4821 9930 8412"]],
+        ]
+        #expect(docSpine(docType: "Aadhaar", reading: viaSpine).identityLabel == "×××× ×××× 8412")
+        let viaColumn = docSpine(docType: "Aadhaar", documentNo: "482199308412")
+        #expect(!viaColumn.identityLabel.contains("482199308412"))
+    }
+
+    @Test func numericSubdivisionsSurviveTheReaderSpine() throws {
+        // JSON numbers arrive as NSNumber — {"no": 128, "sub": 1} must yield
+        // 128/1, not 128. Built via JSONSerialization to match production.
+        let json = #"{"spine": {"place": {"village": "Mangalakunta", "survey": [{"no": 128, "sub": 1}]}}}"#
+        let reading = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        let s = docSpine(docType: "Sale Deed", reading: reading)
+        #expect(s.surveys == ["128/1"])
+        #expect(s.placeLine == "Mangalakunta · Sy 128/1")
+    }
+
     @Test func identityNumbersNeverSitOpen() {
         #expect(isSensitiveIdentityValue("4821 9930 8412"))
         #expect(isSensitiveIdentityValue("482199308412"))

@@ -178,6 +178,11 @@ public func docSpine(
             identity = "Fasli \(fasli)"
         }
     }
+    // An identity that IS a sensitive number — an Aadhaar card's own number,
+    // a PAN — is masked at the spine, so every row, tile, title and search
+    // index downstream inherits the safe form. The details page's field rows
+    // stay the one deliberate reveal surface.
+    if isSensitiveIdentityValue(identity) { identity = maskedIdentity(identity) }
 
     // Place: village · Sy N — never a sentence.
     let placeDict = spine["place"] as? [String: Any]
@@ -188,7 +193,10 @@ public func docSpine(
     if let surveys = placeDict?["survey"] as? [[String: Any]], !surveys.isEmpty {
         surveyList = surveys.compactMap { d -> String? in
             let no = (d["no"] as? String) ?? (d["no"] as? Int).map(String.init) ?? ""
-            let sub = (d["sub"] as? String) ?? ""
+            // The subdivision needs the same numeric fallback as the number:
+            // a reader emitting {"no": 128, "sub": 1} must not collapse
+            // 128/1 into 128 — 1 and 1/1 are different land.
+            let sub = (d["sub"] as? String) ?? (d["sub"] as? Int).map(String.init) ?? ""
             return no.isEmpty ? nil : (sub.isEmpty ? no : "\(no)/\(sub)")
         }
     }
@@ -330,6 +338,13 @@ public func isSensitiveIdentityValue(_ value: String) -> Bool {
     if v.range(of: #"^\d{4}\s?\d{4}\s?\d{4}$"#, options: .regularExpression) != nil { return true }
     if v.range(of: #"^[A-Z]{5}\d{4}[A-Z]$"#, options: .regularExpression) != nil { return true }
     return false
+}
+
+/// The display form of ANY identity string: masked when it is an Aadhaar or
+/// PAN, untouched otherwise — for render sites that read a raw column
+/// instead of the spine.
+public func displayIdentity(_ value: String) -> String {
+    isSensitiveIdentityValue(value) ? maskedIdentity(value) : value
 }
 
 /// "4821 9930 8412" → "×××× ×××× 8412". The last four stay — enough to tell

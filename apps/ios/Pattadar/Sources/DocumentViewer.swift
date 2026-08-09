@@ -303,6 +303,9 @@ struct DocDetailsSection: View {
     /// sixty seconds is enough to read a number to a clerk, not enough to
     /// forget the screen is on.
     @State private var revealed: Set<String> = []
+    /// One cancellable re-mask per row — a Hide followed by a fresh reveal
+    /// must not be cut short by the FIRST reveal's stale timer.
+    @State private var remaskers: [String: DispatchWorkItem] = [:]
 
     var body: some View {
         ForEach(groups.filter { !$0.rows.isEmpty }, id: \.title) { group in
@@ -311,9 +314,12 @@ struct DocDetailsSection: View {
                     .font(.caption.weight(.medium)).kerning(1.1)
                     .foregroundStyle(.secondary)
                 VStack(spacing: 0) {
-                    ForEach(Array(group.rows.enumerated()), id: \.element.id) { i, row in
+                    // Positional identity: two "Seller" rows on a joint deed
+                    // share a label, and rows are an immutable snapshot for
+                    // the screen's lifetime.
+                    ForEach(Array(group.rows.enumerated()), id: \.offset) { i, row in
                         if i > 0 { Divider() }
-                        rowView(row)
+                        rowView(row, id: "\(group.title)-\(i)")
                     }
                 }
                 .padding(.horizontal, 14)
@@ -323,14 +329,17 @@ struct DocDetailsSection: View {
         }
     }
 
-    @ViewBuilder private func rowView(_ row: DocDetailRow) -> some View {
+    @ViewBuilder private func rowView(_ row: DocDetailRow, id rowID: String) -> some View {
         let page = reading.fieldPages[row.field]
         let confidence = reading.fieldConfidence[row.field]
         let sensitive = isSensitiveIdentityValue(row.value)
-        let isOpen = revealed.contains(row.id)
+        let isOpen = revealed.contains(rowID)
         Button {
-            if sensitive { toggleReveal(row.id) }
-            else if let page { onOpenPage(page - 1) }
+            // The row keeps its provenance meaning: tap opens the page. The
+            // reveal has its own button below — a masked value must not cost
+            // a field its page.
+            if let page { onOpenPage(page - 1) }
+            else if sensitive { toggleReveal(rowID) }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -350,9 +359,12 @@ struct DocDetailsSection: View {
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.trailing)
                     if sensitive {
-                        Text(isOpen ? "Hide" : "Tap to reveal")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(.tint)
+                        Button { toggleReveal(rowID) } label: {
+                            Text(isOpen ? "Hide" : "Tap to reveal")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(.tint)
+                        }
+                        .buttonStyle(.borderless)
                     }
                     if let confidence { ConfidencePill(level: confidence) }
                 }
@@ -365,13 +377,17 @@ struct DocDetailsSection: View {
     }
 
     private func toggleReveal(_ id: String) {
+        remaskers.removeValue(forKey: id)?.cancel()
         if revealed.contains(id) {
             revealed.remove(id)
         } else {
             revealed.insert(id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
+            let work = DispatchWorkItem {
                 revealed.remove(id)
+                remaskers[id] = nil
             }
+            remaskers[id] = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: work)
         }
     }
 }

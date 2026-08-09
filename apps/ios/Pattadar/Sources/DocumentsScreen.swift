@@ -34,9 +34,11 @@ struct DocumentsScreen: View {
             }
             guard inFilter else { return false }
             guard !q.isEmpty else { return true }
+            // plotNo and summary ride along: urban papers have a plot where
+            // the spine has no survey, and the story text catches the rest.
             return [r.spine.identityLabel, r.spine.placeLine, r.spine.partiesLine,
                     r.spine.quantumLine, r.doc.docType, r.doc.headline,
-                    r.doc.regYear, r.doc.sro]
+                    r.doc.regYear, r.doc.sro, r.doc.plotNo, r.doc.summary]
                 .contains { $0.lowercased().contains(q) }
         }
     }
@@ -264,15 +266,34 @@ struct DocumentsScreen: View {
         switch groupBy {
         case .property:
             // The holding key: village + BASE survey number, so Sy 1/1A files
-            // with Sy 1 — the almirah shelf, not the FMB sheet. A multi-survey
-            // paper (a 1B) shelves under its first survey; its full list stays
-            // on the row and the page.
-            return sortedGroups(by: { r in
+            // with Sy 1 — the almirah shelf, not the FMB sheet. The key is
+            // NORMALISED (case, spacing, leading zeros) so "Mangala Kunta"
+            // and "mangalakunta", Sy 01 and Sy 1, are one shelf shown by the
+            // first spelling seen. A multi-survey paper shelves under its
+            // first survey; its full list stays on the row and the page.
+            var display: [String: String] = [:]
+            var buckets: [String: [VaultRow]] = [:]
+            for r in shown {
                 let v = r.spine.village.trimmingCharacters(in: .whitespaces)
-                guard !v.isEmpty else { return "No place named" }
-                let base = r.spine.surveys.first.map { surveyParts($0).no } ?? ""
-                return base.isEmpty ? v : "\(v) · Sy \(base)"
-            }, last: "No place named")
+                var base = r.spine.surveys.first.map { surveyParts($0).no } ?? ""
+                while base.count > 1, base.hasPrefix("0") { base.removeFirst() }
+                let key: String
+                if v.isEmpty {
+                    key = ""
+                    if display[key] == nil { display[key] = "No place named" }
+                } else {
+                    key = v.lowercased().filter { !$0.isWhitespace } + "|" + base.lowercased()
+                    if display[key] == nil {
+                        display[key] = base.isEmpty ? v : "\(v) · Sy \(base)"
+                    }
+                }
+                buckets[key, default: []].append(r)
+            }
+            return buckets.keys.sorted { a, b in
+                if a.isEmpty { return false }
+                if b.isEmpty { return true }
+                return display[a]! < display[b]!
+            }.map { (display[$0]!, buckets[$0]!) }
         case .type:
             let order = ["title", "revenue", "map", "identity", "search", "old_record", "unsorted"]
             let by = Dictionary(grouping: shown) { $0.spine.family }
@@ -313,15 +334,6 @@ struct DocumentsScreen: View {
         }
     }
 
-    private func sortedGroups(by key: (VaultRow) -> String, last: String)
-        -> [(key: String, rows: [VaultRow])] {
-        Dictionary(grouping: shown, by: key).sorted {
-            if $0.key == last { return false }
-            if $1.key == last { return true }
-            return $0.key < $1.key
-        }.map { ($0.key, $0.value) }
-    }
-
     // MARK: - Load
 
     /// The year a person recognises the document by.
@@ -343,6 +355,12 @@ struct DocumentsScreen: View {
                                     surveyNo: d.surveyNo, extent: d.extent,
                                     consideration: d.consideration, reading: reading),
                     year: rowYear(d))
+            }
+            // A filter whose chip vanished with this reload (the last
+            // needs-review paper settled, the last map deleted) must not
+            // stay stuck invisibly emptying the list.
+            if filter != "all", !filterChips.contains(where: { $0.key == filter }) {
+                filter = "all"
             }
         }
         loaded = true
@@ -411,7 +429,7 @@ struct DocumentDetailScreen: View {
                                 .lineLimit(1)
                         }
                     }
-                    Text(displayHeadline)
+                    Text(headerTitle)
                         .font(.system(size: 30, weight: .semibold, design: .serif))
                     if !registeredLine.isEmpty {
                         Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
@@ -425,33 +443,39 @@ struct DocumentDetailScreen: View {
                 .background(Color(.secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                // The spine, made visible: four tiles at most, and what the
-                // reader could not fill is NOT a tile — its absence sits in
-                // the review card instead of rendering blank.
+                // The spine, made visible: ONE box, hairline-divided — the
+                // template's grid, not four floating cards. What the reader
+                // could not fill is NOT a tile; its absence sits in the
+                // review card instead of rendering blank.
                 if !spineTiles.isEmpty {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10),
-                                        GridItem(.flexible(), spacing: 10)],
-                              spacing: 10) {
-                        ForEach(spineTiles, id: \.k) { tile in
+                    let cells = spineTiles.count.isMultiple(of: 2)
+                        ? spineTiles : spineTiles + [(k: "", v: "", n: "")]
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 1),
+                                        GridItem(.flexible(), spacing: 1)],
+                              spacing: 1) {
+                        ForEach(Array(cells.enumerated()), id: \.offset) { _, tile in
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(tile.k.uppercased())
-                                    .font(.system(size: 10, weight: .bold)).kerning(0.7)
-                                    .foregroundStyle(.secondary)
-                                Text(tile.v)
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .lineLimit(2).minimumScaleFactor(0.75)
-                                if !tile.n.isEmpty {
-                                    Text(tile.n)
-                                        .font(.caption).foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                if !tile.k.isEmpty {
+                                    Text(tile.k.uppercased())
+                                        .font(.system(size: 10, weight: .bold)).kerning(0.7)
+                                        .foregroundStyle(.secondary)
+                                    Text(tile.v)
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .lineLimit(2).minimumScaleFactor(0.75)
+                                    if !tile.n.isEmpty {
+                                        Text(tile.n)
+                                            .font(.caption).foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
                                 }
                             }
                             .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
                             .padding(13)
-                            .background(Color(.secondarySystemGroupedBackground),
-                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .background(Color(.secondarySystemGroupedBackground))
                         }
                     }
+                    .background(Color(.separator).opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
 
                 // A paper filed before deep reading degrades QUIETLY — grey
@@ -659,6 +683,8 @@ struct DocumentDetailScreen: View {
             }
             .padding()
         }
+        // The last card must clear the floating tab bar when fully scrolled.
+        .contentMargins(.bottom, 28, for: .scrollContent)
         .navigationTitle(doc.docType.isEmpty ? "Document" : doc.docType)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -693,18 +719,6 @@ struct DocumentDetailScreen: View {
             if parsedReading == nil { parsedReading = DocReading(json: doc.reading) }
             if parsedSpine == nil { parsedSpine = computedSpine }
         }
-    }
-
-    /// The serif line owns the IDENTITY — "6337 / 2024" — because the chip
-    /// above it already owns the kind. A record with no number is titled by
-    /// its content ("Khata 567 · Telukutla Swetha").
-    private var displayHeadline: String {
-        let number = [doc.documentNo, doc.regYear].filter { !$0.isEmpty }.joined(separator: " / ")
-        if !number.isEmpty { return number }
-        let content = [spine.identityLabel, spine.partiesLine]
-            .filter { !$0.isEmpty }.joined(separator: " · ")
-        if !content.isEmpty { return content }
-        return doc.docType.isEmpty ? "Document" : doc.docType
     }
 
     /// At most four tiles, absent slots omitted — the grid reflows to what
@@ -846,7 +860,10 @@ struct DocumentDetailScreen: View {
     /// of naming it. Falls back to the kind alone for papers with no number.
     private var headerTitle: String {
         let kind = doc.docType.isEmpty ? documentKind(doc.docType).label : doc.docType
-        let number = [doc.documentNo, doc.regYear].filter { !$0.isEmpty }.joined(separator: " / ")
+        // displayIdentity: a documentNo that IS an Aadhaar/PAN renders masked
+        // here too — the details rows are the one reveal surface.
+        let number = [displayIdentity(doc.documentNo), doc.regYear]
+            .filter { !$0.isEmpty }.joined(separator: " / ")
         // Registered papers keep the registrar's own naming — "Sale Deed ·
         // 6337 / 2024". A record with NO number is titled by its content
         // ("Khata 567 · Telukutla Swetha"): the kind is already the chip
@@ -936,15 +953,19 @@ struct DocumentDetailScreen: View {
         guard let h = holdings else { return [] }
         var out: [(String, String)] = []
         for p in h.parcels where p.id == doc.parcelId {
-            let pb = h.passbooks.first { $0.id == p.passbookId }
-            out.append(("Sy \(p.surveyNo)",
-                        [areaText(p.extent, .acre), pb?.village ?? ""]
-                            .filter { !$0.isEmpty }.joined(separator: " · ")))
+            let passbook = h.passbooks.first { $0.id == p.passbookId }
+            let name = "Sy \(p.surveyNo)"
+            out.append((name,
+                        [areaText(p.extent, .acre), passbook?.village ?? ""]
+                            .filter { !$0.isEmpty && $0 != name }.joined(separator: " · ")))
         }
         for p in h.properties where p.id == doc.propertyId {
-            out.append((p.label.isEmpty ? p.city : p.label,
+            let name = p.label.isEmpty ? p.city : p.label
+            // The card must not say the place twice — "Mangalakunta ·
+            // 25 Acres · Mangalakunta" named nothing the title had not.
+            out.append((name,
                         [propertyAreaText(landArea: p.landArea, landUnit: p.landUnit), p.city]
-                            .filter { !$0.isEmpty }.joined(separator: " · ")))
+                            .filter { !$0.isEmpty && $0 != name }.joined(separator: " · ")))
         }
         return out
     }
