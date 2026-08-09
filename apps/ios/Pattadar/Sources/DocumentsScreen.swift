@@ -745,7 +745,10 @@ struct DocumentDetailScreen: View {
         if spine.family == "identity" {
             var tiles: [(k: String, v: String, n: String)] = []
             if !spine.identityLabel.isEmpty {
-                tiles.append(("Number", spine.identityLabel, "Revealed only in details"))
+                // The card's own word for its number — "Aadhaar no.", "PAN" —
+                // never a generic "Number".
+                let numberKey = doc.docType.lowercased().contains("pan") ? "PAN" : "Aadhaar no."
+                tiles.append((numberKey, spine.identityLabel, "Tap in details to reveal"))
             }
             if !spine.partiesLine.isEmpty {
                 tiles.append(("Full name", spine.partiesLine, ""))
@@ -895,6 +898,12 @@ struct DocumentDetailScreen: View {
     /// of naming it. Falls back to the kind alone for papers with no number.
     private var headerTitle: String {
         let kind = doc.docType.isEmpty ? documentKind(doc.docType).label : doc.docType
+        // An identity card is known by its PERSON — "Aadhaar · Ravi
+        // Rathamma", the design's own naming. The masked number lives in
+        // the tile, not the headline.
+        if spine.family == "identity", !spine.primaryPerson.isEmpty {
+            return "\(kind) · \(spine.primaryPerson)"
+        }
         // displayIdentity: a documentNo that IS an Aadhaar/PAN renders masked
         // here too — the details rows are the one reveal surface.
         let number = [displayIdentity(doc.documentNo), doc.regYear]
@@ -939,8 +948,17 @@ struct DocumentDetailScreen: View {
 
     /// Where and when, ONCE: "Registered 7 March 2024 · Podili · 14 pages".
     /// The old header said "Registered … Podili" twice in consecutive lines.
+    /// An identity card's subline speaks its own vocabulary: "Downloaded
+    /// 29 July 2017 · masked by default".
     private var registeredLine: String {
         var parts: [String] = []
+        if spine.family == "identity" {
+            let downloaded = (rawReading["downloaded_on"] as? String) ?? ""
+            if !downloaded.isEmpty { parts.append("Downloaded \(humanDate(downloaded))") }
+            parts.append("masked by default")
+            if reading.totalPages > 0 { parts.append("\(reading.totalPages) pages") }
+            return parts.joined(separator: " · ")
+        }
         if !doc.registrationDate.isEmpty {
             parts.append("Registered \(humanDate(doc.registrationDate))")
         } else if !doc.regYear.isEmpty {
