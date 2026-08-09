@@ -51,37 +51,55 @@ struct DocumentsScreen: View {
                     .listRowBackground(Color.clear)
                 }
 
-                ForEach(shown) { d in
-                    NavigationLink { DocumentDetailScreen(doc: d) } label: {
-                        HStack(spacing: 12) {
-                            DocumentIcon(docType: d.docType,
-                                         hasFile: LocalFiles.url(for: d.id) != nil)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(d.docType.isEmpty ? documentKind(d.docType).label : d.docType)
-                                    .fontWeight(.semibold)
-                                // Lead with what the document SAYS, not its filename.
-                                Text(d.headline.isEmpty ? subtitle(d) : d.headline)
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                // Whether a row opens a file or only its details
-                                // was invisible until you tapped it.
-                                if LocalFiles.url(for: d.id) == nil {
-                                    Text("Details only — no file stored")
-                                        .font(.caption2).foregroundStyle(.tertiary)
-                                }
-                                // The first caveat, as a flag. A document with
-                                // something wrong looked exactly like one that
-                                // read cleanly, and the caveats were two taps
-                                // away on the detail screen.
-                                if let flag = d.caveatList.first, !flag.isEmpty {
-                                    Text(flag)
-                                        .font(.caption2.weight(.medium))
-                                        .lineLimit(2)
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(Color.orange.opacity(0.16), in: Capsule())
-                                        .foregroundStyle(.orange)
+                // Grouped by the PLACE the paper is about — the same way the
+                // Properties list groups, and the way a family almirah is
+                // actually organised: the Mangala Kunta papers together, the
+                // Katragunta papers together.
+                ForEach(groupedByVillage, id: \.village) { group in
+                    Section {
+                        ForEach(group.docs) { d in
+                            NavigationLink { DocumentDetailScreen(doc: d) } label: {
+                                HStack(spacing: 12) {
+                                    DocumentIcon(docType: d.docType,
+                                                 hasFile: LocalFiles.url(for: d.id) != nil)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        // The YEAR beside the kind: five RORs of
+                                        // one village are told apart by date, and
+                                        // the kind alone repeated five times said
+                                        // nothing.
+                                        Text(d.docType.isEmpty ? documentKind(d.docType).label : d.docType)
+                                            .fontWeight(.semibold)
+                                        + Text(rowYear(d).isEmpty ? "" : "  ·  \(rowYear(d))")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                        // Lead with what the document SAYS.
+                                        Text(d.headline.isEmpty ? subtitle(d) : d.headline)
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                        if LocalFiles.url(for: d.id) == nil {
+                                            Text("Details only — no file stored")
+                                                .font(.caption2).foregroundStyle(.tertiary)
+                                        }
+                                        // Amber ONLY for a real warning. The reader
+                                        // also writes benign explainers ("no transfer
+                                        // parties — this is a land record"), and a
+                                        // vault where every row wears amber says
+                                        // nothing about any of them. Explainers stay
+                                        // on the detail screen.
+                                        if let flag = d.caveatList.first(where: isWarning) {
+                                            Label {
+                                                Text(flag).lineLimit(2)
+                                            } icon: {
+                                                Image(systemName: "exclamationmark.triangle.fill")
+                                            }
+                                            .font(.caption2.weight(.medium))
+                                            .foregroundStyle(.orange)
+                                        }
+                                    }
                                 }
                             }
                         }
+                    } header: {
+                        Text(group.village)
                     }
                 }
                 if loaded && docs.isEmpty {
@@ -109,6 +127,36 @@ struct DocumentsScreen: View {
             .refreshable { await load() }
             .task { await load() }
         }
+    }
+
+    /// The papers of one place, together. Documents naming no place file
+    /// under their own heading at the end rather than polluting a village's.
+    private var groupedByVillage: [(village: String, docs: [RegisteredDocument])] {
+        let by = Dictionary(grouping: shown) { d in
+            d.village.trimmingCharacters(in: .whitespaces).isEmpty
+                ? "No place named" : d.village
+        }
+        return by.sorted {
+            if $0.key == "No place named" { return false }
+            if $1.key == "No place named" { return true }
+            return $0.key < $1.key
+        }.map { (village: $0.key, docs: $0.value) }
+    }
+
+    /// The year a person recognises the document by.
+    private func rowYear(_ d: RegisteredDocument) -> String {
+        if !d.regYear.isEmpty { return d.regYear }
+        if let y = year(from: d.registrationDate) { return y }
+        return year(from: d.createdAt) ?? ""
+    }
+
+    /// A caveat worth amber names something to CHECK; the reader's benign
+    /// explainers do not.
+    private func isWarning(_ caveat: String) -> Bool {
+        let c = caveat.lowercased()
+        return c.contains("check") || c.contains("mismatch") || c.contains("does not match")
+            || c.contains("different") || c.contains("gpa") || c.contains("verify")
+            || c.contains("missing") || c.contains("expired") || c.contains("dispute")
     }
 
     private func subtitle(_ d: RegisteredDocument) -> String {
