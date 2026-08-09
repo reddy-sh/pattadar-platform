@@ -479,17 +479,25 @@ struct DocumentDetailScreen: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     if !tile.k.isEmpty {
-                                        Text(tile.k.uppercased())
-                                            .font(.system(size: 10, weight: .bold)).kerning(0.7)
-                                            .foregroundStyle(.secondary)
+                                        HStack(alignment: .top, spacing: 6) {
+                                            Text(tile.k.uppercased())
+                                                .font(.system(size: 10, weight: .bold)).kerning(0.7)
+                                                .foregroundStyle(.secondary)
+                                            if revealable {
+                                                Spacer(minLength: 4)
+                                                Image(systemName: revealedTileNumber == nil
+                                                      ? "eye" : "eye.slash")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundStyle(Color.accentColor)
+                                            }
+                                        }
                                         Text(tile.v)
                                             .font(.system(size: 17, weight: .semibold))
                                             .foregroundStyle(.primary)
                                             .lineLimit(2).minimumScaleFactor(0.75)
                                         if !tile.n.isEmpty {
                                             Text(tile.n)
-                                                .font(.caption)
-                                                .foregroundStyle(revealable ? Color.accentColor : Color.secondary)
+                                                .font(.caption).foregroundStyle(.secondary)
                                                 .lineLimit(1)
                                         }
                                     }
@@ -501,6 +509,9 @@ struct DocumentDetailScreen: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(!revealable)
+                            .accessibilityLabel(revealable
+                                ? (revealedTileNumber == nil ? "Reveal the number" : "Hide the number")
+                                : "\(tile.k), \(tile.v)")
                         }
                     }
                     .background(Color(.separator).opacity(0.6))
@@ -760,12 +771,10 @@ struct DocumentDetailScreen: View {
             var tiles: [(k: String, v: String, n: String)] = []
             if !spine.identityLabel.isEmpty {
                 // The card's own word for its number — "Aadhaar no.", "PAN" —
-                // never a generic "Number". The tile itself reveals on tap;
-                // a note that points somewhere else is a dead label.
+                // never a generic "Number". The tile reveals on tap; the eye
+                // icon says so without a sentence.
                 tiles.append((identityNumberTileKey,
-                              revealedTileNumber ?? spine.identityLabel,
-                              revealedTileNumber == nil
-                              ? "Tap to reveal" : "Re-masks in a minute · copy in details"))
+                              revealedTileNumber ?? spine.identityLabel, ""))
             }
             if !spine.partiesLine.isEmpty {
                 tiles.append(("Full name", spine.partiesLine, ""))

@@ -126,59 +126,61 @@ struct IdentitySection: View {
                 .font(.caption.weight(.medium)).kerning(1.1)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                // One row, icon controls: the eye everyone knows, the copy
+                // everyone knows. Words only where a word is the content.
+                HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(numberLabel).font(.subheadline).foregroundStyle(.secondary)
-                        Text(revealedNumber == nil
-                             ? "Read from the scan on this phone — nothing is fetched"
-                             : "Re-masks in a minute")
-                            .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                        if revealedNumber != nil {
+                            Text(numberCopied ? "Copied — clipboard clears in a minute"
+                                              : "Re-masks in a minute")
+                                .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                        }
                     }
-                    Spacer(minLength: 12)
+                    Spacer(minLength: 8)
                     Text(revealedNumber ?? spine.identityLabel)
                         .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                         .foregroundStyle(.primary)
-                }
-                .padding(.vertical, 10)
-                HStack(spacing: 16) {
-                    Button(revealedNumber == nil ? "Reveal" : "Hide") { toggleReveal() }
+                    Button { toggleReveal() } label: {
+                        Image(systemName: revealedNumber == nil ? "eye" : "eye.slash")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(revealedNumber == nil ? "Reveal the number" : "Hide the number")
                     if revealedNumber != nil {
-                        Button {
-                            copyNumber()
-                        } label: {
-                            Label(numberCopied ? "Copied — clears in a minute" : "Copy the number",
-                                  systemImage: numberCopied ? "checkmark" : "doc.on.doc")
+                        Button { copyNumber() } label: {
+                            Image(systemName: numberCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 15, weight: .semibold))
                         }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Copy the number")
                     }
                 }
-                .font(.caption.weight(.semibold))
-                .buttonStyle(.borderless)
-                .padding(.bottom, 10)
+                .padding(.vertical, 12)
                 if !problem.isEmpty {
                     Text(problem)
                         .font(.caption).foregroundStyle(.orange)
                         .padding(.bottom, 10)
                 }
                 Divider()
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                HStack(alignment: .center, spacing: 12) {
                     Text("Address on card").font(.subheadline).foregroundStyle(.secondary)
-                    Spacer(minLength: 12)
+                    Spacer(minLength: 8)
                     Text(fullAddress)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.trailing)
+                    Button {
+                        UIPasteboard.general.string = fullAddress
+                        addressCopied = true
+                    } label: {
+                        Image(systemName: addressCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Copy the address")
                 }
-                .padding(.vertical, 10)
-                Button {
-                    UIPasteboard.general.string = fullAddress
-                    addressCopied = true
-                } label: {
-                    Label(addressCopied ? "Copied" : "Copy the address",
-                          systemImage: addressCopied ? "checkmark" : "doc.on.doc")
-                }
-                .font(.caption.weight(.semibold))
-                .buttonStyle(.borderless)
-                .padding(.bottom, 10)
+                .padding(.vertical, 12)
             }
             .padding(.horizontal, 14)
             .background(Color(.secondarySystemGroupedBackground),
