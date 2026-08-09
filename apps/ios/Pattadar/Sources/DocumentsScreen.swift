@@ -72,32 +72,18 @@ struct DocumentsScreen: View {
                                         + Text(rowYear(d).isEmpty ? "" : "  ·  \(rowYear(d))")
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
-                                        // KEY FACTS at the master level — survey,
-                                        // extent, money, number — not the headline
-                                        // sentence, which repeats the village the
-                                        // section header already says and the kind
-                                        // the title already says. The full story
-                                        // lives on the detail screen.
-                                        Text(keyInfo(d))
+                                        // KEY FACTS at the master level, chosen per
+                                        // KIND: a deed is known by number, extent
+                                        // and who it made the owner; a 1-B by khata
+                                        // and holder; an FMB by village and extent.
+                                        // No caveats here — they belong to the
+                                        // detail screen, and rows wearing warnings
+                                        // drowned the facts.
+                                        Text(masterLine(d))
                                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                         if LocalFiles.url(for: d.id) == nil {
                                             Text("Details only — no file stored")
                                                 .font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                        // Amber ONLY for a real warning. The reader
-                                        // also writes benign explainers ("no transfer
-                                        // parties — this is a land record"), and a
-                                        // vault where every row wears amber says
-                                        // nothing about any of them. Explainers stay
-                                        // on the detail screen.
-                                        if let flag = d.caveatList.first(where: isWarning) {
-                                            Label {
-                                                Text(flag).lineLimit(2)
-                                            } icon: {
-                                                Image(systemName: "exclamationmark.triangle.fill")
-                                            }
-                                            .font(.caption2.weight(.medium))
-                                            .foregroundStyle(.orange)
                                         }
                                     }
                                 }
@@ -148,18 +134,17 @@ struct DocumentsScreen: View {
         }.map { (village: $0.key, docs: $0.value) }
     }
 
-    /// The distilled facts a person scans a shelf by: which land, how much,
-    /// for what, under which number. Falls back to the headline only when the
-    /// reading produced no columns at all.
-    private func keyInfo(_ d: RegisteredDocument) -> String {
-        var parts: [String] = []
-        if !d.surveyNo.isEmpty { parts.append("Sy \(d.surveyNo)") }
-        if !d.plotNo.isEmpty { parts.append("Plot \(d.plotNo)") }
-        if !d.extent.isEmpty { parts.append(d.extent) }
-        if d.consideration > 0 { parts.append(compactRupees(d.consideration)) }
-        if !d.documentNo.isEmpty { parts.append("Doc \(d.documentNo)") }
-        if parts.isEmpty { return d.headline.isEmpty ? subtitle(d) : d.headline }
-        return parts.joined(separator: " · ")
+    /// The kit picks the facts per kind; the headline is the last resort for
+    /// a reading that produced nothing identifying at all.
+    private func masterLine(_ d: RegisteredDocument) -> String {
+        let reading = (try? JSONSerialization.jsonObject(
+            with: Data(d.reading.utf8))) as? [String: Any] ?? [:]
+        let line = vaultKeyInfo(docType: d.docType, documentNo: d.documentNo,
+                                regYear: d.regYear, village: d.village,
+                                surveyNo: d.surveyNo, extent: d.extent,
+                                reading: reading)
+        if !line.isEmpty { return line }
+        return d.headline.isEmpty ? subtitle(d) : d.headline
     }
 
     /// The year a person recognises the document by.
@@ -167,15 +152,6 @@ struct DocumentsScreen: View {
         if !d.regYear.isEmpty { return d.regYear }
         if let y = year(from: d.registrationDate) { return y }
         return year(from: d.createdAt) ?? ""
-    }
-
-    /// A caveat worth amber names something to CHECK; the reader's benign
-    /// explainers do not.
-    private func isWarning(_ caveat: String) -> Bool {
-        let c = caveat.lowercased()
-        return c.contains("check") || c.contains("mismatch") || c.contains("does not match")
-            || c.contains("different") || c.contains("gpa") || c.contains("verify")
-            || c.contains("missing") || c.contains("expired") || c.contains("dispute")
     }
 
     private func subtitle(_ d: RegisteredDocument) -> String {
