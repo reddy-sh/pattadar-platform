@@ -30,6 +30,11 @@ struct AttachDocumentSheet: View {
     @State private var scanned: ScanResult?
     @State private var applyExtent = false
     @State private var confirmMismatch = false
+    /// The scan being re-filed as its own holding, when it turned out to
+    /// describe different land. Boolean + stashed scan, because ScanResult
+    /// is a plain bag of fields with no identity of its own.
+    @State private var addingAsNew = false
+    @State private var newPropertyScan: ScanResult?
     @State private var working = false
     @State private var problem = ""
 
@@ -122,6 +127,21 @@ struct AttachDocumentSheet: View {
                         .tint(m.level == .mismatch ? .red : .accentColor)
                         .disabled(working)
 
+                        // The honest exit for a wrong paper: it is not this
+                        // holding's document, but it IS a document — of some
+                        // other land. Filing it as its own property keeps the
+                        // reading instead of forcing a bad attach or a retreat.
+                        if m.level != .strong {
+                            Button {
+                                newPropertyScan = scanned
+                                addingAsNew = true
+                            } label: {
+                                Text("This is different land — file it as a NEW property")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
                         Button("Read a different document") {
                             scanned = nil
                             applyExtent = false
@@ -138,6 +158,12 @@ struct AttachDocumentSheet: View {
                     Button(app.isReading ? "Close" : "Cancel") {
                         app.clearReadIfSettled(); dismiss()
                     }
+                }
+            }
+            .sheet(isPresented: $addingAsNew) {
+                if let scan = newPropertyScan {
+                    AddPropertyScreen(initialScan: scan)
+                        .onDisappear { dismiss() }
                 }
             }
             .confirmationDialog("Attach a document that does not match?",

@@ -5111,8 +5111,23 @@ async def cron_inactivity_check(request: Request):
 # confidence). Sonnet reads the Telugu names correctly and stably. Used by BOTH
 # the passbook importer and the registered-document importer below.
 _IMPORT_MODEL = "claude-sonnet-5"
+# The acres-cents convention, stated ONCE for every extraction prompt.
+# It was written into one prompt and not the others, and the drift cost a
+# real user 24.75 acres on screen: "Ac 25-00" read as "25.00 cents".
+_EXTENT_NOTATION_RULE = (
+    "EXTENT NOTATION — AP deeds write land in ACRES AND CENTS with a hyphen: \"Ac 25-00\", "
+    "\"ఎ. 25-30\", \"య.25.00సెంట్లు\" all mean X acres plus YY cents, where 100 cents = 1 acre. "
+    "\"Ac 25-00\" is TWENTY-FIVE ACRES, not 25.00 cents; \"య.25.00సెంట్లు లేక 10.00హె\" is 25 acres "
+    "(≈10 hectares confirms it). When the schedule uses this notation, write the extent as decimal "
+    "acres with the unit \"acres\"/\"Acres\": 25.00 acres. Write \"cents\"/\"Cents\" ONLY when the "
+    "land is genuinely measured in cents alone (a house site of \"5 cents\" with no acre figure). "
+    "Cross-check against any hectare restatement: 1 acre ≈ 0.4047 ha. Misreading acres as cents "
+    "shrinks somebody's land a hundredfold.\n"
+)
+
 _IMPORT_SYSTEM = (
-    "You are a data-extraction assistant for an Andhra Pradesh (India) land-records "
+    _EXTENT_NOTATION_RULE
+    +     "You are a data-extraction assistant for an Andhra Pradesh (India) land-records "
     "application. You are given an image or PDF of a land passbook / khata / ROR-1B / "
     "Meebhoomi document, often bilingual (English + Telugu). Extract the passbook header "
     "AND every land-parcel row (each survey / sub-division line), and return ONLY a "
@@ -5593,12 +5608,7 @@ _DOC_IMPORT_SYSTEM = (
     "`field_confidence` list ONLY the fields you are not fully sure of: \"check\" when a careful "
     "person should glance at the page, \"unsure\" when you may well be wrong. A field absent "
     "from `field_confidence` is clean. Never mark a field clean to be polite.\n"
-    "EXTENT NOTATION — AP deeds write land in ACRES AND CENTS with a hyphen: \"Ac 25-00\", "
-    "\"ఎ. 25-30\", \"25-50 cents\" all mean X acres plus YY cents, where 100 cents = 1 acre. "
-    "\"Ac 25-00\" is TWENTY-FIVE ACRES, not 25.00 cents. When the schedule uses this notation, "
-    "write `extent` as decimal acres: \"25.00 acres\", \"25.30 acres\". Write \"cents\" only "
-    "when the land is genuinely measured in cents alone (a house site of \"5 cents\"). Misreading "
-    "acres as cents shrinks somebody's land a hundredfold.\n"
+    + _EXTENT_NOTATION_RULE +
     "BOUNDARY_POINTS — an FMB, survey sketch or resurvey sheet usually ends in a POINT TABLE: "
     "one row per corner with columns like Point Id, Easting, Northing, Latitude, Longitude. "
     "When such a table is present, extract EVERY row's latitude and longitude as "
@@ -5777,7 +5787,8 @@ async def import_registered_document(file: UploadFile = File(...)):
 # agreement, plot sale deed, brochure) and auto-fills the Add-Property form.
 # Also recognises AGRICULTURAL land so the UI can route it to the parcel flow.
 _PROPERTY_IMPORT_SYSTEM = (
-    "You are a data-extraction assistant for an India (Telangana/AP) real-estate app. "
+    _EXTENT_NOTATION_RULE
+    + "You are a data-extraction assistant for an India (Telangana/AP) real-estate app. "
     "The uploaded file may be a NON-AGRICULTURAL property document (open-plot/site sale deed or "
     "allotment letter, flat/apartment sale agreement, independent house/villa deed, commercial "
     "unit) OR an AGRICULTURAL land document (pattadar passbook, ROR/Adangal, or a deed whose "
@@ -5792,7 +5803,7 @@ _PROPERTY_IMPORT_SYSTEM = (
     '{"kind":"property|parcel","confidence":"high|medium|low",'
     '"property_type":"open_plot|flat|independent_house|villa|commercial|rental|other",'
     '"label":"<short label e.g. \'Neopolis 250-sqyd plot\'>","city":"<English>","district":"<English>",'
-    '"land_area":<number>,"land_unit":"Sq.yd","builtup_area":<number>,"builtup_unit":"Sq.ft",'
+    '"land_area":<number>,"land_unit":"<the unit AS WRITTEN: Sq.yd|Sq.ft|Acres|Cents|Guntas>","builtup_area":<number>,"builtup_unit":"Sq.ft",'
     '"attributes":{"plot_no":"","dimensions":"","corner":"","road_width":0,"layout":"","tower_block":"",'
     '"unit_no":"","floor":"","facing":"","bhk":"","carpet_area":0,"super_builtup_area":0,"uds":0},'
     # transaction / registration facts — fill for BOTH property and parcel when present:
