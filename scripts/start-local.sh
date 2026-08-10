@@ -97,13 +97,20 @@ else
   APP_DSN="host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd"
 fi
 
+# A LEFTOVER api from a previous session answers the health check and gets
+# silently adopted — running yesterday's code against yesterday's database
+# while looking alive. A stale listener is replaced, never adopted.
+lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
+lsof -ti tcp:8082 -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
+sleep 0.5
+
 echo "» starting api on http://localhost:8080 (log: .local/api.log)"
 (
   cd "$RHUB_API_DIR"
   APP_PG_DSN="$APP_DSN" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
   APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \
-  "$VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8080 >"$API_LOG" 2>&1
+  "$VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8080 --reload >"$API_LOG" 2>&1
 ) &
 API_PID=$!
 trap 'echo; echo "» stopping api"; kill $API_PID 2>/dev/null || true' EXIT INT TERM
@@ -172,7 +179,7 @@ PYEOF
     AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin AWS_REGION=ap-south-1 \
     COGNITO_USER_POOL_ID="$COGNITO_USER_POOL_ID" COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
     API_BASE_URL="http://localhost:8080" \
-    "$GW_VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8082 >"$GW_LOG" 2>&1
+    "$GW_VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8082 --reload >"$GW_LOG" 2>&1
   ) &
   GW_PID=$!
   trap 'echo; echo "» stopping api + gateway"; kill $API_PID $GW_PID 2>/dev/null || true' EXIT INT TERM
