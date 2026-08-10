@@ -65,10 +65,42 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$HOME/reddy.sh/projects/rhub/.env" ]
   ANTHROPIC_API_KEY="$(grep '^ANTHROPIC_API_KEY=' "$HOME/reddy.sh/projects/rhub/.env" | cut -d= -f2- || true)"
 fi
 
+# AWS_DB=1 ./scripts/start-local.sh — the SAME local stack, but the api runs
+# against the AWS PRODUCTION database, so the phone loop shows your real
+# records. ⚠️  Everything you file in this mode writes to PRODUCTION data.
+#
+# One-time network enable (run these yourself; Claude is blocked from them):
+#   aws rds modify-db-instance --region ap-south-1 \
+#     --db-instance-identifier pattadar-prod-pg \
+#     --publicly-accessible --apply-immediately
+#   aws ec2 authorize-security-group-ingress --region ap-south-1 \
+#     --group-id sg-0b99e08ce9240e0c8 --protocol tcp --port 5432 \
+#     --cidr "$(curl -s ifconfig.me)/32"
+# Undo with --no-publicly-accessible / revoke-security-group-ingress (same
+# args). NOTE: a terraform runtime apply also reverts the public flip, and
+# the RDS modify takes a couple of minutes to land.
+AWS_DB="${AWS_DB:-0}"
+if [ "$AWS_DB" = "1" ]; then
+  echo "⚠️  AWS_DB=1 — the api runs against the PRODUCTION database. Files, deletes"
+  echo "   and edits made from the phone in this mode are REAL."
+  APP_DSN="$(aws secretsmanager get-secret-value --region ap-south-1 \
+    --secret-id pattadar/prod/db-dsn --query SecretString --output text)" || {
+    echo "Could not read pattadar/prod/db-dsn — is the AWS CLI signed in?"; exit 1; }
+  DSN_HOST="$(sed -nE 's/.*host=([^ ]+).*/\1/p' <<<"$APP_DSN")"
+  if ! (exec 3<>"/dev/tcp/${DSN_HOST}/5432") 2>/dev/null; then
+    echo "Cannot reach ${DSN_HOST}:5432 from this laptop — run the one-time"
+    echo "enable commands in the comment above this check, wait ~2 minutes,"
+    echo "and try again."
+    exit 1
+  fi
+else
+  APP_DSN="host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd"
+fi
+
 echo "» starting api on http://localhost:8080 (log: .local/api.log)"
 (
   cd "$RHUB_API_DIR"
-  APP_PG_DSN="host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd" \
+  APP_PG_DSN="$APP_DSN" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
   APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \
   "$VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8080 >"$API_LOG" 2>&1
