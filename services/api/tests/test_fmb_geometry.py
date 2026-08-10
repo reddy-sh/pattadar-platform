@@ -152,6 +152,28 @@ def test_attach_geometry_embeds_the_stored_shape():
     assert g["sides"][0]["beyond"] == "Jangamreddypalle"
 
 
+def test_corner_rows_as_strings_still_build_the_geometry():
+    from fmb_geometry import attach_geometry
+    # A reading whose corner table arrives as prose-shaped strings —
+    # thousands commas, unit suffixes — must still yield the full shape;
+    # this exact failure produced a mapless FMB page on a real scan.
+    fields = {
+        "doc_type": "FMB",
+        "boundary_points": [
+            {"id": str(p["id"]), "easting": f"{p['e']:,.4f}",
+             "northing": f"{p['n']:,.4f}", "lat": p["lat"], "lng": p["lon"]}
+            for p in POINTS
+        ],
+        "printed_side_lengths": [f"{x} m" for x in PRINTED],
+        "portion_extent": "Ac 60.00 Cent",
+    }
+    attach_geometry(fields)
+    g = fields["geometry"]
+    assert g["ring"] == [3, 8, 7, 6, 5, 4, 9, 1, 2]
+    assert g["order_source"] == "lengths"
+    assert g["area_ac"] == 59.90
+
+
 def test_lengths_with_units_still_build_the_ring():
     from fmb_geometry import attach_geometry
     # The production reader wrote "119.95 m"; the ring must not degrade to
