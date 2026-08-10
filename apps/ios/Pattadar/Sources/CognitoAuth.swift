@@ -1,6 +1,7 @@
 import AuthenticationServices
 import CryptoKit
 import Foundation
+import PattadarKit
 import UIKit
 
 /// Real sign-in: the Cognito hosted UI, spoken to the way Apple intends.
@@ -182,10 +183,17 @@ final class CognitoAuth: NSObject {
             tokens = fresh
             Keychain.save(fresh)
             return fresh.accessToken
-        } catch {
-            // A dead refresh token (revoked, or 30 days old) is a sign-out,
-            // not a transient error.
+        } catch let AuthError.failed(reason) where refreshFailureMeansSignedOut(reason) {
+            // Cognito's OWN verdict — invalid_grant: the refresh token is
+            // revoked or aged out. That, and only that, is a sign-out.
             signOutLocally()
+            return nil
+        } catch {
+            // A dropped connection mid-phone-call, a timeout, a 5xx — the
+            // refresh could not run, which says nothing about the token.
+            // Keep the session; this request fails, the next one refreshes.
+            // Treating weather as revocation deleted a real session and
+            // turned every screen into a 401 until a fresh sign-in.
             return nil
         }
     }
