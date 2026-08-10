@@ -670,7 +670,7 @@ struct WalkBoundaryScreen: View {
                 if let fix = walker.fix {
                     VStack(alignment: .leading, spacing: 6) {
                         if let nearest = nearestCorner(to: fix) {
-                            Text("You are \(formatDistance(km: nearest.km)) from corner \(nearest.id)")
+                            Text("You are \(formatDistance(nearest.km)) from corner \(nearest.id)")
                                 .font(.headline)
                         }
                         Text(String(format: "GPS accuracy ±%.0f m", fix.horizontalAccuracy))
@@ -705,9 +705,9 @@ struct WalkBoundaryScreen: View {
                             .font(.system(.subheadline, design: .monospaced))
                         Spacer()
                         if let fix = walker.fix {
-                            Text(formatDistance(km: haversineKm(
-                                LatLng(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude),
-                                LatLng(lat: p.lat, lng: p.lon))))
+                            Text(formatDistance(haversineKm(
+                                LatLng(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude),
+                                LatLng(latitude: p.lat, longitude: p.lon))))
                                 .font(.subheadline.weight(.semibold)).monospacedDigit()
                                 .foregroundStyle(.secondary)
                         }
@@ -722,9 +722,9 @@ struct WalkBoundaryScreen: View {
     }
 
     private func nearestCorner(to fix: CLLocation) -> (id: Int, km: Double)? {
-        let here = LatLng(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude)
+        let here = LatLng(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude)
         return geometry.ringPoints
-            .map { (id: $0.id, km: haversineKm(here, LatLng(lat: $0.lat, lng: $0.lon))) }
+            .map { (id: $0.id, km: haversineKm(here, LatLng(latitude: $0.lat, longitude: $0.lon))) }
             .min { $0.km < $1.km }
     }
 }
