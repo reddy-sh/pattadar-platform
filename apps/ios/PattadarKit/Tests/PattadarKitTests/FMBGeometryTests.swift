@@ -67,6 +67,18 @@ struct FMBGeometryTests {
         #expect(side12.printedM == 60 && side12.m == 58.04)
     }
 
+    @Test func theSheetVocabularyRoundTrips() throws {
+        let g = try #require(fmbGeometry(Self.reading))
+        // EPSG:32644, said the way a person says it.
+        #expect(g.projectedCRS == "EPSG:32644")
+        #expect(g.utmZoneLabel == "UTM 44N")
+        // The acres-cents dash convention, both directions.
+        #expect(acCents("Ac 197-05 Cent") == 197.05)
+        #expect(acCents("Ac 60.00 Cent") == 60.0)
+        #expect(acCents("") == nil)
+        #expect(acText(59.9) == "Ac 59.90")
+    }
+
     @Test func lengthsConvertAreasDoNot() {
         // §5: 1 m = 3.280839895 ft exactly. The design table's own row:
         // 119.95 m is 393.5 ft in the panel, 394 ft on the map.

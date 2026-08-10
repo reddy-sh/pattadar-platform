@@ -46,6 +46,8 @@ public struct FMBGeometry: Sendable {
     /// angular guess and the user must be asked to confirm.
     public let orderSource: String
     public let datumStated: Bool
+    /// "EPSG:32644" — the projected system the metres live in.
+    public let projectedCRS: String
     public let ring: [Int]
     public let points: [Point]
     public let sides: [Side]
@@ -64,6 +66,39 @@ public struct FMBGeometry: Sendable {
     public var portionExceedsField: Bool {
         checks.contains { $0.code == "portion_exceeds_field" && !$0.ok }
     }
+
+    /// "UTM 44N" — how a person says EPSG:32644.
+    public var utmZoneLabel: String? {
+        guard projectedCRS.hasPrefix("EPSG:326"),
+              let code = Int(projectedCRS.dropFirst(5)), code > 32600, code <= 32660
+        else { return nil }
+        return "UTM \(code - 32600)N"
+    }
+}
+
+/// "Ac 197-05 Cent" → 197.05 — the acres-cents dash convention: the number
+/// after the dash is CENTS (hundredths of an acre), not a decimal.
+public func acCents(_ raw: String) -> Double? {
+    let s = raw.trimmingCharacters(in: .whitespaces)
+    guard !s.isEmpty else { return nil }
+    if let match = s.range(of: #"(\d+(?:\.\d+)?)\s*[-–]\s*(\d{1,2})"#,
+                           options: .regularExpression) {
+        let parts = String(s[match])
+            .components(separatedBy: CharacterSet(charactersIn: "-– "))
+            .filter { !$0.isEmpty }
+        if parts.count >= 2, let acres = Double(parts[0]), let cents = Double(parts[1]) {
+            return acres + cents / 100.0
+        }
+    }
+    if let match = s.range(of: #"\d+(?:\.\d+)?"#, options: .regularExpression) {
+        return Double(s[match])
+    }
+    return nil
+}
+
+/// "Ac 59.90" — how the sheet itself writes an area.
+public func acText(_ acres: Double) -> String {
+    String(format: "Ac %.2f", acres)
 }
 
 /// Decode `reading["geometry"]` — tolerant of numbers-as-strings the way
@@ -110,6 +145,7 @@ public func fmbGeometry(_ reading: [String: Any]) -> FMBGeometry? {
     return FMBGeometry(
         orderSource: (g["order_source"] as? String) ?? "inferred",
         datumStated: (crs["datum_stated"] as? Bool) ?? false,
+        projectedCRS: (crs["projected"] as? String) ?? "",
         ring: ring, points: points, sides: sides,
         areaM2: num(g["area_m2"]) ?? 0,
         areaAc: num(g["area_ac"]) ?? 0,

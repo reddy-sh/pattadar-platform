@@ -408,6 +408,9 @@ struct DocumentDetailScreen: View {
     /// re-masked a minute later.
     @State private var revealedTileNumber: String?
     @State private var revealedTileStamp: Date?
+    /// A temp copy of the file under its OUTGOING name, for the title-bar
+    /// share — the stored UUID never travels.
+    @State private var sharedCopy: URL?
     /// The page the full-screen scan opens on, when one was tapped.
     @State private var openAtPage: PageSelection?
 
@@ -438,25 +441,46 @@ struct DocumentDetailScreen: View {
                 // and when. Nothing on this card repeats — the old header
                 // said "Sale Deed" three times.
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text((doc.docType.isEmpty ? "Document" : doc.docType).uppercased())
-                            .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
-                            .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(familyTintColor(spine.family).opacity(0.16), in: Capsule())
-                            .foregroundStyle(familyTintColor(spine.family))
-                        if !reading.language.isEmpty {
-                            Text(reading.language)
+                    if let g = parsedGeometry, spine.family == "map" {
+                        // A georeferenced sheet says so up front — the
+                        // founder's frame, word for word.
+                        HStack(spacing: 8) {
+                            Text("FMB · GEOREFERENCED")
+                                .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .background(Color.cyan.opacity(0.16), in: Capsule())
+                                .foregroundStyle(.cyan)
+                            Text("\(g.points.count) corners · WGS 84"
+                                 + (g.utmZoneLabel.map { " · \($0)" } ?? ""))
                                 .font(.caption).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
-                    }
-                    Text(headerTitle)
-                        .font(.system(size: 30, weight: .semibold, design: .serif))
-                    if !registeredLine.isEmpty {
-                        Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    if !metaLine.isEmpty {
-                        Text(metaLine).font(.caption).foregroundStyle(.tertiary)
+                        Text(fmbHeadline)
+                            .font(.system(size: 30, weight: .semibold, design: .serif))
+                        if !fmbSubline.isEmpty {
+                            Text(fmbSubline).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            Text((doc.docType.isEmpty ? "Document" : doc.docType).uppercased())
+                                .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .background(familyTintColor(spine.family).opacity(0.16), in: Capsule())
+                                .foregroundStyle(familyTintColor(spine.family))
+                            if !reading.language.isEmpty {
+                                Text(reading.language)
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Text(headerTitle)
+                            .font(.system(size: 30, weight: .semibold, design: .serif))
+                        if !registeredLine.isEmpty {
+                            Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        if !metaLine.isEmpty {
+                            Text(metaLine).font(.caption).foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -467,8 +491,9 @@ struct DocumentDetailScreen: View {
                 // The spine, made visible: ONE box, hairline-divided — the
                 // template's grid, not four floating cards. What the reader
                 // could not fill is NOT a tile; its absence sits in the
-                // review card instead of rendering blank.
-                if !spineTiles.isEmpty {
+                // review card instead of rendering blank. A georeferenced
+                // FMB carries its facts in the map screens instead.
+                if !spineTiles.isEmpty, !(spine.family == "map" && parsedGeometry != nil) {
                     let cells = spineTiles.count.isMultiple(of: 2)
                         ? spineTiles : spineTiles + [(k: "", v: "", n: "")]
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 1),
@@ -524,7 +549,16 @@ struct DocumentDetailScreen: View {
                 // drawn entirely from the server-derived geometry; this
                 // screen computes nothing but unit conversion.
                 if spine.family == "map", let g = parsedGeometry {
-                    FMBMapSection(geometry: g)
+                    FMBMapSection(
+                        geometry: g,
+                        doc: doc,
+                        sheetExtentRaw: (rawReading["portion_extent"] as? String) ?? "",
+                        fieldExtentRaw: (rawReading["parent_survey_extent"] as? String)
+                            ?? doc.extent,
+                        neighbours: [
+                            "north": doc.boundaryNorth, "south": doc.boundarySouth,
+                            "east": doc.boundaryEast, "west": doc.boundaryWest,
+                        ].filter { !$0.value.isEmpty })
                 }
 
                 // A paper filed before deep reading degrades QUIETLY — grey
@@ -737,6 +771,13 @@ struct DocumentDetailScreen: View {
         .navigationTitle(doc.docType.isEmpty ? "Document" : doc.docType)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // The file leaves under the platform's name, straight from the
+            // title bar — the founder's frame puts share up here.
+            if let url = sharedCopy {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                }
+            }
             // The destructive action leaves the scroll flow entirely.
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -768,7 +809,42 @@ struct DocumentDetailScreen: View {
             if parsedReading == nil { parsedReading = DocReading(json: doc.reading) }
             if parsedSpine == nil { parsedSpine = computedSpine }
             if parsedGeometry == nil { parsedGeometry = fmbGeometry(rawReading) }
+            if sharedCopy == nil, let url = LocalFiles.url(for: doc.id) {
+                let name = shareFileName(
+                    docType: doc.docType, village: doc.village,
+                    date: [doc.registrationDate, doc.regYear, doc.createdAt]
+                        .first { !$0.isEmpty } ?? "",
+                    fallbackExtension: url.pathExtension)
+                let dest = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+                try? FileManager.default.removeItem(at: dest)
+                if (try? FileManager.default.copyItem(at: url, to: dest)) != nil {
+                    sharedCopy = dest
+                }
+            }
         }
+    }
+
+    /// "Field No. 1 · Mangalakunta" — the sheet's own way of naming itself.
+    private var fmbHeadline: String {
+        var field = doc.surveyNo.trimmingCharacters(in: .whitespaces)
+        if let n = Int(field) { field = "\(n)" }
+        let parts = [field.isEmpty ? "" : "Field No. \(field)", doc.village]
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? "FMB" : parts.joined(separator: " · ")
+    }
+
+    /// "Tarlupadu mandal, Prakasam · sheet extent Ac 197-05"
+    private var fmbSubline: String {
+        var placeParts: [String] = []
+        if !doc.mandal.isEmpty { placeParts.append("\(doc.mandal) mandal") }
+        if !doc.district.isEmpty { placeParts.append(doc.district) }
+        var parts: [String] = []
+        if !placeParts.isEmpty { parts.append(placeParts.joined(separator: ", ")) }
+        let raw = ((rawReading["parent_survey_extent"] as? String) ?? doc.extent)
+            .replacingOccurrences(of: "Cent", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        if !raw.isEmpty { parts.append("sheet extent \(raw)") }
+        return parts.joined(separator: " · ")
     }
 
     /// At most four tiles, absent slots omitted — the grid reflows to what

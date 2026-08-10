@@ -295,6 +295,12 @@ def _num(value) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
+        # The reader sometimes writes lengths the way the sheet does —
+        # "119.95 m", "600.99m" — and a dropped unit must not cost the ring.
+        if isinstance(value, str):
+            m = re.search(r"-?\d+(?:\.\d+)?", value)
+            if m:
+                return float(m.group(0))
         return None
 
 

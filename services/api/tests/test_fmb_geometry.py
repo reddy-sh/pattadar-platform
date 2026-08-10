@@ -152,6 +152,23 @@ def test_attach_geometry_embeds_the_stored_shape():
     assert g["sides"][0]["beyond"] == "Jangamreddypalle"
 
 
+def test_lengths_with_units_still_build_the_ring():
+    from fmb_geometry import attach_geometry
+    # The production reader wrote "119.95 m"; the ring must not degrade to
+    # an angular guess over a unit suffix.
+    fields = {
+        "doc_type": "FMB",
+        "boundary_points": [
+            {"id": p["id"], "easting": p["e"], "northing": p["n"],
+             "lat": p["lat"], "lng": p["lon"]} for p in POINTS
+        ],
+        "printed_side_lengths": [f"{x} m" for x in PRINTED],
+    }
+    attach_geometry(fields)
+    assert fields["geometry"]["order_source"] == "lengths"
+    assert fields["geometry"]["ring"] == [3, 8, 7, 6, 5, 4, 9, 1, 2]
+
+
 def test_attach_geometry_leaves_the_raster_path_alone():
     from fmb_geometry import attach_geometry
     # A scanned FMB with lat/lng-only rows (the old reader shape) and a deed

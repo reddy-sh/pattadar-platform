@@ -1,24 +1,32 @@
+import CoreLocation
 import PattadarKit
 import SwiftUI
 import UIKit
 
-/// The FMB sheet, turned into a map you can measure (Vault Maps Design).
-///
-/// Everything drawn here was DERIVED on the server from the sheet's own
-/// corner table — this view computes nothing except unit conversion (§13).
-/// Fit, not zoom: one scale factor, north up, equal scale on both axes —
-/// never stretch a parcel to fill a card (§4).
+/// The FMB sheet, turned into a map you can measure — built to the founder's
+/// frames, word for word. Everything drawn here was DERIVED on the server
+/// from the sheet's own corner table; this screen computes nothing except
+/// unit conversion.
 struct FMBMapSection: View {
     let geometry: FMBGeometry
+    let doc: RegisteredDocument
+    /// "Ac 60.00 Cent" — the extent noted inside the sketch, as written.
+    let sheetExtentRaw: String
+    /// "Ac 197-05 Cent" — the sheet header's whole-survey extent, as written.
+    let fieldExtentRaw: String
+    /// The neighbouring villages by compass side, from the sheet.
+    let neighbours: [String: String]
 
-    /// One toggle, metres ⇄ feet, governing every length on screen at once.
-    /// Per user, not per document — someone who thinks in feet thinks in
-    /// feet everywhere (§5).
     @AppStorage("pattadar.maps.lengthUnit") private var unitRaw = LengthUnit.metres.rawValue
-    /// Single selection, amber; tapping empty map clears back to the parcel
-    /// summary (§10).
     @State private var selection: Selection = .parcel
     @State private var copiedCorner = false
+    @State private var copiedAll = false
+    /// Plain | Satellite. The satellite slot is honest about being a slot.
+    @State private var satellite = false
+    // Layer chips: which labels ride the map.
+    @State private var showLengths = true
+    @State private var showBearings = false
+    @State private var showPointIDs = true
 
     enum Selection: Equatable {
         case parcel
@@ -26,75 +34,81 @@ struct FMBMapSection: View {
         case corner(Int)
     }
 
-    private var unit: LengthUnit {
-        get { LengthUnit(rawValue: unitRaw) ?? .metres }
-    }
+    private var unit: LengthUnit { LengthUnit(rawValue: unitRaw) ?? .metres }
+    private var fieldAcres: Double? { acCents(fieldExtentRaw) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             map
-                .aspectRatio(1.05, contentMode: .fit)
-                .background(Color(.secondarySystemGroupedBackground),
+                .aspectRatio(1.0, contentMode: .fit)
+                .background(satellite ? Color(red: 0.07, green: 0.10, blue: 0.08)
+                                      : Color(.secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .sensoryFeedback(.selection, trigger: selection)
 
-            // Unit toggle in thumb reach, directly under the map (§10).
-            HStack(spacing: 10) {
-                Picker("Unit", selection: Binding(
-                    get: { unit },
-                    set: { unitRaw = $0.rawValue; })) {
-                    Text("m").tag(LengthUnit.metres)
-                    Text("ft").tag(LengthUnit.feet)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 110)
-                Spacer(minLength: 0)
-                if geometry.orderSource == "inferred" {
-                    Label("Corner order inferred — confirm against the sheet",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2).foregroundStyle(.orange)
-                }
+            controls
+
+            if geometry.orderSource == "inferred" {
+                Label("Corner order inferred — confirm against the sheet",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
             }
 
             tipPanel
-            areaCheck
+            areaAgrees
+            cornerCoordinates
+            useOnTheGround
 
             if !geometry.datumStated {
-                // §2: a sheet that names no datum gets a caution, never a
-                // silent overlay on satellite imagery.
                 Text("Datum unstated on the sheet — placement on imagery is approximate.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
     }
 
-    // MARK: - The map (§4)
+    // MARK: - The map
 
     private var map: some View {
         GeometryReader { proxy in
             let layout = MapLayout(geometry: geometry, size: proxy.size)
-            ZStack(alignment: .topTrailing) {
-                Canvas { ctx, _ in
+            ZStack {
+                Canvas { ctx, size in
+                    drawGrid(in: &ctx, size: size)
                     draw(in: &ctx, layout: layout)
                 }
-                // Always on screen: north arrow and a scale bar whose caption
-                // restates the active unit — a map without a scale bar
-                // cannot be trusted (§4).
-                VStack(alignment: .trailing, spacing: 6) {
-                    Image(systemName: "location.north.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .overlay(alignment: .bottom) {
-                            Text("N").font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.secondary).offset(y: 11)
-                        }
-                        .padding(.bottom, 8)
+                if satellite {
+                    // The imagery slot, named as a slot — a tile source lands
+                    // here; pretending it already did would mislead.
+                    Text("Imagery slot · Bhuvan / satellite tiles")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Color.orange.opacity(0.15), in: Capsule())
+                        .overlay(Capsule().stroke(Color.orange.opacity(0.4), lineWidth: 1))
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .topLeading)
+                        .padding(12)
                 }
-                .padding(12)
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .overlay(alignment: .bottom) {
+                        Text("N").font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary).offset(y: 11)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(14)
                 scaleBar(layout: layout)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(14)
+                Button(satellite ? "Satellite" : "Plain") {
+                    withAnimation(.snappy) { satellite.toggle() }
+                }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.bordered)
+                .clipShape(Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(12)
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
@@ -103,14 +117,20 @@ struct FMBMapSection: View {
         }
     }
 
+    private func drawGrid(in ctx: inout GraphicsContext, size: CGSize) {
+        let step: CGFloat = 46
+        var path = Path()
+        var x: CGFloat = step
+        while x < size.width { path.move(to: .init(x: x, y: 0)); path.addLine(to: .init(x: x, y: size.height)); x += step }
+        var y: CGFloat = step
+        while y < size.height { path.move(to: .init(x: 0, y: y)); path.addLine(to: .init(x: size.width, y: y)); y += step }
+        ctx.stroke(path, with: .color(.primary.opacity(0.045)), lineWidth: 1)
+    }
+
     private func draw(in ctx: inout GraphicsContext, layout: MapLayout) {
         let ring = layout.screenRing
         guard ring.count >= 3 else { return }
 
-        // Layer order (§4): parcel fill → sides → measured lines → corner
-        // markers → labels. Colour carries meaning: cyan parcel, red for
-        // corners and measured-not-walked lines, amber selection — nothing
-        // else (§4).
         var fill = Path()
         fill.addLines(ring)
         fill.closeSubpath()
@@ -123,27 +143,26 @@ struct FMBMapSection: View {
             path.addLine(to: b)
             let isSelected = selection == .side(side.id)
             let colour: Color = isSelected ? .orange : (side.isMeasuredOnly ? .red : .cyan)
-            ctx.stroke(path, with: .color(colour),
-                       lineWidth: isSelected ? 3 : 2)
+            ctx.stroke(path, with: .color(colour), lineWidth: isSelected ? 3 : 2)
         }
 
         for point in geometry.ringPoints {
             guard let p = layout.screen[point.id] else { continue }
             let isSelected = selection == .corner(point.id)
-            let r: CGFloat = isSelected ? 6 : 4
+            let r: CGFloat = isSelected ? 7 : 4
+            // The selected corner is YELLOW — the frames' own choice.
             ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r,
                                             width: r * 2, height: r * 2)),
-                     with: .color(isSelected ? .orange : .red))
-            // The point ID sits 15px outward (§4).
-            let out = layout.outward(from: point.id, distance: 15)
-            ctx.draw(Text("\(point.id)").font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.secondary),
-                     at: out)
+                     with: .color(isSelected ? .yellow : .red))
+            if showPointIDs {
+                let out = layout.outward(from: point.id, distance: 15)
+                ctx.draw(Text("\(point.id)").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(isSelected ? Color.yellow : Color.red.opacity(0.9)),
+                         at: out)
+            }
         }
 
-        // Side labels at the midpoint, pushed 11px along the outward normal,
-        // rotated to the side's angle and flipped past ±90° so text never
-        // reads upside down; suppressed under ~40px (§4).
+        guard showLengths || showBearings else { return }
         for side in geometry.sides {
             guard let a = layout.screen[side.from], let b = layout.screen[side.to] else { continue }
             let lengthOnScreen = hypot(b.x - a.x, b.y - a.y)
@@ -154,10 +173,16 @@ struct FMBMapSection: View {
             var angle = atan2(b.y - a.y, b.x - a.x)
             if angle > .pi / 2 { angle -= .pi }
             if angle < -.pi / 2 { angle += .pi }
+            var label = ""
+            if showLengths { label = mapLengthText(side.m, unit: unit) }
+            if showBearings {
+                label = label.isEmpty ? bearingText(side.bearing)
+                                      : label + " · " + bearingText(side.bearing)
+            }
             var text = ctx
             text.translateBy(x: at.x, y: at.y)
             text.rotate(by: .radians(angle))
-            text.draw(Text(mapLengthText(side.m, unit: unit))
+            text.draw(Text(label)
                         .font(.system(size: 10, weight: .semibold)).monospacedDigit()
                         .foregroundStyle(side.isMeasuredOnly ? Color.red : Color.primary),
                       at: .zero)
@@ -165,19 +190,21 @@ struct FMBMapSection: View {
     }
 
     private func scaleBar(layout: MapLayout) -> some View {
-        // A round number in the ACTIVE unit spanning roughly a quarter of
-        // the map, 1–2–5 stepped.
-        let targetMetres = layout.metresPerPoint * layout.size.width * 0.25
+        let targetMetres = layout.metresPerPoint * layout.size.width * 0.22
         let inUnit = unit == .metres ? targetMetres : targetMetres * LengthUnit.feetPerMetre
         let nice = niceRound(inUnit)
         let metres = unit == .metres ? nice : nice / LengthUnit.feetPerMetre
         let widthPt = metres / layout.metresPerPoint
-        return VStack(alignment: .leading, spacing: 2) {
-            Rectangle().fill(Color.primary.opacity(0.7))
-                .frame(width: max(24, widthPt), height: 2)
+        return VStack(alignment: .leading, spacing: 3) {
             Text("\(Int(nice)) \(unit.label)")
-                .font(.system(size: 9, weight: .semibold)).monospacedDigit()
+                .font(.system(size: 10, weight: .semibold)).monospacedDigit()
                 .foregroundStyle(.secondary)
+            HStack(spacing: 0) {
+                Rectangle().frame(width: 1.5, height: 7)
+                Rectangle().frame(width: max(24, widthPt), height: 1.5)
+                Rectangle().frame(width: 1.5, height: 7)
+            }
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -189,61 +216,51 @@ struct FMBMapSection: View {
         return step * magnitude
     }
 
-    // MARK: - Selection (§10)
+    // MARK: - Controls
 
-    private func select(at location: CGPoint, layout: MapLayout) {
-        // The touch target, not the dot, is what must clear 44px (§4) — an
-        // invisible hit circle around every corner first, then the sides.
-        for point in geometry.ringPoints {
-            guard let p = layout.screen[point.id] else { continue }
-            if hypot(p.x - location.x, p.y - location.y) <= 22 {
-                selection = .corner(point.id)
-                copiedCorner = false
-                return
+    private var controls: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Picker("Unit", selection: Binding(
+                    get: { unit },
+                    set: { unitRaw = $0.rawValue })) {
+                    Text("Metres").tag(LengthUnit.metres)
+                    Text("Feet").tag(LengthUnit.feet)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+                layerChip("Lengths", on: $showLengths)
+                layerChip("Bearings", on: $showBearings)
+                layerChip("Point IDs", on: $showPointIDs)
             }
         }
-        var best: (id: String, dist: CGFloat)?
-        for side in geometry.sides {
-            guard let a = layout.screen[side.from], let b = layout.screen[side.to] else { continue }
-            let d = distance(from: location, toSegment: a, b)
-            if d <= 18, d < (best?.dist ?? .infinity) { best = (side.id, d) }
-        }
-        if let best {
-            selection = .side(best.id)
-        } else {
-            selection = .parcel
-        }
     }
 
-    private func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
-        let ab = CGVector(dx: b.x - a.x, dy: b.y - a.y)
-        let ap = CGVector(dx: p.x - a.x, dy: p.y - a.y)
-        let lenSq = ab.dx * ab.dx + ab.dy * ab.dy
-        let t = lenSq == 0 ? 0 : max(0, min(1, (ap.dx * ab.dx + ap.dy * ab.dy) / lenSq))
-        let closest = CGPoint(x: a.x + ab.dx * t, y: a.y + ab.dy * t)
-        return hypot(p.x - closest.x, p.y - closest.y)
+    private func layerChip(_ title: String, on: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(.snappy) { on.wrappedValue.toggle() }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(on.wrappedValue ? .semibold : .regular))
+                .padding(.horizontal, 13).padding(.vertical, 7)
+                .background(on.wrappedValue ? Color.cyan.opacity(0.18)
+                                            : Color(.tertiarySystemFill),
+                            in: Capsule())
+                .foregroundStyle(on.wrappedValue ? Color.cyan : Color.primary)
+        }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - The tip panel (§6)
+    // MARK: - The tip panel
 
-    /// Never disappears — an empty state where the information was is worse
-    /// than a default. Nothing selected describes the whole parcel.
     @ViewBuilder private var tipPanel: some View {
         VStack(alignment: .leading, spacing: 9) {
             switch selection {
-            case .parcel:
-                Text("\(geometry.sides.count) sides · \(panelLengthText(geometry.perimeterM, unit: unit)) around")
-                    .font(.subheadline.weight(.semibold))
-                Text("\(String(format: "%.2f", geometry.areaAc)) acres from the corner table. Tap a side or a corner for its own numbers.")
-                    .font(.caption).foregroundStyle(.secondary)
+            case .parcel: parcelTip
             case .side(let id):
-                if let side = geometry.sides.first(where: { $0.id == id }) {
-                    sideTip(side)
-                }
+                if let side = geometry.sides.first(where: { $0.id == id }) { sideTip(side) }
             case .corner(let id):
-                if let point = geometry.points.first(where: { $0.id == id }) {
-                    cornerTip(point)
-                }
+                if let point = geometry.points.first(where: { $0.id == id }) { cornerTip(point) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,20 +269,40 @@ struct FMBMapSection: View {
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    private func spelled(_ n: Int) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .spellOut
+        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    @ViewBuilder private var parcelTip: some View {
+        Text("WHOLE PARCEL")
+            .font(.system(size: 11, weight: .bold)).kerning(1.0)
+            .foregroundStyle(.cyan)
+        Text("\(panelLengthText(geometry.perimeterM, unit: unit)) around")
+            .font(.title3.weight(.bold)).monospacedDigit()
+        Text("\(spelled(geometry.sides.count).capitalized) sides, \(spelled(geometry.points.count)) corners. Tap any side or corner on the map for its measurement, bearing and who lies beyond it.")
+            .font(.subheadline).foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+            tipTile("Sides", "\(geometry.sides.count)")
+            tipTile("Perimeter", mapLengthText(geometry.perimeterM, unit: unit))
+        }
+        tipTile("Area", acText(geometry.areaAc))
+    }
+
     @ViewBuilder private func sideTip(_ side: FMBGeometry.Side) -> some View {
-        // Which side, its length in the active unit as the headline —
-        // then metres, feet and bearing as three tiles, BOTH units together
-        // regardless of the toggle: this is where a deed written in feet is
-        // reconciled against a sheet written in metres (§5, §6).
+        Text("SIDE")
+            .font(.system(size: 11, weight: .bold)).kerning(1.0)
+            .foregroundStyle(.cyan)
         Text("\(side.from) → \(side.to) · \(panelLengthText(side.m, unit: unit))")
-            .font(.subheadline.weight(.semibold)).monospacedDigit()
+            .font(.title3.weight(.bold)).monospacedDigit()
         HStack(spacing: 8) {
             tipTile("Metres", panelLengthText(side.m, unit: .metres))
             tipTile("Feet", panelLengthText(side.m, unit: .feet))
             tipTile("Grid bearing", bearingText(side.bearing))
         }
         Text(sideSentence(side))
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.subheadline).foregroundStyle(.secondary)
         if side.isMeasuredOnly {
             Label("Drawn in red on the sheet — a measured line, not a walked boundary.",
                   systemImage: "exclamationmark.triangle.fill")
@@ -289,13 +326,16 @@ struct FMBMapSection: View {
     }
 
     @ViewBuilder private func cornerTip(_ point: FMBGeometry.Point) -> some View {
-        // Latitude and longitude as the headline — what a person copies or
-        // navigates to — with easting and northing as tiles (§6).
-        Text(String(format: "%.5f°N  %.5f°E", point.lat, point.lon))
-            .font(.subheadline.weight(.semibold)).monospacedDigit()
+        Text("CORNER \(point.id)")
+            .font(.system(size: 11, weight: .bold)).kerning(1.0)
+            .foregroundStyle(.red)
+        Text(String(format: "%.5f, %.5f", point.lat, point.lon))
+            .font(.title3.weight(.bold)).monospacedDigit()
+        Text("WGS 84 degrees, and \(geometry.utmZoneLabel ?? "projected") in metres.")
+            .font(.subheadline).foregroundStyle(.secondary)
         HStack(spacing: 8) {
-            tipTile("Easting", String(format: "%.4f", point.e))
-            tipTile("Northing", String(format: "%.4f", point.n))
+            tipTile("Easting", String(format: "%.2f", point.e))
+            tipTile("Northing", String(format: "%.2f", point.n))
         }
         HStack(spacing: 16) {
             Button {
@@ -306,8 +346,7 @@ struct FMBMapSection: View {
                       systemImage: copiedCorner ? "checkmark" : "doc.on.doc")
             }
             Button {
-                let url = URL(string: "maps://?ll=\(point.lat),\(point.lon)&q=Corner%20\(point.id)")
-                if let url { UIApplication.shared.open(url) }
+                openInMaps(point)
             } label: {
                 Label("Open in Maps", systemImage: "map")
             }
@@ -316,69 +355,460 @@ struct FMBMapSection: View {
         .buttonStyle(.borderless)
     }
 
+    private func openInMaps(_ point: FMBGeometry.Point) {
+        if let url = URL(string: "maps://?ll=\(point.lat),\(point.lon)&q=Corner%20\(point.id)") {
+            UIApplication.shared.open(url)
+        }
+    }
+
     private func tipTile(_ key: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(key.uppercased())
                 .font(.system(size: 9, weight: .bold)).kerning(0.5)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                .font(.system(size: 14, weight: .semibold)).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(9)
+        .padding(10)
         .background(Color(.tertiarySystemFill),
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    // MARK: - The area cross-check (§7)
+    // MARK: - Does the area agree
 
-    /// Three numbers, always shown together, then a verdict in plain words.
-    @ViewBuilder private var areaCheck: some View {
-        if let check = geometry.areaCheck {
-            let delta = check.deltaPct ?? 0
-            let (colour, verdict): (Color, String) =
-                geometry.portionExceedsField
-                ? (.red, "A mapped portion cannot exceed its survey number's extent — this is always an error.")
-                : delta < 0.5 ? (.green, String(format: "Agrees — within %.2f%%.", delta))
-                : delta <= 2.0 ? (.orange, String(format: "Worth knowing — %.2f%% apart.", delta))
-                : (.red, String(format: "%.2f%% apart — wrong ring order, a missing corner, a unit slip, or a genuine encroachment.", delta))
-            HStack(alignment: .top, spacing: 11) {
-                Rectangle().fill(colour).frame(width: 3)
-                    .clipShape(Capsule())
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 12) {
-                        checkNumber("From the corners", String(format: "%.2f ac", geometry.areaAc))
-                        if let sheet = check.sheetAc {
-                            checkNumber("On the sheet", String(format: "%.2f ac", sheet))
-                        }
-                        if let field = geometry.checks.compactMap(\.fieldAc).first {
-                            checkNumber("The field", String(format: "%.2f ac", field))
-                        }
-                    }
-                    Text(verdict).font(.caption).foregroundStyle(colour)
+    @ViewBuilder private var areaAgrees: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("DOES THE AREA AGREE")
+                .font(.caption.weight(.medium)).kerning(1.1)
+                .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                areaRow("From these \(spelled(geometry.points.count)) corners",
+                        sub: "Shoelace on the \(geometry.utmZoneLabel.map { _ in "UTM" } ?? "projected") coordinates",
+                        value: acText(geometry.areaAc),
+                        tint: verdictColour)
+                if let sheet = geometry.areaCheck?.sheetAc {
+                    Divider()
+                    areaRow("Written on the sheet",
+                            sub: "Extent noted inside the sketch",
+                            value: acText(sheet), tint: nil)
+                }
+                if let field = fieldAcres {
+                    Divider()
+                    areaRow("Whole survey number",
+                            sub: "Sheet header · \(trimmedRaw(fieldExtentRaw))",
+                            value: acText(field), tint: nil)
                 }
             }
-            .padding(12)
+            .padding(.horizontal, 14)
+            .background(Color(.secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            if let sentence = verdictSentence {
+                Label {
+                    Text(sentence).font(.subheadline)
+                } icon: {
+                    Image(systemName: verdictColour == .green
+                          ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                }
+                .foregroundStyle(verdictColour)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(verdictColour.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+        }
+    }
+
+    private func trimmedRaw(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "Cent", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+    }
+
+    private var verdictColour: Color {
+        guard let check = geometry.areaCheck else { return .secondary }
+        if geometry.portionExceedsField { return .red }
+        let delta = check.deltaPct ?? 0
+        return delta < 0.5 ? .green : delta <= 2 ? .orange : .red
+    }
+
+    private var verdictSentence: String? {
+        guard let check = geometry.areaCheck, let sheet = check.sheetAc else { return nil }
+        if geometry.portionExceedsField {
+            return "A mapped portion cannot exceed its survey number's extent — this is always an error."
+        }
+        let diff = abs(geometry.areaAc - sheet)
+        let delta = check.deltaPct ?? 0
+        let head = "\(acText(geometry.areaAc)) against \(acText(sheet)) written on the sheet — off by "
+            + String(format: "%.2f", diff)
+            + (abs(diff - 1) < 0.005 ? " acre" : " acres")
+            + String(format: ", about %.2f%%. ", delta)
+        let tail = delta < 0.5 ? "Within survey tolerance."
+            : delta <= 2 ? "Worth a look."
+            : "Check the ring order, the corners and the units."
+        return head + tail
+    }
+
+    private func areaRow(_ title: String, sub: String, value: String, tint: Color?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.medium))
+                Text(sub).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                .foregroundStyle(tint ?? .primary)
+        }
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Corner coordinates
+
+    @ViewBuilder private var cornerCoordinates: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("CORNER COORDINATES")
+                    .font(.caption.weight(.medium)).kerning(1.1)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(copiedAll ? "Copied" : "Copy all") {
+                    UIPasteboard.general.string = geometry.ringPoints.map { p in
+                        String(format: "%d: %.5f, %.5f · E %.4f · N %.4f",
+                               p.id, p.lat, p.lon, p.e, p.n)
+                    }.joined(separator: "\n")
+                    copiedAll = true
+                }
+                .font(.caption.weight(.semibold))
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(geometry.ringPoints.enumerated()), id: \.element.id) { i, p in
+                    if i > 0 { Divider() }
+                    Button {
+                        withAnimation(.snappy) { selection = .corner(p.id) }
+                        copiedCorner = false
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text("\(p.id)")
+                                .font(.system(size: 11, weight: .bold)).monospacedDigit()
+                                .frame(width: 24, height: 24)
+                                .background(Color.red.opacity(0.18), in: Circle())
+                                .foregroundStyle(.red)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(String(format: "%.5f, %.5f", p.lat, p.lon))
+                                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(String(format: "E %.2f · N %.2f", p.e, p.n))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Button("Maps") { openInMaps(p) }
+                                .font(.subheadline.weight(.semibold))
+                                .buttonStyle(.borderless)
+                        }
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
             .background(Color(.secondarySystemGroupedBackground),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
-    private func checkNumber(_ key: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(key.uppercased())
-                .font(.system(size: 8.5, weight: .bold)).kerning(0.4)
+    // MARK: - Use it on the ground
+
+    @ViewBuilder private var useOnTheGround: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("USE IT ON THE GROUND")
+                .font(.caption.weight(.medium)).kerning(1.1)
                 .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+            VStack(spacing: 0) {
+                NavigationLink {
+                    WalkBoundaryScreen(geometry: geometry)
+                } label: {
+                    groundRow(icon: "scope", tint: .green,
+                              title: "Walk the boundary",
+                              sub: "Live GPS against the \(geometry.points.count) corners, with distance-to-next")
+                }
+                .buttonStyle(.plain)
+                Divider()
+                NavigationLink {
+                    DeedScheduleOverlayScreen(neighbours: neighbours, geometry: geometry)
+                } label: {
+                    groundRow(icon: "square.on.square.dashed", tint: .blue,
+                              title: "Overlay the deed schedule",
+                              sub: overlaySubtitle)
+                }
+                .buttonStyle(.plain)
+                Divider()
+                if let items = exportItems {
+                    ShareLink(items: items) {
+                        groundRow(icon: "square.and.arrow.up.on.square", tint: .purple,
+                                  title: "Export KML / GeoJSON",
+                                  sub: "For a surveyor, a drone flight, or Google Earth")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .background(Color(.secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+    }
+
+    private var overlaySubtitle: String {
+        let named = ["north", "east", "south", "west"]
+            .compactMap { side in neighbours[side].map { "\($0) \(side)" } }
+        guard named.count >= 2 else {
+            return "Check the four sides against the map"
+        }
+        return "\(named[0].capitalized), \(named[1]) — check the four sides against the map"
+    }
+
+    private func groundRow(icon: String, tint: Color, title: String, sub: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.15),
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                Text(sub).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    /// KML + GeoJSON written to temp under the platform's names —
+    /// pattadar-fmb-<village>.kml / .geojson.
+    private var exportItems: [URL]? {
+        let ring = geometry.ringPoints
+        guard ring.count >= 3 else { return nil }
+        let closed = ring + [ring[0]]
+        let name = "pattadar-fmb-" + (fileSlug(doc.village).isEmpty ? "sheet" : fileSlug(doc.village))
+        let dir = FileManager.default.temporaryDirectory
+
+        let coordsKML = closed.map { String(format: "%.6f,%.6f,0", $0.lon, $0.lat) }
+            .joined(separator: " ")
+        let kml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+        <name>\(doc.village.isEmpty ? "FMB parcel" : doc.village) · FMB</name>
+        <Placemark><name>Parcel</name><Polygon><outerBoundaryIs><LinearRing>
+        <coordinates>\(coordsKML)</coordinates>
+        </LinearRing></outerBoundaryIs></Polygon></Placemark>
+        </Document></kml>
+        """
+        let ringJSON = closed.map { "[\($0.lon), \($0.lat)]" }.joined(separator: ", ")
+        let geojson = """
+        {"type": "Feature",
+         "geometry": {"type": "Polygon", "coordinates": [[\(ringJSON)]]},
+         "properties": {"village": "\(doc.village)", "area_ac": \(geometry.areaAc),
+                        "perimeter_m": \(geometry.perimeterM)}}
+        """
+        let kmlURL = dir.appendingPathComponent(name + ".kml")
+        let geoURL = dir.appendingPathComponent(name + ".geojson")
+        do {
+            try kml.write(to: kmlURL, atomically: true, encoding: .utf8)
+            try geojson.write(to: geoURL, atomically: true, encoding: .utf8)
+        } catch { return nil }
+        return [kmlURL, geoURL]
+    }
+
+    // MARK: - Selection
+
+    private func select(at location: CGPoint, layout: MapLayout) {
+        for point in geometry.ringPoints {
+            guard let p = layout.screen[point.id] else { continue }
+            if hypot(p.x - location.x, p.y - location.y) <= 22 {
+                selection = .corner(point.id)
+                copiedCorner = false
+                return
+            }
+        }
+        var best: (id: String, dist: CGFloat)?
+        for side in geometry.sides {
+            guard let a = layout.screen[side.from], let b = layout.screen[side.to] else { continue }
+            let d = distance(from: location, toSegment: a, b)
+            if d <= 18, d < (best?.dist ?? .infinity) { best = (side.id, d) }
+        }
+        selection = best.map { .side($0.id) } ?? .parcel
+    }
+
+    private func distance(from p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let ab = CGVector(dx: b.x - a.x, dy: b.y - a.y)
+        let ap = CGVector(dx: p.x - a.x, dy: p.y - a.y)
+        let lenSq = ab.dx * ab.dx + ab.dy * ab.dy
+        let t = lenSq == 0 ? 0 : max(0, min(1, (ap.dx * ab.dx + ap.dy * ab.dy) / lenSq))
+        let closest = CGPoint(x: a.x + ab.dx * t, y: a.y + ab.dy * t)
+        return hypot(p.x - closest.x, p.y - closest.y)
+    }
+}
+
+// MARK: - Walk the boundary
+
+/// Stand on the land and check the paper against the ground: live GPS
+/// against the corners, distance and bearing to the nearest one, and an
+/// honest accuracy gate — a phone at ±8 m cannot confirm a corner.
+struct WalkBoundaryScreen: View {
+    let geometry: FMBGeometry
+    @State private var walker = BoundaryWalker()
+
+    var body: some View {
+        List {
+            Section {
+                if let fix = walker.fix {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let nearest = nearestCorner(to: fix) {
+                            Text("You are \(formatDistance(km: nearest.km)) from corner \(nearest.id)")
+                                .font(.headline)
+                        }
+                        Text(String(format: "GPS accuracy ±%.0f m", fix.horizontalAccuracy))
+                            .font(.caption)
+                            .foregroundStyle(fix.horizontalAccuracy > 10 ? .orange : .secondary)
+                        if fix.horizontalAccuracy > 10 {
+                            Text("Above ±10 m the walk is indicative only — a phone at this accuracy cannot confirm a corner.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } else if walker.denied {
+                    Label("Location is off for Pattadar — allow it in Settings to walk the boundary.",
+                          systemImage: "location.slash")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Finding you…").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section("Corners") {
+                ForEach(geometry.ringPoints) { p in
+                    HStack {
+                        Text("\(p.id)")
+                            .font(.system(size: 11, weight: .bold)).monospacedDigit()
+                            .frame(width: 24, height: 24)
+                            .background(Color.red.opacity(0.18), in: Circle())
+                            .foregroundStyle(.red)
+                        Text(String(format: "%.5f, %.5f", p.lat, p.lon))
+                            .font(.system(.subheadline, design: .monospaced))
+                        Spacer()
+                        if let fix = walker.fix {
+                            Text(formatDistance(km: haversineKm(
+                                LatLng(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude),
+                                LatLng(lat: p.lat, lng: p.lon))))
+                                .font(.subheadline.weight(.semibold)).monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Walk the boundary")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { walker.start() }
+        .onDisappear { walker.stop() }
+    }
+
+    private func nearestCorner(to fix: CLLocation) -> (id: Int, km: Double)? {
+        let here = LatLng(lat: fix.coordinate.latitude, lng: fix.coordinate.longitude)
+        return geometry.ringPoints
+            .map { (id: $0.id, km: haversineKm(here, LatLng(lat: $0.lat, lng: $0.lon))) }
+            .min { $0.km < $1.km }
+    }
+}
+
+@Observable
+final class BoundaryWalker: NSObject, CLLocationManagerDelegate {
+    var fix: CLLocation?
+    var denied = false
+    private let manager = CLLocationManager()
+
+    func start() {
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        switch manager.authorizationStatus {
+        case .notDetermined: manager.requestWhenInUseAuthorization()
+        case .denied, .restricted: denied = true
+        default: manager.startUpdatingLocation()
+        }
+    }
+
+    func stop() { manager.stopUpdatingLocation() }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways: manager.startUpdatingLocation()
+        case .denied, .restricted: denied = true
+        default: break
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        fix = locations.last
+    }
+}
+
+// MARK: - Deed schedule overlay
+
+/// The sheet's four compass sides, laid against the map's own sides — the
+/// single check that catches a large share of bad descriptions.
+struct DeedScheduleOverlayScreen: View {
+    let neighbours: [String: String]
+    let geometry: FMBGeometry
+
+    private let order: [(key: String, label: String)] = [
+        ("north", "North · ఉత్తరం"), ("east", "East · తూర్పు"),
+        ("south", "South · దక్షిణం"), ("west", "West · పడమర"),
+    ]
+
+    var body: some View {
+        List {
+            Section {
+                Text("What the sheet writes outside each side, against what the map's sides face. A deed whose schedule disagrees with these four lines is describing different land.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            Section("The four sides") {
+                ForEach(order, id: \.key) { side in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(side.label).font(.subheadline).foregroundStyle(.secondary)
+                        Spacer(minLength: 12)
+                        Text(neighbours[side.key] ?? "—")
+                            .font(.subheadline.weight(.semibold))
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+            }
+            Section("The map agrees when") {
+                ForEach(geometry.sides.filter { !$0.beyond.isEmpty }) { s in
+                    HStack {
+                        Text("\(s.from) → \(s.to)")
+                            .font(.system(.subheadline, design: .monospaced))
+                        Spacer(minLength: 12)
+                        Text(s.beyond).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Deed schedule")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 /// Projection: easting/northing to screen with ONE scale factor
-/// k = min(w/ΔE, h/ΔN), a 42px inset, north up (§4).
-private struct MapLayout {
+/// k = min(w/ΔE, h/ΔN), a 42px inset, north up.
+struct MapLayout {
     let size: CGSize
     let screen: [Int: CGPoint]
     let metresPerPoint: Double
@@ -412,7 +842,6 @@ private struct MapLayout {
 
     let screenRing: [CGPoint]
 
-    /// Unit vector pointing away from the parcel at a side's midpoint.
     func outwardNormal(of side: FMBGeometry.Side) -> CGVector {
         guard let a = screen[side.from], let b = screen[side.to] else { return .zero }
         let d = CGVector(dx: b.x - a.x, dy: b.y - a.y)
@@ -426,7 +855,6 @@ private struct MapLayout {
         return normal
     }
 
-    /// A point pushed outward from a corner, for its ID label.
     func outward(from id: Int, distance: CGFloat) -> CGPoint {
         guard let p = screen[id] else { return .zero }
         let d = CGVector(dx: p.x - centroid.x, dy: p.y - centroid.y)
