@@ -589,13 +589,37 @@ extension Notification.Name {
 }
 
 /// One place to say a load failed, so the wording cannot drift per screen.
+/// When loading fails, say so — and when the CAUSE is a missing sign-in,
+/// offer the door instead of describing the wall. The sign-in sheet only
+/// ever appeared on first launch, so a phone signed out mid-session was
+/// stranded on every tab with a raw 401 and no way back in.
 struct LoadFailure: View {
     let message: String?
+    @State private var showSignIn = false
+
+    private var needsSignIn: Bool {
+        !CognitoAuth.shared.isSignedIn
+            || (message?.contains("401") ?? false)
+            || (message?.localizedCaseInsensitiveContains("bearer") ?? false)
+    }
+
     var body: some View {
-        ContentUnavailableView(
-            "Couldn’t load your records",
-            systemImage: "exclamationmark.icloud",
-            description: Text(message ?? "The server did not answer.")
-        )
+        if needsSignIn {
+            ContentUnavailableView {
+                Label("Signed out", systemImage: "person.crop.circle.badge.exclamationmark")
+            } description: {
+                Text("Your session ended. Sign in and your records are right where you left them.")
+            } actions: {
+                Button("Sign in") { showSignIn = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            .sheet(isPresented: $showSignIn) { SignInScreen() }
+        } else {
+            ContentUnavailableView(
+                "Couldn’t load your records",
+                systemImage: "exclamationmark.icloud",
+                description: Text(message ?? "The server did not answer.")
+            )
+        }
     }
 }
