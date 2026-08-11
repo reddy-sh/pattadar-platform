@@ -204,6 +204,13 @@ public func docSpine(
     let placeLine = [effVillage, sy.isEmpty ? "" : "Sy \(sy)"]
         .filter { !$0.isEmpty }.joined(separator: " · ")
 
+    // A map sheet carries no registrar's number — it is known by its survey:
+    // "the Sy. 1 sheet". Leading zeros drop; "01" and "1" are the same land.
+    if identity.isEmpty, family == "map", let first = surveyList.first {
+        let base = surveyParts(first).no
+        identity = "Sy. \(Int(base).map(String.init) ?? base) sheet"
+    }
+
     // Parties, with direction. Deeds are from → to; everything else names
     // its one person.
     let parties = (spine["parties"] as? [[String: Any]])
@@ -241,6 +248,13 @@ public func docSpine(
     if amount > 0 { quantumParts.append(rupees(amount)) }
     let entries = (reading["parcels"] as? [[String: Any]])?.count ?? 0
     if entries > 1 { quantumParts.append("\(entries) entries") }
+    // A map measures the ground its ring covers: the spine's extent when the
+    // reader gave one, else the area derived from the sheet's own corners.
+    if family == "map" {
+        let mapped = acres > 0 ? acres
+            : num(reading["geometry"] as? [String: Any], "area_ac")
+        if mapped > 0 { quantumParts = [String(format: "%g ac mapped", mapped)] }
+    }
     // An identity document measures nothing — its quantum slot carries the
     // date of birth, the founder's own spine table for Aadhaar.
     if family == "identity" {

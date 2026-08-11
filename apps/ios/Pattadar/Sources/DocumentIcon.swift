@@ -62,8 +62,11 @@ struct VaultTile: View {
                 .kerning(0.3)
                 .lineLimit(1).minimumScaleFactor(0.7)
             if !year.isEmpty {
+                // Usually a year; for a map sheet the survey era ("Re-survey")
+                // — the longer word scales down rather than truncating.
                 Text(year)
                     .font(.system(size: 8.5, weight: .semibold)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.7)
                     .opacity(0.62)
             }
         }

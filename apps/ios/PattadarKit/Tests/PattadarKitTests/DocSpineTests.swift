@@ -83,6 +83,40 @@ struct DocSpineTests {
         #expect(extentsAgree(acres: 25, hectares: 0))
     }
 
+    @Test func theFMBSheetIsNamedByItsSurvey() {
+        // The founder's real FMB, as its legacy reading stands: no document
+        // number, no extent column — only the sheet's own derived geometry.
+        // A sheet with no registrar's number is known as "the Sy. 1 sheet",
+        // and what it measures is the area its ring actually maps.
+        let reading: [String: Any] = [
+            "survey_no": "01",
+            "geometry": ["area_ac": 59.899999999999999],
+        ]
+        let s = docSpine(docType: "FMB", village: "Mangalakunta",
+                         surveyNo: "01", reading: reading)
+        #expect(s.family == "map")
+        #expect(s.identityLabel == "Sy. 1 sheet")
+        #expect(s.quantumLine == "59.9 ac mapped")
+    }
+
+    @Test func aNewSpecSheetKeepsItsSubdivisionsAndMappedArea() {
+        // A reading under the extraction spec: the spine names every
+        // subdivision and the quantum carries the mapped extent.
+        let reading: [String: Any] = [
+            "family": "map",
+            "spine": [
+                "place": ["village": "Mangalakunta",
+                          "survey": [["no": "1", "sub": "1"], ["no": "1", "sub": "2"],
+                                     ["no": "1", "sub": "3"], ["no": "1", "sub": "4"]]],
+                "quantum": ["extent_ac": 197.05],
+            ],
+        ]
+        let s = docSpine(docType: "FMB", reading: reading)
+        #expect(s.identityLabel == "Sy. 1 sheet")
+        #expect(s.surveys == ["1/1", "1/2", "1/3", "1/4"])
+        #expect(s.quantumLine == "197.05 ac mapped")
+    }
+
     @Test func theUnitConflictReachesTheReview() {
         // The reconciliation is not advice — a disagreeing pair of units must
         // surface as a high-severity review item even when the reader missed it.

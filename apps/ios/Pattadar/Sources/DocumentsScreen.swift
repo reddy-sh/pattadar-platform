@@ -192,6 +192,17 @@ struct DocumentsScreen: View {
         if s.family == "identity" {
             return [s.identityLabel, s.quantumLine].filter { !$0.isEmpty }.joined(separator: " · ")
         }
+        // A map sheet: subdivisions when the reading names them, then the
+        // mapped extent. The title already says the survey, so outside
+        // property grouping the place slot carries only the village.
+        if s.family == "map" {
+            let subs = s.surveys.filter { !surveyParts($0).sub.isEmpty }.count
+            let parts: [String] = switch groupBy {
+            case .property: [subs > 1 ? "\(subs) subdivisions" : "", s.quantumLine]
+            default: [s.village, s.quantumLine]
+            }
+            return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        }
         let parts: [String] = switch groupBy {
         case .property: [s.quantumLine, s.partiesLine]
         case .person: [s.placeLine, s.quantumLine]
@@ -351,8 +362,21 @@ struct DocumentsScreen: View {
 
     // MARK: - Load
 
-    /// The year a person recognises the document by.
-    private func rowYear(_ d: RegisteredDocument) -> String {
+    /// The year a person recognises the document by. A map sheet is the
+    /// exception: its vintage is the survey era, and the FILING year would
+    /// misstate it — an FMB tile saying "2026" claims a sheet that new.
+    /// Better an empty line than a wrong one.
+    private func rowYear(_ d: RegisteredDocument, spine: DocSpine,
+                         reading: [String: Any]) -> String {
+        if spine.family == "map" {
+            let text = [d.docType, d.headline,
+                        reading["layout_name"] as? String ?? "",
+                        reading["classification"] as? String ?? ""]
+                .joined(separator: " ").lowercased()
+            if text.contains("re-survey") || text.contains("resurvey") { return "Re-survey" }
+            if !d.regYear.isEmpty { return d.regYear }
+            return year(from: d.registrationDate) ?? ""
+        }
         if !d.regYear.isEmpty { return d.regYear }
         if let y = year(from: d.registrationDate) { return y }
         return year(from: d.createdAt) ?? ""
@@ -363,13 +387,12 @@ struct DocumentsScreen: View {
             rows = r.registeredDocuments.map { d in
                 let reading = (try? JSONSerialization.jsonObject(
                     with: Data(d.reading.utf8))) as? [String: Any] ?? [:]
-                return VaultRow(
-                    doc: d,
-                    spine: docSpine(docType: d.docType, documentNo: d.documentNo,
-                                    regYear: d.regYear, village: d.village,
-                                    surveyNo: d.surveyNo, extent: d.extent,
-                                    consideration: d.consideration, reading: reading),
-                    year: rowYear(d))
+                let spine = docSpine(docType: d.docType, documentNo: d.documentNo,
+                                     regYear: d.regYear, village: d.village,
+                                     surveyNo: d.surveyNo, extent: d.extent,
+                                     consideration: d.consideration, reading: reading)
+                return VaultRow(doc: d, spine: spine,
+                                year: rowYear(d, spine: spine, reading: reading))
             }
             // A filter whose chip vanished with this reload (the last
             // needs-review paper settled, the last map deleted) must not
