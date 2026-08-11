@@ -123,6 +123,7 @@ echo "» starting api on http://localhost:8080 (log: .local/api.log)"
   APP_PG_DSN="$APP_DSN" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
   APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \
+  ALLOW_INSECURE_LOCAL=1 \
   "$VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8080 --reload >"$API_LOG" 2>&1
 ) &
 API_PID=$!
