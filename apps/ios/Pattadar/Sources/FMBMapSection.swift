@@ -1,4 +1,5 @@
 import CoreLocation
+import MapKit
 import PattadarKit
 import SwiftUI
 import UIKit
@@ -21,8 +22,16 @@ struct FMBMapSection: View {
     @State private var selection: Selection = .parcel
     @State private var copiedCorner = false
     @State private var copiedAll = false
-    /// Plain | Satellite. The satellite slot is honest about being a slot.
+    /// Plain | Satellite. Satellite is REAL imagery: an Apple Maps snapshot
+    /// of the georeferenced corners, with the ring drawn in the snapshot's
+    /// own projection so the boundary lands where the ground is.
     @State private var satellite = false
+    /// The fetched imagery, keyed to the size it was taken at — a resize or
+    /// first toggle refetches; toggling back reuses it.
+    @State private var imageryImage: UIImage?
+    @State private var imageryPoints: [Int: CGPoint] = [:]
+    @State private var imagerySize: CGSize = .zero
+    @State private var imageryFailed = false
     // Layer chips: which labels ride the map.
     @State private var showLengths = true
     @State private var showBearings = false
@@ -44,6 +53,7 @@ struct FMBMapSection: View {
                 .background(satellite ? Color(red: 0.07, green: 0.10, blue: 0.08)
                                       : Color(.secondarySystemGroupedBackground),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .sensoryFeedback(.selection, trigger: selection)
 
             controls
@@ -70,21 +80,22 @@ struct FMBMapSection: View {
 
     private var map: some View {
         GeometryReader { proxy in
-            let layout = MapLayout(geometry: geometry, size: proxy.size)
+            // On imagery the snapshot's projection is the truth: corners land
+            // where the ground is, and the linear UTM layout stands aside.
+            let onImagery = satellite && imageryReady(for: proxy.size)
+            let layout = onImagery
+                ? MapLayout(geometry: geometry, size: proxy.size, screenPoints: imageryPoints)
+                : MapLayout(geometry: geometry, size: proxy.size)
             ZStack {
+                if onImagery, let img = imageryImage {
+                    Image(uiImage: img)
+                }
                 Canvas { ctx, size in
-                    drawGrid(in: &ctx, size: size)
-                    draw(in: &ctx, layout: layout)
+                    if !onImagery { drawGrid(in: &ctx, size: size) }
+                    draw(in: &ctx, layout: layout, onImagery: onImagery)
                 }
                 if satellite {
-                    // The imagery slot, named as a slot — a tile source lands
-                    // here; pretending it already did would mislead.
-                    Text("Imagery slot · Bhuvan / satellite tiles")
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Color.orange.opacity(0.15), in: Capsule())
-                        .overlay(Capsule().stroke(Color.orange.opacity(0.4), lineWidth: 1))
-                        .foregroundStyle(.orange)
+                    imageryStatus(for: proxy.size)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: .topLeading)
                         .padding(12)
@@ -101,10 +112,22 @@ struct FMBMapSection: View {
                 scaleBar(layout: layout)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(14)
-                Button(satellite ? "Satellite" : "Plain") {
-                    withAnimation(.snappy) { satellite.toggle() }
+                // Not a flip-button: the label names what is SHOWN, and the
+                // tap opens the choice — show satellite under the sketch, or
+                // not. A label that inverts on tap reads as the wrong state
+                // half the time (the founder's own confusion, 9 Aug).
+                Menu {
+                    Picker("Background", selection: Binding(
+                        get: { satellite },
+                        set: { v in withAnimation(.snappy) { satellite = v } })) {
+                        Label("Plain sketch", systemImage: "square.grid.3x3").tag(false)
+                        Label("Satellite imagery", systemImage: "globe.asia.australia.fill").tag(true)
+                    }
+                } label: {
+                    Label(satellite ? "Satellite" : "Plain",
+                          systemImage: "square.3.layers.3d")
+                        .font(.subheadline.weight(.semibold))
                 }
-                .font(.subheadline.weight(.semibold))
                 .buttonStyle(.bordered)
                 .clipShape(Capsule())
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -114,6 +137,74 @@ struct FMBMapSection: View {
             .onTapGesture { location in
                 select(at: location, layout: layout)
             }
+            .task(id: "\(satellite)·\(Int(proxy.size.width))×\(Int(proxy.size.height))") {
+                guard satellite else { return }
+                await fetchImagery(size: proxy.size)
+            }
+        }
+    }
+
+    private func imageryReady(for size: CGSize) -> Bool {
+        imageryImage != nil && imagerySize == size
+    }
+
+    /// What the imagery corner says: credit when it loaded, the failure when
+    /// it did not, progress in between — never a slot pretending to be tiles.
+    @ViewBuilder private func imageryStatus(for size: CGSize) -> some View {
+        if imageryReady(for: size) {
+            Text("Imagery © Apple Maps")
+                .font(.caption2)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(.black.opacity(0.35), in: Capsule())
+                .foregroundStyle(.white.opacity(0.8))
+        } else if imageryFailed {
+            Text("Imagery didn't load — plain sketch behind the lines")
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Color.orange.opacity(0.15), in: Capsule())
+                .foregroundStyle(.orange)
+        } else {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Loading imagery…").font(.caption2)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color(.tertiarySystemFill), in: Capsule())
+        }
+    }
+
+    private func fetchImagery(size: CGSize) async {
+        guard size.width > 1, size.height > 1, !imageryReady(for: size) else { return }
+        imageryFailed = false
+        let pts = geometry.ringPoints
+        guard let minLat = pts.map(\.lat).min(), let maxLat = pts.map(\.lat).max(),
+              let minLon = pts.map(\.lon).min(), let maxLon = pts.map(\.lon).max()
+        else { return }
+        // The plain layout's 42pt inset, expressed as a span factor — the
+        // ring keeps its breathing room and imagery runs to the edges.
+        let inset: CGFloat = 42
+        let f = Double(size.width / max(size.width - inset * 2, 1))
+        let options = MKMapSnapshotter.Options()
+        options.region = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
+                                           longitude: (minLon + maxLon) / 2),
+            span: MKCoordinateSpan(latitudeDelta: max((maxLat - minLat) * f, 0.0008),
+                                   longitudeDelta: max((maxLon - minLon) * f, 0.0008)))
+        options.size = size
+        options.preferredConfiguration = MKImageryMapConfiguration()
+        do {
+            let snap = try await MKMapSnapshotter(options: options).start()
+            var mapped: [Int: CGPoint] = [:]
+            for p in geometry.points {
+                mapped[p.id] = snap.point(for: CLLocationCoordinate2D(latitude: p.lat,
+                                                                      longitude: p.lon))
+            }
+            imageryImage = snap.image
+            imageryPoints = mapped
+            imagerySize = size
+        } catch {
+            imageryFailed = true
         }
     }
 
@@ -127,9 +218,15 @@ struct FMBMapSection: View {
         ctx.stroke(path, with: .color(.primary.opacity(0.045)), lineWidth: 1)
     }
 
-    private func draw(in ctx: inout GraphicsContext, layout: MapLayout) {
+    private func draw(in ctx: inout GraphicsContext, layout: MapLayout,
+                      onImagery: Bool = false) {
         let ring = layout.screenRing
         guard ring.count >= 3 else { return }
+        // Over photography every mark earns a shadow, or a cyan line on a
+        // green field simply disappears.
+        if onImagery {
+            ctx.addFilter(.shadow(color: .black.opacity(0.65), radius: 1.2))
+        }
 
         var fill = Path()
         fill.addLines(ring)
@@ -184,7 +281,8 @@ struct FMBMapSection: View {
             text.rotate(by: .radians(angle))
             text.draw(Text(label)
                         .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(side.isMeasuredOnly ? Color.red : Color.primary),
+                        .foregroundStyle(side.isMeasuredOnly ? Color.red
+                                         : onImagery ? Color.white : Color.primary),
                       at: .zero)
         }
     }
@@ -835,6 +933,24 @@ struct MapLayout {
         screen = mapped
         metresPerPoint = k > 0 ? 1 / k : 1
         let ring = geometry.ring.compactMap { mapped[$0] }
+        centroid = CGPoint(x: ring.map(\.x).reduce(0, +) / CGFloat(max(ring.count, 1)),
+                           y: ring.map(\.y).reduce(0, +) / CGFloat(max(ring.count, 1)))
+        screenRing = ring
+    }
+
+    /// Layout in a snapshot's own projection: the imagery is the truth and
+    /// the ring is drawn in its coordinates; the scale falls out of the ring
+    /// itself — screen perimeter against the ground's.
+    init(geometry: FMBGeometry, size: CGSize, screenPoints: [Int: CGPoint]) {
+        self.size = size
+        screen = screenPoints
+        let ring = geometry.ring.compactMap { screenPoints[$0] }
+        var screenPerimeter: Double = 0
+        for i in ring.indices {
+            let a = ring[i], b = ring[(i + 1) % ring.count]
+            screenPerimeter += Double(hypot(b.x - a.x, b.y - a.y))
+        }
+        metresPerPoint = screenPerimeter > 0 ? geometry.perimeterM / screenPerimeter : 1
         centroid = CGPoint(x: ring.map(\.x).reduce(0, +) / CGFloat(max(ring.count, 1)),
                            y: ring.map(\.y).reduce(0, +) / CGFloat(max(ring.count, 1)))
         screenRing = ring
