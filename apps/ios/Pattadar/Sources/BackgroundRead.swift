@@ -51,6 +51,10 @@ final class BackgroundRead: NSObject {
 
     private var session: URLSession!
     private var received: [Int: Data] = [:]
+    /// Where the status poll asks, with what credentials. Held in memory only;
+    /// a relaunched app hands a fresh config to `resumeIfRunning`.
+    private var pollConfig: PattadarAPI.Config?
+    private var pollTask: Task<Void, Never>?
 
     private override init() {
         super.init()
@@ -72,6 +76,10 @@ final class BackgroundRead: NSObject {
         var documentPath: String
         var bodyPath: String
         var startedAt: Date
+        /// Set once the server has ACKNOWLEDGED the upload with a job id.
+        /// From that moment the transfer is done and the result is fetched by
+        /// POLLING — the phone never again waits minutes on an open response.
+        var jobID: String?
     }
 
     private static let pendingKey = "pattadar.pendingRead"
@@ -92,8 +100,15 @@ final class BackgroundRead: NSObject {
 
     /// Whether a read is still running somewhere out of process. Asked on launch,
     /// so a relaunched app shows "reading…" rather than an empty card.
-    func resumeIfRunning() async -> Pending? {
+    func resumeIfRunning(config: PattadarAPI.Config) async -> Pending? {
         guard let p = pending else { return nil }
+        pollConfig = config
+        if let job = p.jobID {
+            // The upload already landed; the reading continued on the server
+            // while this app was gone. Ask after it again.
+            beginPolling(job: job)
+            return p
+        }
         let tasks = await session.allTasks
         guard !tasks.isEmpty else {
             // Nothing is running and no result arrived: the transfer died with
@@ -110,8 +125,18 @@ final class BackgroundRead: NSObject {
                fileURL: URL, name: String) throws {
         let boundary = "Boundary-\(UUID().uuidString)"
         let bodyURL = try Self.writeMultipart(fileURL: fileURL, boundary: boundary)
+        pollConfig = config
 
-        var request = URLRequest(url: config.baseURL.appendingPathComponent(endpoint.requestPath))
+        // A registered document takes minutes to read, and no transport —
+        // not this background session, not production CloudFront — will hold
+        // a response open that long. So the upload goes to the ASYNC twin:
+        // the server acks with a job id in seconds and the result is polled.
+        let path = endpoint == .registeredDocument
+            ? endpoint.requestPath + "-async" : endpoint.requestPath
+        var request = URLRequest(url: config.baseURL.appendingPathComponent(path))
+        // The request's own default (60s) overrides the session's 300 — set
+        // it to what the session already promises, or long reads die at 60.
+        request.timeoutInterval = 300
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "Bypass-Tunnel-Reminder")
@@ -138,6 +163,8 @@ final class BackgroundRead: NSObject {
         // left every later scan failing until the app was restarted, with no
         // sign of why.
         session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        pollTask?.cancel()
+        pollTask = nil
         cleanUp()
     }
 
@@ -198,49 +225,113 @@ extension BackgroundRead: URLSessionDataDelegate {
         let status = (task.response as? HTTPURLResponse)?.statusCode ?? 0
         Task { @MainActor in
             let body = self.received.removeValue(forKey: id) ?? Data()
-            defer { self.cleanUp() }
 
             if let error {
+                self.cleanUp()
                 self.onFinished?(.failure(error))
                 let n = readFailedNotification(error.localizedDescription)
                 self.notify(title: n.title, body: n.body)
                 return
             }
             let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
-            if let message = json["error"] as? String {
-                self.onFinished?(.failure(PattadarAPI.APIError.http(status, message)))
-                let n = readFailedNotification(message)
-                self.notify(title: n.title, body: n.body)
+
+            // The async ack: a receipt, not a reading. The multipart body has
+            // served its purpose; `pending` stays — it now carries the job id
+            // so a relaunched app can pick the poll back up.
+            if (200..<300).contains(status), let job = json["job"] as? String, !job.isEmpty {
+                if var p = self.pending {
+                    try? FileManager.default.removeItem(atPath: p.bodyPath)
+                    p.jobID = job
+                    self.pending = p
+                }
+                self.beginPolling(job: job)
                 return
             }
-            guard (200..<300).contains(status) else {
-                self.onFinished?(.failure(PattadarAPI.APIError.http(
-                    status, String(data: body, encoding: .utf8) ?? "")))
-                let n = readFailedNotification("The server answered \(status).")
-                self.notify(title: n.title, body: n.body)
+            self.finish(status: status, json: json, rawBody: body)
+        }
+    }
+
+    /// One terminal handling for both arrival paths — the sync response and
+    /// the poll result. Clears the pending read whatever the outcome.
+    private func finish(status: Int, json: [String: Any], rawBody: Data) {
+        defer { cleanUp() }
+
+        if let message = json["error"] as? String {
+            onFinished?(.failure(PattadarAPI.APIError.http(status, message)))
+            let n = readFailedNotification(message)
+            notify(title: n.title, body: n.body)
+            return
+        }
+        guard (200..<300).contains(status) else {
+            onFinished?(.failure(PattadarAPI.APIError.http(
+                status, String(data: rawBody, encoding: .utf8) ?? "")))
+            let n = readFailedNotification("The server answered \(status).")
+            notify(title: n.title, body: n.body)
+            return
+        }
+        let fields = json["fields"] as? [String: Any] ?? [:]
+        guard !fields.isEmpty else {
+            onFinished?(.failure(PattadarAPI.APIError.emptyExtraction("document")))
+            let n = readFailedNotification(
+                "Nothing could be read from it — try a clearer copy.")
+            notify(title: n.title, body: n.body)
+            return
+        }
+        // Written to disk BEFORE anything else, and before `pending` is
+        // cleared by the deferred clean-up. The app may have been relaunched
+        // purely to receive this and may be closed again a second later; a
+        // result held only in memory is the reason a read finished and the
+        // property was not there afterwards.
+        if let p = pending {
+            lastEnqueuedReviewID = ReviewQueue.shared.add(
+                fields: fields, documentPath: p.documentPath,
+                originalName: p.originalName)
+        }
+        onFinished?(.success(fields))
+        let n = readReadyNotification(fields)
+        notify(title: n.title, body: n.body)
+    }
+
+    /// Ask after the job every few seconds until it settles. Network blips
+    /// are ridden out; only a server verdict (or the deadline) ends the poll.
+    private func beginPolling(job: String) {
+        guard let config = pollConfig else {
+            finish(status: 0, json: ["error": "The read lost its connection details — send the document again."],
+                   rawBody: Data())
+            return
+        }
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            var request = URLRequest(url: config.baseURL.appendingPathComponent("import-status/\(job)"))
+            request.setValue("1", forHTTPHeaderField: "Bypass-Tunnel-Reminder")
+            request.setValue("1", forHTTPHeaderField: "ngrok-skip-browser-warning")
+            if !config.userID.isEmpty {
+                request.setValue(config.userID, forHTTPHeaderField: "x-user-id")
+            }
+            if !config.authorization.isEmpty {
+                request.setValue("Bearer \(config.authorization)", forHTTPHeaderField: "Authorization")
+            }
+            // Generous against the server's own 180–200s AI budget; a read
+            // that outlives this was lost, and the card must not spin forever.
+            let deadline = Date().addingTimeInterval(12 * 60)
+            while !Task.isCancelled, Date() < deadline {
+                try? await Task.sleep(for: .seconds(4))
+                guard let (data, response) = try? await URLSession.shared.data(for: request) else {
+                    continue  // a blip; the job is still running server-side
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+                if status == 200, (json["state"] as? String) == "running" { continue }
+                await MainActor.run { [weak self] in
+                    self?.finish(status: status, json: json, rawBody: data)
+                }
                 return
             }
-            let fields = json["fields"] as? [String: Any] ?? [:]
-            guard !fields.isEmpty else {
-                self.onFinished?(.failure(PattadarAPI.APIError.emptyExtraction("document")))
-                let n = readFailedNotification(
-                    "Nothing could be read from it — try a clearer copy.")
-                self.notify(title: n.title, body: n.body)
-                return
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.finish(status: 0, json: ["error": "The read took too long and was given up on. Send the document again."],
+                             rawBody: Data())
             }
-            // Written to disk BEFORE anything else, and before `pending` is
-            // cleared by the deferred clean-up. The app may have been relaunched
-            // purely to receive this and may be closed again a second later; a
-            // result held only in memory is the reason a read finished and the
-            // property was not there afterwards.
-            if let p = self.pending {
-                self.lastEnqueuedReviewID = ReviewQueue.shared.add(
-                    fields: fields, documentPath: p.documentPath,
-                    originalName: p.originalName)
-            }
-            self.onFinished?(.success(fields))
-            let n = readReadyNotification(fields)
-            self.notify(title: n.title, body: n.body)
         }
     }
 

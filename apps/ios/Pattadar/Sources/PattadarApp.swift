@@ -164,7 +164,7 @@ final class AppModel {
     func adoptRunningRead() async {
         guard readResult == nil, !isReading else { return }
         let reader = BackgroundRead.shared
-        guard let p = await reader.resumeIfRunning() else { return }
+        guard let p = await reader.resumeIfRunning(config: api.config) else { return }
         let file = URL(fileURLWithPath: p.documentPath)
         reader.onFinished = { [weak self] result in
             guard let self else { return }

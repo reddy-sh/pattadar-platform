@@ -68,6 +68,11 @@ public actor UploadClient: NSObject {
         try handle.synchronize()
 
         var request = URLRequest(url: url)
+        // A URLRequest carries its own 60-second timeout that BEATS the
+        // session's 240 above — and the AI read of a big deed runs 53–132s.
+        // The request must say what the session means, or the phone hangs up
+        // one minute into a two-minute answer.
+        request.timeoutInterval = 240
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }

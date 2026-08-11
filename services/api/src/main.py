@@ -2,6 +2,7 @@ import os
 import re
 import csv
 import ssl
+import time
 import uuid
 import json
 import base64
@@ -5755,6 +5756,20 @@ async def import_registered_document(file: UploadFile = File(...)):
             {"type": "text", "text": "Extract the registered-document fields and return ONLY the JSON object."},
         ]}],
     }
+    status, result = await _extract_registered_fields(
+        api_key=api_key, payload=payload, data_len=len(data), name=file.filename or "")
+    if status == 200:
+        return result
+    return JSONResponse(status_code=status, content=result)
+
+
+async def _extract_registered_fields(
+    *, api_key: str, payload: dict, data_len: int, name: str
+) -> tuple[int, dict]:
+    """The read itself, callable from the sync endpoint AND the async job.
+
+    Returns (200, {"fields", "raw"}) or (status, {"error"}) — exactly the
+    bodies the sync endpoint has always sent."""
     try:
         r = await _post_with_retry(
             "https://api.anthropic.com/v1/messages",
@@ -5763,14 +5778,14 @@ async def import_registered_document(file: UploadFile = File(...)):
             timeout=180,
         )
     except httpx.TimeoutException:
-        _log.warning("AI extract timed out (file=%s, model=%s)", file.filename or "", _IMPORT_MODEL)
-        return JSONResponse(status_code=504, content={"error": "AI took too long to read this document (timed out). Try again or enter details manually."})
+        _log.warning("AI extract timed out (file=%s, model=%s)", name, _IMPORT_MODEL)
+        return 504, {"error": "AI took too long to read this document (timed out). Try again or enter details manually."}
     except Exception as e:
-        _log.warning("AI extract failed (file=%s, bytes=%d): %r", file.filename or "", len(data), e)
-        return JSONResponse(status_code=502, content={"error": _ai_failure_message(e, len(data))})
+        _log.warning("AI extract failed (file=%s, bytes=%d): %r", name, data_len, e)
+        return 502, {"error": _ai_failure_message(e, data_len)}
     if r.status_code != 200:
-        _log.warning("AI extract non-200 (file=%s, status=%s): %s", file.filename or "", r.status_code, (r.text or '')[:300])
-        return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
+        _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
+        return 502, {"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"}
     body = r.json()
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = _extract_json(text)
@@ -5778,7 +5793,7 @@ async def import_registered_document(file: UploadFile = File(...)):
     # more with the model reasoning less, which leaves far more of the ceiling
     # for the answer. Only worth doing when that is demonstrably what happened.
     if (not fields) and body.get("stop_reason") == "max_tokens":
-        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", file.filename or "")
+        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", name)
         retry = dict(payload)
         retry["output_config"] = {"effort": "low"}
         try:
@@ -5793,7 +5808,7 @@ async def import_registered_document(file: UploadFile = File(...)):
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = _extract_json(text)
         except Exception as e:
-            _log.warning("AI extract low-effort retry failed (file=%s): %r", file.filename or "", e)
+            _log.warning("AI extract low-effort retry failed (file=%s): %r", name, e)
     if not text or not fields:
         # An empty or unparseable reply used to be returned as a 200 with
         # {"fields": {}} — the app then prefilled nothing and the form sat there
@@ -5801,22 +5816,103 @@ async def import_registered_document(file: UploadFile = File(...)):
         # we could not read is a failure and must say so.
         _log.warning(
             "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
-            file.filename or "", len(data), body.get("stop_reason"), len(text),
+            name, data_len, body.get("stop_reason"), len(text),
         )
         msg = ("This document is long enough that the reading ran out of room. Photograph just the "
                "pages with the details, or enter them by hand."
                if body.get("stop_reason") == "max_tokens" else
                "Nothing could be read from this document. It may be a scan of photographs rather "
                "than text — try a clearer copy, or enter the details by hand.")
-        return JSONResponse(status_code=502, content={"error": msg})
+        return 502, {"error": msg}
     # A vector FMB's corner table becomes the §13 stored shape here — ring,
     # sides, bearings, area, cross-checks — so every screen downstream
     # computes nothing but unit conversion.
     try:
         fmb_geometry.attach_geometry(fields)
     except Exception as e:
-        _log.warning("FMB geometry derivation failed (file=%s): %r", file.filename or "", e)
-    return {"fields": fields, "raw": text}
+        _log.warning("FMB geometry derivation failed (file=%s): %r", name, e)
+    return 200, {"fields": fields, "raw": text}
+
+
+# ── Async import: submit fast, poll for the result ────────────────────
+# A phone cannot hold an HTTP response open for the minutes a deed takes to
+# read: iOS background transfers hang up during the silence and re-send (five
+# identical reads of one deed, none delivered), and CloudFront caps origin
+# reads at 60s in production anyway. So the read becomes a JOB: the upload
+# returns a receipt in seconds, the phone asks after it until it is done.
+# Jobs live in process memory — a restart loses them, and the phone's poll
+# gets an honest 404 telling it to send the document again.
+_import_jobs: dict = {}
+_IMPORT_JOB_TTL = 1800.0
+
+
+def _prune_import_jobs() -> None:
+    cutoff = time.time() - _IMPORT_JOB_TTL
+    for k in [k for k, v in _import_jobs.items() if v["at"] < cutoff]:
+        _import_jobs.pop(k, None)
+
+
+@app.post("/import-registered-document-async")
+async def import_registered_document_async(file: UploadFile = File(...)):
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
+    data = await file.read()
+    if len(data) > 25 * 1024 * 1024:
+        return JSONResponse(status_code=413, content={"error": "File too large (max 25 MB)"})
+    mime = (file.content_type or "").lower()
+    name = (file.filename or "").lower()
+    b64 = base64.standard_b64encode(data).decode()
+    if mime == "application/pdf" or name.endswith(".pdf"):
+        block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
+    elif mime.startswith("image/"):
+        block = {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}}
+    else:
+        return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
+    payload = {
+        "model": _IMPORT_MODEL,
+        "max_tokens": 16000,
+        "output_config": {"effort": "medium"},
+        "system": _DOC_IMPORT_SYSTEM,
+        "messages": [{"role": "user", "content": [
+            block,
+            {"type": "text", "text": "Extract the registered-document fields and return ONLY the JSON object."},
+        ]}],
+    }
+    _prune_import_jobs()
+    job = uuid.uuid4().hex
+    _import_jobs[job] = {"state": "running", "status": 0, "payload": {}, "at": time.time()}
+    fname = file.filename or ""
+    data_len = len(data)
+
+    async def run() -> None:
+        try:
+            status, result = await _extract_registered_fields(
+                api_key=api_key, payload=payload, data_len=data_len, name=fname)
+        except Exception as e:
+            _log.warning("async import crashed (job=%s, file=%s): %r", job, fname, e)
+            status, result = 500, {"error": "The reading failed on the server. Send the document again."}
+        _import_jobs[job] = {
+            "state": "done" if status == 200 else "failed",
+            "status": status, "payload": result, "at": time.time(),
+        }
+
+    asyncio.create_task(run())
+    return {"job": job}
+
+
+@app.get("/import-status/{job}")
+async def import_status(job: str):
+    _prune_import_jobs()
+    j = _import_jobs.get(job)
+    if j is None:
+        return JSONResponse(status_code=404, content={
+            "error": "This read is no longer on the server — send the document again."})
+    if j["state"] == "running":
+        return {"state": "running"}
+    if j["status"] == 200:
+        return {"state": "done", **j["payload"]}
+    return JSONResponse(status_code=j["status"], content={"state": "failed", **j["payload"]})
 
 
 # ── AI Property Importer ──────────────────────────────────────────────
