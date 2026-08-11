@@ -200,6 +200,14 @@ final class AppModel {
     /// there and then refuses to show it to you.
     enum Tab: Hashable { case home, properties, add, family, documents, you }
     var selectedTab: Tab = .home
+    /// A tab you LEFT starts over. Changing a tab's version rebuilds its
+    /// screen — offscreen, while you are elsewhere — so coming back always
+    /// lands on the tab's first page, never a detail from an earlier visit
+    /// (the founder's rule, 10 Aug: tabs are places, and a place has a door).
+    private(set) var tabVersions: [Tab: UUID] = [
+        .home: UUID(), .properties: UUID(), .documents: UUID(), .you: UUID(),
+    ]
+    func restartTab(_ tab: Tab) { tabVersions[tab] = UUID() }
 
     /// What the Properties list should show when something else opens it.
     /// Consumed once, so returning to the tab later does not re-apply it.
@@ -504,9 +512,11 @@ struct RootTabs: View {
         // header, rather than as a second list of the same land.
         TabView(selection: Binding(get: { app.selectedTab },
                                   set: { app.selectedTab = $0 })) {
-            HomeScreen().tabItem { Label("Home", systemImage: "house.fill") }
+            HomeScreen().id(app.tabVersions[.home])
+                .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(AppModel.Tab.home)
-            HoldingsScreen().tabItem { Label("Properties", systemImage: "building.2.fill") }
+            HoldingsScreen().id(app.tabVersions[.properties])
+                .tabItem { Label("Properties", systemImage: "building.2.fill") }
                 .tag(AppModel.Tab.properties)
             // The centre slot is FILING, not a destination.
             //
@@ -522,9 +532,11 @@ struct RootTabs: View {
             // "Documents" describes a folder. "Vault" says what it is for:
             // the papers that prove the land is yours, kept where they can be
             // found.
-            DocumentsScreen().tabItem { Label("Vault", systemImage: "lock.doc.fill") }
+            DocumentsScreen().id(app.tabVersions[.documents])
+                .tabItem { Label("Vault", systemImage: "lock.doc.fill") }
                 .tag(AppModel.Tab.documents)
-            YouScreen().tabItem {
+            YouScreen().id(app.tabVersions[.you])
+                .tabItem {
                 // Your own face on your own tab. Falls back to the symbol
                 // until a photo is chosen.
                 if let avatar = Identity.tabAvatar() {
@@ -537,11 +549,19 @@ struct RootTabs: View {
             .tag(AppModel.Tab.you)
         }
         .onChange(of: app.selectedTab) { previous, now in
-            guard now == .add else { return }
-            // A tab that is really a button: it must not become the selected
-            // tab, or dismissing the sheet would leave a blank screen behind.
-            app.selectedTab = previous == .add ? .home : previous
-            filing = true
+            if now == .add {
+                // A tab that is really a button: it must not become the selected
+                // tab, or dismissing the sheet would leave a blank screen behind.
+                app.selectedTab = previous == .add ? .home : previous
+                filing = true
+                return
+            }
+            // The tab being left resets to its first page while offscreen.
+            // (previous == .add is the filing bounce above, not a real leave —
+            // resetting then would restart the tab under the open sheet.)
+            if previous != .add, previous != now {
+                app.restartTab(previous)
+            }
         }
         .sheet(isPresented: $filing) {
             FilingSheet()
