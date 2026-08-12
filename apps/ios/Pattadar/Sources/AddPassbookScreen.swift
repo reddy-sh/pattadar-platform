@@ -12,6 +12,18 @@ struct AddPassbookScreen: View {
     /// its village, so a repeat scan can be recognised rather than duplicated.
     var existing: [PassbookDetail] = []
     var existingParcels: [Parcel] = []
+    /// The fetched fallback when the caller handed nothing in. Three of the
+    /// four entry paths (the File tab among them) constructed this screen
+    /// bare, the detector ran blind, and khata 567 became twins — the same
+    /// failure the routing screen already grew this net for.
+    @State private var fetchedExisting: [PassbookDetail] = []
+    @State private var fetchedParcels: [Parcel] = []
+    private var knownExisting: [PassbookDetail] {
+        existing.isEmpty ? fetchedExisting : existing
+    }
+    private var knownParcels: [Parcel] {
+        existingParcels.isEmpty ? fetchedParcels : existingParcels
+    }
 
     @State private var manualOpen = false
     @State private var scanned: ScanResult?
@@ -135,6 +147,20 @@ struct AddPassbookScreen: View {
                 // away rather than asking for the same document twice.
                 if let scan = initialScan, scanned == nil { prefill(scan); manualOpen = true }
             }
+            .task {
+                // The duplicate detector must know what exists, whoever
+                // opened this screen and however lazily. Match again once
+                // the list arrives — a scan may have prefilled before it.
+                if existing.isEmpty,
+                   let r = await app.load(Queries.passbooks, as: PassbooksResponse.self) {
+                    fetchedExisting = r.passbooks
+                }
+                if existingParcels.isEmpty,
+                   let h = await app.load(Queries.holdings, as: HoldingsResponse.self) {
+                    fetchedParcels = h.parcels
+                }
+                matchExisting()
+            }
         }
     }
 
@@ -187,7 +213,7 @@ struct AddPassbookScreen: View {
     /// truth — and it applies to a number typed by hand just as much as a
     /// scanned one.
     private func matchExisting() {
-        duplicate = findExistingPassbook(existing, pattadarNo: pattadarNo, village: village)
+        duplicate = findExistingPassbook(knownExisting, pattadarNo: pattadarNo, village: village)
     }
 
     /// What this reading claims, in the shape the diff understands. Extents are
@@ -215,11 +241,17 @@ struct AddPassbookScreen: View {
         guard let dup = duplicate else { return }
         reconciling = diffPassbook(
             existing: dup,
-            parcels: existingParcels.filter { $0.passbookId == dup.id },
+            parcels: knownParcels.filter { $0.passbookId == dup.id },
             scanned: scannedPassbook())
     }
 
     private func save() async {
+        // The last net: a Save that raced the existing-passbooks fetch must
+        // not create a twin. Match once more against whatever has arrived,
+        // and divert to review instead of writing.
+        matchExisting()
+        if duplicate != nil { review(); return }
+
         saving = true
         problem = ""
         defer { saving = false }
