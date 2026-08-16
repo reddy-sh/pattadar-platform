@@ -210,6 +210,8 @@ struct HoldingDetailScreen: View {
         }
         .task {
             pin = parseGeoPoint(parcel.geoPoint)
+            // Home's "Recently opened" card (M01) is this line.
+            app.noteOpened("parcel", parcel.id)
             await loadDossier()
         }
         // Filing happens on other screens (the ⊕ sheet, the vault); a pull
@@ -890,7 +892,11 @@ struct PropertyDetailScreen: View {
             if pin == nil { pin = parseGeoPoint(property.geoPoint) }
             if cachedGroups == nil { cachedGroups = parseAttributes() }
         }
-        .task { await loadDossier() }
+        .task {
+            // Home's "Recently opened" card (M01) is this line.
+            app.noteOpened("property", property.id)
+            await loadDossier()
+        }
         .refreshable { await loadDossier() }
     }
 

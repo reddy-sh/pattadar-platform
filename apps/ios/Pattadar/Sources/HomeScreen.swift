@@ -1,7 +1,12 @@
 import PattadarKit
 import SwiftUI
 
-/// The dashboard: the total first, then what is wrong, then what happened.
+/// Home (M01): what needs you, then what you own.
+///
+/// The order IS the design — the outbox and waiting readings first (they ask
+/// for a decision), then the three figures, then worth, then the two doors
+/// people actually come to open, then the obligations with dates on them,
+/// then what is wrong, then where you last were.
 struct HomeScreen: View {
     @Environment(AppModel.self) private var app
     @State private var data: DashboardResponse?
@@ -17,7 +22,8 @@ struct HomeScreen: View {
                         // waiting for review and documents already in the
                         // vault survive an emptied portfolio, and a screen
                         // that pretends otherwise looks broken.
-                        greeting
+                        header
+                        outbox
                         if !app.pendingReviews.isEmpty {
                             ReviewCard(entries: app.pendingReviews,
                                        onOpen: { reviewToAdd = $0 },
@@ -34,7 +40,8 @@ struct HomeScreen: View {
                             }
                         }
                     } else if data != nil {
-                        greeting
+                        header
+                        outbox
 
                         // Read, but not yet yours.
                         //
@@ -49,87 +56,38 @@ struct HomeScreen: View {
                                        onOpen: { reviewToAdd = $0 },
                                        onDiscard: { app.discardReview($0.id) })
                         }
-                        // The land first. These are the numbers the app exists
-                        // to tell you, and they were sitting below a row of
-                        // navigation chips — the answer below the menu. Full
-                        // width and equal weight; none is subordinate.
-                        // Each card is the door to its own list: the acres
-                        // open Properties filtered to agricultural, the sites
-                        // to plots. A summary you cannot open is a dead end.
-                        ForEach(categories) { c in
-                            Button {
-                                app.holdingsFilter = c.kind == .farmland ? .agricultural : .plots
+
+                        // The land first, in one card of three figures. Each
+                        // column opens the list it counts — a summary you
+                        // cannot open is a dead end.
+                        StatTripleCard(totals: categories) { filter in
+                            app.holdingsFilter = filter
+                            app.selectedTab = .properties
+                        }
+
+                        // Worth today (M01). Hidden until a value has been
+                        // recorded somewhere: a worth card of zeros would
+                        // lend a guess the extents' authority.
+                        if worth > 0 || paid > 0 {
+                            WorthTodayCard(worth: worth, paid: paid,
+                                           costsThisYear: spentThisFY,
+                                           loans: loans, mix: portfolioMix)
+                        }
+
+                        quickActions
+
+                        if !upcomingRows.isEmpty {
+                            UpcomingCard(rows: upcomingRows)
+                        }
+                        if !attentionRows.isEmpty {
+                            NeedsAttentionCard(rows: attentionRows)
+                        }
+                        if !recentHoldings.isEmpty {
+                            RecentlyOpenedCard(items: recentHoldings) {
+                                app.holdingsFilter = .all
                                 app.selectedTab = .properties
-                            } label: {
-                                KindCard(kind: c.kind, amount: c.amount,
-                                         count: c.count, passbooks: c.passbooks)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        // What the holdings NEED, after what they are — the
-                        // top-level door to the fix sheets that live on each
-                        // holding. Hidden when every check passes: a green
-                        // card saying "all fine" is noise.
-                        if readinessItems.contains(where: { !$0.readiness.isReady }) {
-                            RecordReadyCard(score: overallReadiness,
-                                            blurb: readinessBlurb(readinessItems),
-                                            blockingCount: readinessItems.filter { !$0.readiness.blocking.isEmpty }.count,
-                                            verdict: overallVerdict) {
-                                app.holdingsFilter = .needsAttention
-                                app.selectedTab = .properties
                             }
                         }
-
-                        // All of it, on one map — pins and surveyed outlines
-                        // together. For a land app this is the most glanceable
-                        // card Home can carry, and it was three taps deep.
-                        HomeMapCard(holdings: allHoldings)
-
-                        // The shortcut row, after the facts.
-                        //
-                        // These are doors, not answers — where are my papers,
-                        // who is in the family record, who holds what, what has
-                        // this cost. Scrolls horizontally so adding a seventh
-                        // does not shrink the others into unreadable chips.
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: Space.md) {
-                                Button { app.selectedTab = .documents } label: {
-                                    shortcut("Documents", "doc.text.fill",
-                                             note: data.map { "\(documentCount($0))" } ?? "")
-                                }
-                                Button { app.openFamily = true; app.selectedTab = .you } label: {
-                                    shortcut("Family", "person.2.fill",
-                                             note: (data?.dashboardStats.totalGroups).map { "\($0)" } ?? "")
-                                }
-                                NavigationLink { HoldersScreen(holdings: holdings) } label: {
-                                    shortcut("Who holds what", "person.text.rectangle.fill")
-                                }
-                                NavigationLink { SpendScreen() } label: {
-                                    // This financial year's total, answered on
-                                    // the chip like Documents and Timeline.
-                                    shortcut("Spend", "indianrupeesign.circle.fill",
-                                             note: spentThisFY > 0 ? compactRupees(spentThisFY) : "")
-                                }
-                                // The activity feed lives entirely behind this
-                                // chip; what the old card on Home was good for —
-                                // "has anything happened" — is the age of the
-                                // newest entry, kept here.
-                                NavigationLink { ActivityScreen() } label: {
-                                    shortcut("Timeline", "clock.arrow.circlepath", note: latestActivity)
-                                }
-                            }
-                            .padding(.horizontal, Space.hair)
-                        }
-
-                        if !starred.isEmpty {
-                            FavouritesCard(items: starred)
-                        }
-                        // Nothing else. The document and family counts moved
-                        // into the shortcut row; the village chart went the way
-                        // of the readiness ring and the attention list — Home
-                        // states what you have, and everything past the two
-                        // cards was a second screen's worth of restating it.
                     } else if let failure = ownFailure {
                         // THIS screen's own dashboard query failed — not
                         // whatever the app-wide `lastFailure` happened to be
@@ -153,30 +111,146 @@ struct HomeScreen: View {
             // No navigation bar on this screen.
             //
             // A large "Home" title cost about 60 points at the top to repeat
-            // the word already lit up in the tab bar, and pushed the greeting —
-            // and everything after it — that much further down. Pushed screens
-            // still get their own bars; only the root goes without.
+            // the word already lit up in the tab bar, and pushed everything
+            // after it that much further down. Pushed screens still get their
+            // own bars; only the root goes without.
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showAdd) { AddPropertyScreen().onDisappear { Task { await load() } } }
+            .sheet(isPresented: $showAddPassbook) {
+                AddPassbookScreen().onDisappear { Task { await load() } }
+            }
+            .sheet(isPresented: $showSearch) {
+                SearchScreen(holdings: allHoldings, documents: documents)
+            }
+            .sheet(isPresented: $showAccount) {
+                NavigationStack {
+                    AccountScreen().toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showAccount = false }
+                        }
+                    }
+                }
+            }
+            .sheet(isPresented: $showCustomise) {
+                NavigationStack {
+                    CustomiseTabsScreen().toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showCustomise = false }
+                        }
+                    }
+                }
+            }
             .sheet(item: $reviewToAdd) { entry in
                 AddHoldingScreen(passbooks: [], parcels: holdings?.parcels ?? [], review: entry)
                     .onDisappear { Task { await load() } }
             }
             .refreshable { await load() }
-            .task { await load() }
+            .task { avatar = Identity.avatar(); await load() }
         }
     }
 
-    /// One source of truth.
-    ///
-    /// This used to be `max(stat, documentsSeen)`, a workaround from when the
-    /// API counted only the `documents` table and ignored scanned deeds. The
-    /// API counts both now, so the workaround is dead weight that would hide
-    /// the next regression — and it let Home and the You screen, which reads
-    /// the stat directly, disagree about the same number.
-    private func documentCount(_ d: DashboardResponse) -> Int {
-        d.dashboardStats.totalDocuments
+    // MARK: - Header (M01)
+
+    /// The brand wordmark in serif, your own face on the LEFT (the way to the
+    /// account), search and the overflow on the right. The greeting moved out
+    /// with the M-series: a records app opens on the records.
+    private var header: some View {
+        HStack(spacing: Space.md) {
+            Button { showAccount = true } label: {
+                if let avatar {
+                    Image(uiImage: avatar)
+                        .resizable().scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
+                } else {
+                    Text(initial)
+                        .font(.scaled(17, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(Palette.accentWash))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Your account")
+
+            Text("Pattadar")
+                .font(.recordTitle)
+
+            Spacer(minLength: Space.sm)
+
+            Button { showSearch = true } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.scaled(18, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .minimumTouchTarget()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Search")
+
+            Menu {
+                Button { showAddPassbook = true } label: {
+                    Label("Add a passbook", systemImage: "text.book.closed")
+                }
+                Button { showAdd = true } label: {
+                    Label("Add a property", systemImage: "building.2")
+                }
+                Divider()
+                Button { showCustomise = true } label: {
+                    Label("Customise tabs", systemImage: "slider.horizontal.3")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.scaled(18, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .minimumTouchTarget()
+            }
+            .accessibilityLabel("More options")
+        }
+        .padding(.top, Space.xs)
     }
+
+    /// What is queued and uploadable — readings still waiting for review are
+    /// not "going up", they are waiting for YOU, and the ReviewCard says so.
+    @ViewBuilder
+    private var outbox: some View {
+        let uploadable = SyncEngine.shared.pendingFilings.filter { !$0.needsReview }
+        let photos = uploadable.filter { $0.photo != nil }.count
+        OutboxStrip(filings: uploadable.count - photos, photos: photos) {
+            SyncEngine.shared.kick(.userPull)
+        }
+    }
+
+    /// The two doors people come to open (M01): file a passbook, file a
+    /// property. 56pt tiles — the comp's size, above the 44pt floor.
+    private var quickActions: some View {
+        HStack(alignment: .top, spacing: Space.xxxl) {
+            quickAction("Passbook", icon: "text.book.closed.fill") { showAddPassbook = true }
+            quickAction("Property", icon: "house.fill") { showAdd = true }
+            Spacer()
+        }
+        .padding(.horizontal, Space.xs)
+    }
+
+    private func quickAction(_ title: String, icon: String,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: Space.sm) {
+                Image(systemName: icon)
+                    .font(.scaled(22, weight: .medium))
+                    .foregroundStyle(Palette.accentInk)
+                    .frame(width: 56, height: 56)
+                    .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                        .fill(Palette.accent))
+                Text(title)
+                    .font(.footnote).foregroundStyle(.primary)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add a \(title.lowercased())")
+    }
+
+    // MARK: - State
+
     @State private var documentsSeen = 0
     /// Why THIS screen has no dashboard, if it has none. Nil means either not
     /// loaded yet or loaded fine — `data` says which. Cancellation leaves it
@@ -185,6 +259,11 @@ struct HomeScreen: View {
     @State private var documents: [RegisteredDocument] = []
     @State private var expenses: [LandExpense] = []
     @State private var showAdd = false
+    @State private var showAddPassbook = false
+    @State private var showSearch = false
+    @State private var showAccount = false
+    @State private var showCustomise = false
+    @State private var avatar: UIImage?
     @State private var reviewToAdd: ReviewQueue.Entry?
 
     /// Any LAND on file. Documents deliberately do not count: an account
@@ -197,8 +276,14 @@ struct HomeScreen: View {
             || !(h?.passbooks.isEmpty ?? true)
     }
 
+    private var name: String { data?.me?.name ?? "" }
+
     private var firstName: String {
         name.split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    private var initial: String {
+        firstName.first.map { String($0).uppercased() } ?? "•"
     }
 
     /// Every holding as the list/map type — parcels joined to their passbooks.
@@ -208,29 +293,52 @@ struct HomeScreen: View {
         return parcels + h.properties.map { Holding.property($0) }
     }
 
-    /// What you starred, at the top of Home — the point of starring is that
-    /// these are the ones you come back to.
-    private var starred: [Holding] {
-        allHoldings.filter { app.isFavourite($0.entityType, $0.entityId) }
-    }
-
-    /// 🙏 Namaste — the greeting people here actually use, and the emoji that
-    /// carries it. Time-of-day so opening the app twice in a day is not the
-    /// same sentence twice.
-    /// One chip in the shortcut row, with an optional second phrase set quieter
-    /// — used where the chip can say something about what is behind it.
-    private func shortcut(_ title: String, _ icon: String, note: String = "") -> some View {
+    /// One chip in the welcome state, saying what already exists.
+    private func shortcut(_ title: String, _ icon: String) -> some View {
         HStack(spacing: Space.sm) {
             Image(systemName: icon).font(.footnote).foregroundStyle(Color.accentColor)
             Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                 .lineLimit(1)
-            if !note.isEmpty {
-                Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
         }
         .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
         .background(Capsule().fill(Palette.card))
     }
+
+    // MARK: - Money (M01 Worth card)
+
+    private var worth: Double {
+        guard let h = holdings else { return 0 }
+        return h.parcels.reduce(0) { $0 + $1.marketValue }
+            + h.properties.reduce(0) { $0 + $1.marketValue }
+    }
+
+    private var paid: Double {
+        guard let h = holdings else { return 0 }
+        return h.parcels.reduce(0) { $0 + $1.purchasePrice }
+            + h.properties.reduce(0) { $0 + $1.purchasePrice }
+    }
+
+    /// Loans are recorded on parcels; a mortgaged flat has nowhere to say so
+    /// yet, and inventing a field here would not make it true.
+    private var loans: Double {
+        holdings?.parcels.reduce(0) { $0 + $1.loanAmount } ?? 0
+    }
+
+    /// What the worth figure is made of, for the chip row.
+    private var portfolioMix: [(kind: HoldingKind, count: Int, noun: String)] {
+        categories.compactMap { total in
+            guard total.count > 0 else { return nil }
+            let noun: String = switch total.kind {
+            case .farmland: total.count == 1 ? "farm parcel" : "farm parcels"
+            case .plot: total.count == 1 ? "open plot" : "open plots"
+            case .home: total.count == 1 ? "flat" : "flats"
+            case .commercial: total.count == 1 ? "shop" : "shops"
+            }
+            return (total.kind, total.count, noun)
+        }
+    }
+
+    // MARK: - Readiness-derived rows
 
     /// Each holding assessed against what a buyer's advocate would ask for —
     /// the same checks, fix sheets and copy the holding screens use; this is
@@ -246,29 +354,62 @@ struct HomeScreen: View {
                               thisYear: Calendar.current.component(.year, from: Date()))
     }
 
-    private var readinessItems: [(name: String, readiness: Readiness)] {
-        assessed.map { (name: $0.line.name, readiness: $0.readiness) }
+    /// The dated obligations (M01 "Upcoming"): tax behind, EC stale. The
+    /// sentences are the Readiness checks' own — no threshold lives here.
+    private var upcomingRows: [UpcomingRow] {
+        var rows: [UpcomingRow] = []
+        for a in assessed {
+            guard let holding = holding(forLineID: a.line.id) else { continue }
+            for f in a.readiness.failures where !f.blocking && (f.id == "tax" || f.id == "ec") {
+                rows.append(UpcomingRow(
+                    id: a.line.id + ":" + f.id,
+                    icon: f.id == "tax" ? "receipt" : "clock.arrow.circlepath",
+                    title: f.problem,
+                    subtitle: [a.line.name, a.line.place].filter { !$0.isEmpty }
+                        .joined(separator: " · "),
+                    holding: holding))
+            }
+        }
+        return Array(rows.prefix(4))
     }
 
-    /// The worst verdict across the portfolio, by the same rule one holding
-    /// uses. A single blocked holding blocks the whole card: an amber
-    /// dashboard over a field that cannot be sold is a comfortable lie.
-    private var overallVerdict: ReadinessVerdict {
-        if readinessItems.contains(where: { $0.readiness.verdict == .blocked }) { return .blocked }
-        return readinessItems.allSatisfy(\.readiness.isReady) ? .ready : .untidy
+    /// The blocking failures (M01 "Needs attention") — what stops a sale.
+    private var attentionRows: [UpcomingRow] {
+        assessed.compactMap { a -> UpcomingRow? in
+            guard let worst = a.readiness.blocking.first,
+                  let holding = holding(forLineID: a.line.id) else { return nil }
+            return UpcomingRow(
+                id: a.line.id + ":blocked",
+                icon: "exclamationmark.triangle.fill",
+                title: a.line.name,
+                subtitle: [worst.problem, a.line.place].filter { !$0.isEmpty }
+                    .joined(separator: " · "),
+                holding: holding)
+        }
+        .prefix(4).map { $0 }
     }
 
-    /// The share of ALL checks across ALL holdings, not an average of
-    /// averages — one perfect parcel must not paper over four broken ones.
-    private var overallReadiness: Int {
-        let checks = assessed.reduce(0) { $0 + $1.line.checks }
-        let passed = assessed.reduce(0) { $0 + $1.line.passed }
-        guard checks > 0 else { return 0 }
-        return Int((Double(passed) / Double(checks)) * 100)
+    /// `HoldingLine.id` is "parcel:<uuid>" / "property:<uuid>" — the same key
+    /// favourites and widget deep links use. Resolved against the loaded list.
+    private func holding(forLineID lineID: String) -> Holding? {
+        let parts = lineID.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+        return allHoldings.first { $0.entityType == parts[0] && $0.entityId == parts[1] }
     }
 
-    /// This financial year's spend, for the chip. April to March — the year
-    /// every receipt and tax demand here runs on.
+    /// The doors most recently walked through, resolved against what still
+    /// exists — a deleted holding silently leaves the card.
+    private var recentHoldings: [Holding] {
+        app.recents.compactMap { key -> Holding? in
+            let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            return allHoldings.first { $0.entityType == parts[0] && $0.entityId == parts[1] }
+        }
+        .prefix(3).map { $0 }
+    }
+
+    /// This financial year's spend, for the worth card. April to March — the
+    /// year every receipt and tax demand here runs on.
     private var spentThisFY: Double {
         let cal = Calendar.current
         let now = Date()
@@ -280,77 +421,6 @@ struct HomeScreen: View {
                     ?? parseAuditTime(e.spentOn) else { return false }
             return d >= start
         }.reduce(0) { $0 + $1.amount }
-    }
-
-    /// How long ago the last thing happened. Empty on an account where nothing
-    /// has, rather than a chip that says "never".
-    private var latestActivity: String {
-        guard let newest = data?.recentAuditEvents.first else { return "" }
-        return relativeTime(newest.timestamp)
-    }
-
-    /// The top of the screen: the date in small type, the greeting in serif,
-    /// and your own face on the right — which is the way to the account.
-    ///
-    /// The face is the point. The account had sunk to the last tab, and every
-    /// app this person already uses puts *them* in the top corner; a person
-    /// looking for "me" looks there first. The Telugu line went in the same
-    /// pass — it said "good afternoon" directly beneath "Good afternoon",
-    /// the same greeting twice in two scripts — and the date took its place,
-    /// which at least says something the greeting does not.
-    private var greeting: some View {
-        HStack(alignment: .center, spacing: Space.md) {
-            VStack(alignment: .leading, spacing: Space.hair) {
-                Text(dateLine)
-                    .font(.footnote).foregroundStyle(.secondary)
-                Text(name.isEmpty ? "\(timeOfDay)." : "\(timeOfDay), \(callingName).")
-                    // Serif, like every headline in the design language — the
-                    // register of a printed record, not an app's chrome.
-                    .font(.scaled(30, weight: .semibold, design: .serif))
-                    .minimumScaleFactor(0.75)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            Button {
-                app.selectedTab = .you
-            } label: {
-                Avatar(name: name, size: 42, isSelf: true)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Your account")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, Space.xs)
-    }
-
-    /// "Saturday, 1 August" — the one line of the header that changes daily.
-    private var dateLine: String {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE, d MMMM"
-        return f.string(from: Date())
-    }
-
-    private var name: String { data?.me?.name ?? "" }
-
-    /// What somebody is actually called.
-    ///
-    /// "Sankara Reddy Telukutla" is greeted as "Sankara Reddy": in Andhra the
-    /// house name is the part that gets dropped in conversation, and the given
-    /// name alone was too curt for the top of a person's own records. Names of
-    /// one or two parts are left whole — dropping a part there would greet
-    /// "Ravi Kumar" as "Ravi".
-    private var callingName: String {
-        let parts = name.split(separator: " ").map(String.init)
-        return parts.count >= 3 ? parts.dropLast().joined(separator: " ") : name
-    }
-
-    private var timeOfDay: String {
-        switch Calendar.current.component(.hour, from: Date()) {
-        case 4..<12: "Good morning"
-        case 12..<17: "Good afternoon"
-        case 17..<21: "Good evening"
-        default: "Working late"
-        }
     }
 
     /// Totalled per kind, each in its own unit, with the passbooks they sit
@@ -409,8 +479,6 @@ struct ActivityRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.md) {
-            // Destructive rows differ by SHAPE as well as colour — colour alone
-            // is invisible to a large minority of people.
             // The actor's face, with the severity marked on it by SHAPE as
             // well as colour — colour alone is invisible to a large minority.
             Avatar(name: actorName, size: 28, isSelf: true)

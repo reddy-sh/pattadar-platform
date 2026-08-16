@@ -232,6 +232,21 @@ final class AppModel {
     /// Consumed once, so returning to the tab later does not re-apply it.
     var holdingsFilter: HoldingFilter?
 
+    /// The doors most recently walked through — "type:id" keys, the same
+    /// vocabulary favourites and widget links use. Home's "Recently opened"
+    /// card (M01) reads it; the detail screens write it. Capped, newest
+    /// first, and persisted: yesterday's record is the one wanted today.
+    private(set) var recents: [String] =
+        UserDefaults.standard.stringArray(forKey: "pattadar.recents") ?? []
+
+    func noteOpened(_ entityType: String, _ entityId: String) {
+        let key = "\(entityType):\(entityId)"
+        var list = recents.filter { $0 != key }
+        list.insert(key, at: 0)
+        recents = Array(list.prefix(6))
+        UserDefaults.standard.set(recents, forKey: "pattadar.recents")
+    }
+
     /// Family lost its tab to the filing button. Anything that used to send
     /// somebody there now asks the You screen to present it, so heirs and
     /// invitations are still one tap from the card that names them.
@@ -909,14 +924,36 @@ struct LoadFailure: View {
 
     var body: some View {
         if needsSignIn {
-            ContentUnavailableView {
-                Label("Signed out", systemImage: "person.crop.circle.badge.exclamationmark")
-            } description: {
+            // The door, not a description of the wall (M41).
+            VStack(spacing: Space.lg) {
+                Image(systemName: "person.crop.circle.badge.xmark")
+                    .font(.scaled(40))
+                    .foregroundStyle(Palette.ruleStrong)
+                Text("Signed out")
+                    .font(.recordTitle)
                 Text("Your session ended. Sign in and your records are right where you left them.")
-            } actions: {
-                Button("Sign in") { showSignIn = true }
-                    .buttonStyle(.borderedProminent)
+                    .font(.bodyCopy).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button { showSignIn = true } label: {
+                    Text("Sign in")
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, Space.xxxl)
+                        .frame(minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                HStack(alignment: .top, spacing: Space.sm) {
+                    Image(systemName: "lock")
+                        .font(.scaled(15)).foregroundStyle(.secondary)
+                    Text("Papers you filed while signed in stay on this phone and go up when you are back. Nothing of yours is readable to whoever signs in next.")
+                        .font(.note).foregroundStyle(.secondary)
+                }
+                .padding(Space.md)
+                .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .fill(Palette.card))
             }
+            .padding(.horizontal, Space.xxxl)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 64)  // Seats the door at eye height, not the ceiling.
             .sheet(isPresented: $showSignIn) { SignInScreen() }
         } else if offline {
             // Offline is not a fault, and it is not the same as a broken
@@ -924,12 +961,24 @@ struct LoadFailure: View {
             // good answer for every screen you have opened while connected;
             // a screen you have never opened on this account has nothing to
             // keep, and saying "the server did not answer" there sends
-            // somebody hunting for a problem that is not theirs.
-            ContentUnavailableView {
-                Label("Nothing saved for this yet", systemImage: "icloud.slash")
-            } description: {
+            // somebody hunting for a problem that is not theirs. Drawn as the
+            // M40 dashed card: an empty berth, not an error.
+            VStack(spacing: Space.md) {
+                Image(systemName: "icloud.slash")
+                    .font(.scaled(28)).foregroundStyle(Palette.ruleStrong)
+                Text("Nothing saved for this yet")
+                    .font(.sectionHead)
                 Text("You are offline. Pattadar shows the last answer it received, and it has not seen this screen on this account yet. Open it once with a connection and it will be here offline afterwards.")
+                    .font(.note).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
+            .padding(.vertical, Space.xxl)
+            .padding(.horizontal, Space.xl)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .strokeBorder(Palette.ruleStrong,
+                              style: StrokeStyle(lineWidth: 1, dash: [6, 5])))
+            .padding(Space.lg)
         } else {
             ContentUnavailableView(
                 "Couldn’t load your records",

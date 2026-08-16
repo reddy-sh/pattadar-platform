@@ -1,172 +1,394 @@
-import Charts
-import MapKit
 import PattadarKit
 import SwiftUI
 
-// One kind of holding, totalled, is `KindTotal` in PattadarKit — the widget
-// draws the same rows, so the type and its arithmetic live where both can
-// reach them.
+// The M01 dashboard: what needs you, then what you own. Cards here are drawn
+// by the app on `Palette.ground` — Home is the container rule's one
+// ScrollView-of-cards screen. The pre-M-series set (KindCard, RecordReadyCard,
+// HomeMapCard, FavouritesCard) was deleted with its call sites in the same
+// change — design.md forbids a view component with no door to it.
 
-/// The headline figure for one kind of holding — full width, with a motif
-/// that says what it is at a glance.
-///
-/// Full width because these are the four numbers the app exists to tell you,
-/// and a half-width tile makes "1,020 sq. yd" compete with its own label. Each
-/// kind carries its own drawn motif rather than an icon: fields for farmland,
-/// a surveyed grid for plots, a roofline for homes.
-struct KindCard: View {
-    let kind: HoldingKind
-    let amount: Double
-    let count: Int
-    let passbooks: Int
+/// The portfolio in three columns — Farmland · Plots · Built (M01, and the
+/// Mine face of Properties, M22). Each column is a door to the list it counts.
+struct StatTripleCard: View {
+    let totals: [KindTotal]
+    let onOpen: (HoldingFilter) -> Void
+
+    private struct Column: Identifiable {
+        let id: String
+        let label: String
+        let value: String
+        let unit: String
+        let filter: HoldingFilter
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text(kind.label)
-                    .font(.subheadline).foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-                    // Formatted by the same function the detail screens use.
-                    // Rounding to whole numbers here turned 418.5 sq. yd into
-                    // "419" on the one screen a person checks first.
-                    Text(areaText(amount, kind.unit)
-                        .replacingOccurrences(of: " " + kind.unit.label, with: ""))
-                        .font(.scaled(40, weight: .bold, design: .rounded))
-                        .monospacedDigit().minimumScaleFactor(0.5).lineLimit(1)
-                    Text(unitWord).font(.title3).foregroundStyle(.secondary)
-                }
-                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            motif.frame(width: 84, height: 66)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Space.xl)
-        .background {
-            RoundedRectangle(cornerRadius: Radius.hero)
-                .fill(LinearGradient(colors: [tint.opacity(0.24), tint.opacity(0.08)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-        }
-    }
-
-    /// Drawn rather than an SF Symbol, so farmland reads as furrowed fields and
-    /// a plot reads as a surveyed layout — the shapes people actually see on a
-    /// site plan.
-    @ViewBuilder
-    private var motif: some View {
-        switch kind {
-        case .farmland:
-            ZStack {
-                Image(systemName: "leaf.fill")
-                    .font(.scaled(52)).foregroundStyle(tint.opacity(0.20))
-                // Furrows.
-                VStack(spacing: Space.sm) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        Capsule().fill(tint.opacity(0.18)).frame(height: 4)
+        let columns = built()
+        if !columns.isEmpty {
+            HStack(spacing: 0) {
+                ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
+                    if index > 0 {
+                        Rectangle().fill(Palette.rule).frame(width: 1)
+                            .padding(.vertical, Space.hair)
                     }
-                }
-                .rotationEffect(.degrees(-14))
-                .padding(.horizontal, Space.sm)
-            }
-        case .plot:
-            // A surveyed layout: one plot picked out of a block, the way a
-            // site plan shows yours among the others.
-            ZStack {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.xs), count: 3), spacing: Space.xs) {
-                    ForEach(0..<6, id: \.self) { i in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(i == 4 ? tint.opacity(0.55) : tint.opacity(0.16))
-                            .frame(height: 18)
+                    Button { onOpen(column.filter) } label: {
+                        VStack(alignment: .leading, spacing: Space.hair) {
+                            Text(column.label.uppercased())
+                                .font(.label).foregroundStyle(.secondary).kerning(1.1)
+                            Text(column.value)
+                                .font(.scaled(22, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                            Text(column.unit)
+                                .font(.note.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, index == 0 ? 0 : Space.md)
+                        .contentShape(Rectangle())
                     }
-                }
-                .padding(.horizontal, Space.sm)
-            }
-        case .home:
-            ZStack {
-                Image(systemName: "house.fill")
-                    .font(.scaled(46)).foregroundStyle(tint.opacity(0.22))
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(tint.opacity(0.30), lineWidth: 2)
-                    .frame(width: 62, height: 40)
-                    .offset(y: 10)
-            }
-        case .commercial:
-            HStack(alignment: .bottom, spacing: Space.xs) {
-                ForEach([26, 44, 34], id: \.self) { h in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(tint.opacity(0.22))
-                        .frame(width: 16, height: CGFloat(h))
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(Space.lg)
+            .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .fill(Palette.card))
+            .accessibilityElement(children: .contain)
         }
     }
 
-    // Both of these are the KIND's, not this card's — the widget draws the
-    // same rows on the Home Screen and must not invent its own green.
-    private var unitWord: String { kind.shortUnit }
-
-    /// What the figure is made of — and, where it applies, how many passbooks
-    /// those are held under.
-    ///
-    /// The passbook count used to be a tile of its own beside the acreage,
-    /// which put "4" on the screen with nothing to say which four acres it
-    /// belonged to. Under the figure it is the second half of a sentence: 45
-    /// acres, across 12 survey numbers, on 4 khatas.
-    ///
-    /// No money here. A rupee figure on a dashboard is either a purchase price
-    /// from years ago or a guess, and printing a guess in the same breath as a
-    /// measured extent lends it the extent's authority.
-    private var subtitle: String {
-        // "Holding" for farmland: an acre-measured field filed as a property
-        // counts here too, and calling it a parcel would be one word wrong.
-        let noun = kind == .farmland ? "holding" : "property"
-        let plural = count == 1 ? "" : (noun == "property" ? "ies" : "s")
-        var parts = ["\(count) \(noun == "property" && count != 1 ? "propert" : noun)\(plural)"]
-        if passbooks > 0 {
-            parts.append("\(passbooks) passbook\(passbooks == 1 ? "" : "s")")
+    /// Farmland in acres+cents, plots in their unit, homes and commercial
+    /// merged as "Built" — three figures, the way land is actually spoken of.
+    private func built() -> [Column] {
+        var columns: [Column] = []
+        if let farm = totals.first(where: { $0.kind == .farmland }), farm.amount > 0 {
+            let whole = Int(farm.amount)
+            let cents = Int(((farm.amount - Double(whole)) * 100).rounded())
+            columns.append(Column(id: "farm", label: "Farmland",
+                                  value: "\(whole)",
+                                  unit: cents > 0 ? "Ac \(cents) Ce" : "Acres",
+                                  filter: .agricultural))
         }
-        return parts.joined(separator: " · ")
+        if let plot = totals.first(where: { $0.kind == .plot }), plot.amount > 0 {
+            columns.append(Column(id: "plot", label: "Plots",
+                                  value: wholeNumber(plot.amount),
+                                  unit: plot.kind.unit.label,
+                                  filter: .plots))
+        }
+        let builtKinds = totals.filter { $0.kind == .home || $0.kind == .commercial }
+        let builtTotal = builtKinds.reduce(0.0) { $0 + $1.amount }
+        if builtTotal > 0 {
+            columns.append(Column(id: "built", label: "Built",
+                                  value: wholeNumber(builtTotal),
+                                  // Homes and shops measure the same way; the
+                                  // first kind present names the unit.
+                                  unit: builtKinds.first?.kind.unit.label ?? "sq.ft",
+                                  filter: .all))
+        }
+        return columns
     }
 
-    private var tint: Color { Palette.tint(for: kind) }
+    private func wholeNumber(_ value: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        return f.string(from: NSNumber(value: value)) ?? "\(Int(value))"
+    }
 }
 
-/// Starred holdings, at the top of Home.
-struct FavouritesCard: View {
+/// Worth today (M01) — what it is worth against what was paid, and what it
+/// costs to keep. The old dashboard refused to print money next to measured
+/// extents; the M-series overrules that, with the honesty moved into the
+/// footnote: these are the values YOU recorded, not appraisals.
+struct WorthTodayCard: View {
+    let worth: Double
+    let paid: Double
+    let costsThisYear: Double
+    let loans: Double
+    /// What the portfolio is made of, for the chip row.
+    let mix: [(kind: HoldingKind, count: Int, noun: String)]
+
+    private var gainPercent: Int? {
+        guard paid > 0, worth > 0 else { return nil }
+        return Int(((worth - paid) / paid * 100).rounded())
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("WORTH TODAY")
+                    .font(.label).foregroundStyle(.secondary).kerning(1.1)
+                Spacer()
+                if let gain = gainPercent {
+                    Text(gain >= 0 ? "+\(gain)%" : "\(gain)%")
+                        .font(.footnote.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(gain >= 0 ? Palette.success : Palette.danger)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                Text(compactRupees(worth))
+                    .font(.figure)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+                if paid > 0 {
+                    Text("from \(compactRupees(paid)) paid")
+                        .font(.bodyCopy).foregroundStyle(.secondary)
+                }
+            }
+
+            if let fraction = paidFraction {
+                GeometryReader { geo in
+                    HStack(spacing: 0) {
+                        Capsule().fill(Palette.ruleStrong)
+                            .frame(width: geo.size.width * fraction)
+                        Rectangle().fill(Palette.accent)
+                    }
+                    .clipShape(Capsule())
+                }
+                .frame(height: 7)
+                .padding(.top, Space.hair)
+                HStack {
+                    Text("Grey is what you paid")
+                    Spacer()
+                    if costsThisYear > 0 {
+                        Text("Costs this year \(compactRupees(costsThisYear))")
+                    }
+                }
+                .font(.note).foregroundStyle(.secondary)
+            }
+
+            if loans > 0 {
+                Divider().padding(.vertical, Space.hair)
+                HStack {
+                    Text("Loans outstanding")
+                        .font(.bodyCopy).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(rupees(loans))
+                        .font(.callout.weight(.semibold)).monospacedDigit()
+                        .foregroundStyle(Palette.danger)
+                }
+            }
+
+            Text("Owned holdings only — the values recorded on your own papers, not appraisals.")
+                .font(.note).foregroundStyle(.secondary)
+                .padding(.top, Space.hair)
+
+            if !mix.isEmpty {
+                Divider().padding(.vertical, Space.hair)
+                // What the figure is made of. Wraps rather than scrolls: four
+                // chips at most, and a clipped count is a wrong count.
+                FlowLayout(spacing: Space.sm) {
+                    ForEach(Array(mix.enumerated()), id: \.offset) { _, part in
+                        HStack(spacing: Space.xs) {
+                            Image(systemName: part.kind.icon)
+                                .font(.scaled(12))
+                                .foregroundStyle(Palette.tint(for: part.kind))
+                            Text("\(part.count)").font(.note.weight(.semibold))
+                            Text(part.noun).font(.note).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .fill(Palette.card))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var paidFraction: Double? {
+        guard worth > 0, paid > 0 else { return nil }
+        return min(max(paid / worth, 0), 1)
+    }
+}
+
+/// A dated obligation with a door to the holding it sits on (M01 "Upcoming").
+struct UpcomingRow: Identifiable {
+    let id: String
+    let icon: String
+    let title: String
+    let subtitle: String
+    let holding: Holding
+}
+
+/// Upcoming (M01) — the failures with a date on them: tax behind, EC stale.
+/// Rows are the Readiness checks' own sentences; nothing here invents a
+/// threshold (design.md: one verdict, decided in PattadarKit).
+struct UpcomingCard: View {
+    let rows: [UpcomingRow]
+
+    var body: some View {
+        HomeListCard(title: "Upcoming") {
+            ForEach(rows) { row in
+                NavigationLink { HoldingDestination(holding: row.holding) } label: {
+                    HStack(alignment: .top, spacing: Space.md) {
+                        Image(systemName: row.icon)
+                            .font(.scaled(16))
+                            .foregroundStyle(Palette.caution)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: Space.hair) {
+                            Text(row.title).font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                            Text(row.subtitle).font(.note).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if row.id != rows.last?.id { Divider() }
+            }
+        }
+    }
+}
+
+/// Needs attention (M01) — the blocking failures: disputes, missing title,
+/// mutation not recorded. Danger rather than caution, because these stop a
+/// sale rather than untidy one.
+struct NeedsAttentionCard: View {
+    let rows: [UpcomingRow]
+
+    var body: some View {
+        HomeListCard(title: "Needs attention") {
+            ForEach(rows) { row in
+                NavigationLink { HoldingDestination(holding: row.holding) } label: {
+                    HStack(alignment: .center, spacing: Space.md) {
+                        Image(systemName: row.icon)
+                            .font(.scaled(16))
+                            .foregroundStyle(Palette.danger)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: Space.hair) {
+                            Text(row.title).font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(row.subtitle).font(.note).foregroundStyle(Palette.danger)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if row.id != rows.last?.id { Divider() }
+            }
+        }
+    }
+}
+
+/// Recently opened (M01) — the doors most recently walked through, because
+/// the record you looked at yesterday is the record you want today.
+struct RecentlyOpenedCard: View {
     let items: [Holding]
+    let onAll: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            Label("Favourites", systemImage: "star.fill")
-                .font(.headline).foregroundStyle(.primary)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Recently opened").font(.sectionHead)
+                Spacer()
+                Button("All properties", action: onAll)
+                    .font(.subheadline)
+            }
             ForEach(items) { h in
-                NavigationLink {
-                    switch h {
-                    case .parcel(let p, let pb): HoldingDetailScreen(parcel: p, passbook: pb)
-                    case .property(let p): PropertyDetailScreen(property: p)
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: h.isAgricultural ? "leaf.fill" : "building.2.fill")
-                            .font(.caption).foregroundStyle(h.isAgricultural ? Palette.Category.farmland : Palette.Category.plot)
-                            .frame(width: 18)
+                NavigationLink { HoldingDestination(holding: h) } label: {
+                    HStack(spacing: Space.md) {
+                        Image(systemName: h.kind.icon)
+                            .font(.scaled(16))
+                            .foregroundStyle(Palette.tint(for: h.kind))
+                            .frame(width: 40, height: 40)
+                            .background(Palette.tint(for: h.kind).opacity(0.12),
+                                        in: RoundedRectangle(cornerRadius: Radius.control,
+                                                             style: .continuous))
                         VStack(alignment: .leading, spacing: Space.hair) {
-                            Text(h.title).font(.subheadline.weight(.medium))
-                            if !h.village.isEmpty {
-                                Text(h.village).font(.caption).foregroundStyle(.secondary)
-                            }
+                            Text(h.title).font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text([h.extentText, h.village].filter { !$0.isEmpty }
+                                .joined(separator: " · "))
+                                .font(.note).foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Text(h.extentText).font(.subheadline).monospacedDigit()
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.tertiary)
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 if h.id != items.last?.id { Divider() }
             }
         }
         .padding(Space.lg)
-        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Palette.card))
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .fill(Palette.card))
+    }
+}
+
+/// The outbox, said on Home (M40): what is waiting to go up, and a tap to
+/// push it. Hidden when nothing waits — an empty promise is noise.
+struct OutboxStrip: View {
+    let filings: Int
+    let photos: Int
+    let onKick: () -> Void
+
+    private var sentence: String {
+        var parts: [String] = []
+        if filings > 0 { parts.append("\(filings) filing\(filings == 1 ? "" : "s")") }
+        if photos > 0 { parts.append("\(photos) photograph\(photos == 1 ? "" : "s")") }
+        let joined = parts.joined(separator: " and ")
+        let verb = (filings + photos) == 1 ? "is" : "are"
+        return "\(joined) \(verb) waiting to go up."
+    }
+
+    var body: some View {
+        if filings + photos > 0 {
+            Button(action: onKick) {
+                HStack(spacing: Space.sm) {
+                    Image(systemName: "arrow.up.circle")
+                        .foregroundStyle(Color.accentColor)
+                    Text(sentence)
+                        .font(.footnote).foregroundStyle(.primary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.md)
+                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                    .fill(Palette.accentWash))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(sentence)
+            .accessibilityHint("Tries the upload now")
+        }
+    }
+}
+
+/// The one place a Home row becomes a screen — every card above deep-links
+/// through this, so a holding opens the same way from every door.
+struct HoldingDestination: View {
+    let holding: Holding
+
+    var body: some View {
+        switch holding {
+        case .parcel(let p, let pb): HoldingDetailScreen(parcel: p, passbook: pb)
+        case .property(let p): PropertyDetailScreen(property: p)
+        }
+    }
+}
+
+/// A titled card of rows — Upcoming and Needs-attention share the shell.
+struct HomeListCard<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            Text(title).font(.sectionHead)
+            content
+        }
+        .padding(Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .fill(Palette.card))
     }
 }
 
@@ -252,161 +474,5 @@ struct ReviewCard: View {
         if !h.isEmpty { return h }
         let type = (e.fields["doc_type"] as? String) ?? ""
         return type.isEmpty ? e.originalName : type
-    }
-}
-
-/// "Record-ready" — the one question a folder count cannot answer.
-///
-/// Dark and first, because it is the only card that says whether the papers
-/// would survive contact with a bank. The ring is a proportion of CHECKS
-/// passed, and the sentence beneath names the holdings that fail and why — a
-/// score with no explanation is a number people stop reading.
-struct RecordReadyCard: View {
-    let score: Int
-    let blurb: String
-    let blockingCount: Int
-    /// Decided by `PattadarKit` from the checks, not from this card's own
-    /// idea of what percentage counts as good. This card used to turn green
-    /// only at 100% while a holding's own ring turned green at 75%, so one
-    /// record could carry two verdicts at once.
-    let verdict: ReadinessVerdict
-    let onAct: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg - 2) {
-            HStack(alignment: .top, spacing: Space.lg) {
-                ZStack {
-                    Circle()
-                        .stroke(Palette.ruleOnRecord, lineWidth: 7)
-                    Circle()
-                        .trim(from: 0, to: max(0.02, Double(score) / 100))
-                        .stroke(Palette.tint(for: verdict),
-                                style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Text("\(score)%")
-                        .font(.headline.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.inkOnRecord)
-                }
-                .frame(width: 84, height: 84)
-
-                VStack(alignment: .leading, spacing: Space.xs + 1) {
-                    Text("Record-ready")
-                        .font(.recordTitle)
-                        .foregroundStyle(Palette.inkOnRecord)
-                    Text(blurb)
-                        .font(.bodyCopy)
-                        .foregroundStyle(Palette.inkSoftOnRecord)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            if blockingCount > 0 {
-                // The one action on the app's most important card.
-                //
-                // It was a white-at-12% panel on a near-black card — 1.4:1
-                // against its own background, where a non-text control needs
-                // 3:1 — so the only thing saying "button" was the word on it.
-                // Filled in the accent, which is what the accent is for.
-                Button(action: onAct) {
-                    Label("Fix what is blocking", systemImage: "checkmark.shield")
-                        .font(.bodyCopy.weight(.semibold))
-                        .foregroundStyle(Palette.accentInk)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, Space.md)
-                        .background(Palette.accent,
-                                    in: RoundedRectangle(cornerRadius: Radius.control,
-                                                         style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(Space.lg + 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.hero, style: .continuous)
-            .fill(Palette.recordDeep))
-        .accessibilityElement(children: .contain)
-    }
-}
-
-
-/// All of it, on one map — the Home card.
-///
-/// Pins for every located holding, the surveyed outlines where corners are on
-/// file, on hybrid imagery, framed to hold everything. Non-interactive as a
-/// preview (a card must not steal the scroll); tapping opens the full map.
-struct HomeMapCard: View {
-    let holdings: [Holding]
-
-    private var pins: [Holding] { holdings.filter { $0.pin != nil } }
-    private var outlined: [Holding] { holdings.filter { !parseBoundary($0.boundary).isEmpty } }
-
-    /// Framed on everything that can be placed: corners and pins together.
-    private var region: MKCoordinateRegion? {
-        var lats: [Double] = []
-        var lngs: [Double] = []
-        for h in holdings {
-            if let p = h.pin { lats.append(p.latitude); lngs.append(p.longitude) }
-            for c in parseBoundary(h.boundary) {
-                lats.append(c.latitude); lngs.append(c.longitude)
-            }
-        }
-        guard let latMin = lats.min(), let latMax = lats.max(),
-              let lngMin = lngs.min(), let lngMax = lngs.max() else { return nil }
-        return MKCoordinateRegion(
-            center: .init(latitude: (latMin + latMax) / 2, longitude: (lngMin + lngMax) / 2),
-            span: .init(latitudeDelta: max((latMax - latMin) * 1.5, 0.02),
-                        longitudeDelta: max((lngMax - lngMin) * 1.5, 0.02)))
-    }
-
-    var body: some View {
-        if let region {
-            NavigationLink {
-                PropertiesMap(holdings: holdings)
-            } label: {
-                Map(initialPosition: .region(region)) {
-                    ForEach(pins, id: \.id) { h in
-                        if let p = h.pin {
-                            Marker("", systemImage: h.kind.icon,
-                                   coordinate: .init(latitude: p.latitude, longitude: p.longitude))
-                        }
-                    }
-                    ForEach(outlined, id: \.id) { h in
-                        MapPolygon(coordinates: parseBoundary(h.boundary).map {
-                            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
-                        })
-                        .foregroundStyle(Palette.success.opacity(0.2))
-                        .stroke(Palette.success, lineWidth: 2)
-                    }
-                }
-                .mapStyle(.hybrid)
-                .allowsHitTesting(false)
-                .frame(height: 160)
-                .overlay(alignment: .bottomLeading) {
-                    // What is NOT on this map yet, said on the map.
-                    if pins.count < holdings.count {
-                        Text("\(pins.count) of \(holdings.count) pinned")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
-                            .background(.thinMaterial, in: Capsule())
-                            .padding(Space.md)
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    Label("Your land", systemImage: "map")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
-                        .background(.thinMaterial, in: Capsule())
-                        .padding(Space.md)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            // A map is a picture to VoiceOver. Said in words instead: what is
-            // on it, and what is not on it yet.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Your land on a map. \(pins.count) of \(holdings.count) holdings pinned.")
-            .accessibilityHint("Opens the full map")
-        }
     }
 }
