@@ -211,7 +211,7 @@ final class AppModel {
     /// Held here so a figure on the dashboard can open the list it counts. A
     /// count you cannot tap is a dead end — the number tells you something is
     /// there and then refuses to show it to you.
-    enum Tab: Hashable { case home, properties, add, documents, you }
+    enum Tab: Hashable { case home, properties, add, documents, you, maps, groups, services }
     var selectedTab: Tab = .home
     /// A tab you LEFT starts over. Changing a tab's version rebuilds its
     /// screen — offscreen, while you are elsewhere — so coming back always
@@ -219,8 +219,14 @@ final class AppModel {
     /// (the founder's rule, 10 Aug: tabs are places, and a place has a door).
     private(set) var tabVersions: [Tab: UUID] = [
         .home: UUID(), .properties: UUID(), .documents: UUID(), .you: UUID(),
+        .maps: UUID(), .groups: UUID(), .services: UUID(),
     ]
     func restartTab(_ tab: Tab) { tabVersions[tab] = UUID() }
+
+    /// What the bar actually carries right now (M25 lets it be rearranged).
+    /// Published by RootTabs so a deep link can tell whether its destination
+    /// is standing in the bar or has been swapped down into More.
+    var barTabs: [Tab] = [.home, .properties, .documents]
 
     /// What the Properties list should show when something else opens it.
     /// Consumed once, so returning to the tab later does not re-apply it.
@@ -250,22 +256,30 @@ final class AppModel {
         // Nil is not a failure: the Cognito sign-in callback comes back on this
         // same scheme and belongs to the auth session, not to this.
         guard let link else { return }
+        // A destination the person swapped out of the bar (M25) cannot be
+        // selected — a TabView with a selection it does not contain shows a
+        // blank. The fallback is the first slot, which is the person's own
+        // chosen front door; Papers can never be swapped out, so `.vault`
+        // always lands exactly.
+        func land(on tab: Tab) {
+            selectedTab = barTabs.contains(tab) ? tab : (barTabs.first ?? .home)
+        }
         switch link {
         case .home:
-            selectedTab = .home
+            land(on: .home)
         case .vault:
             selectedTab = .documents
         case .file:
             requestFiling = true
         case .holdings(let filter):
             holdingsFilter = filter.appFilter
-            selectedTab = .properties
+            land(on: .properties)
         case .holding(let id):
             // The filter is cleared too. A holding opened by name must not
             // arrive hidden behind whichever filter was last in force.
             holdingsFilter = .all
             pendingHolding = id
-            selectedTab = .properties
+            land(on: .properties)
         }
     }
 
@@ -683,6 +697,11 @@ struct RootTabs: View {
     /// Read so the filing icon is redrawn when the phone changes appearance —
     /// an `.alwaysOriginal` image keeps whatever colours it was drawn with.
     @Environment(\.colorScheme) private var scheme
+    /// The three reorderable slots (M25). More is always last; the File
+    /// button is always the centre; the first slot opens at launch.
+    @AppStorage(BarTab.storageKey) private var barRaw = BarTab.defaultRaw
+
+    private var slots: [BarTab] { BarTab.parse(barRaw) }
 
     var body: some View {
         // The `Tab` builder is iOS 18+; the deployment target is 17 so that
@@ -694,18 +713,13 @@ struct RootTabs: View {
         // header, rather than as a second list of the same land.
         TabView(selection: Binding(get: { app.selectedTab },
                                   set: { app.selectedTab = $0 })) {
-            HomeScreen().id(app.tabVersions[.home])
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(AppModel.Tab.home)
-            HoldingsScreen().id(app.tabVersions[.properties])
-                .tabItem { Label("Properties", systemImage: "building.2.fill") }
-                .tag(AppModel.Tab.properties)
+            slotView(slots[0])
+            slotView(slots[1])
             // The centre slot is FILING, not a destination.
             //
-            // Family was there, and a tab is for a place you return to — but
-            // filing a paper is the thing people open this app to do, and it
-            // was three taps deep behind a "+" in a corner. Family moves to the
-            // You screen, which is where the people in your records live.
+            // A tab is for a place you return to — but filing a paper is the
+            // thing people open this app to do, and it was three taps deep
+            // behind a "+" in a corner.
             Color.clear.tabItem {
                 Image(uiImage: Self.filingIcon(for: scheme))
                 Text("File")
@@ -717,25 +731,36 @@ struct RootTabs: View {
             .accessibilityLabel("File a document")
             .accessibilityHint("Opens the filing sheet")
             .accessibilityAddTraits(.isButton)
-            // "Papers" is the person's own word for what lives here — the
-            // deeds, passbooks and receipts that prove the land. ("Vault"
-            // described the lock; the M-series comps name the contents.)
-            // The Tab case stays `.documents`: WidgetLink URLs and installed
-            // widgets speak that vocabulary and must keep working.
-            DocumentsScreen().id(app.tabVersions[.documents])
-                .tabItem { Label("Papers", systemImage: "doc.text.fill") }
-                .tag(AppModel.Tab.documents)
+            slotView(slots[2])
             // "More" rather than a face: the tab is a hub of places (M24),
             // and the person now lives one push inside it, on Account.
             MoreScreen().id(app.tabVersions[.you])
                 .tabItem { Label("More", systemImage: "ellipsis") }
                 .tag(AppModel.Tab.you)
         }
+        .onAppear {
+            app.barTabs = slots.map(\.tab)
+            // The first slot is the launch tab. Only the untouched default is
+            // replaced — a deep link that already chose a destination wins.
+            if app.selectedTab == .home, let first = slots.first, first.tab != .home {
+                app.selectedTab = first.tab
+            }
+        }
+        .onChange(of: barRaw) { _, _ in
+            app.barTabs = slots.map(\.tab)
+            // Rearranging happens from More, so the selection is safe — but a
+            // stale selection pointing at a swapped-out slot would blank the
+            // TabView, and a guard is cheaper than the certainty.
+            if app.selectedTab != .add, app.selectedTab != .you,
+               !app.barTabs.contains(app.selectedTab) {
+                app.selectedTab = app.barTabs.first ?? .home
+            }
+        }
         .onChange(of: app.selectedTab) { previous, now in
             if now == .add {
                 // A tab that is really a button: it must not become the selected
                 // tab, or dismissing the sheet would leave a blank screen behind.
-                app.selectedTab = previous == .add ? .home : previous
+                app.selectedTab = previous == .add ? (app.barTabs.first ?? .home) : previous
                 app.requestFiling = true
                 return
             }
@@ -781,6 +806,29 @@ struct RootTabs: View {
                     .padding(.top, Space.xs)
                     .transition(.opacity)
             }
+        }
+    }
+
+    /// One reorderable slot: the screen, its label, and its selection tag.
+    @ViewBuilder
+    private func slotView(_ slot: BarTab) -> some View {
+        screen(slot)
+            .id(app.tabVersions[slot.tab])
+            .tabItem { Label(slot.label, systemImage: slot.symbol) }
+            .tag(slot.tab)
+    }
+
+    @ViewBuilder
+    private func screen(_ slot: BarTab) -> some View {
+        switch slot {
+        case .home: HomeScreen()
+        case .properties: HoldingsScreen()
+        // "Papers" keeps the `.documents` tab case — WidgetLink URLs and
+        // installed widgets speak that vocabulary and must keep working.
+        case .papers: DocumentsScreen()
+        case .maps: MapsTabScreen()
+        case .groups: GroupsTabScreen()
+        case .services: ServicesTabScreen()
         }
     }
 

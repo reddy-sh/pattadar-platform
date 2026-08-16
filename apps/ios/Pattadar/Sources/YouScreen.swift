@@ -14,10 +14,35 @@ struct MoreScreen: View {
     @State private var holdings: HoldingsResponse?
     @State private var groups: [FamilyGroup] = []
     @State private var showFamily = false
+    /// A tab swapped out of the bar (M25) is still a place; it answers from
+    /// here instead, presented whole — the screens own their own stacks.
+    @AppStorage(BarTab.storageKey) private var barRaw = BarTab.defaultRaw
+    @State private var displacedShowing: BarTab?
+
+    private var displaced: [BarTab] {
+        [BarTab.home, .properties].filter { !BarTab.parse(barRaw).contains($0) }
+    }
 
     var body: some View {
         NavigationStack {
             List {
+                if !displaced.isEmpty {
+                    Section {
+                        ForEach(displaced) { tab in
+                            Button { displacedShowing = tab } label: {
+                                HStack {
+                                    Label(tab.label, systemImage: tab.symbol)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption).foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                    } footer: {
+                        Text("Swapped out of the tab bar — still one tap away.")
+                    }
+                }
+
                 Section {
                     NavigationLink { MapsScreen(holdings: allHoldings) } label: {
                         HStack {
@@ -43,7 +68,7 @@ struct MoreScreen: View {
                                 .font(.caption).foregroundStyle(.tertiary)
                         }
                     }
-                    NavigationLink { GetItDoneScreen() } label: {
+                    NavigationLink { ServicesScreen() } label: {
                         Label("Services", systemImage: "storefront")
                     }
                     Link(destination: URL(string: "https://pattadar.com/app")!) {
@@ -92,6 +117,14 @@ struct MoreScreen: View {
                 }
 
                 Section {
+                    NavigationLink { CustomiseTabsScreen() } label: {
+                        HStack {
+                            Label("Customise tabs", systemImage: "slider.horizontal.3")
+                            Spacer()
+                            Text("\(BarTab.parse(barRaw).first?.label ?? "Home") first")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     NavigationLink { AccountScreen() } label: {
                         Label("Account", systemImage: "person.crop.circle")
                     }
@@ -99,6 +132,13 @@ struct MoreScreen: View {
             }
             .navigationTitle("More")
             .sheet(isPresented: $showFamily) { FamilyScreen() }
+            .sheet(item: $displacedShowing) { tab in
+                switch tab {
+                case .home: HomeScreen()
+                case .properties: HoldingsScreen()
+                default: EmptyView()
+                }
+            }
             .onAppear {
                 if app.openFamily { app.openFamily = false; showFamily = true }
             }
