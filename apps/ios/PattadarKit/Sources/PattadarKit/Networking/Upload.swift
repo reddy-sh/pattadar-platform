@@ -40,10 +40,13 @@ public actor UploadClient: NSObject {
         headers: [String: String],
         fieldName: String = "file",
         mimeType: String? = nil,
+        fileName: String? = nil,
         onProgress: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> (status: Int, body: Data) {
         let boundary = "Boundary-\(UUID().uuidString)"
-        let name = fileURL.lastPathComponent
+        // The storage gateway takes the part's filename as the node name, so
+        // a caller may need to send something other than what tmp called it.
+        let name = fileName ?? fileURL.lastPathComponent
         let mime = mimeType ?? PattadarAPI.mimeType(for: fileURL)
 
         // Build the envelope on disk; never in RAM.

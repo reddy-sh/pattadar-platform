@@ -44,6 +44,9 @@ class CognitoJWTConfig:
     client_id: str
     algorithms: List[str] = field(default_factory=lambda: ["RS256"])
     jwks_cache_ttl: int = _DEFAULT_CACHE_TTL
+    #: Set ONLY programmatically (main.py, local trust root) — never from env,
+    #: so no deployment variable can quietly repoint who this gateway trusts.
+    issuer_override: str = ""
 
     @classmethod
     def from_env(cls) -> "CognitoJWTConfig":
@@ -55,6 +58,11 @@ class CognitoJWTConfig:
 
     @property
     def issuer(self) -> str:
+        # Local trust root (see local_issuer.py): the issuer is the override
+        # string and there is nothing to derive — validation still matches
+        # it exactly, so pool-issued tokens fail on issuer before signature.
+        if self.issuer_override:
+            return self.issuer_override
         if not (self.region and self.user_pool_id):
             return ""
         # Cognito issuer has NO trailing slash.

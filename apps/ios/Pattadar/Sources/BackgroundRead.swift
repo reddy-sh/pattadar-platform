@@ -228,8 +228,14 @@ extension BackgroundRead: URLSessionDataDelegate {
 
             if let error {
                 self.cleanUp()
-                self.onFinished?(.failure(error))
-                let n = readFailedNotification(error.localizedDescription)
+                // Into the app's vocabulary before it reaches a screen — the
+                // raw NSError is how a tapped "Stop" became a wall of red.
+                let failure = PattadarAPI.APIError.from(error)
+                self.onFinished?(.failure(failure))
+                // Somebody who pressed Stop does not need to be told, twice,
+                // that the thing they stopped did not finish.
+                if case PattadarAPI.APIError.cancelled = failure { return }
+                let n = readFailedNotification(String(describing: failure))
                 self.notify(title: n.title, body: n.body)
                 return
             }

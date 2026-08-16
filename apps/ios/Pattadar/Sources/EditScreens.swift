@@ -26,7 +26,7 @@ struct EditParcelScreen: View {
                     FormRow(label: "Survey number", text: $surveyNo, required: true)
                     FormRow(label: "Sub-division", text: $subdivision)
                     LabeledContent("Extent") {
-                        HStack(spacing: 6) {
+                        HStack(spacing: Space.sm) {
                             TextField("0", text: $extent)
                                 .multilineTextAlignment(.trailing).keyboardType(.decimalPad)
                             Picker("", selection: $unit) {
@@ -41,7 +41,7 @@ struct EditParcelScreen: View {
                     }
                     .pickerStyle(.segmented)
                 }
-                if !problem.isEmpty { Section { Text(problem).foregroundStyle(.red).font(.callout) } }
+                if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
                     PrimaryButton(title: "Save changes", busy: saving,
                                   disabled: surveyNo.isEmpty || (Double(extent) ?? 0) <= 0) {
@@ -107,7 +107,7 @@ struct EditPropertyScreen: View {
                     FormRow(label: "Land area", text: $landArea, keyboard: .decimalPad, suffix: "Sq.yd")
                     FormRow(label: "Purchase price", text: $price, keyboard: .numberPad, suffix: "₹")
                 }
-                if !problem.isEmpty { Section { Text(problem).foregroundStyle(.red).font(.callout) } }
+                if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
                     PrimaryButton(title: "Save changes", busy: saving,
                                   disabled: label.trimmingCharacters(in: .whitespaces).isEmpty) {
@@ -178,7 +178,7 @@ struct EditPassbookScreen: View {
                     FormRow(label: "District", text: $district)
                     FormRow(label: "State", text: $state)
                 }
-                if !problem.isEmpty { Section { Text(problem).foregroundStyle(.red).font(.callout) } }
+                if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
                     PrimaryButton(title: "Save changes", busy: saving,
                                   disabled: pattadarNo.trimmingCharacters(in: .whitespaces).isEmpty) {
@@ -246,7 +246,7 @@ struct EditGroupScreen: View {
                     FormRow(label: "Name", text: $name, prompt: "Telukutla family", required: true)
                     FormRow(label: "Note", text: $note, prompt: "Optional")
                 }
-                if !problem.isEmpty { Section { Text(problem).foregroundStyle(.red).font(.callout) } }
+                if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
                     PrimaryButton(title: group == nil ? "Create group" : "Save changes",
                                   busy: saving,
@@ -325,7 +325,7 @@ struct AddMemberScreen: View {
                          ? "An heir's share is what the estate allocation divides; shares across a group should total 100%. A phone number is required — an heir has to be reachable to confirm they accept."
                          : "An heir's share is what the estate allocation divides. Shares across a group should total 100%.")
                 }
-                if !problem.isEmpty { Section { Text(problem).foregroundStyle(.red).font(.callout) } }
+                if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
                     PrimaryButton(title: "Add member", busy: saving,
                                   disabled: name.trimmingCharacters(in: .whitespaces).isEmpty

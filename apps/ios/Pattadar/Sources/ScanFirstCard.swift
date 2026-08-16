@@ -49,7 +49,7 @@ struct ScanFirstCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.md) {
             switch state {
             case .idle:
                 pickers
@@ -104,10 +104,10 @@ struct ScanFirstCard: View {
 
     /// The whole area, while it is working. No ghost buttons behind it.
     private var progress: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 ProgressView()
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     switch state {
                     case .sending(let fraction):
                         Text("Sending the document… \(Int(fraction * 100))%")
@@ -133,16 +133,16 @@ struct ScanFirstCard: View {
                 Text("Stop").font(.footnote)
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemFill)))
+        .padding(Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Color(.secondarySystemFill)))
     }
 
     private func failureView(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Label("The document couldn’t be read", systemImage: "exclamationmark.circle")
-                .foregroundStyle(.red).font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.danger).font(.subheadline.weight(.semibold))
             Text(message).font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 12) {
+            HStack(spacing: Space.md) {
                 Button { app.clearRead() } label: {
                     Label("Try again", systemImage: "arrow.clockwise").font(.footnote)
                 }
@@ -150,8 +150,8 @@ struct ScanFirstCard: View {
                     .font(.footnote)
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.red.opacity(0.08)))
+        .padding(Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.danger.opacity(0.08)))
     }
 
     /// Full-width labelled rows, the way every messaging app offers an
@@ -162,7 +162,7 @@ struct ScanFirstCard: View {
     /// A row with an icon, a verb and a line of explanation is both bigger to
     /// hit and says what will happen.
     private var pickers: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text(title).font(.headline)
             Text(body_).font(.caption).foregroundStyle(.secondary)
 
@@ -185,7 +185,7 @@ struct ScanFirstCard: View {
                     showFiles = true
                 }
             }
-            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
     }
 
@@ -196,27 +196,27 @@ struct ScanFirstCard: View {
     }
 
     private func pickerLabel(_ icon: String, _ title: String, _ note: String) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: Space.lg) {
             Image(systemName: icon)
-                .font(.system(size: 19))
+                .font(.scaled(19))
                 .frame(width: 24)
                 .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                 Text(note).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
         .contentShape(Rectangle())
     }
 
     private func summaryCard(_ r: ScanResult) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .top, spacing: Space.sm) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.success)
+                VStack(alignment: .leading, spacing: Space.xs) {
                     Text(r.headline.isEmpty ? "Document read" : r.headline)
                         .font(.subheadline.weight(.semibold))
                     Text("Read by AI — check the details below against the paper.")
@@ -228,36 +228,36 @@ struct ScanFirstCard: View {
             // reference, so it folds away.
             if !r.caveats.isEmpty {
                 DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         ForEach(r.caveats, id: \.self) { c in
                             Text("• \(c)").font(.caption)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
+                    .padding(.top, Space.xs)
                 } label: {
                     Label("\(r.caveats.count) thing\(r.caveats.count == 1 ? "" : "s") worth checking",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.caution)
                 }
             }
 
             if !r.summary.isEmpty {
                 DisclosureGroup("What the document says") {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         ForEach(r.summary.components(separatedBy: "\n\n").filter { !$0.isEmpty }, id: \.self) {
                             Text($0).font(.callout)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
+                    .padding(.top, Space.xs)
                 }
                 .font(.caption.weight(.medium))
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.green.opacity(0.10)))
+        .padding(Space.md)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(Palette.success.opacity(0.10)))
     }
 
     // MARK: - Reading

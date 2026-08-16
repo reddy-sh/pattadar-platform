@@ -30,8 +30,17 @@ step "iPhone simulator" xcodebuild -project Pattadar.xcodeproj -scheme Pattadar 
   -destination "platform=iOS Simulator,name=iPhone 17e" -derivedDataPath build -quiet build
 step "iPad simulator" xcodebuild -project Pattadar.xcodeproj -scheme Pattadar \
   -destination "platform=iOS Simulator,name=iPad Pro 13-inch (M5)" -derivedDataPath build -quiet build
+# -allowProvisioningUpdates is NOT optional, and signing into Xcode is not
+# enough on its own. Xcode.app creates provisioning profiles for you; from the
+# command line xcodebuild refuses to unless this flag says it may, and reports
+# it as "No profiles for '…' were found" — which reads like a missing account
+# rather than a missing flag. The App Group the widget needs is exactly the
+# kind of capability that has to be registered on the fly, so without this the
+# device build fails, verify.sh skips the install, and the phone quietly keeps
+# running whatever binary it had.
 step "physical iPhone" xcodebuild -project Pattadar.xcodeproj -scheme Pattadar \
-  -destination "id=1524B702-D5DD-53CA-B0A5-9A55D39C0A33" -derivedDataPath build-device -quiet build
+  -destination "id=1524B702-D5DD-53CA-B0A5-9A55D39C0A33" -derivedDataPath build-device \
+  -allowProvisioningUpdates -quiet build
 
 # Installing a stale binary is worse than not installing: it reports success
 # while the change under test is not on the device. Builds must pass first.

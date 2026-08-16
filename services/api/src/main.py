@@ -13,7 +13,11 @@ import httpx
 import strawberry
 from . import notify
 from . import fmb_geometry
-from datetime import date, datetime
+# Record-360 surface for the web app (screens W01–W15). Its eleven tables and
+# six column additions live in their own module so this file — the iOS-facing
+# schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
+from . import web360
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
@@ -423,6 +427,48 @@ class DocumentType:
     tags: str
     created_at: str
     property_id: str = ""
+    # Layer 1 of the vault: the FILE's own facts, carried on the row instead of
+    # being fetched from the storage node per render. A list of 200 documents
+    # used to cost 200 node lookups just to learn its own filenames, and none
+    # of it worked offline.
+    name: str = ""
+    size_bytes: int = 0
+    mime_type: str = ""
+    # → registered_documents.id, '' while nothing has read this file. The
+    # pointer runs file → reading so a reading can be deleted or replaced (a
+    # better scan) without the file's identity changing.
+    reading_id: str = ""
+
+
+@strawberry.type
+class DocumentLinkType:
+    """One edge in the paper trail: this document cites that one.
+
+    "Bought from A, sold on to C" is two deeds and one FACT — that the second
+    cites the first. Without the edge a chain of title is a pile of unrelated
+    rows, and the reader's own citation (`reading.links[]`) can never become
+    more than a dashed card saying "cited, not filed".
+    """
+    id: str
+    owner_user_id: str
+    from_document_id: str
+    to_document_id: str
+    relation: str
+    note: str
+    created_at: str
+    # Filled by the resolver so a client can draw the trail without a second
+    # round trip per hop.
+    other_name: str = ""
+    other_doc_type: str = ""
+    other_reg_year: str = ""
+    # Which way this edge points relative to the document that was asked
+    # about: "cites" (this one points at the other) or "cited_by".
+    direction: str = "cites"
+
+
+# A relation a person can assert between two papers. Free text is refused — a
+# trail whose edges say whatever somebody typed cannot be walked.
+DOCUMENT_RELATIONS = ("prior_title", "gpa", "amendment", "correction", "ec_for")
 
 
 @strawberry.type
@@ -824,6 +870,24 @@ class ParcelPhotoType:
 
 
 @strawberry.type
+class PropertyPhotoType:
+    """ParcelPhotoType's contract, for the non-agri Property entity — same
+    evidence-first columns, same optional-means-missing coordinates."""
+    id: str
+    property_id: str
+    file_ref: str
+    category: str
+    caption: str
+    latitude: Optional[float]
+    longitude: Optional[float]
+    heading: Optional[float]
+    captured_at: str
+    captured_by: str
+    is_cover: bool
+    created_at: str
+
+
+@strawberry.type
 class RegisteredDocumentType:
     id: str
     owner_user_id: str
@@ -912,6 +976,24 @@ def _uid_from_info(info) -> str:
         return (info.context["request"].headers.get("x-user-id") or "").strip()
     except Exception:
         return ""
+
+
+# Who may touch a `documents` row: its owner, or the owner of the land it is
+# filed against. Written out five times before this, and one of the copies was
+# missing the `owner_user_id` arm — which is why unlinked uploads could not be
+# deleted. One string, four `uid` parameters, every caller identical.
+_DOC_OWNED = (
+    "(owner_user_id = %s "
+    " OR parcel_id IN (SELECT id FROM parcels WHERE passbook_id IN "
+    "                  (SELECT id FROM passbooks WHERE owner_user_id = %s)) "
+    " OR passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id = %s) "
+    " OR property_id IN (SELECT id FROM properties WHERE owner_user_id = %s))"
+)
+
+
+def _doc_owner_args(uid: str) -> tuple:
+    """The four repeats `_DOC_OWNED` binds."""
+    return (uid, uid, uid, uid)
 
 
 def _mask_aadhaar(raw: str) -> str:
@@ -1189,6 +1271,11 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
 @strawberry.type
 class Query:
     @strawberry.field
+    async def web(self) -> web360.WebQuery:
+        """Record-360 reads for the web app (W01–W15). See web360.py."""
+        return web360.WebQuery()
+
+    @strawberry.field
     async def passbooks(self, info: strawberry.Info) -> List[PassbookType]:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
@@ -1319,6 +1406,23 @@ class Query:
             return [to_type(ParcelPhotoType, r) for r in await cur.fetchall()]
 
     @strawberry.field
+    async def property_photos(self, info: strawberry.Info, property_id: str = "") -> List[PropertyPhotoType]:
+        """Photos for one property, or every property photo the caller owns
+        when property_id is empty — same batch shape as parcel_photos, for
+        the same reason (list covers without a round trip per row)."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            if property_id:
+                cur = await conn.execute(
+                    "SELECT * FROM property_photos WHERE property_id=%s AND owner_user_id=%s "
+                    "ORDER BY is_cover DESC, created_at DESC", (property_id, uid))
+            else:
+                cur = await conn.execute(
+                    "SELECT * FROM property_photos WHERE owner_user_id=%s "
+                    "ORDER BY is_cover DESC, created_at DESC", (uid,))
+            return [to_type(PropertyPhotoType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
     async def registered_documents(self, info: strawberry.Info) -> List[RegisteredDocumentType]:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
@@ -1348,6 +1452,37 @@ class Query:
                 "ORDER BY created_at DESC", (uid, uid, uid, uid)
             )
             return [to_type(DocumentType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def document_links(self, info: strawberry.Info, document_id: str) -> List[DocumentLinkType]:
+        """The paper trail around one document, BOTH ways.
+
+        A deed cites the one before it, and is cited by the one after. Asking
+        only for outgoing edges would show a person half their chain and give
+        no hint the other half exists.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
+                (document_id, *_doc_owner_args(uid)))
+            if not await cur.fetchone():
+                return []
+            # The far end's name travels with the edge so a client can draw the
+            # trail without one round trip per hop.
+            cur = await conn.execute(
+                "SELECT l.*, 'cites' AS direction, d.name AS other_name, "
+                "       d.doc_type AS other_doc_type, d.reg_year AS other_reg_year "
+                "  FROM document_links l JOIN documents d ON d.id = l.to_document_id "
+                " WHERE l.from_document_id = %s AND l.owner_user_id = %s "
+                " UNION ALL "
+                "SELECT l.*, 'cited_by' AS direction, d.name AS other_name, "
+                "       d.doc_type AS other_doc_type, d.reg_year AS other_reg_year "
+                "  FROM document_links l JOIN documents d ON d.id = l.from_document_id "
+                " WHERE l.to_document_id = %s AND l.owner_user_id = %s "
+                " ORDER BY created_at",
+                (document_id, uid, document_id, uid))
+            return [to_type(DocumentLinkType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def favourites(self, info: strawberry.Info) -> List[FavouriteType]:
@@ -2044,6 +2179,11 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
 @strawberry.type
 class Mutation:
     @strawberry.mutation
+    async def web(self) -> web360.WebMutation:
+        """Record-360 writes for the web app (W01–W15). See web360.py."""
+        return web360.WebMutation()
+
+    @strawberry.mutation
     async def create_passbook(
         self,
         info: strawberry.Info,
@@ -2659,9 +2799,16 @@ class Mutation:
         tags: str,
         passbook_id: str = "",
         property_id: str = "",
+        name: str = "",
+        size_bytes: int = 0,
+        mime_type: str = "",
     ) -> DocumentType:
         uid = _uid_from_info(info) or "system"
         did = new_id()
+        # A file with no name of its own renders blank in both vaults. Name it
+        # for what it is rather than leaving the client to guess later.
+        name = (name or "").strip() or (
+            "Document" if doc_type in ("", "other") else doc_type.replace("_", " ").title())
         async with pool.connection() as conn:
             # parcel OR passbook may be empty — a doc can be uploaded now and linked later
             if parcel_id:
@@ -2671,12 +2818,12 @@ class Mutation:
             elif property_id:
                 await _assert_owns_property(conn, uid, property_id)
             cur = await conn.execute(
-                "INSERT INTO documents (id, parcel_id, passbook_id, property_id, owner_user_id, doc_type, file_ref, doc_no, sro_code, reg_year, version, source, tags, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                (did, parcel_id, passbook_id, property_id, uid, doc_type, file_ref, doc_no, sro_code, reg_year, 1, source, tags, datetime.utcnow().isoformat()),
+                "INSERT INTO documents (id, parcel_id, passbook_id, property_id, owner_user_id, doc_type, file_ref, doc_no, sro_code, reg_year, version, source, tags, created_at, name, size_bytes, mime_type) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                (did, parcel_id, passbook_id, property_id, uid, doc_type, file_ref, doc_no, sro_code, reg_year, 1, source, tags, datetime.utcnow().isoformat(), name, max(0, size_bytes), mime_type),
             )
             row = await cur.fetchone()
-            await log_audit(conn, uid, "upload_document", parcel_id or passbook_id or did, "Uploaded a document")
+            await log_audit(conn, uid, "upload_document", parcel_id or passbook_id or did, f"Uploaded {name}")
             return to_type(DocumentType, row)
 
     @strawberry.mutation
@@ -2704,9 +2851,8 @@ class Mutation:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
             cur = await conn.execute(
-                "SELECT parcel_id, passbook_id FROM documents WHERE id=%s AND (owner_user_id=%s "
-                "OR parcel_id IN (SELECT id FROM parcels WHERE passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s)) "
-                "OR passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s))", (id, uid, uid, uid))
+                f"SELECT parcel_id, passbook_id FROM documents WHERE id=%s AND {_DOC_OWNED}",
+                (id, *_doc_owner_args(uid)))
             owned = await cur.fetchone()
             if not owned:
                 return None
@@ -2718,18 +2864,141 @@ class Mutation:
             return to_type(DocumentType, row)
 
     @strawberry.mutation
-    async def update_document_link(
-        self, info: strawberry.Info, id: str, parcel_id: str, passbook_id: str
-    ) -> Optional[DocumentType]:
+    async def link_documents(
+        self, info: strawberry.Info, from_id: str, to_id: str,
+        relation: str = "prior_title", note: str = "",
+    ) -> Optional[DocumentLinkType]:
+        """Assert that one paper follows another — the chain of title.
+
+        Bought from A, then sold on to C: the B→C deed carries a `prior_title`
+        edge to the A→B deed. Both documents must belong to the caller, so a
+        trail can never be made to point at a stranger's record.
+        """
+        uid = _uid_from_info(info) or "system"
+        if relation not in DOCUMENT_RELATIONS:
+            raise NotAuthorized(f"'{relation}' is not a kind of link")
+        # A paper cannot cite itself, and a chain that loops cannot be walked.
+        if from_id == to_id:
+            return None
+        async with pool.connection() as conn:
+            for doc in (from_id, to_id):
+                cur = await conn.execute(
+                    f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
+                    (doc, *_doc_owner_args(uid)))
+                if not await cur.fetchone():
+                    raise NotAuthorized("Not authorized for this document")
+            # The reverse edge already existing would make a two-document loop:
+            # each claiming to come before the other. Refuse rather than store
+            # a trail that cannot be read in either direction.
+            cur = await conn.execute(
+                "SELECT 1 FROM document_links WHERE from_document_id=%s AND to_document_id=%s",
+                (to_id, from_id))
+            if await cur.fetchone():
+                raise NotAuthorized("Those two already point the other way round")
+            # ON CONFLICT makes this idempotent under a replayed mutation from
+            # the phone's write queue — the unique index is on (from, to, relation).
+            cur = await conn.execute(
+                "INSERT INTO document_links (id, owner_user_id, from_document_id, to_document_id, "
+                "                            relation, note, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (from_document_id, to_document_id, relation) DO UPDATE SET note=EXCLUDED.note "
+                "RETURNING *",
+                (new_id(), uid, from_id, to_id, relation, note, datetime.utcnow().isoformat()))
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "link_documents", from_id, f"{relation} → {to_id}")
+            return to_type(DocumentLinkType, row)
+
+    @strawberry.mutation
+    async def unlink_documents(self, info: strawberry.Info, id: str) -> bool:
+        """Take an asserted link back. The documents themselves are untouched."""
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
-            # Must already own the row (via its current parcel/passbook, or as uploader).
             cur = await conn.execute(
-                "SELECT 1 FROM documents WHERE id=%s AND (owner_user_id=%s "
-                "OR parcel_id IN (SELECT id FROM parcels WHERE passbook_id IN "
-                "(SELECT id FROM passbooks WHERE owner_user_id=%s)) "
-                "OR passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s))",
-                (id, uid, uid, uid))
+                "DELETE FROM document_links WHERE id=%s AND owner_user_id=%s RETURNING from_document_id",
+                (id, uid))
+            row = await cur.fetchone()
+            if not row:
+                return False
+            await log_audit(conn, uid, "unlink_documents", row["from_document_id"], "Removed a link")
+            return True
+
+    @strawberry.mutation
+    async def rename_document(self, info: strawberry.Info, id: str, name: str) -> Optional[DocumentType]:
+        """Give a file the name its owner wants to find it by.
+
+        The storage node is renamed separately by the client (the gateway owns
+        My Drive); this is the copy the vault actually lists, so the new name
+        shows up offline and without a per-row node lookup.
+
+        `id` may be either a `documents` row or the READING hanging off one.
+        The phone's vault is built on readings and the web's on files, and
+        neither should have to know which id the other holds to rename the same
+        piece of paper.
+        """
+        uid = _uid_from_info(info) or "system"
+        name = (name or "").strip()
+        if not name:
+            return None
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                f"UPDATE documents SET name=%s WHERE id=%s AND {_DOC_OWNED} RETURNING *",
+                (name, id, *_doc_owner_args(uid)))
+            row = await cur.fetchone()
+            if not row:
+                cur = await conn.execute(
+                    f"UPDATE documents SET name=%s WHERE reading_id=%s AND {_DOC_OWNED} RETURNING *",
+                    (name, id, *_doc_owner_args(uid)))
+                row = await cur.fetchone()
+            if not row:
+                return None
+            await log_audit(conn, uid, "rename_document", id, f"→ {name}")
+            return to_type(DocumentType, row)
+
+    @strawberry.mutation
+    async def attach_document_reading(
+        self, info: strawberry.Info, id: str, reading_id: str, doc_type: str = ""
+    ) -> Optional[DocumentType]:
+        """Hang an AI reading onto a file, once a person has accepted it.
+
+        Reading is layer 2 and it is OPT-IN: uploading costs nothing, and this
+        is the only thing that ever spends a credit's worth of extraction on a
+        file. Called after the reader has run and the person said yes to what
+        it found, never automatically on upload.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            # The reading has to be this account's too, or a document could be
+            # made to display somebody else's extraction.
+            cur = await conn.execute(
+                "SELECT 1 FROM registered_documents WHERE id=%s AND owner_user_id=%s",
+                (reading_id, uid))
+            if not await cur.fetchone():
+                raise NotAuthorized("Not authorized for this reading")
+            cur = await conn.execute(
+                f"UPDATE documents SET reading_id=%s"
+                f"{', doc_type=%s' if doc_type else ''} "
+                f"WHERE id=%s AND {_DOC_OWNED} RETURNING *",
+                (reading_id, *((doc_type,) if doc_type else ()), id, *_doc_owner_args(uid)))
+            row = await cur.fetchone()
+            if not row:
+                return None
+            await log_audit(conn, uid, "read_document", id, f"Read as {doc_type or 'a document'}")
+            return to_type(DocumentType, row)
+
+    @strawberry.mutation
+    async def update_document_link(
+        self, info: strawberry.Info, id: str, parcel_id: str, passbook_id: str,
+        property_id: str = "",
+    ) -> Optional[DocumentType]:
+        """Point a file at the land it belongs to. Exclusive: a document is
+        filed against ONE of parcel / khata / property, so the arguments are
+        the whole truth and an omitted one clears."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            # Must already own the row (via its current land, or as uploader).
+            cur = await conn.execute(
+                f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
+                (id, *_doc_owner_args(uid)))
             if not await cur.fetchone():
                 return None
             # New target(s) must be owned too — check each independently so a
@@ -2738,11 +3007,14 @@ class Mutation:
                 await _assert_owns_parcel(conn, uid, parcel_id)
             if passbook_id:
                 await _assert_owns_passbook(conn, uid, passbook_id)
+            if property_id:
+                await _assert_owns_property(conn, uid, property_id)
             cur = await conn.execute(
-                "UPDATE documents SET parcel_id=%s, passbook_id=%s WHERE id=%s RETURNING *",
-                (parcel_id, passbook_id, id))
+                "UPDATE documents SET parcel_id=%s, passbook_id=%s, property_id=%s WHERE id=%s RETURNING *",
+                (parcel_id, passbook_id, property_id, id))
             row = await cur.fetchone()
-            await log_audit(conn, uid, "link_document", parcel_id or passbook_id or id, "Linked a document")
+            await log_audit(conn, uid, "link_document",
+                            parcel_id or passbook_id or property_id or id, "Linked a document")
             return to_type(DocumentType, row)
 
     @strawberry.mutation
@@ -3521,34 +3793,42 @@ class Mutation:
             return str(data.get(k) or "")
 
         async with pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO registered_documents (id, owner_user_id, doc_type, document_no, reg_year, book_no, sro, "
-                "registration_date, execution_date, consideration, stamp_duty, transfer_duty, registration_fee, "
-                "user_charges, total_fee, village, mandal, district, survey_no, plot_no, extent, classification, "
-                "boundary_north, boundary_south, boundary_east, boundary_west, prior_document, gpa_document, "
-                "scanning_id, file_ref, summary, caveats, headline, key_points, reading, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (did, uid, _s("doc_type"), _s("document_no"), _s("reg_year"), _s("book_no"), _s("sro"),
-                 _s("registration_date"), _s("execution_date"), _n("consideration"), _n("stamp_duty"), _n("transfer_duty"),
-                 _n("registration_fee"), _n("user_charges"), _n("total_fee"), _s("village"), _s("mandal"), _s("district"),
-                 _s("survey_no"), _s("plot_no"), _s("extent"), _s("classification"),
-                 str(b.get("north") or ""), str(b.get("south") or ""), str(b.get("east") or ""), str(b.get("west") or ""),
-                 _s("prior_document"), _s("gpa_document"), _s("scanning_id"), file_ref,
-                 # The reading travels with the document it describes.
-                 _s("summary"), json.dumps([str(c) for c in (data.get("caveats") or []) if str(c).strip()]),
-                 _s("headline"),
-                 json.dumps([str(k) for k in (data.get("key_points") or []) if str(k).strip()]),
-                 payload,
-                 now),
-            )
-            for p in (data.get("parties") or []):
+            # All-or-nothing: the offline outbox drives this mutation through the
+            # idempotency layer, whose release-claim-on-error contract is only
+            # sound when a failed attempt leaves nothing behind. On the
+            # autocommit pool each statement lands durably on its own, so a
+            # mid-flight failure would strand the document without its parties —
+            # psycopg wraps the block in BEGIN/COMMIT instead. First (and so far
+            # only) mutation to need this.
+            async with conn.transaction():
                 await conn.execute(
-                    "INSERT INTO document_parties (id, document_id, role, name, parentage, age, address, is_gpa, created_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (new_id(), did, str(p.get("role") or "seller"), str(p.get("name") or ""), str(p.get("parentage") or ""),
-                     str(p.get("age") or ""), str(p.get("address") or ""), bool(p.get("is_gpa")), now),
+                    "INSERT INTO registered_documents (id, owner_user_id, doc_type, document_no, reg_year, book_no, sro, "
+                    "registration_date, execution_date, consideration, stamp_duty, transfer_duty, registration_fee, "
+                    "user_charges, total_fee, village, mandal, district, survey_no, plot_no, extent, classification, "
+                    "boundary_north, boundary_south, boundary_east, boundary_west, prior_document, gpa_document, "
+                    "scanning_id, file_ref, summary, caveats, headline, key_points, reading, created_at) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (did, uid, _s("doc_type"), _s("document_no"), _s("reg_year"), _s("book_no"), _s("sro"),
+                     _s("registration_date"), _s("execution_date"), _n("consideration"), _n("stamp_duty"), _n("transfer_duty"),
+                     _n("registration_fee"), _n("user_charges"), _n("total_fee"), _s("village"), _s("mandal"), _s("district"),
+                     _s("survey_no"), _s("plot_no"), _s("extent"), _s("classification"),
+                     str(b.get("north") or ""), str(b.get("south") or ""), str(b.get("east") or ""), str(b.get("west") or ""),
+                     _s("prior_document"), _s("gpa_document"), _s("scanning_id"), file_ref,
+                     # The reading travels with the document it describes.
+                     _s("summary"), json.dumps([str(c) for c in (data.get("caveats") or []) if str(c).strip()]),
+                     _s("headline"),
+                     json.dumps([str(k) for k in (data.get("key_points") or []) if str(k).strip()]),
+                     payload,
+                     now),
                 )
-            await log_audit(conn, uid, "create_registered_document", did, _s("document_no"))
+                for p in (data.get("parties") or []):
+                    await conn.execute(
+                        "INSERT INTO document_parties (id, document_id, role, name, parentage, age, address, is_gpa, created_at) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (new_id(), did, str(p.get("role") or "seller"), str(p.get("name") or ""), str(p.get("parentage") or ""),
+                         str(p.get("age") or ""), str(p.get("address") or ""), bool(p.get("is_gpa")), now),
+                    )
+                await log_audit(conn, uid, "create_registered_document", did, _s("document_no"))
             cur = await conn.execute("SELECT * FROM registered_documents WHERE id=%s", (did,))
             return to_type(RegisteredDocumentType, await cur.fetchone())
 
@@ -3797,6 +4077,94 @@ class Mutation:
             return True
 
     @strawberry.mutation
+    async def add_property_photo(
+        self, info: strawberry.Info, property_id: str, file_ref: str,
+        category: str = "general", caption: str = "",
+        latitude: Optional[float] = None, longitude: Optional[float] = None,
+        heading: Optional[float] = None, captured_at: str = "",
+    ) -> Optional[PropertyPhotoType]:
+        """add_parcel_photo for the Property entity. Ownership is direct
+        (properties.owner_user_id) — no passbook join to go through. The
+        never-auto-cover rule carries over unchanged; the choice of what
+        fronts a property belongs to its owner, via set_property_cover_photo.
+        """
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            owns = await (await conn.execute(
+                "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s",
+                (property_id, uid))).fetchone()
+            if not owns:
+                raise NotAuthorized("Not authorized for this property")
+            pid = new_id()
+            now = datetime.utcnow().isoformat()
+            cur = await conn.execute(
+                "INSERT INTO property_photos (id, property_id, owner_user_id, file_ref, category, caption, "
+                "latitude, longitude, heading, captured_at, captured_by, is_cover, created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (pid, property_id, uid, file_ref, (category or "general").strip(), caption.strip(),
+                 latitude, longitude, heading, captured_at or now, uid, False, now))
+            row = await cur.fetchone()
+            await log_audit(conn, uid, "add_property_photo", property_id, _named("", category, caption))
+            return to_type(PropertyPhotoType, row)
+
+    @strawberry.mutation
+    async def update_property_photo(
+        self, info: strawberry.Info, id: str,
+        category: Optional[str] = None, caption: Optional[str] = None,
+    ) -> Optional[PropertyPhotoType]:
+        """Edit a property photo's caption or category — only the arguments
+        actually supplied are written, same contract as update_parcel_photo."""
+        uid = _uid_from_info(info) or "system"
+        sets, vals = [], []
+        if category is not None:
+            sets.append("category=%s"); vals.append((category or "general").strip())
+        if caption is not None:
+            sets.append("caption=%s"); vals.append(caption.strip())
+        if not sets:
+            sets.append("caption=caption")
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                f"UPDATE property_photos SET {', '.join(sets)} WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (*vals, id, uid))
+            row = await cur.fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this photo")
+            await log_audit(conn, uid, "update_property_photo", id, _named("", row["category"], row["caption"]))
+            return to_type(PropertyPhotoType, row)
+
+    @strawberry.mutation
+    async def set_property_cover_photo(self, info: strawberry.Info, id: str) -> bool:
+        """Make one photo the property's cover. Clear-then-set, because the
+        partial unique index rejects a second cover."""
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT property_id FROM property_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            if not row:
+                raise NotAuthorized("Not authorized for this photo")
+            await conn.execute(
+                "UPDATE property_photos SET is_cover=FALSE WHERE property_id=%s", (row["property_id"],))
+            await conn.execute("UPDATE property_photos SET is_cover=TRUE WHERE id=%s", (id,))
+            await log_audit(conn, uid, "set_property_cover_photo", row["property_id"], "")
+            return True
+
+    @strawberry.mutation
+    async def delete_property_photo(self, info: strawberry.Info, id: str) -> bool:
+        uid = _uid_from_info(info) or "system"
+        async with pool.connection() as conn:
+            doomed = await (await conn.execute(
+                "SELECT property_id, category, caption, is_cover FROM property_photos "
+                "WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+            if not doomed:
+                return False
+            await conn.execute("DELETE FROM property_photos WHERE id=%s", (id,))
+            # Same rule as parcels: no survivor promotion — a cover the user
+            # never chose is worse than no cover.
+            await log_audit(conn, uid, "delete_property_photo", doomed["property_id"],
+                            _named("", doomed["category"], doomed["caption"]))
+            return True
+
+    @strawberry.mutation
     async def delete_registered_document(self, info: strawberry.Info, id: str) -> bool:
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
@@ -3988,6 +4356,102 @@ async def _load_reference_data(conn) -> None:
             )
 
 
+async def ensure_property_photos_schema(conn) -> None:
+    """property_photos: parcel_photos' shape for the Property entity —
+    evidence-first columns, one database-enforced cover per property.
+    Factored out of init_db so tests can ensure exactly this table."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS property_photos (
+            id TEXT PRIMARY KEY,
+            property_id TEXT NOT NULL,
+            owner_user_id TEXT NOT NULL,
+            file_ref TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'general',
+            caption TEXT NOT NULL DEFAULT '',
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            heading DOUBLE PRECISION,
+            captured_at TEXT NOT NULL DEFAULT '',
+            captured_by TEXT NOT NULL DEFAULT '',
+            is_cover BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS property_photos_property_idx ON property_photos (property_id)")
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS property_photos_one_cover_idx "
+        "ON property_photos (property_id) WHERE is_cover")
+
+
+async def _backfill_vault_layer_one(conn) -> None:
+    """Make every filed paper a `documents` row, once.
+
+    Two tables grew up meaning "document": `documents` (a file) and
+    `registered_documents` (an AI reading of a file). The apps each listed a
+    different one, so a file uploaded on the web was invisible on the phone and
+    a deed scanned on the phone was invisible in the web's file list. From here
+    on `documents` is the vault and a reading hangs off it.
+
+    Only ever INSERTs rows and fills EMPTY columns — never updates a non-empty
+    field, never deletes. Safe to re-run, which it is, on every boot.
+    """
+    # 1. A reading with no file row of its own gets one, pointing back at it.
+    #    Matched on file_ref where there is one; a reading with no stored file
+    #    still earns a row, because "details only, no file" is a real state the
+    #    phone already renders.
+    await conn.execute(
+        "INSERT INTO documents (id, parcel_id, passbook_id, property_id, owner_user_id, "
+        "                       doc_type, file_ref, doc_no, sro_code, reg_year, version, "
+        "                       source, tags, created_at, name, reading_id) "
+        "SELECT gen_random_uuid()::text, rd.parcel_id, rd.passbook_id, rd.property_id, "
+        "       rd.owner_user_id, "
+        "       CASE WHEN rd.doc_type = '' THEN 'other' ELSE rd.doc_type END, "
+        "       rd.file_ref, rd.document_no, rd.sro, rd.reg_year, 1, 'scan', '', "
+        "       rd.created_at, "
+        # The name a person would recognise: "Sale Deed · 6337 / 2024", falling
+        # back through place, then the bare kind. Never a UUID.
+        "       NULLIF(trim(both ' ·' from concat_ws(' · ', NULLIF(rd.doc_type, ''), "
+        "              NULLIF(concat_ws(' / ', NULLIF(rd.document_no, ''), NULLIF(rd.reg_year, '')), ''), "
+        "              NULLIF(rd.village, ''))), ''), "
+        "       rd.id "
+        "  FROM registered_documents rd "
+        " WHERE NOT EXISTS (SELECT 1 FROM documents d WHERE d.reading_id = rd.id) "
+        "   AND NOT EXISTS (SELECT 1 FROM documents d "
+        "                    WHERE d.file_ref <> '' AND d.file_ref = rd.file_ref)")
+
+    # 2. A file row whose reading already exists (same storage node) learns to
+    #    point at it, so the two layers are joined for rows that predate this.
+    await conn.execute(
+        "UPDATE documents d SET reading_id = rd.id "
+        "  FROM registered_documents rd "
+        " WHERE d.reading_id = '' AND d.file_ref <> '' AND d.file_ref = rd.file_ref")
+
+    # 3. Size and mime come from the storage node that already knows them. The
+    #    storage tables live in the same database but are the gateway's — read
+    #    only, and skipped entirely when they are not there (local API-only dev).
+    try:
+        await conn.execute(
+            "UPDATE documents d "
+            "   SET size_bytes = COALESCE(n.size_bytes, 0), "
+            "       mime_type  = COALESCE(n.mime_type, ''), "
+            "       name       = CASE WHEN d.name = '' THEN COALESCE(n.name, '') ELSE d.name END "
+            "  FROM storage_nodes n "
+            " WHERE n.id::text = d.file_ref AND d.size_bytes = 0")
+    except Exception:
+        # No storage tables here. Names still resolve live in the client, and
+        # the next upload stamps its own size — a missing backfill is a cosmetic
+        # gap, never a reason to abort every other migration on this boot.
+        pass
+
+    # 4. Anything still nameless is named for what it is, so no row in the vault
+    #    ever renders blank.
+    await conn.execute(
+        "UPDATE documents SET name = CASE WHEN doc_type = '' OR doc_type = 'other' "
+        "                                 THEN 'Document' ELSE initcap(replace(doc_type, '_', ' ')) END "
+        " WHERE name = ''")
+
+
 async def init_db() -> None:
     async with pool.connection() as conn:
         # Serialize concurrent worker startups: the pod runs `uvicorn --workers N`
@@ -4165,6 +4629,7 @@ async def init_db() -> None:
         await conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS parcel_photos_one_cover_idx "
             "ON parcel_photos (parcel_id) WHERE is_cover")
+        await ensure_property_photos_schema(conn)
         # Ciphertext only — the masked token stays in aadhaar_masked for display.
         await conn.execute(
             "ALTER TABLE family_members ADD COLUMN IF NOT EXISTS aadhaar_enc TEXT NOT NULL DEFAULT ''")
@@ -4404,6 +4869,47 @@ async def init_db() -> None:
         await conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_user_id TEXT NOT NULL DEFAULT 'system'")
         await conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS passbook_id TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS property_id TEXT NOT NULL DEFAULT ''")
+        # ── The vault, layer 1: the FILE's own facts ──────────────────────
+        # `documents` was a pointer at a storage node and nothing else, so the
+        # apps had to ask the storage gateway what each file was CALLED — one
+        # request per row, none of it available offline, and no size at all.
+        # A file knows its own name, weight and kind; it says so here.
+        for _col, _type in (("name", "TEXT"), ("mime_type", "TEXT"), ("reading_id", "TEXT")):
+            await conn.execute(
+                f"ALTER TABLE documents ADD COLUMN IF NOT EXISTS {_col} TEXT NOT NULL DEFAULT ''")
+        await conn.execute(
+            "ALTER TABLE documents ADD COLUMN IF NOT EXISTS size_bytes BIGINT NOT NULL DEFAULT 0")
+        # The vault lists layer 1 and filters it by owner; both are hot.
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(owner_user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_reading ON documents(reading_id)")
+
+        # ── The paper trail: a document that follows another document ─────
+        # "Bought from A, sold on to C" is two deeds and ONE fact — that the
+        # second cites the first. Without an edge the chain of title is two
+        # unrelated rows, and the reader's own citation (reading.links[]) can
+        # never become more than a dashed card saying "cited, not filed".
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS document_links (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL DEFAULT '',
+                from_document_id TEXT NOT NULL,
+                to_document_id TEXT NOT NULL,
+                relation TEXT NOT NULL DEFAULT 'prior_title',
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        # One edge per (pair, relation) — what makes linking idempotent under
+        # a retried mutation from the iOS write queue.
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS document_links_unique "
+            "ON document_links (from_document_id, to_document_id, relation)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_links_from ON document_links(from_document_id)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_links_to ON document_links(to_document_id)")
+
+        await _backfill_vault_layer_one(conn)
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS beneficiaries (
@@ -4750,6 +5256,31 @@ async def init_db() -> None:
             )
         """)
 
+        # Mutation replay ledger for IdempotencyMiddleware. The composite
+        # PRIMARY KEY is the claim primitive: on an autocommit pool an
+        # INSERT-or-conflict is the only race-safe "first request wins" across
+        # workers and replicas. status is 'pending' while the mutation runs,
+        # 'completed' once its response body is memoized in `response`
+        # (NULL response = completed but too large to replay).
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                owner_user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                status TEXT NOT NULL,
+                response TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (owner_user_id, key)
+            )
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_idempotency_created ON idempotency_keys(created_at)")
+        # Replays only matter inside a client's retry window; sweep old rows at
+        # boot so the ledger can't grow unbounded. created_at is ISO-8601 text,
+        # so the string comparison is chronological.
+        await conn.execute("DELETE FROM idempotency_keys WHERE created_at < %s",
+                           (_idem_sweep_cutoff(datetime.utcnow()),))
+
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS deed_types (
                 id TEXT PRIMARY KEY,
@@ -5048,7 +5579,283 @@ async def init_db() -> None:
                          "Boundary re-measurement report — Kurnool parcel", "2026-07-15"),
                     ],
                 )
+        # Web 360 (W01–W15): its own tables + column additions, all idempotent.
+        # Runs inside the same advisory lock so concurrent workers can't race
+        # the DDL, and last so a failure here cannot strand the core schema.
+        web360.bind(pool, _uid_from_info)
+        await web360.ensure_schema(conn)
+
         await conn.execute("SELECT pg_advisory_unlock(918273645)")
+
+
+# ── Idempotency layer ─────────────────────────────────────────────────
+# Mobile clients retry mutations on flaky rural networks; without a guard a
+# retried createPassbook or recordPayment lands twice. Any POST /graphql
+# mutation carrying an x-idempotency-key executes at most once per
+# (user, key): the first request claims the key, memoizes the response, and
+# every duplicate gets that response replayed verbatim. The decision logic
+# lives in small pure functions so it is testable without a database.
+
+_IDEM_MUTATION_RE = re.compile(r"^\s*mutation\b")
+_IDEM_NAME_RE = re.compile(r"^\s*mutation\s+([_A-Za-z][_0-9A-Za-z]*)")
+_IDEM_PENDING_TTL = 300.0        # seconds before a 'pending' claim is presumed dead
+_IDEM_SWEEP_DAYS = 7             # replay window; older rows are swept at boot
+_IDEM_MAX_RESPONSE = 256 * 1024  # bigger bodies complete unreplayable (409 on dupes)
+
+
+def _idem_is_mutation(query: str) -> bool:
+    """True only for documents that open with the mutation keyword — queries,
+    introspection and the `{...}` query shorthand pass through unguarded."""
+    return bool(_IDEM_MUTATION_RE.match(query or ""))
+
+
+def _idem_operation(query: str) -> str:
+    """Diagnostic label for the claim row: the mutation's name when it has one,
+    else a short content hash. Never part of the uniqueness scope."""
+    m = _IDEM_NAME_RE.match(query or "")
+    if m:
+        return m.group(1)
+    return hashlib.sha256((query or "").encode()).hexdigest()[:12]
+
+
+def _idem_classify(body: bytes, headers: dict) -> Optional[tuple]:
+    """(uid, key, operation) when this request must be guarded, else None.
+    `headers` is a plain lowercase-keyed dict so the decision is pure. A body
+    that isn't a JSON GraphQL document passes through — the router's own
+    error handling is the right place for it to fail."""
+    key = (headers.get("x-idempotency-key") or "").strip()
+    if not key:
+        return None
+    try:
+        query = json.loads(body).get("query") or ""
+    except Exception:
+        return None
+    if not isinstance(query, str) or not _idem_is_mutation(query):
+        return None
+    # Same identity the resolvers use (_uid_from_info); "system" scopes keys
+    # for callers the gateway sends without a user id.
+    uid = (headers.get("x-user-id") or "").strip() or "system"
+    return uid, key, _idem_operation(query)
+
+
+def _idem_stale(created_at: str, now: datetime) -> bool:
+    """A 'pending' claim older than the TTL belongs to a crashed worker and may
+    be taken over. An unparseable timestamp counts as stale so a corrupt row
+    can never wedge its key forever."""
+    try:
+        return (now - datetime.fromisoformat(created_at)).total_seconds() >= _IDEM_PENDING_TTL
+    except (TypeError, ValueError):
+        return True
+
+
+def _idem_sweep_cutoff(now: datetime) -> str:
+    """ISO-8601 cutoff for the boot sweep — the same text format the rows are
+    written in, so SQL `<` compares chronologically."""
+    return (now - timedelta(days=_IDEM_SWEEP_DAYS)).isoformat()
+
+
+def _idem_errors_body(message: str) -> bytes:
+    """GraphQL-shaped error body so clients reuse their normal error path."""
+    return json.dumps({"errors": [{"message": message}]}).encode()
+
+
+def _idem_success(status: int, body: bytes) -> bool:
+    """Only a clean 200 with no GraphQL errors is worth memoizing — anything
+    else releases the claim so a genuine retry re-executes."""
+    if status != 200:
+        return False
+    try:
+        parsed = json.loads(body)
+    except Exception:
+        return False
+    return isinstance(parsed, dict) and not parsed.get("errors")
+
+
+_IDEM_GONE_MSG = ("this filing already reached the server once and its answer "
+                  "is no longer available; check the vault before retrying")
+
+
+def _idem_duplicate_verdict(row: dict, now: datetime) -> tuple:
+    """What a duplicate request gets, decided from the claim row alone:
+    ('replay', body) completed with a stored response; ('gone', body)
+    completed but unreplayable — 410, the client must check the vault, never
+    re-execute; ('conflict', body) genuinely in flight — 409, back off and
+    retry; ('expire', None) stale pending claim. A stale claim is NOT re-run:
+    a worker that died after committing but before settling leaves 'pending',
+    and re-executing would mint a duplicate — the middleware seals it as
+    completed-unreplayable instead."""
+    if row["status"] == "completed":
+        if row["response"] is None:
+            return "gone", _idem_errors_body("replay unavailable; response too large")
+        return "replay", row["response"].encode()
+    if _idem_stale(row["created_at"], now):
+        return "expire", None
+    return "conflict", _idem_errors_body("duplicate request in flight")
+
+
+class IdempotencyMiddleware:
+    """Pure ASGI (not BaseHTTPMiddleware): the guarded body must be read once,
+    replayed downstream, and the response captured without a second buffering
+    layer mangling streamed bodies. Fails open — an idempotency-table outage
+    degrades to unguarded writes, never to an API outage."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("method") != "POST" \
+                or not (scope.get("path") or "").endswith("/graphql"):
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1"): v.decode("latin-1")
+                   for k, v in (scope.get("headers") or [])}
+        if not (headers.get("x-idempotency-key") or "").strip():
+            return await self.app(scope, receive, send)
+
+        # From here the body must be buffered: both the guard decision and the
+        # downstream handler need to read it.
+        body = b""
+        while True:
+            msg = await receive()
+            if msg["type"] == "http.disconnect":
+                return
+            body += msg.get("body", b"")
+            if not msg.get("more_body"):
+                break
+
+        replayed = False
+
+        async def replay_receive():
+            nonlocal replayed
+            if replayed:
+                # Delegate to the server's receive: downstream code that polls
+                # for disconnect must pend until a REAL one, not see a synthetic
+                # instant hangup that would abort a live request.
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        claim = _idem_classify(body, headers)
+        if claim is None:
+            return await self.app(scope, replay_receive, send)
+        uid, key, op = claim
+
+        now = datetime.utcnow()
+        payload = b""
+        try:
+            async with pool.connection() as conn:
+                cur = await conn.execute(
+                    "INSERT INTO idempotency_keys (owner_user_id, key, operation, status, created_at) "
+                    "VALUES (%s, %s, %s, 'pending', %s) ON CONFLICT (owner_user_id, key) DO NOTHING",
+                    (uid, key, op, now.isoformat()))
+                if cur.rowcount == 1:
+                    verdict = "claimed"
+                else:
+                    cur = await conn.execute(
+                        "SELECT status, response, created_at FROM idempotency_keys "
+                        "WHERE owner_user_id=%s AND key=%s", (uid, key))
+                    row = await cur.fetchone()
+                    if row is None:
+                        # The conflicting claim was released between our INSERT
+                        # and SELECT (its request failed). Rare enough to run
+                        # unguarded rather than loop on re-claiming.
+                        verdict = "unguarded"
+                    else:
+                        verdict, payload = _idem_duplicate_verdict(row, now)
+                        if verdict == "expire":
+                            # Seal the abandoned claim, stamp-guarded so exactly
+                            # one of N simultaneous duplicates does. The losing
+                            # racer re-reads and answers from the row's new state.
+                            cur = await conn.execute(
+                                "UPDATE idempotency_keys SET status='completed', response=NULL "
+                                "WHERE owner_user_id=%s AND key=%s AND status='pending' AND created_at=%s",
+                                (uid, key, row["created_at"]))
+                            if cur.rowcount == 1:
+                                verdict, payload = "gone", _idem_errors_body(_IDEM_GONE_MSG)
+                            else:
+                                cur = await conn.execute(
+                                    "SELECT status, response, created_at FROM idempotency_keys "
+                                    "WHERE owner_user_id=%s AND key=%s", (uid, key))
+                                row = await cur.fetchone()
+                                if row is None:
+                                    # The stalled original failed and released
+                                    # while we raced — nothing committed, so a
+                                    # retry may run; tell the client to retry.
+                                    verdict, payload = "conflict", _idem_errors_body(
+                                        "duplicate request in flight")
+                                else:
+                                    verdict, payload = _idem_duplicate_verdict(row, now)
+                                    if verdict == "expire":
+                                        verdict, payload = "gone", _idem_errors_body(_IDEM_GONE_MSG)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("idempotency.claim_failed (running unguarded): %r", exc)
+            verdict = "unguarded"
+
+        if verdict == "unguarded":
+            return await self.app(scope, replay_receive, send)
+        if verdict == "replay":
+            return await self._send_json(send, 200, payload,
+                                         ((b"x-idempotent-replay", b"1"),))
+        if verdict == "conflict":
+            return await self._send_json(send, 409, payload)
+        if verdict == "gone":
+            return await self._send_json(send, 410, payload)
+
+        # Fresh claim: run the mutation, capture what it answered, then either
+        # memoize it or release the claim so a genuine retry re-executes.
+        status = 0
+        chunks: list = []
+
+        async def capture_send(message):
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+            elif message["type"] == "http.response.body":
+                chunks.append(message.get("body", b""))
+            await send(message)
+
+        stamp = now.isoformat()
+        try:
+            await self.app(scope, replay_receive, capture_send)
+        except BaseException:
+            await self._settle(uid, key, stamp, ok=False, body=b"")
+            raise
+        out = b"".join(chunks)
+        await self._settle(uid, key, stamp, ok=_idem_success(status, out), body=out)
+
+    async def _settle(self, uid: str, key: str, stamp: str, ok: bool, body: bytes) -> None:
+        """Completion is best-effort: if it fails the claim stays pending until a
+        duplicate expires it, instead of failing the request. Every statement is
+        guarded on the stamp this request wrote at claim time — a settle arriving
+        after the claim was expired-and-recycled must no-op, not clobber the row
+        another request now owns."""
+        try:
+            async with pool.connection() as conn:
+                if not ok:
+                    await conn.execute(
+                        "DELETE FROM idempotency_keys "
+                        "WHERE owner_user_id=%s AND key=%s AND created_at=%s",
+                        (uid, key, stamp))
+                elif len(body) > _IDEM_MAX_RESPONSE:
+                    # Completed for real — never re-execute — but too large to
+                    # memoize; duplicates get an explicit 410 instead.
+                    await conn.execute(
+                        "UPDATE idempotency_keys SET status='completed', response=NULL "
+                        "WHERE owner_user_id=%s AND key=%s AND created_at=%s",
+                        (uid, key, stamp))
+                else:
+                    await conn.execute(
+                        "UPDATE idempotency_keys SET status='completed', response=%s "
+                        "WHERE owner_user_id=%s AND key=%s AND created_at=%s",
+                        (body.decode("utf-8", "replace"), uid, key, stamp))
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("idempotency.settle_failed for key %s: %r", key, exc)
+
+    @staticmethod
+    async def _send_json(send, status: int, body: bytes, extra: tuple = ()) -> None:
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode())] + list(extra)})
+        await send({"type": "http.response.body", "body": body})
 
 
 # ── FastAPI App ───────────────────────────────────────────────────────
@@ -5073,6 +5880,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+# Outermost, so replays and 409s short-circuit before any routing runs.
+app.add_middleware(IdempotencyMiddleware)
 
 async def _graphql_context(request: Request) -> dict:
     # Expose the incoming request so resolvers can read the gateway-injected

@@ -73,7 +73,7 @@ struct AttachDocumentSheet: View {
                         Section("What matches") {
                             ForEach(m.agreements, id: \.self) { a in
                                 Label(a, systemImage: "checkmark.circle.fill")
-                                    .font(.subheadline).foregroundStyle(.green)
+                                    .font(.subheadline).foregroundStyle(Palette.success)
                             }
                         }
                     }
@@ -81,7 +81,7 @@ struct AttachDocumentSheet: View {
                         Section {
                             ForEach(m.conflicts, id: \.self) { c in
                                 Label(c, systemImage: "exclamationmark.triangle.fill")
-                                    .font(.subheadline).foregroundStyle(.red)
+                                    .font(.subheadline).foregroundStyle(Palette.danger)
                             }
                         } header: {
                             Text("What does not match")
@@ -95,7 +95,7 @@ struct AttachDocumentSheet: View {
                     if m.isSafeToSuggest, let proposed = proposedExtent(r), proposed.0 > 0 {
                         Section {
                             Toggle(isOn: $applyExtent) {
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: Space.hair) {
                                     Text("Use the deed's extent").font(.subheadline)
                                     Text("\(areaText(currentExtentAcres, .acre)) → \(areaText(proposed.0, .acre))")
                                         .font(.caption).foregroundStyle(.secondary)
@@ -109,7 +109,7 @@ struct AttachDocumentSheet: View {
                     }
 
                     if !problem.isEmpty {
-                        Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                        Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                     }
 
                     Section {
@@ -124,7 +124,7 @@ struct AttachDocumentSheet: View {
                             .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(m.level == .mismatch ? .red : .accentColor)
+                        .tint(m.level == .mismatch ? Palette.danger : .accentColor)
                         .disabled(working)
 
                         // The honest exit for a wrong paper: it is not this
@@ -193,9 +193,9 @@ struct AttachDocumentSheet: View {
     }
     private func verdictColour(_ m: DocumentMatch) -> Color {
         switch m.level {
-        case .strong: .green
-        case .weak: .orange
-        case .mismatch: .red
+        case .strong: Palette.success
+        case .weak: Palette.caution
+        case .mismatch: Palette.danger
         }
     }
 

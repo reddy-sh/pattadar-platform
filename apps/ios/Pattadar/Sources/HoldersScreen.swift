@@ -68,13 +68,13 @@ struct HoldersScreen: View {
 
             ForEach(holders) { holder in
                 Section {
-                    HStack(spacing: 12) {
+                    HStack(spacing: Space.md) {
                         Text(initials(holder.name))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(width: 38, height: 38)
                             .background(Circle().fill(holder.id.isEmpty ? Color.gray : Color.accentColor))
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             Text(holder.name).font(.headline)
                             Text(summary(holder)).font(.caption).foregroundStyle(.secondary)
                         }
@@ -90,7 +90,7 @@ struct HoldersScreen: View {
                         // dispute.
                         Label("No name recorded against this land. Whoever inherits it will have to prove who held it.",
                               systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(.caption).foregroundStyle(Palette.caution)
                     }
                 }
             }

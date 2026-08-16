@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import psycopg
 
@@ -109,6 +109,27 @@ def _camel(row: dict, mapping: dict) -> dict:
             v = v.isoformat()
         out[key] = v
     return out
+
+
+def next_free_name(name: str, taken: Callable[[str], bool]) -> str:
+    """`deed.pdf` → `deed (2).pdf` → `deed (3).pdf`, skipping names in use.
+
+    Pure but for the `taken` predicate, so the naming rule can be tested
+    without a database. The extension is preserved because the suffix goes
+    before it — `deed.pdf (2)` would not open on a desktop.
+
+    Bounded at 100: past a hundred copies of one filename the person has a
+    different problem, and an unbounded search here is a request that never
+    returns.
+    """
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    for n in range(2, 101):
+        candidate = f"{stem} ({n}){'.' + ext if ext else ''}"
+        if not taken(candidate):
+            return candidate
+    raise StorageConflict(f"too many files here already named '{name}'")
 
 
 # ---------------------------------------------------------------------------
@@ -329,23 +350,42 @@ class StorageService:
         org_id: str = ORG_ID,
         workspace_id: str = WORKSPACE_ID,
         app_id: Optional[str] = None,
+        on_conflict: str = "version",
     ) -> dict:
+        """Store bytes as a file node.
+
+        `on_conflict` decides what a same-named live file in the same folder
+        means:
+
+        * ``version`` — add a new version to it (the original behaviour).
+        * ``duplicate`` — keep BOTH, giving the newcomer a suffixed name.
+
+        The default stays ``version`` so existing callers are unaffected, but a
+        land vault wants ``duplicate``: two originals of the same deed are a
+        real thing people hold, and silently replacing the first copy's bytes
+        loses a document nobody asked to lose.
+        """
         name = (name or "document").strip()
         self._assert_folder(owner, parent_id)
         cols = ", ".join(_NODE_CAMEL.keys())
         size = len(data)
         mime = mime or "application/octet-stream"
 
-        # If a live file of the same name already exists here, add a NEW VERSION
-        # to it rather than a second node (Phase 3 versioning).
-        existing = db.query_native(
-            "storage_nodes",
-            "SELECT id FROM storage_nodes WHERE owner_id = %s "
-            "AND parent_id IS NOT DISTINCT FROM %s AND lower(name) = lower(%s) "
-            "AND kind = 'file' AND trashed_at IS NULL",
-            [owner, parent_id, name],
-            camel_case=False,
-        )
+        def _live_same_name(candidate: str) -> list:
+            return db.query_native(
+                "storage_nodes",
+                "SELECT id FROM storage_nodes WHERE owner_id = %s "
+                "AND parent_id IS NOT DISTINCT FROM %s AND lower(name) = lower(%s) "
+                "AND kind = 'file' AND trashed_at IS NULL",
+                [owner, parent_id, candidate],
+                camel_case=False,
+            )
+
+        existing = _live_same_name(name)
+        if existing and on_conflict == "duplicate":
+            name = next_free_name(name, lambda c: bool(_live_same_name(c)))
+            existing = []
+
         if existing:
             nid = str(existing[0]["id"])
             vid = str(uuid.uuid4())

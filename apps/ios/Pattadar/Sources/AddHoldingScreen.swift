@@ -71,7 +71,7 @@ struct AddHoldingScreen: View {
 
                 if let r = route {
                     Section {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: Space.sm) {
                             Label(headline(for: r), systemImage: icon(for: r))
                                 .font(.subheadline.weight(.medium))
                             Text(explanation(for: r))

@@ -23,7 +23,7 @@ struct PassbooksScreen: View {
                                 Label("Delete", systemImage: "trash.fill")
                             }
                             Button { editing = pb } label: { Label("Edit", systemImage: "pencil.line") }
-                                .tint(.blue)
+                                .tint(Palette.accent)
                         }
                 }
                 if loaded && passbooks.isEmpty {
@@ -64,7 +64,7 @@ struct PassbooksScreen: View {
 
     @ViewBuilder
     private func passbookRow(_ pb: PassbookDetail) -> some View {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         HStack {
                             Text(pb.pattadarNo.isEmpty ? "Passbook" : pb.pattadarNo).fontWeight(.semibold)
                             Spacer(minLength: 12)

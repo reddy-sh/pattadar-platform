@@ -116,7 +116,7 @@ public func propertyAreaText(landArea: Double, landUnit: String) -> String {
 ///
 /// Adding them into a single total is not a summary, it is a category error:
 /// 27 acres of farmland and 400 sq yd of sites are not one number.
-public enum HoldingKind: String, CaseIterable, Sendable {
+public enum HoldingKind: String, CaseIterable, Codable, Sendable {
     case farmland, plot, home, commercial
 
     public static func of(propertyType: String) -> HoldingKind {
@@ -164,6 +164,19 @@ public enum HoldingKind: String, CaseIterable, Sendable {
         case .farmland: .acre
         case .plot: .sqyd
         case .home, .commercial: .sqft
+        }
+    }
+
+    /// The unit as a person SAYS it — "acres", not "Acres"; "sq. yd", not
+    /// "Sq. yards". For where the figure beside it is already large enough to
+    /// carry the sentence. Here rather than on a card, because the dashboard
+    /// and the Home Screen widget are two processes drawing the same row.
+    public var shortUnit: String {
+        switch unit {
+        case .acre: "acres"
+        case .sqyd: "sq. yd"
+        case .sqft: "sq. ft"
+        default: unit.label
         }
     }
 }

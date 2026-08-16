@@ -22,7 +22,7 @@ struct FormRow: View {
 
     var body: some View {
         LabeledContent {
-            HStack(spacing: 4) {
+            HStack(spacing: Space.xs) {
                 TextField(prompt.isEmpty ? label : prompt, text: $text)
                     .multilineTextAlignment(.trailing)
                     .keyboardType(keyboard)
@@ -31,10 +31,10 @@ struct FormRow: View {
                 }
             }
         } label: {
-            HStack(spacing: 2) {
+            HStack(spacing: Space.hair) {
                 Text(label)
                 if required && text.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Text("*").foregroundStyle(.red)
+                    Text("*").foregroundStyle(Palette.danger)
                 }
             }
         }
@@ -59,12 +59,12 @@ struct PrimaryButton: View {
                 Text(title).fontWeight(.semibold)
                 Spacer()
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, Space.sm)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .disabled(disabled || busy)
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.lg, bottom: Space.sm, trailing: Space.lg))
         .listRowBackground(Color.clear)
     }
 }

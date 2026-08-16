@@ -21,7 +21,22 @@ public struct PattadarAPI: Sendable {
         /// change.
         public var authorization: String
         public init(baseURL: URL, userID: String, authorization: String = "") {
-            self.baseURL = baseURL
+            // ALWAYS with a trailing slash, whatever the plist or the
+            // environment said.
+            //
+            // Without it the server answers every request with a 307 to the
+            // slashed path — and builds that redirect from the scheme it sees
+            // behind the load balancer, which is http. curl follows the
+            // downgrade and reaches the API; iOS does not. App Transport
+            // Security blocks the cleartext hop, so on a phone every single
+            // production request died on a redirect, and the screens sat
+            // loading for ever. One character, and it is not the kind of
+            // character anybody notices in a plist — so it is enforced here
+            // rather than trusted there.
+            let text = baseURL.absoluteString
+            self.baseURL = text.hasSuffix("/")
+                ? baseURL
+                : (URL(string: text + "/") ?? baseURL)
             self.userID = userID
             self.authorization = authorization
         }
@@ -49,6 +64,60 @@ public struct PattadarAPI: Sendable {
         case emptyExtraction(String)
         /// The person stopped it. Not a failure, and must not be reported as one.
         case cancelled
+
+        /// Put an error from URLSession into this app's vocabulary.
+        ///
+        /// The screen prints whatever it is handed, and `APIError` is
+        /// `CustomStringConvertible` — so an error that arrives as one gets a
+        /// plain sentence for free, and a raw `NSError` gets
+        /// `Error Domain=NSURLErrorDomain Code=-999 … UserInfo={…}` in red
+        /// across a farmer's screen instead. Both upload paths convert here so
+        /// the foreground and the background cannot disagree about what a
+        /// stopped read is: the background one used to hand the raw error
+        /// straight out, and a tapped "Stop" was reported as a failure.
+        public static func from(_ error: Error) -> PattadarAPI.APIError {
+            if let already = error as? PattadarAPI.APIError { return already }
+            if error is CancellationError { return .cancelled }
+            guard let url = error as? URLError else {
+                return .transport(sentence(error.localizedDescription))
+            }
+            return url.code == .cancelled ? .cancelled : .transport(describeTransport(url))
+        }
+
+        /// A sentence for a connection failure.
+        ///
+        /// The same rule `describeHTTP` follows for HTML: say what the
+        /// situation IS rather than quoting the machinery.
+        /// `localizedDescription` is usually a sentence, but an error carrying
+        /// no localisation falls back to "The operation couldn't be completed.
+        /// (NSURLErrorDomain error -1004.)", which is machine text wearing a
+        /// full stop.
+        static func describeTransport(_ url: URLError) -> String {
+            switch url.code {
+            case .notConnectedToInternet:
+                "No internet connection."
+            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+                 .networkConnectionLost, .timedOut, .secureConnectionFailed:
+                // The everyday one: the server named in the build is not
+                // answering — a local stack that is not running, or no route
+                // to it from where the phone is standing.
+                "Couldn’t reach the server."
+            default:
+                sentence(url.localizedDescription)
+            }
+        }
+
+        /// Machine text is never the message. Anything that still smells of an
+        /// `NSError` is replaced rather than shown.
+        static func sentence(_ text: String) -> String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let mechanical = trimmed.isEmpty
+                || trimmed.contains("NSURLErrorDomain")
+                || trimmed.contains("UserInfo")
+                || trimmed.contains("Code=")
+                || trimmed.contains("error -")
+            return mechanical ? "The connection failed." : trimmed
+        }
 
         public var description: String {
             switch self {
@@ -98,14 +167,37 @@ public struct PattadarAPI: Sendable {
     ///
     /// GraphQL answers 200 with an `errors` array, so a status check alone
     /// reports success for a failed query. Both are checked.
+    ///
+    /// Extra `headers` ride on this one request — the write queue uses this
+    /// to attach `x-idempotency-key` so a retried mutation can never land
+    /// twice.
     public func query<T: Decodable>(
         _ document: String,
         variables: [String: any Sendable] = [:],
-        as: T.Type = T.self
+        as: T.Type = T.self,
+        headers: [String: String] = [:]
     ) async throws -> T {
+        let data = try await queryBody(document, variables: variables, headers: headers)
+        let env = try JSONDecoder().decode(GraphQLEnvelope<T>.self, from: data)
+        guard let payload = env.data else { throw APIError.graphQL(["no data returned"]) }
+        return payload
+    }
+
+    /// The validated raw response body: status checked, `errors` empty, `data`
+    /// present. Bytes rather than a decoded value so the response cache can
+    /// keep the wire truth verbatim — the Decodable structs drop fields their
+    /// screens do not read; the bytes drop nothing.
+    public func queryBody(
+        _ document: String,
+        variables: [String: any Sendable] = [:],
+        headers: [String: String] = [:]
+    ) async throws -> Data {
         var r = request("graphql")
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (name, value) in headers {
+            r.setValue(value, forHTTPHeaderField: name)
+        }
         r.httpBody = try JSONSerialization.data(
             withJSONObject: ["query": document, "variables": variables]
         )
@@ -114,19 +206,23 @@ public struct PattadarAPI: Sendable {
         do {
             (data, response) = try await session.data(for: r)
         } catch {
-            throw APIError.transport(error.localizedDescription)
+            // Through the same converter the uploads use, so a query and an
+            // upload describe one dead server with one sentence — and so the
+            // screens can tell "never reached the server" from "the server
+            // said no" without matching on NSError text.
+            throw APIError.from(error)
         }
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             throw APIError.http(code, String(data: data, encoding: .utf8) ?? "")
         }
 
-        let env = try JSONDecoder().decode(GraphQLEnvelope<T>.self, from: data)
-        if let errors = env.errors, !errors.isEmpty {
-            throw APIError.graphQL(errors.map(\.message))
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let errors = obj?["errors"] as? [[String: Any]], !errors.isEmpty {
+            throw APIError.graphQL(errors.compactMap { $0["message"] as? String })
         }
-        guard let payload = env.data else { throw APIError.graphQL(["no data returned"]) }
-        return payload
+        guard obj?["data"] is [String: Any] else { throw APIError.graphQL(["no data returned"]) }
+        return data
     }
 
     // MARK: - AI extraction
@@ -156,12 +252,8 @@ public struct PattadarAPI: Sendable {
                 headers: headers,
                 mimeType: mimeType,
                 onProgress: onProgress)
-        } catch is CancellationError {
-            throw APIError.cancelled
-        } catch let e as URLError where e.code == .cancelled {
-            throw APIError.cancelled
         } catch {
-            throw APIError.transport(error.localizedDescription)
+            throw APIError.from(error)
         }
 
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]

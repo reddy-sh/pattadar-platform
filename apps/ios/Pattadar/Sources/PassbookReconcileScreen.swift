@@ -37,7 +37,7 @@ struct PassbookReconcileScreen: View {
         NavigationStack {
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Label("You already have this passbook", systemImage: "doc.on.doc.fill")
                             .font(.subheadline.weight(.medium))
                         Text("Khata \(diff.passbook.pattadarNo) in \(diff.passbook.village). Nothing is added twice — this reading is compared against what you hold.")
@@ -48,7 +48,7 @@ struct PassbookReconcileScreen: View {
                 if diff.isIdentical {
                     Section {
                         Label("Nothing has changed", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Palette.success)
                         Text("This passbook reads exactly as it does on file — \(diff.unchanged.count) survey \(diff.unchanged.count == 1 ? "number" : "numbers"), same extents.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -140,7 +140,7 @@ struct PassbookReconcileScreen: View {
                 }
 
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
             }
             .navigationTitle("Review changes")
@@ -151,7 +151,7 @@ struct PassbookReconcileScreen: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 8) {
+                VStack(spacing: Space.sm) {
                     Button {
                         Task { await apply() }
                     } label: {
@@ -293,15 +293,15 @@ private struct DecisionRow: View {
     var acceptLabel = "Use this"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             HStack {
                 Text(title).font(.body.weight(.medium))
                 Spacer()
                 Toggle(acceptLabel, isOn: $take)
                     .labelsHidden()
-                    .tint(destructive ? .red : .accentColor)
+                    .tint(destructive ? Palette.danger : .accentColor)
             }
-            HStack(spacing: 8) {
+            HStack(spacing: Space.sm) {
                 if let was {
                     Text(was)
                         .strikethrough(take && now != nil || (take && destructive), color: .secondary)
@@ -317,12 +317,12 @@ private struct DecisionRow: View {
                 if now == nil && destructive {
                     Text(take ? "will be removed" : "kept")
                         .font(.caption)
-                        .foregroundStyle(take ? .red : .secondary)
+                        .foregroundStyle(take ? Palette.danger : .secondary)
                 }
             }
             .font(.subheadline)
             Text(note).font(.caption2).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Space.hair)
     }
 }

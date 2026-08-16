@@ -39,8 +39,14 @@ BASE_URL="http://${LAN_IP}:${BRIDGE_PORT}/api/gateway/pattadar"
 # The bundle plist carries the URL, so the override happens at generate time
 # and is UNDONE the moment this script exits, however it exits.
 cd "$IOS_DIR"
+# A hard-killed earlier run leaves the LAN URL in project.yml and the clean
+# file in the backup — restore it first, or the cp below buries the clean
+# copy under the dirty one and every later "restore" restores the LAN URL.
+[ -f project.yml.phone-local-backup ] && mv -f project.yml.phone-local-backup project.yml
 cp project.yml project.yml.phone-local-backup
 trap 'cd "$IOS_DIR"; mv -f project.yml.phone-local-backup project.yml; xcodegen generate >/dev/null 2>&1 || true' EXIT
+# Ctrl-C and kill must reach the EXIT trap; an untrapped signal skips it.
+trap 'exit 143' INT TERM
 
 python3 - "$BASE_URL" <<'PY'
 import sys
@@ -56,8 +62,12 @@ PY
 
 echo "» xcodegen + device build (this is the slow part)…"
 xcodegen generate >/dev/null
+# -allowProvisioningUpdates: see the note in apps/ios/verify.sh. Signing into
+# Xcode is not enough — xcodebuild will not create a profile from the command
+# line without this, and the failure reads as a missing account.
 xcodebuild -project Pattadar.xcodeproj -scheme Pattadar \
-  -destination "id=${DEVICE_ID}" -derivedDataPath build-device -quiet build
+  -destination "id=${DEVICE_ID}" -derivedDataPath build-device \
+  -allowProvisioningUpdates -quiet build
 xcrun devicectl device install app --device "$DEVICE_ID" \
   build-device/Build/Products/Debug-iphoneos/Pattadar.app
 echo "» installed — the phone now talks to this laptop."
@@ -70,7 +80,9 @@ echo "   applies — but run this only on a trusted Wi-Fi). Ctrl-C to stop."
 echo ""
 echo "   When everything tests clean:  cd apps/ios && ./verify.sh   (production"
 echo "   build back on the phone), then push the api image and roll ECS once."
-exec python3 - "$LAN_IP" "$BRIDGE_PORT" <<'PY'
+# NOT exec: exec replaces bash with the bridge, and the EXIT trap dies with
+# it — the very reason killed runs kept stranding the LAN URL in project.yml.
+python3 - "$LAN_IP" "$BRIDGE_PORT" <<'PY'
 import socket, socketserver, sys, threading
 LAN, PORT = sys.argv[1], int(sys.argv[2])
 class Fwd(socketserver.ThreadingTCPServer):

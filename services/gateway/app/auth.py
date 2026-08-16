@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
+from jose import jwt as jose_jwt
 from jose.exceptions import JWTError
 
 from .cognito_jwt import CognitoJWTConfig, JWKSCache, verify_token
@@ -31,6 +32,12 @@ _log = logging.getLogger("pattadar.gateway.auth")
 proxy_client: Optional[httpx.AsyncClient] = None
 jwt_config: Optional[CognitoJWTConfig] = None
 jwks_cache: Optional[JWKSCache] = None
+#: Second trust root, LOCAL MODE ONLY (main.py sets these alongside the
+#: laptop keypair): the real pool, so a phone signed in through the actual
+#: hosted UI works against the laptop stack too. Both None in production —
+#: there the pool IS the primary and nothing widens.
+pool_jwt_config: Optional[CognitoJWTConfig] = None
+pool_jwks_cache: Optional[JWKSCache] = None
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +99,29 @@ async def validate_bearer(request: Request, *, strict: bool = True) -> Optional[
 
     try:
         claims = await verify_token(token, cfg, cache, http_client=proxy_client)
-    except (JWTError, Exception) as jwt_err:
-        _log.debug("JWT validation failed: %s", jwt_err)
-        raise _auth_error(401, "Invalid token", str(jwt_err))
+    except (JWTError, Exception) as primary_err:
+        pool_cfg, pool_cache = pool_jwt_config, pool_jwks_cache
+        if pool_cfg is None or pool_cache is None:
+            _log.debug("JWT validation failed: %s", primary_err)
+            raise _auth_error(401, "Invalid token", str(primary_err))
+        # Local loop, second trust root: the laptop key rightly rejected a
+        # token it did not sign — a phone that signed in through the real
+        # hosted UI carries a pool token, so the pool's JWKS gets its say.
+        try:
+            claims = await verify_token(token, pool_cfg, pool_cache, http_client=proxy_client)
+        except (JWTError, Exception) as pool_err:
+            # Both roots said no. Report the verdict of the root the token
+            # was AIMED at — the kid names it — so an expired dev-door
+            # token reads "expired", not "unknown kid" from a pool it
+            # never came from.
+            try:
+                token_kid = jose_jwt.get_unverified_header(token).get("kid")
+            except Exception:
+                token_kid = None
+            aimed_local = token_kid is not None and token_kid == getattr(cache, "kid", None)
+            err = primary_err if aimed_local else pool_err
+            _log.debug("JWT validation failed against both trust roots: %s", err)
+            raise _auth_error(401, "Invalid token", str(err))
 
     request.state.token_claims = claims
     return claims

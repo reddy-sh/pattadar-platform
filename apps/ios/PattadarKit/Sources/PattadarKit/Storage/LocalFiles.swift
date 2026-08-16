@@ -2,11 +2,12 @@ import Foundation
 
 /// A permanent local copy of every document the user files.
 ///
-/// The API stores bytes in My Drive behind the gateway, which needs a Cognito
-/// access token this client does not have yet. Without a local copy a filed
-/// document would be a row with nothing to open — which is exactly the state
-/// the RN app spent a day in. So the file is copied into the app's Documents
-/// directory, keyed by document id, and opening never depends on the network.
+/// The write queue now uploads bytes to the storage gateway too, but the
+/// local copy stays primary: without it a filed document would be a row with
+/// nothing to open the moment the network is gone — which is exactly the
+/// state the RN app spent a day in. The file is copied into the app's
+/// Documents directory, keyed by document id, and opening never depends on
+/// the network.
 public struct LocalFile: Codable, Sendable {
     /// Filename on disk — unique, not for display.
     public let file: String
@@ -14,6 +15,11 @@ public struct LocalFile: Codable, Sendable {
     public let name: String
 }
 
+/// Main-actor isolated: the index file is read-modify-write, and since the
+/// write queue started saving from its own executor while screens delete on
+/// the main thread, an unserialized index would lose whichever entry wrote
+/// first. One actor, one order, no lost documents.
+@MainActor
 public enum LocalFiles {
     private static let indexName = "local-files.json"
 
@@ -49,6 +55,21 @@ public enum LocalFiles {
         map[documentID] = LocalFile(file: stored, name: displayName)
         try JSONEncoder().encode(map).write(to: indexURL, options: .atomic)
         return dest
+    }
+
+    /// Change the name a document is known by.
+    ///
+    /// Only the DISPLAY name moves; the file on disk keeps its id-keyed name,
+    /// which is what makes this safe to do offline and repeatedly. The stored
+    /// filename was never for reading — it is `doc-<id>.pdf` — so renaming
+    /// cannot break the link between a record and its bytes.
+    public static func rename(documentID: String, to displayName: String) throws {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        var map = all()
+        guard let entry = map[documentID] else { return }
+        map[documentID] = LocalFile(file: entry.file, name: name)
+        try JSONEncoder().encode(map).write(to: indexURL, options: .atomic)
     }
 
     /// Forget a document's file. Called when the document itself is deleted, so

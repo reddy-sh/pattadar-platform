@@ -144,6 +144,38 @@ public struct HoldingsResponse: Decodable, Sendable {
 
 public struct DocumentsResponse: Decodable, Sendable {
     public let registeredDocuments: [RegisteredDocument]
+    /// Layer 1 of the vault: every FILE, whether or not anything has read it.
+    /// Optional so a response from an older API — which had no such field —
+    /// still decodes rather than blanking the whole screen.
+    public let documents: [VaultFile]?
+}
+
+/// A file in the vault, before anybody has asked what it says.
+///
+/// The phone could only ever show papers that had been through the reader,
+/// which meant keeping a document cost an extraction. A file filed without one
+/// is a real thing to own — a photocopy, a receipt, a page somebody wants
+/// somewhere safe — and this is how it is listed.
+public struct VaultFile: Decodable, Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let docType: String
+    public let mimeType: String
+    public let sizeBytes: Int
+    public let fileRef: String
+    /// → the reading hanging off this file; empty while nothing has read it.
+    public let readingId: String
+    public let createdAt: String
+
+    /// Which shelf it sits on, from its type and its bytes.
+    public var family: String { documentFamily(docType, mimeType: mimeType) }
+
+    /// "1.4 MB", or nothing when the size was never recorded.
+    public var sizeText: String {
+        sizeBytes > 0
+            ? ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file)
+            : ""
+    }
 }
 
 /// "lat,lng" — the storage convention shared with the web app. Tolerates the
@@ -292,6 +324,24 @@ public struct ParcelWithOwners: Decodable, Identifiable, Sendable {
     public let owners: [ParcelOwner]
 }
 
+/// ParcelPhoto's shape for the non-agri Property entity — same evidence
+/// contract, different holding.
+public struct PropertyPhoto: Decodable, Identifiable, Sendable {
+    public let id: String
+    public let propertyId: String
+    public let fileRef: String
+    public let category: String
+    public let caption: String
+    /// nil, never 0 — 0,0 is a real place in the Atlantic.
+    public let latitude: Double?
+    public let longitude: Double?
+    public let heading: Double?
+    public let capturedAt: String
+    public let capturedBy: String
+    public let isCover: Bool
+    public let createdAt: String
+}
+
 public struct ParcelDossier: Decodable, Sendable {
     public let parcels: [ParcelWithOwners]
     public let parcelPhotos: [ParcelPhoto]
@@ -300,6 +350,7 @@ public struct ParcelDossier: Decodable, Sendable {
 }
 
 public struct PropertyDossier: Decodable, Sendable {
+    public let propertyPhotos: [PropertyPhoto]
     public let notes: [Note]
     public let auditEvents: [AuditEvent]
 }

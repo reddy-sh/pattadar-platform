@@ -16,11 +16,11 @@ struct WelcomeState: View {
     var showsGreeting = true
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: Space.xl) {
             if showsGreeting {
-                Text("🙏").font(.system(size: 54))
+                Text("🙏").font(.scaled(54))
 
-                VStack(spacing: 6) {
+                VStack(spacing: Space.sm) {
                     Text(name.isEmpty ? "Namaste" : "Namaste, \(name)")
                         .font(.title2.weight(.semibold))
                     Text("Your land, your records — in one place, and yours alone.")
@@ -29,21 +29,21 @@ struct WelcomeState: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 14) {
-                Step(icon: "doc.viewfinder", tint: .blue,
+            VStack(alignment: .leading, spacing: Space.lg) {
+                Step(icon: "doc.viewfinder", tint: Palette.accent,
                      title: "Scan a passbook or a deed",
                      detail: "The survey numbers, extent and village are read for you.")
-                Step(icon: "mappin.and.ellipse", tint: .green,
+                Step(icon: "mappin.and.ellipse", tint: Palette.success,
                      title: "Pin where the land actually is",
                      detail: "So it can be found again by someone who has never stood on it.")
-                Step(icon: "person.2.fill", tint: .pink,
+                Step(icon: "person.2.fill", tint: Palette.Category.home,
                      title: "Record who inherits",
                      detail: "Land with no stated succession is the argument that follows.")
             }
-            .padding(18)
-            .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemGroupedBackground)))
+            .padding(Space.xl)
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Palette.card))
 
-            VStack(spacing: 10) {
+            VStack(spacing: Space.md) {
                 Button(action: onScan) {
                     Label("Scan your first document", systemImage: "doc.viewfinder")
                         .frame(maxWidth: .infinity)
@@ -55,8 +55,8 @@ struct WelcomeState: View {
                     .font(.subheadline)
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 24)
+        .padding(.horizontal, Space.xs)
+        .padding(.vertical, Space.xxl)
     }
 
     private struct Step: View {
@@ -66,11 +66,11 @@ struct WelcomeState: View {
         let detail: String
 
         var body: some View {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: Space.md) {
                 Image(systemName: icon)
                     .font(.title3).foregroundStyle(tint)
                     .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(title).font(.subheadline.weight(.medium))
                     Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
@@ -115,8 +115,7 @@ struct Avatar: View {
     /// made the "stable" colour change every time the app opened; summing
     /// the scalars is dull but the same for ever.
     private var colour: Color {
-        let palette: [Color] = [.blue, .green, .orange, .pink, .purple, .teal, .indigo]
         let h = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
-        return palette[h % palette.count]
+        return Palette.avatars[h % Palette.avatars.count]
     }
 }

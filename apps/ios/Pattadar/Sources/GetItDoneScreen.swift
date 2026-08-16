@@ -32,11 +32,11 @@ struct GetItDoneScreen: View {
     private var open: [WorkRequest] { requests.filter { !$0.closed } }
     private var done: [WorkRequest] { requests.filter(\.closed) }
 
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let columns = [GridItem(.flexible(), spacing: Space.md), GridItem(.flexible(), spacing: Space.md)]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: Space.xl) {
                 Text("Land work needs someone standing on the land or queueing at an office. Ask, then watch it move.")
                     .font(.subheadline).foregroundStyle(.secondary)
 
@@ -47,12 +47,12 @@ struct GetItDoneScreen: View {
                     emptyState
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     Text("ASK FOR SOMETHING")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .kerning(1.1)
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: Space.md) {
                         ForEach(RequestKind.allCases) { kind in
                             Button { asking = kind } label: { kindTile(kind) }
                                 .buttonStyle(.plain)
@@ -64,7 +64,7 @@ struct GetItDoneScreen: View {
                     section("Already done", done)
                 }
             }
-            .padding(16)
+            .padding(Space.lg)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Get it done")
@@ -86,7 +86,7 @@ struct GetItDoneScreen: View {
     }
 
     private func section(_ title: String, _ items: [WorkRequest]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.md) {
             Text(title.uppercased())
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary).kerning(1.1)
             ForEach(items) { r in
@@ -99,15 +99,15 @@ struct GetItDoneScreen: View {
         let kind = RequestKind.of(r.kind)
         let p = requestProgress(kind: kind, stage: r.stage,
                                 needsYou: r.needsYou, closed: r.closed)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
+        return VStack(alignment: .leading, spacing: Space.md) {
+            HStack(alignment: .top, spacing: Space.md) {
                 Image(systemName: kind.icon)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.scaled(15, weight: .medium))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 34, height: 34)
                     .background(Color.accentColor.opacity(0.13),
-                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
+                                in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(r.title.isEmpty ? kind.title : r.title)
                         .font(.headline).foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
@@ -118,15 +118,15 @@ struct GetItDoneScreen: View {
                 Spacer(minLength: 8)
                 Text(p.status)
                     .font(.caption.weight(.medium))
-                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
                     .background(badgeTint(p, r).opacity(0.16), in: Capsule())
                     .foregroundStyle(badgeTint(p, r))
             }
 
             // The rail: which step it is on, named for this kind of work.
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 ForEach(Array(kind.stages.enumerated()), id: \.offset) { i, name in
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         Capsule()
                             .fill(i <= p.stageIndex ? badgeTint(p, r) : Color(.quaternaryLabel))
                             .frame(height: 3)
@@ -144,25 +144,25 @@ struct GetItDoneScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .stroke(r.needsYou && !r.closed ? Color.red.opacity(0.35) : .clear, lineWidth: 1))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .stroke(r.needsYou && !r.closed ? Palette.danger.opacity(0.35) : .clear, lineWidth: 1))
     }
 
     private func badgeTint(_ p: RequestProgress, _ r: WorkRequest) -> Color {
-        if r.closed { return .green }
-        if r.needsYou { return .red }
-        return .orange
+        if r.closed { return Palette.success }
+        if r.needsYou { return Palette.danger }
+        return Palette.caution
     }
 
     private func kindTile(_ kind: RequestKind) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Image(systemName: kind.icon)
-                .font(.system(size: 18, weight: .medium))
+                .font(.scaled(18, weight: .medium))
                 .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(kind.title).font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                 Text(kind.hint).font(.caption2).foregroundStyle(.secondary)
@@ -171,23 +171,23 @@ struct GetItDoneScreen: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
-        .padding(14)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .contentShape(Rectangle())
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("Nothing asked for yet")
                 .font(.subheadline.weight(.semibold))
             Text("Record the work you have asked somebody to do — a survey, a title opinion, an errand at the MRO — and it stops living in your head.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func load() async {

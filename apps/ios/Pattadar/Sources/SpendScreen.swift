@@ -33,7 +33,7 @@ struct SpendScreen: View {
     var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Space.sm) {
                     Text(total > 0 ? rupees(total) : "Nothing recorded")
                         .font(.system(.largeTitle, design: .serif).weight(.semibold))
                         .monospacedDigit()
@@ -42,13 +42,13 @@ struct SpendScreen: View {
                          : "\(expenses.count) entr\(expenses.count == 1 ? "y" : "ies") recorded.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Space.xs)
             }
 
             if !byCategory.isEmpty {
                 Section("Where it went") {
                     ForEach(byCategory) { b in
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: Space.sm) {
                             HStack {
                                 Text(humanize(b.id)).font(.subheadline.weight(.medium))
                                 Spacer()
@@ -67,7 +67,7 @@ struct SpendScreen: View {
                             Text("\(b.count) item\(b.count == 1 ? "" : "s")")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, Space.hair)
                     }
                 }
             }
@@ -75,7 +75,7 @@ struct SpendScreen: View {
             if !expenses.isEmpty {
                 Section("Everything recorded") {
                     ForEach(expenses) { e in
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             HStack {
                                 Text(e.title).font(.subheadline.weight(.medium))
                                 Spacer()
@@ -152,11 +152,11 @@ struct AddExpenseSheet: View {
 
                 Section {
                     FormRow(label: "Heading", text: $category, prompt: "Fencing & land work")
-                    FlowLayout(spacing: 8) {
+                    FlowLayout(spacing: Space.sm) {
                         ForEach(suggestions, id: \.self) { s in
                             Button { category = s } label: {
                                 Text(s).font(.caption)
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                                     .background(Color(.tertiarySystemFill), in: Capsule())
                                     .foregroundStyle(.primary)
                             }
@@ -168,7 +168,7 @@ struct AddExpenseSheet: View {
                 }
 
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
 
                 Section {

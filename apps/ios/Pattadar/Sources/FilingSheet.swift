@@ -53,22 +53,22 @@ struct FilingSheet: View {
     // would open the add-a-holding form, which is not what either promises.
     // They belong here the day those tables exist.
 
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let columns = [GridItem(.flexible(), spacing: Space.md), GridItem(.flexible(), spacing: Space.md)]
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         Text("What are you filing?")
                             .font(.system(.title, design: .serif).weight(.semibold))
                         Text(destinationName.map { "Going to \($0)." }
                              ?? "Name the paper and it goes to the right place.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, Space.xs)
 
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: Space.md) {
                         ForEach(tiles) { t in
                             Button { route = t.route } label: { tile(t) }
                                 .buttonStyle(.plain)
@@ -78,16 +78,16 @@ struct FilingSheet: View {
                     // Not a paper at all: work you want somebody to do. It
                     // belongs on this sheet because "what do I need to happen"
                     // is the same moment as "what am I filing".
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Text("Or ask someone to do it")
                             .font(.system(.headline, design: .serif))
                         Text("A surveyor, an advocate, an errand at the office. Recorded and tracked — nobody is dispatched or paid from here.")
                             .font(.caption).foregroundStyle(.secondary)
                         Button { route = .request } label: {
-                            HStack(spacing: 12) {
+                            HStack(spacing: Space.md) {
                                 Image(systemName: "hammer.fill")
                                     .foregroundStyle(Color.accentColor)
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: Space.hair) {
                                     Text("Ask for something")
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.primary)
@@ -98,15 +98,15 @@ struct FilingSheet: View {
                                 Image(systemName: "chevron.right")
                                     .font(.caption).foregroundStyle(.tertiary)
                             }
-                            .padding(14)
-                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .padding(Space.lg)
+                            .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                                 .fill(Color(.secondarySystemGroupedBackground)))
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, Space.xs)
                 }
-                .padding(20)
+                .padding(Space.xl)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -127,11 +127,11 @@ struct FilingSheet: View {
     }
 
     private func tile(_ t: Tile) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Image(systemName: t.icon)
-                .font(.system(size: 19, weight: .medium))
+                .font(.scaled(19, weight: .medium))
                 .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(t.label).font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                 Text(t.hint).font(.caption2).foregroundStyle(.secondary)
@@ -139,8 +139,8 @@ struct FilingSheet: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .padding(Space.lg)
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
             .fill(Color(.secondarySystemGroupedBackground)))
         .contentShape(Rectangle())
     }

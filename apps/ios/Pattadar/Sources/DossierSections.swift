@@ -14,14 +14,14 @@ struct OwnerHistorySection: View {
         if !owners.isEmpty {
             Section("Ownership") {
                 ForEach(sorted) { o in
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: Space.xs) {
                         HStack {
                             Text(o.ownerName.isEmpty ? "Unnamed" : o.ownerName)
                                 .fontWeight(o.isCurrent ? .semibold : .regular)
                             if o.isCurrent {
                                 Text("current")
-                                    .font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Capsule().fill(.green.opacity(0.20)))
+                                    .font(.caption2).padding(.horizontal, Space.sm).padding(.vertical, Space.hair)
+                                    .background(Capsule().fill(Palette.success.opacity(0.20)))
                             }
                             Spacer()
                             if o.extent > 0 {
@@ -50,64 +50,6 @@ struct OwnerHistorySection: View {
     }
 }
 
-/// Photographs as evidence, not decoration.
-struct PhotoSection: View {
-    let photos: [ParcelPhoto]
-    let villageCentroid: LatLng?
-    let placeName: String
-
-    var body: some View {
-        Section("Photographs") {
-            if photos.isEmpty {
-                Text("No photographs yet.").foregroundStyle(.secondary)
-            } else {
-                ForEach(photos) { photo in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Label(humanize(photo.category.isEmpty ? "general" : photo.category),
-                                  systemImage: "photo.fill")
-                                .font(.subheadline)
-                            if photo.isCover {
-                                Text("cover").font(.caption2)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Capsule().fill(.blue.opacity(0.18)))
-                            }
-                            Spacer()
-                            if !photo.capturedAt.isEmpty {
-                                Text(relativeTime(photo.capturedAt))
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        if !photo.caption.isEmpty { Text(photo.caption).font(.callout) }
-                        // A photograph with no coordinates proves very little,
-                        // and one taken far from the land proves less.
-                        if let lat = photo.latitude, let lon = photo.longitude {
-                            let taken = LatLng(latitude: lat, longitude: lon)
-                            let sanity = checkLocation(pin: taken, centroid: villageCentroid,
-                                                       placeName: placeName)
-                            HStack(spacing: 6) {
-                                Image(systemName: sanity.suspect ? "exclamationmark.triangle.fill" : "mappin.circle")
-                                    .foregroundStyle(sanity.suspect ? .orange : .secondary)
-                                Text(sanity.suspect
-                                     ? "Taken \(formatDistance(sanity.distanceKm)) from \(placeName.isEmpty ? "this village" : placeName)"
-                                     : "\(lat, specifier: "%.5f"), \(lon, specifier: "%.5f")")
-                                    .font(.caption).monospacedDigit()
-                                    .foregroundStyle(sanity.suspect ? .orange : .secondary)
-                                if let h = photo.heading {
-                                    Text("facing \(Int(h))°").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        } else {
-                            Label("No location recorded", systemImage: "mappin.slash")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Free-text notes, and a way to add one.
 struct NotesSection: View {
     @Environment(AppModel.self) private var app
@@ -122,7 +64,7 @@ struct NotesSection: View {
     var body: some View {
         Section("Notes") {
             ForEach(notes) { n in
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(n.body).font(.callout)
                     Text(relativeTime(n.createdAt)).font(.caption2).foregroundStyle(.secondary)
                 }
@@ -134,6 +76,7 @@ struct NotesSection: View {
                 } label: {
                     if saving { ProgressView() } else { Image(systemName: "arrow.up.circle.fill") }
                 }
+                .accessibilityLabel(saving ? "Saving the note" : "Add this note")
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || saving)
             }
         }
@@ -181,7 +124,7 @@ struct LinkedDocumentsSection: View {
             } else {
                 ForEach(documents) { d in
                     NavigationLink { DocumentDetailScreen(doc: d) } label: {
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: Space.xs) {
                             Text(d.docType.isEmpty ? "Document" : d.docType)
                                 .fontWeight(.medium)
                             Text(d.headline.isEmpty

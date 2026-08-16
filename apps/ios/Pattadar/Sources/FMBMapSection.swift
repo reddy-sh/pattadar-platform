@@ -47,13 +47,13 @@ struct FMBMapSection: View {
     private var fieldAcres: Double? { acCents(fieldExtentRaw) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.md) {
             map
                 .aspectRatio(1.0, contentMode: .fit)
-                .background(satellite ? Color(red: 0.07, green: 0.10, blue: 0.08)
+                .background(satellite ? Palette.recordDeep
                                       : Color(.secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 .sensoryFeedback(.selection, trigger: selection)
 
             controls
@@ -61,7 +61,7 @@ struct FMBMapSection: View {
             if geometry.orderSource == "inferred" {
                 Label("Corner order inferred — confirm against the sheet",
                       systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(Palette.caution)
             }
 
             tipPanel
@@ -98,20 +98,20 @@ struct FMBMapSection: View {
                     imageryStatus(for: proxy.size)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: .topLeading)
-                        .padding(12)
+                        .padding(Space.md)
                 }
                 Image(systemName: "location.north.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.scaled(11, weight: .bold))
                     .foregroundStyle(.secondary)
                     .overlay(alignment: .bottom) {
-                        Text("N").font(.system(size: 8, weight: .bold))
+                        Text("N").font(.scaled(8, weight: .bold))
                             .foregroundStyle(.secondary).offset(y: 11)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(14)
+                    .padding(Space.lg)
                 scaleBar(layout: layout)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .padding(14)
+                    .padding(Space.lg)
                 // Not a flip-button: the label names what is SHOWN, and the
                 // tap opens the choice — show satellite under the sketch, or
                 // not. A label that inverts on tap reads as the wrong state
@@ -119,7 +119,7 @@ struct FMBMapSection: View {
                 Menu {
                     Picker("Background", selection: Binding(
                         get: { satellite },
-                        set: { v in withAnimation(.snappy) { satellite = v } })) {
+                        set: { v in withAnimation(Motion.standard()) { satellite = v } })) {
                         Label("Plain sketch", systemImage: "square.grid.3x3").tag(false)
                         Label("Satellite imagery", systemImage: "globe.asia.australia.fill").tag(true)
                     }
@@ -131,7 +131,7 @@ struct FMBMapSection: View {
                 .buttonStyle(.bordered)
                 .clipShape(Capsule())
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(12)
+                .padding(Space.md)
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
@@ -154,22 +154,22 @@ struct FMBMapSection: View {
         if imageryReady(for: size) {
             Text("Imagery © Apple Maps")
                 .font(.caption2)
-                .padding(.horizontal, 8).padding(.vertical, 4)
+                .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
                 .background(.black.opacity(0.35), in: Capsule())
                 .foregroundStyle(.white.opacity(0.8))
         } else if imageryFailed {
             Text("Imagery didn't load — plain sketch behind the lines")
                 .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Color.orange.opacity(0.15), in: Capsule())
-                .foregroundStyle(.orange)
+                .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
+                .background(Palette.caution.opacity(0.15), in: Capsule())
+                .foregroundStyle(Palette.caution)
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: Space.sm) {
                 ProgressView().controlSize(.mini)
                 Text("Loading imagery…").font(.caption2)
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10).padding(.vertical, 5)
+            .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
             .background(Color(.tertiarySystemFill), in: Capsule())
         }
     }
@@ -231,7 +231,7 @@ struct FMBMapSection: View {
         var fill = Path()
         fill.addLines(ring)
         fill.closeSubpath()
-        ctx.fill(fill, with: .color(.cyan.opacity(0.14)))
+        ctx.fill(fill, with: .color(Palette.Category.plot.opacity(0.14)))
 
         for side in geometry.sides {
             guard let a = layout.screen[side.from], let b = layout.screen[side.to] else { continue }
@@ -239,7 +239,7 @@ struct FMBMapSection: View {
             path.move(to: a)
             path.addLine(to: b)
             let isSelected = selection == .side(side.id)
-            let colour: Color = isSelected ? .orange : (side.isMeasuredOnly ? .red : .cyan)
+            let colour: Color = isSelected ? Palette.caution : (side.isMeasuredOnly ? Palette.danger : Palette.Category.plot)
             ctx.stroke(path, with: .color(colour), lineWidth: isSelected ? 3 : 2)
         }
 
@@ -250,11 +250,11 @@ struct FMBMapSection: View {
             // The selected corner is YELLOW — the frames' own choice.
             ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r,
                                             width: r * 2, height: r * 2)),
-                     with: .color(isSelected ? .yellow : .red))
+                     with: .color(isSelected ? Palette.accent : Palette.danger))
             if showPointIDs {
                 let out = layout.outward(from: point.id, distance: 15)
-                ctx.draw(Text("\(point.id)").font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(isSelected ? Color.yellow : Color.red.opacity(0.9)),
+                ctx.draw(Text("\(point.id)").font(.scaled(10, weight: .bold))
+                            .foregroundStyle(isSelected ? Palette.accent : Palette.danger.opacity(0.9)),
                          at: out)
             }
         }
@@ -280,8 +280,8 @@ struct FMBMapSection: View {
             text.translateBy(x: at.x, y: at.y)
             text.rotate(by: .radians(angle))
             text.draw(Text(label)
-                        .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(side.isMeasuredOnly ? Color.red
+                        .font(.scaled(10, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(side.isMeasuredOnly ? Palette.danger
                                          : onImagery ? Color.white : Color.primary),
                       at: .zero)
         }
@@ -293,9 +293,9 @@ struct FMBMapSection: View {
         let nice = niceRound(inUnit)
         let metres = unit == .metres ? nice : nice / LengthUnit.feetPerMetre
         let widthPt = metres / layout.metresPerPoint
-        return VStack(alignment: .leading, spacing: 3) {
+        return VStack(alignment: .leading, spacing: Space.xs) {
             Text("\(Int(nice)) \(unit.label)")
-                .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                .font(.scaled(10, weight: .semibold)).monospacedDigit()
                 .foregroundStyle(.secondary)
             HStack(spacing: 0) {
                 Rectangle().frame(width: 1.5, height: 7)
@@ -318,7 +318,7 @@ struct FMBMapSection: View {
 
     private var controls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.sm) {
                 Picker("Unit", selection: Binding(
                     get: { unit },
                     set: { unitRaw = $0.rawValue })) {
@@ -336,15 +336,15 @@ struct FMBMapSection: View {
 
     private func layerChip(_ title: String, on: Binding<Bool>) -> some View {
         Button {
-            withAnimation(.snappy) { on.wrappedValue.toggle() }
+            withAnimation(Motion.standard()) { on.wrappedValue.toggle() }
         } label: {
             Text(title)
                 .font(.subheadline.weight(on.wrappedValue ? .semibold : .regular))
-                .padding(.horizontal, 13).padding(.vertical, 7)
-                .background(on.wrappedValue ? Color.cyan.opacity(0.18)
+                .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
+                .background(on.wrappedValue ? Palette.Category.plot.opacity(0.18)
                                             : Color(.tertiarySystemFill),
                             in: Capsule())
-                .foregroundStyle(on.wrappedValue ? Color.cyan : Color.primary)
+                .foregroundStyle(on.wrappedValue ? Palette.Category.plot : Color.primary)
         }
         .buttonStyle(.plain)
     }
@@ -352,7 +352,7 @@ struct FMBMapSection: View {
     // MARK: - The tip panel
 
     @ViewBuilder private var tipPanel: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             switch selection {
             case .parcel: parcelTip
             case .side(let id):
@@ -362,9 +362,9 @@ struct FMBMapSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func spelled(_ n: Int) -> String {
@@ -375,13 +375,13 @@ struct FMBMapSection: View {
 
     @ViewBuilder private var parcelTip: some View {
         Text("WHOLE PARCEL")
-            .font(.system(size: 11, weight: .bold)).kerning(1.0)
-            .foregroundStyle(.cyan)
+            .font(.scaled(11, weight: .bold)).kerning(1.0)
+            .foregroundStyle(Palette.Category.plot)
         Text("\(panelLengthText(geometry.perimeterM, unit: unit)) around")
             .font(.title3.weight(.bold)).monospacedDigit()
         Text("\(spelled(geometry.sides.count).capitalized) sides, \(spelled(geometry.points.count)) corners. Tap any side or corner on the map for its measurement, bearing and who lies beyond it.")
             .font(.subheadline).foregroundStyle(.secondary)
-        HStack(spacing: 8) {
+        HStack(spacing: Space.sm) {
             tipTile("Sides", "\(geometry.sides.count)")
             tipTile("Perimeter", mapLengthText(geometry.perimeterM, unit: unit))
         }
@@ -390,11 +390,11 @@ struct FMBMapSection: View {
 
     @ViewBuilder private func sideTip(_ side: FMBGeometry.Side) -> some View {
         Text("SIDE")
-            .font(.system(size: 11, weight: .bold)).kerning(1.0)
-            .foregroundStyle(.cyan)
+            .font(.scaled(11, weight: .bold)).kerning(1.0)
+            .foregroundStyle(Palette.Category.plot)
         Text("\(side.from) → \(side.to) · \(panelLengthText(side.m, unit: unit))")
             .font(.title3.weight(.bold)).monospacedDigit()
-        HStack(spacing: 8) {
+        HStack(spacing: Space.sm) {
             tipTile("Metres", panelLengthText(side.m, unit: .metres))
             tipTile("Feet", panelLengthText(side.m, unit: .feet))
             tipTile("Grid bearing", bearingText(side.bearing))
@@ -404,7 +404,7 @@ struct FMBMapSection: View {
         if side.isMeasuredOnly {
             Label("Drawn in red on the sheet — a measured line, not a walked boundary.",
                   systemImage: "exclamationmark.triangle.fill")
-                .font(.caption).foregroundStyle(.red)
+                .font(.caption).foregroundStyle(Palette.danger)
         }
     }
 
@@ -425,17 +425,17 @@ struct FMBMapSection: View {
 
     @ViewBuilder private func cornerTip(_ point: FMBGeometry.Point) -> some View {
         Text("CORNER \(point.id)")
-            .font(.system(size: 11, weight: .bold)).kerning(1.0)
-            .foregroundStyle(.red)
+            .font(.scaled(11, weight: .bold)).kerning(1.0)
+            .foregroundStyle(Palette.danger)
         Text(String(format: "%.5f, %.5f", point.lat, point.lon))
             .font(.title3.weight(.bold)).monospacedDigit()
         Text("WGS 84 degrees, and \(geometry.utmZoneLabel ?? "projected") in metres.")
             .font(.subheadline).foregroundStyle(.secondary)
-        HStack(spacing: 8) {
+        HStack(spacing: Space.sm) {
             tipTile("Easting", String(format: "%.2f", point.e))
             tipTile("Northing", String(format: "%.2f", point.n))
         }
-        HStack(spacing: 16) {
+        HStack(spacing: Space.lg) {
             Button {
                 UIPasteboard.general.string = String(format: "%.5f, %.5f", point.lat, point.lon)
                 copiedCorner = true
@@ -460,24 +460,24 @@ struct FMBMapSection: View {
     }
 
     private func tipTile(_ key: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Space.hair) {
             Text(key.uppercased())
-                .font(.system(size: 9, weight: .bold)).kerning(0.5)
+                .font(.scaled(9, weight: .bold)).kerning(0.5)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                .font(.scaled(14, weight: .semibold)).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
+        .padding(Space.md)
         .background(Color(.tertiarySystemFill),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
     }
 
     // MARK: - Does the area agree
 
     @ViewBuilder private var areaAgrees: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("DOES THE AREA AGREE")
                 .font(.caption.weight(.medium)).kerning(1.1)
                 .foregroundStyle(.secondary)
@@ -499,21 +499,21 @@ struct FMBMapSection: View {
                             value: acText(field), tint: nil)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .background(Color(.secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             if let sentence = verdictSentence {
                 Label {
                     Text(sentence).font(.subheadline)
                 } icon: {
-                    Image(systemName: verdictColour == .green
+                    Image(systemName: verdictColour == Palette.success
                           ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 }
                 .foregroundStyle(verdictColour)
-                .padding(12)
+                .padding(Space.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(verdictColour.opacity(0.10),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
     }
@@ -525,9 +525,9 @@ struct FMBMapSection: View {
 
     private var verdictColour: Color {
         guard let check = geometry.areaCheck else { return .secondary }
-        if geometry.portionExceedsField { return .red }
+        if geometry.portionExceedsField { return Palette.danger }
         let delta = check.deltaPct ?? 0
-        return delta < 0.5 ? .green : delta <= 2 ? .orange : .red
+        return delta < 0.5 ? Palette.success : delta <= 2 ? Palette.caution : Palette.danger
     }
 
     private var verdictSentence: String? {
@@ -548,8 +548,8 @@ struct FMBMapSection: View {
     }
 
     private func areaRow(_ title: String, sub: String, value: String, tint: Color?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(title).font(.subheadline.weight(.medium))
                 Text(sub).font(.caption).foregroundStyle(.secondary)
             }
@@ -558,13 +558,13 @@ struct FMBMapSection: View {
                 .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                 .foregroundStyle(tint ?? .primary)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, Space.md)
     }
 
     // MARK: - Corner coordinates
 
     @ViewBuilder private var cornerCoordinates: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             HStack {
                 Text("CORNER COORDINATES")
                     .font(.caption.weight(.medium)).kerning(1.1)
@@ -583,16 +583,16 @@ struct FMBMapSection: View {
                 ForEach(Array(geometry.ringPoints.enumerated()), id: \.element.id) { i, p in
                     if i > 0 { Divider() }
                     Button {
-                        withAnimation(.snappy) { selection = .corner(p.id) }
+                        withAnimation(Motion.standard()) { selection = .corner(p.id) }
                         copiedCorner = false
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: Space.md) {
                             Text("\(p.id)")
-                                .font(.system(size: 11, weight: .bold)).monospacedDigit()
+                                .font(.scaled(11, weight: .bold)).monospacedDigit()
                                 .frame(width: 24, height: 24)
-                                .background(Color.red.opacity(0.18), in: Circle())
-                                .foregroundStyle(.red)
-                            VStack(alignment: .leading, spacing: 1) {
+                                .background(Palette.danger.opacity(0.18), in: Circle())
+                                .foregroundStyle(Palette.danger)
+                            VStack(alignment: .leading, spacing: Space.hair) {
                                 Text(String(format: "%.5f, %.5f", p.lat, p.lon))
                                     .font(.system(.subheadline, design: .monospaced).weight(.semibold))
                                     .foregroundStyle(.primary)
@@ -605,22 +605,22 @@ struct FMBMapSection: View {
                                 .font(.subheadline.weight(.semibold))
                                 .buttonStyle(.borderless)
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, Space.sm)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .background(Color(.secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
     }
 
     // MARK: - Use it on the ground
 
     @ViewBuilder private var useOnTheGround: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("USE IT ON THE GROUND")
                 .font(.caption.weight(.medium)).kerning(1.1)
                 .foregroundStyle(.secondary)
@@ -628,7 +628,7 @@ struct FMBMapSection: View {
                 NavigationLink {
                     WalkBoundaryScreen(geometry: geometry)
                 } label: {
-                    groundRow(icon: "scope", tint: .green,
+                    groundRow(icon: "scope", tint: Palette.success,
                               title: "Walk the boundary",
                               sub: "Live GPS against the \(geometry.points.count) corners, with distance-to-next")
                 }
@@ -637,7 +637,7 @@ struct FMBMapSection: View {
                 NavigationLink {
                     DeedScheduleOverlayScreen(neighbours: neighbours, geometry: geometry)
                 } label: {
-                    groundRow(icon: "square.on.square.dashed", tint: .blue,
+                    groundRow(icon: "square.on.square.dashed", tint: Palette.accent,
                               title: "Overlay the deed schedule",
                               sub: overlaySubtitle)
                 }
@@ -645,16 +645,16 @@ struct FMBMapSection: View {
                 Divider()
                 if let items = exportItems {
                     ShareLink(items: items) {
-                        groundRow(icon: "square.and.arrow.up.on.square", tint: .purple,
+                        groundRow(icon: "square.and.arrow.up.on.square", tint: Palette.Category.commercial,
                                   title: "Export KML / GeoJSON",
                                   sub: "For a surveyor, a drone flight, or Google Earth")
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .background(Color(.secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
     }
 
@@ -668,14 +668,14 @@ struct FMBMapSection: View {
     }
 
     private func groundRow(icon: String, tint: Color, title: String, sub: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.md) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.scaled(15, weight: .semibold))
                 .frame(width: 34, height: 34)
                 .background(tint.opacity(0.15),
-                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                 .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                 Text(sub).font(.caption).foregroundStyle(.secondary)
             }
@@ -683,7 +683,7 @@ struct FMBMapSection: View {
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, Space.md)
         .contentShape(Rectangle())
     }
 
@@ -766,26 +766,26 @@ struct WalkBoundaryScreen: View {
         List {
             Section {
                 if let fix = walker.fix {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         if let nearest = nearestCorner(to: fix) {
                             Text("You are \(formatDistance(nearest.km)) from corner \(nearest.id)")
                                 .font(.headline)
                         }
                         Text(String(format: "GPS accuracy ±%.0f m", fix.horizontalAccuracy))
                             .font(.caption)
-                            .foregroundStyle(fix.horizontalAccuracy > 10 ? .orange : .secondary)
+                            .foregroundStyle(fix.horizontalAccuracy > 10 ? Palette.caution : .secondary)
                         if fix.horizontalAccuracy > 10 {
                             Text("Above ±10 m the walk is indicative only — a phone at this accuracy cannot confirm a corner.")
-                                .font(.caption).foregroundStyle(.orange)
+                                .font(.caption).foregroundStyle(Palette.caution)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Space.xs)
                 } else if walker.denied {
                     Label("Location is off for Pattadar — allow it in Settings to walk the boundary.",
                           systemImage: "location.slash")
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
-                    HStack(spacing: 10) {
+                    HStack(spacing: Space.md) {
                         ProgressView()
                         Text("Finding you…").font(.subheadline).foregroundStyle(.secondary)
                     }
@@ -795,10 +795,10 @@ struct WalkBoundaryScreen: View {
                 ForEach(geometry.ringPoints) { p in
                     HStack {
                         Text("\(p.id)")
-                            .font(.system(size: 11, weight: .bold)).monospacedDigit()
+                            .font(.scaled(11, weight: .bold)).monospacedDigit()
                             .frame(width: 24, height: 24)
-                            .background(Color.red.opacity(0.18), in: Circle())
-                            .foregroundStyle(.red)
+                            .background(Palette.danger.opacity(0.18), in: Circle())
+                            .foregroundStyle(Palette.danger)
                         Text(String(format: "%.5f, %.5f", p.lat, p.lon))
                             .font(.system(.subheadline, design: .monospaced))
                         Spacer()

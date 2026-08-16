@@ -40,14 +40,14 @@ struct OnboardingScreen: View {
         ZStack {
             // Deliberately dark and quiet. This is the one screen with nothing
             // of the person's own on it yet.
-            LinearGradient(colors: [Color(white: 0.11), Color(white: 0.06)],
+            LinearGradient(colors: [Palette.record, Palette.recordDeep],
                            startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
                 progress
-                    .padding(.top, 12)
-                    .padding(.horizontal, 28)
+                    .padding(.top, Space.md)
+                    .padding(.horizontal, Space.xxxl)
 
                 // Weighted rather than equal: the block settles a little above
                 // centre, which is where the eye goes first. Two Spacers below
@@ -57,7 +57,7 @@ struct OnboardingScreen: View {
                 Spacer(minLength: 0)
 
                 slide(slides[index])
-                    .padding(.horizontal, 28)
+                    .padding(.horizontal, Space.xxxl)
                     .id(index)
                     .transition(.asymmetric(
                         insertion: .move(edge: .trailing).combined(with: .opacity),
@@ -67,44 +67,44 @@ struct OnboardingScreen: View {
                     .frame(maxHeight: 120)
 
                 controls
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, Space.xxxl)
+                    .padding(.bottom, Space.xl)
             }
         }
         // A swipe is what people try first on a screen like this.
         .gesture(DragGesture(minimumDistance: 30).onEnded { drag in
             if drag.translation.width < -40 { advance() }
             else if drag.translation.width > 40, index > 0 {
-                withAnimation(.snappy) { index -= 1 }
+                withAnimation(Motion.standard()) { index -= 1 }
             }
         })
         .preferredColorScheme(.dark)
     }
 
     private var progress: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             ForEach(0..<slides.count, id: \.self) { i in
                 Capsule()
                     .fill(i <= index ? Color.accentColor : Color.white.opacity(0.18))
                     .frame(height: 3)
             }
         }
-        .animation(.snappy, value: index)
+        .animation(Motion.standard(), value: index)
     }
 
     private func slide(_ s: Slide) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: Space.xxl) {
             Image(systemName: s.icon)
-                .font(.system(size: 26, weight: .medium))
+                .font(.scaled(26, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 62, height: 62)
                 .background(Color.accentColor,
-                            in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
 
             Text(s.title)
                 // Serif, and only here. A land record is an old kind of
                 // document, and the one screen with no data on it can say so.
-                .font(.system(size: 40, weight: .semibold, design: .serif))
+                .font(.scaled(40, weight: .semibold, design: .serif))
                 .foregroundStyle(.white)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -119,7 +119,7 @@ struct OnboardingScreen: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: Space.lg) {
             // Always available. Somebody who wants to get to their records
             // should not have to read three screens first.
             Button("Skip") { finish(startAdding: false) }
@@ -133,7 +133,7 @@ struct OnboardingScreen: View {
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
+                    .padding(.vertical, Space.lg)
                     .background(Color.accentColor, in: Capsule())
             }
         }
@@ -143,7 +143,7 @@ struct OnboardingScreen: View {
 
     private func advance() {
         if isLast { finish(startAdding: true) }
-        else { withAnimation(.snappy) { index += 1 } }
+        else { withAnimation(Motion.standard()) { index += 1 } }
     }
 
     private func finish(startAdding: Bool) {

@@ -61,8 +61,14 @@ public extension DocSpine {
 }
 
 /// Family from the doc type, for readings that predate the family key.
-public func documentFamily(_ docType: String) -> String {
+public func documentFamily(_ docType: String, mimeType: String = "") -> String {
     let t = docType.lowercased()
+    // A photograph is one by its BYTES, whatever anyone typed in the box. The
+    // web twin (packages/core/src/records/docFamilies.ts) tests this first for
+    // the same reason, and the two must agree shelf for shelf.
+    let m = mimeType.lowercased()
+    if m.hasPrefix("image/") || m.hasPrefix("video/") { return "photo" }
+    if t == "photo" || t == "video" { return "photo" }
     // Before "deed": a settlement REGISTER is an old record; a settlement deed
     // is title. Bare "old" is never matched — "household" is not an old record.
     if t.contains("sethwar") || t.contains("khasra") || t.contains("faisal")
@@ -96,9 +102,17 @@ public func familyTint(_ family: String) -> String {
     case "identity": "purple"
     case "search": "orange"
     case "old_record": "brown"
+    case "photo": "pink"
     default: "gray"
     }
 }
+
+/// Display order for the shelves — the twin of DOC_FAMILIES in
+/// packages/core/src/records/docFamilies.ts. Papers that prove ownership come
+/// first; the drawer of unsorted comes last. Both apps read this order, so a
+/// shelf cannot appear in one place and not the other.
+public let documentFamilies = ["title", "revenue", "map", "identity",
+                               "search", "old_record", "photo", "unsorted"]
 
 /// What the filter chip calls the family.
 public func familyLabel(_ family: String) -> String {
@@ -109,6 +123,7 @@ public func familyLabel(_ family: String) -> String {
     case "identity": "Identity"
     case "search": "Search & tax"
     case "old_record": "Old record"
+    case "photo": "Photos"
     default: "Unsorted"
     }
 }

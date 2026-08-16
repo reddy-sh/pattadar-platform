@@ -199,6 +199,9 @@ struct HoldingsScreen: View {
     @Environment(AppModel.self) private var app
     @State private var holdings: HoldingsResponse?
     @State private var passbooks: [PassbookDetail] = []
+    /// Why THIS screen has no holdings, if it has none. Never set by another
+    /// screen's query, and never set by a cancellation.
+    @State private var ownFailure: String?
     @State private var search = ""
     @State private var filter: HoldingFilter = .all
     @State private var grouping: HoldingGrouping = .village
@@ -221,7 +224,7 @@ struct HoldingsScreen: View {
                 if holdings != nil {
                     Section {
                         filterBar
-                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .listRowInsets(EdgeInsets(top: Space.xs, leading: 0, bottom: Space.xs, trailing: 0))
                             .listRowBackground(Color.clear)
                     }
                     if filter == .passbooks {
@@ -240,7 +243,7 @@ struct HoldingsScreen: View {
                                     Button { editPassbook = pb } label: {
                                         Label("Edit", systemImage: "pencil.line")
                                     }
-                                    .tint(.blue)
+                                    .tint(Palette.accent)
                                 }
                             }
                             if passbooks.isEmpty {
@@ -262,7 +265,7 @@ struct HoldingsScreen: View {
                                         NavigationLink {
                                             PassbookDetailScreen(passbook: pb) { Task { await load() } }
                                         } label: {
-                                            HStack(spacing: 4) {
+                                            HStack(spacing: Space.xs) {
                                                 Text(heading)
                                                 Image(systemName: "chevron.right")
                                                     .font(.caption2)
@@ -287,8 +290,16 @@ struct HoldingsScreen: View {
                     }
                     if visible.isEmpty { emptyState }
                     }
-                } else if app.lastFailure != nil {
-                    LoadFailure(message: app.lastFailure)
+                } else if let failure = ownFailure {
+                    // There was no `else` here at all, so a load that finished
+                    // with nothing rendered NOTHING — a blank screen under a
+                    // search bar. It also read the app-wide `lastFailure`,
+                    // which any other screen's query could overwrite; a tab
+                    // switch cancelling a load wrote "Stopped." into it. This
+                    // is this screen's own holdings query and nothing else.
+                    LoadFailure(message: failure)
+                } else {
+                    Section { HStack { ProgressView(); Text("Loading your land…") } }
                 }
             }
             }
@@ -357,6 +368,9 @@ struct HoldingsScreen: View {
             } message: {
                 Text(confirmProperty.map { "\($0.label.isEmpty ? "This property" : $0.label) and its deeds will be removed. This cannot be undone." } ?? "")
             }
+            // A holding named by a widget. Pushed by id rather than by value so
+            // the screen survives the list reloading underneath it.
+            .navigationDestination(item: $deepLinked) { deepLinkedScreen($0) }
             // Applied once and cleared: a filter set by tapping an attention
             // item must not still be in force the next time the tab is opened.
             .onAppear {
@@ -368,9 +382,43 @@ struct HoldingsScreen: View {
                     app.requestAddHolding = false
                     showAdd = true
                 }
+                takeDeepLink()
             }
+            // A widget tapped while this tab is ALREADY in front changes
+            // nothing that `onAppear` would notice.
+            .onChange(of: app.pendingHolding) { _, _ in takeDeepLink() }
             .refreshable { await load() }
-            .task { await load() }
+            .task {
+                await load()
+                takeDeepLink()
+            }
+        }
+    }
+
+    /// A holding opened from the Home Screen, once the list can show it.
+    @State private var deepLinked: String?
+
+    /// Taken only when the records are loaded — pushing before then would open
+    /// an empty screen and then fill it in, which reads as a fault.
+    private func takeDeepLink() {
+        guard let wanted = app.pendingHolding, holdings != nil else { return }
+        app.pendingHolding = nil
+        deepLinked = wanted
+    }
+
+    @ViewBuilder
+    private func deepLinkedScreen(_ id: String) -> some View {
+        if let h = all.first(where: { "\($0.entityType):\($0.entityId)" == id }) {
+            switch h {
+            case .parcel(let p, let pb): HoldingDetailScreen(parcel: p, passbook: pb)
+            case .property(let p): PropertyDetailScreen(property: p)
+            }
+        } else {
+            // Deleted since the widget last refreshed. Said plainly rather than
+            // pushing a blank screen somebody has to work out for themselves.
+            ContentUnavailableView("Not in your records",
+                                   systemImage: "questionmark.folder",
+                                   description: Text("This holding is no longer on file."))
         }
     }
 
@@ -379,7 +427,7 @@ struct HoldingsScreen: View {
     /// empty filter is never a surprise.
     private var filterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.sm) {
                 ForEach(HoldingFilter.allCases) { f in
                     let count = switch f {
                     case .passbooks: passbooks.count
@@ -389,17 +437,17 @@ struct HoldingsScreen: View {
                     Button {
                         filter = f
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: Space.xs) {
                             Text(f.rawValue)
                             if count > 0 && f != .all {
                                 Text("\(count)").monospacedDigit()
                                     .font(.caption2)
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .padding(.horizontal, Space.xs).padding(.vertical, Space.hair)
                                     .background(Capsule().fill(filter == f ? .white.opacity(0.25) : .secondary.opacity(0.18)))
                             }
                         }
                         .font(.subheadline)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                         .background(Capsule().fill(filter == f ? Color.accentColor : Color(.secondarySystemFill)))
                         .foregroundStyle(filter == f ? .white : .primary)
                     }
@@ -410,7 +458,7 @@ struct HoldingsScreen: View {
                     .opacity(count == 0 && f != .all ? 0.45 : 1)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Space.lg)
         }
     }
 
@@ -426,7 +474,7 @@ struct HoldingsScreen: View {
                     Label("Delete", systemImage: "trash.fill")
                 }
                 Button { editParcel = parcel } label: { Label("Edit", systemImage: "pencil.line") }
-                    .tint(.blue)
+                    .tint(Palette.accent)
             }
         case .property(let property):
             NavigationLink { PropertyDetailScreen(property: property) } label: {
@@ -437,7 +485,7 @@ struct HoldingsScreen: View {
                     Label("Delete", systemImage: "trash.fill")
                 }
                 Button { editProperty = property } label: { Label("Edit", systemImage: "pencil.line") }
-                    .tint(.blue)
+                    .tint(Palette.accent)
             }
         }
     }
@@ -450,7 +498,7 @@ struct HoldingsScreen: View {
             Label(app.isFavourite(h.entityType, h.entityId) ? "Unstar" : "Star",
                   systemImage: app.isFavourite(h.entityType, h.entityId) ? "star.slash" : "star")
         }
-        .tint(.yellow)
+        .tint(Palette.accent)
     }
 
     /// Acres and square yards, stated separately and never combined.
@@ -552,7 +600,9 @@ struct HoldingsScreen: View {
     }
 
     private func load() async {
-        holdings = await app.load(Queries.holdings, as: HoldingsResponse.self)
+        let answer = await app.fetch(Queries.holdings, as: HoldingsResponse.self)
+        holdings = answer.value
+        ownFailure = answer.failure
         await app.loadFavourites()
         if let r = await app.load(Queries.passbooks, as: PassbooksResponse.self) { passbooks = r.passbooks }
     }
@@ -577,14 +627,14 @@ struct HoldingRow: View {
     let showPassbook: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Image(systemName: holding.isAgricultural ? "leaf.fill" : "building.2.fill")
                 .font(.footnote)
-                .foregroundStyle(holding.isAgricultural ? .green : .blue)
+                .foregroundStyle(holding.isAgricultural ? Palette.Category.farmland : Palette.Category.plot)
                 .frame(width: 18)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(holding.title).fontWeight(.semibold).lineLimit(1)
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     let caption = [showPassbook ? holding.passbook : "", holding.village, holding.owner]
                         .filter { !$0.isEmpty }.joined(separator: " · ")
                     if !caption.isEmpty {
@@ -595,7 +645,7 @@ struct HoldingRow: View {
                     }
                     if holding.disputed {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption2).foregroundStyle(.orange)
+                            .font(.caption2).foregroundStyle(Palette.caution)
                     }
                 }
             }
@@ -613,10 +663,10 @@ struct PassbookRow: View {
     let parcelCount: Int
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Space.md) {
             Image(systemName: "book.closed.fill")
-                .font(.footnote).foregroundStyle(.indigo).frame(width: 18)
-            VStack(alignment: .leading, spacing: 3) {
+                .font(.footnote).foregroundStyle(Palette.Category.commercial).frame(width: 18)
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(passbook.pattadarNo.isEmpty ? "Passbook" : passbook.pattadarNo)
                     .fontWeight(.semibold).lineLimit(1)
                 Text([passbook.ownerName, passbook.village,

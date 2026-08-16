@@ -88,14 +88,14 @@ struct SignInScreen: View {
             Form {
                 Section {
                     HStack {
-                        Text("🙏").font(.system(size: 40))
-                        VStack(alignment: .leading, spacing: 2) {
+                        Text("🙏").font(.scaled(40))
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             Text("Namaste").font(.title2.weight(.semibold))
                             Text("Your land, your records.")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
-                    .padding(.vertical, 6)
+                    .padding(.vertical, Space.sm)
                 }
 
                 Section {
@@ -107,7 +107,7 @@ struct SignInScreen: View {
                 }
 
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
 
                 Section {
@@ -117,9 +117,10 @@ struct SignInScreen: View {
                             .disabled(checking || user.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 } footer: {
-                    // Said plainly. The dev API trusts this header, and anyone
-                    // who knows a user id can read that user's records there.
-                    Text("Developer door: identifies you to the dev API with a header instead of a password. The production gateway ignores it.")
+                    // Said plainly. On the local stack this is a real token
+                    // from the laptop's own issuer; on the bare dev API it is
+                    // the old header, which anyone who knows a user id can use.
+                    Text("Developer door: on the local stack this signs you in with tokens from the laptop's own issuer — works offline. Against the bare dev API it falls back to a header. The production gateway accepts neither.")
                 }
             }
             .navigationTitle("Sign in")
@@ -156,10 +157,28 @@ struct SignInScreen: View {
         checking = true
         problem = ""
         defer { checking = false }
+        let clean = user.trimmingCharacters(in: .whitespaces).lowercased()
+
+        // A LOCAL gateway (always plain http) mints real tokens for this
+        // user, so every request after the door travels the production
+        // path — and it works with no internet at all. Anywhere else the
+        // route does not exist and the old header identity is the fallback.
+        if let root = localGatewayRoot(),
+           let email = try? await CognitoAuth.shared.signInLocal(gatewayRoot: root, user: clean) {
+            let id = CognitoAuth.userID(fromEmail: email)
+            app.setUser(id)
+            if await app.load(Queries.dashboard, as: DashboardResponse.self) == nil {
+                problem = app.lastFailure ?? "Signed in locally, but the server could not be reached."
+                return
+            }
+            Identity.set(id)
+            dismiss()
+            return
+        }
+
         // Choosing a header identity and holding Cognito tokens for a
         // different one would be two answers to "who are you"; drop the tokens.
         await CognitoAuth.shared.signOut()
-        let clean = user.trimmingCharacters(in: .whitespaces).lowercased()
         app.setUser(clean)
         if await app.load(Queries.dashboard, as: DashboardResponse.self) == nil {
             problem = app.lastFailure ?? "Could not reach the server."
@@ -167,5 +186,18 @@ struct SignInScreen: View {
         }
         Identity.set(clean)
         dismiss()
+    }
+
+    /// scheme://host:port of the configured base URL, path dropped — the
+    /// local issuer lives at the gateway ROOT, not under the proxy prefix.
+    /// Nil on https: production never has a local issuer; don't even ask.
+    private func localGatewayRoot() -> URL? {
+        let base = app.api.config.baseURL
+        guard base.scheme == "http",
+              var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else { return nil }
+        parts.path = ""
+        parts.query = nil
+        return parts.url
     }
 }

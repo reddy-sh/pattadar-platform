@@ -14,7 +14,7 @@ struct DocumentAllDetailsScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 if spine.family == "identity" {
                     IdentitySection(doc: doc, spine: spine)
                 }
@@ -100,6 +100,8 @@ struct DocumentAllDetailsScreen: View {
 /// The number read off the scan stored on THIS phone — nothing fetched,
 /// nothing stored. The cloud only ever holds the masked form; the full
 /// number lives in the file that never left the device.
+/// Main-actor because `LocalFiles` is: every caller is a view at tap time.
+@MainActor
 func identityNumberFromLocalScan(documentID: String) -> String? {
     guard let url = LocalFiles.url(for: documentID),
           let pdf = PDFDocument(url: url), let text = pdf.string else { return nil }
@@ -121,20 +123,20 @@ struct IdentitySection: View {
     @State private var problem = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Text("IDENTITY")
                 .font(.caption.weight(.medium)).kerning(1.1)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 // One row, icon controls: the eye everyone knows, the copy
                 // everyone knows. Words only where a word is the content.
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .center, spacing: Space.md) {
+                    VStack(alignment: .leading, spacing: Space.hair) {
                         Text(numberLabel).font(.subheadline).foregroundStyle(.secondary)
                         if revealedNumber != nil {
                             Text(numberCopied ? "Copied — clipboard clears in a minute"
                                               : "Re-masks in a minute")
-                                .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                                .font(.scaled(10.5)).foregroundStyle(.tertiary)
                         }
                     }
                     Spacer(minLength: 8)
@@ -143,27 +145,27 @@ struct IdentitySection: View {
                         .foregroundStyle(.primary)
                     Button { toggleReveal() } label: {
                         Image(systemName: revealedNumber == nil ? "eye" : "eye.slash")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.scaled(15, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel(revealedNumber == nil ? "Reveal the number" : "Hide the number")
                     if revealedNumber != nil {
                         Button { copyNumber() } label: {
                             Image(systemName: numberCopied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.scaled(15, weight: .semibold))
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Copy the number")
                     }
                 }
-                .padding(.vertical, 12)
+                .padding(.vertical, Space.md)
                 if !problem.isEmpty {
                     Text(problem)
-                        .font(.caption).foregroundStyle(.orange)
-                        .padding(.bottom, 10)
+                        .font(.caption).foregroundStyle(Palette.caution)
+                        .padding(.bottom, Space.md)
                 }
                 Divider()
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: Space.md) {
                     Text("Address on card").font(.subheadline).foregroundStyle(.secondary)
                     Spacer(minLength: 8)
                     Text(fullAddress)
@@ -175,16 +177,16 @@ struct IdentitySection: View {
                         addressCopied = true
                     } label: {
                         Image(systemName: addressCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.scaled(15, weight: .semibold))
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Copy the address")
                 }
-                .padding(.vertical, 12)
+                .padding(.vertical, Space.md)
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
             .background(Color(.secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
     }
 

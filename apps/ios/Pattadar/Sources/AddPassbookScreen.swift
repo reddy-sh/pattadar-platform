@@ -64,7 +64,7 @@ struct AddPassbookScreen: View {
                 if manualOpen {
                     if let dup = duplicate {
                         Section {
-                            VStack(alignment: .leading, spacing: 6) {
+                            VStack(alignment: .leading, spacing: Space.sm) {
                                 Label("You already have this passbook", systemImage: "doc.on.doc.fill")
                                     .font(.subheadline.weight(.medium))
                                 Text("Khata \(dup.pattadarNo) in \(dup.village)\(dup.ownerName.isEmpty ? "" : " · \(dup.ownerName)"). Saving again would split one holding into two and double-count the acres.")
@@ -107,7 +107,7 @@ struct AddPassbookScreen: View {
                         }
                     }
                     if !problem.isEmpty {
-                        Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                        Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                     }
                     Section {
                         PrimaryButton(title: savedID.isEmpty

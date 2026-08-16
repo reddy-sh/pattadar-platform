@@ -27,106 +27,113 @@ struct RecordHero: View {
     let facts: [(label: String, value: String)]
     let readiness: Readiness
     var statusChip: String = ""
-    /// Per-kind gradient from the handoff: land maroon, plot slate, flat green.
-    var gradient: [Color] = [Color(red: 0.29, green: 0.18, blue: 0.20),
-                             Color(red: 0.22, green: 0.15, blue: 0.16)]
+    /// The record surface, dark in both appearances — a holding's head is a
+    /// printed record and does not turn white by day.
+    var gradient: [Color] = [Palette.record, Palette.recordDeep]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xs + 2) {
                     if !kicker.isEmpty {
                         Text(kicker.uppercased())
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .font(.label)
                             .kerning(1.3)
-                            .foregroundStyle(.white.opacity(0.55))
+                            .foregroundStyle(Palette.inkSoftOnRecord)
                     }
                     Text(title)
-                        .font(.system(size: 32, weight: .semibold, design: .serif))
-                        .foregroundStyle(.white)
+                        .font(.recordDisplay)
+                        .foregroundStyle(Palette.inkOnRecord)
                         .fixedSize(horizontal: false, vertical: true)
                     if !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(0.62))
+                            .font(.note)
+                            .foregroundStyle(Palette.inkSoftOnRecord)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !statusChip.isEmpty {
                         Text(statusChip)
                             .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Color.orange.opacity(0.85), in: Capsule())
-                            .foregroundStyle(.black)
-                            .padding(.top, 2)
+                            .padding(.horizontal, Space.sm + 2).padding(.vertical, Space.xs + 1)
+                            .background(Palette.accent, in: Capsule())
+                            .foregroundStyle(Palette.accentInk)
+                            .padding(.top, Space.hair)
                     }
                 }
                 Spacer(minLength: 0)
-                ReadinessRing(score: readiness.score)
+                ReadinessRing(readiness: readiness)
             }
-            .padding(.bottom, 14)
+            .padding(.bottom, Space.lg)
 
-            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
+            Rectangle().fill(Palette.ruleOnRecord).frame(height: 1)
 
             HStack(spacing: 0) {
                 ForEach(Array(facts.enumerated()), id: \.offset) { i, fact in
                     if i > 0 {
-                        Rectangle().fill(.white.opacity(0.12)).frame(width: 1, height: 30)
+                        Rectangle().fill(Palette.ruleOnRecord).frame(width: 1, height: 30)
                     }
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.hair) {
+                        // Was 9.5pt at 45% white — 3.8:1 on this gradient,
+                        // under AA, and under the platform's legibility floor
+                        // before anybody had touched a text-size setting.
                         Text(fact.label.uppercased())
-                            .font(.system(size: 9.5, weight: .semibold))
+                            .font(.label)
                             .kerning(0.8)
-                            .foregroundStyle(.white.opacity(0.45))
+                            .foregroundStyle(Palette.inkSoftOnRecord)
                         Text(fact.value)
-                            .font(.system(size: 13.5, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(.bodyCopy.weight(.semibold))
+                            .foregroundStyle(Palette.inkOnRecord)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, i > 0 ? 10 : 0)
+                    .padding(.leading, i > 0 ? Space.sm + 2 : 0)
                 }
             }
-            .padding(.top, 12)
+            .padding(.top, Space.md)
         }
-        .padding(18)
+        .padding(Space.lg + 2)
         .background(LinearGradient(colors: gradient,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .listRowInsets(EdgeInsets(top: 8, leading: 14, bottom: 4, trailing: 14))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
+        .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.lg, bottom: Space.xs, trailing: Space.lg))
         .listRowBackground(Color.clear)
     }
 }
 
-/// The 66-point verdict: share of checks passed, coloured by how bad it is.
+/// The 66-point verdict: share of checks passed, coloured by the ONE rule.
+///
+/// The colour used to be a set of percentage cutoffs written here — green at
+/// 75% — while Home ran different cutoffs of its own, so one holding could be
+/// green on this screen and amber on that one. It now asks `PattadarKit` for
+/// the verdict, which is decided from the checks themselves.
 struct ReadinessRing: View {
-    let score: Int
+    let readiness: Readiness
 
-    private var colour: Color {
-        score < 40 ? Color(red: 1.0, green: 0.27, blue: 0.23)
-            : score < 75 ? Color(red: 1.0, green: 0.62, blue: 0.04)
-            : Color(red: 0.19, green: 0.82, blue: 0.35)
-    }
+    private var score: Int { readiness.score }
+    private var colour: Color { Palette.tint(for: readiness.verdict) }
 
     var body: some View {
         ZStack {
-            Circle().stroke(.white.opacity(0.16), lineWidth: 6)
+            Circle().stroke(Palette.ruleOnRecord, lineWidth: 6)
             Circle()
                 .trim(from: 0, to: max(0.03, Double(score) / 100))
                 .stroke(colour, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
                 Text("\(score)%")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.scaled(15, weight: .bold))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Palette.inkOnRecord)
                 Text("ready")
-                    .font(.system(size: 8.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.label)
+                    .foregroundStyle(Palette.inkSoftOnRecord)
             }
         }
         .frame(width: 66, height: 66)
-        .animation(.easeOut(duration: 0.7), value: score)
+        .animation(Motion.standard(Motion.considered), value: score)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Record-ready \(score) per cent, \(readiness.verdict.rawValue)")
     }
 }
 
@@ -140,18 +147,18 @@ struct SegChips: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.sm) {
                 ForEach(tabs, id: \.self) { tab in
                     Button {
-                        withAnimation(.snappy(duration: 0.2)) { selection = tab }
+                        withAnimation(Motion.standard()) { selection = tab }
                     } label: {
                         Text(tab)
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .font(.scaled(13, weight: .semibold))
+                            .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
                             .background(selection == tab
                                         ? AnyShapeStyle(Color.primary)
                                         : AnyShapeStyle(Color(.secondarySystemGroupedBackground)),
-                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                             .foregroundStyle(selection == tab
                                              ? AnyShapeStyle(Color(.systemBackground))
                                              : AnyShapeStyle(Color.secondary))
@@ -159,7 +166,7 @@ struct SegChips: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
         }
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
@@ -244,27 +251,27 @@ struct NeedsYouCard: View {
     var body: some View {
         Section {
             if ordered.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                HStack(spacing: Space.md) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.success)
                     Text("Nothing waiting on you right now.")
                         .font(.subheadline)
                 }
             } else {
                 ForEach(ordered) { check in
                     Button { onFix(check) } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: Space.md) {
                             Circle()
-                                .fill(check.blocking ? Color.red : Color.orange)
+                                .fill(check.blocking ? Palette.danger : Palette.caution)
                                 .frame(width: 10, height: 10)
                                 .background(Circle()
-                                    .fill((check.blocking ? Color.red : Color.orange).opacity(0.25))
+                                    .fill((check.blocking ? Palette.danger : Palette.caution).opacity(0.25))
                                     .frame(width: 18, height: 18))
-                            VStack(alignment: .leading, spacing: 1) {
+                            VStack(alignment: .leading, spacing: Space.hair) {
                                 Text(check.problem)
-                                    .font(.system(size: 14.5, weight: .semibold))
+                                    .font(.scaled(14.5, weight: .semibold))
                                     .foregroundStyle(.primary)
                                 Text(FixCopy.forCheck(check.id).sub)
-                                    .font(.system(size: 12))
+                                    .font(.scaled(12))
                                     .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 0)
@@ -302,30 +309,30 @@ struct FixSheet: View {
     private var copy: FixCopy { FixCopy.forCheck(check.id) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.sm) {
                 Circle()
-                    .fill(check.blocking ? Color.red : Color.orange)
+                    .fill(check.blocking ? Palette.danger : Palette.caution)
                     .frame(width: 10, height: 10)
                 Text(check.blocking ? "Blocks a sale or a loan" : "Worth fixing")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(check.blocking ? .red : .orange)
+                    .foregroundStyle(check.blocking ? Palette.danger : Palette.caution)
             }
             Text(check.problem)
-                .font(.system(size: 26, weight: .semibold, design: .serif))
+                .font(.scaled(26, weight: .semibold, design: .serif))
                 .fixedSize(horizontal: false, vertical: true)
             Text(copy.why)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            VStack(spacing: 10) {
+            VStack(spacing: Space.md) {
                 Button { dismiss(); onSelf() } label: {
                     Text(copy.doItMyself)
                         .font(.headline)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .padding(.vertical, Space.lg)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                         .foregroundStyle(.white)
                 }
                 if !copy.haveItDone.isEmpty {
@@ -333,15 +340,15 @@ struct FixSheet: View {
                         Text("\(copy.haveItDone) · Pattadar agent")
                             .font(.subheadline.weight(.medium))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
+                            .padding(.vertical, Space.md)
                             .background(Color.accentColor.opacity(0.14),
-                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     }
                 }
             }
-            .padding(.top, 6)
+            .padding(.top, Space.sm)
         }
-        .padding(22)
+        .padding(Space.xxl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
@@ -363,11 +370,11 @@ struct ActionFact: View {
 
     var body: some View {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
-        VStack(alignment: .trailing, spacing: 2) {
+        VStack(alignment: .trailing, spacing: Space.hair) {
             LabeledContent(label) {
                 if trimmed.isEmpty, let onAction {
                     Button(actionWord) { onAction() }
-                        .font(.system(size: 13.5, weight: .semibold))
+                        .font(.scaled(13.5, weight: .semibold))
                 } else if !trimmed.isEmpty {
                     Text(trimmed).multilineTextAlignment(.trailing)
                 } else {
@@ -376,7 +383,7 @@ struct ActionFact: View {
             }
             if !hint.isEmpty {
                 Text(hint)
-                    .font(.system(size: 11.5))
+                    .font(.scaled(11.5))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -440,7 +447,7 @@ struct BoundarySidesSection: View {
                 if let onEdit {
                     Button(action: onEdit) {
                         Label {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: Space.hair) {
                                 Text("Add the four boundaries").font(.subheadline.weight(.medium))
                                 Text("What abuts each side — the హద్దులు from the deed's schedule")
                                     .font(.caption2).foregroundStyle(.secondary)
@@ -493,7 +500,7 @@ struct BoundarySidesEditor: View {
                     Text("As the schedule writes them — తూర్పు first. Names, not directions: \"Ravi Rathamma's land\", \"Ketagudipi to Jagannadhapuram boundary\".")
                 }
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
                 Section {
                     PrimaryButton(title: "Save boundaries", busy: saving, disabled: sides.isEmpty) {
@@ -526,12 +533,12 @@ struct QuickActionsRow: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.sm) {
                 ForEach(actions) { a in
                     Button(action: a.run) {
                         Label(a.id, systemImage: a.icon)
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(.horizontal, 13).padding(.vertical, 9)
+                            .font(.scaled(13, weight: .semibold))
+                            .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                             .background(Color.accentColor.opacity(0.13), in: Capsule())
                             .overlay(Capsule().stroke(Color.accentColor.opacity(0.25), lineWidth: 1))
                     }
@@ -539,7 +546,7 @@ struct QuickActionsRow: View {
                     .foregroundStyle(Color.accentColor)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Space.lg)
         }
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
@@ -558,7 +565,7 @@ struct CountsList: View {
         Section {
             row("Documents", "\(documents)", tint: .primary, action: onDocuments)
             row("Boundary on the map", boundaryDrawn ? "Drawn" : "Not drawn",
-                tint: boundaryDrawn ? .green : .orange, action: onBoundary)
+                tint: boundaryDrawn ? Palette.success : Palette.caution, action: onBoundary)
             if spent > 0 {
                 LabeledContent("Spent on this land") {
                     Text(compactRupees(spent)).monospacedDigit()
@@ -600,14 +607,14 @@ struct StillExpectedSection: View {
         if !missing.isEmpty {
             Section {
                 ForEach(missing) { doc in
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(doc.name).font(.system(size: 14.5, weight: .semibold))
-                            Text(doc.why).font(.system(size: 12)).foregroundStyle(.secondary)
+                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
+                            Text(doc.name).font(.scaled(14.5, weight: .semibold))
+                            Text(doc.why).font(.scaled(12)).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)
                         Button("Get it") { onGet(doc) }
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.scaled(13, weight: .semibold))
                             .buttonStyle(.borderless)
                     }
                 }

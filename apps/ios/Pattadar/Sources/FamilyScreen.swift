@@ -14,7 +14,7 @@ struct FamilyScreen: View {
             List {
                 ForEach(groups) { g in
                     NavigationLink { GroupDetailScreen(group: g) } label: {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: Space.xs) {
                             Text(g.name).fontWeight(.semibold)
                             Text("\(g.memberCount) member\(g.memberCount == 1 ? "" : "s") · \(g.landCount) holding\(g.landCount == 1 ? "" : "s")")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -22,7 +22,7 @@ struct FamilyScreen: View {
                             // here, so it is stated, not left to be inferred.
                             if g.landCount > 0 && g.totalShare == 0 {
                                 Label("No heirs recorded", systemImage: "exclamationmark.triangle")
-                                    .font(.caption).foregroundStyle(.orange)
+                                    .font(.caption).foregroundStyle(Palette.caution)
                             }
                         }
                     }
@@ -31,7 +31,7 @@ struct FamilyScreen: View {
                             Label("Delete", systemImage: "trash.fill")
                         }
                         Button { editing = g } label: { Label("Edit", systemImage: "pencil.line") }
-                            .tint(.blue)
+                            .tint(Palette.accent)
                     }
                 }
                 if loaded && groups.isEmpty {
@@ -112,7 +112,7 @@ struct GroupDetailScreen: View {
                           : String(format: "Shares total %.0f%%, not 100%%. An allocation that does not add up can be disputed.", group.totalShare),
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
-                        .foregroundStyle(group.totalShare == 0 ? .red : .orange)
+                        .foregroundStyle(group.totalShare == 0 ? Palette.danger : Palette.caution)
                 }
             }
             Section("Members") {
@@ -122,7 +122,7 @@ struct GroupDetailScreen: View {
                     } label: {
                     HStack {
                         Avatar(name: m.name, size: 34, isSelf: m.isSelf)
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             Text(m.name + (m.isSelf ? " (you)" : "")).fontWeight(.medium)
                             Text([m.relation, m.status].filter { !$0.isEmpty }.map(humanize).joined(separator: " · "))
                                 .font(.caption).foregroundStyle(.secondary)
@@ -188,9 +188,9 @@ struct GroupDetailScreen: View {
     }
 
     private var shareTone: Color {
-        if group.totalShare == 100 { return .green }
+        if group.totalShare == 100 { return Palette.success }
         if group.totalShare == 0 { return .secondary }
-        return .orange
+        return Palette.caution
     }
 
     private func loadDossier() async {

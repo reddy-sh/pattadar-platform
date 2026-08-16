@@ -161,6 +161,45 @@ final class CognitoAuth: NSObject {
         return email
     }
 
+    // MARK: - Local sign-in (the offline loop)
+
+    /// The local stack's stand-in issuer: scripts/start-local.sh gives the
+    /// LOCAL gateway a laptop keypair, and /local-auth/token mints real
+    /// tokens from it — validated by the same gateway pipeline as prod, so
+    /// every request after this one travels exactly the production path.
+    /// Only a local gateway has that route; the prod gateway answers 404 and
+    /// this throws, which is how the caller knows to fall back.
+    func signInLocal(gatewayRoot: URL, user: String) async throws -> String {
+        var r = URLRequest(url: gatewayRoot.appendingPathComponent("local-auth/token"))
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Deciding "is this a local gateway" must not hang the dev door.
+        r.timeoutInterval = 5
+        r.httpBody = try JSONSerialization.data(withJSONObject: ["user": user])
+
+        let (data, response) = try await URLSession.shared.data(for: r)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw AuthError.failed("No local issuer here.")
+        }
+        let t = try JSONDecoder().decode(TokenResponse.self, from: data)
+        let fresh = Tokens(
+            accessToken: t.access_token,
+            idToken: t.id_token,
+            // No refresh path by design: the token lasts a working day and
+            // the dev door just re-mints. Expiry signs out (see
+            // validAccessToken), and tapping the door again is the refresh.
+            refreshToken: nil,
+            expiresAt: Date().addingTimeInterval(t.expires_in))
+        tokens = fresh
+        Keychain.save(fresh)
+
+        guard let email = self.email, !email.isEmpty else {
+            signOutLocally()
+            throw AuthError.failed("The local token has no email on it.")
+        }
+        return email
+    }
+
     // MARK: - Staying signed in
 
     /// An access token good for at least the next minute, refreshing if not.

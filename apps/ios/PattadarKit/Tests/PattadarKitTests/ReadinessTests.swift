@@ -89,6 +89,38 @@ func emptyAndPerfectAreNotTheSame() {
     #expect(allGood.contains("stand up to scrutiny"))
 }
 
+@Test("One verdict, so two screens cannot disagree about one holding")
+func verdictIsSingleSourced() {
+    #expect(assessReadiness(complete(), thisYear: 2026).verdict == .ready)
+
+    // 85% and nothing blocking. The holding screen used to call this green
+    // (green at 75%) while Home called it amber (green only at 100%) — the same
+    // record with two verdicts in one session.
+    var noPin = complete(); noPin.hasLocation = false
+    let untidy = assessReadiness(noPin, thisYear: 2026)
+    #expect(untidy.score == 85)
+    #expect(untidy.verdict == .untidy)
+
+    // A high score with something blocking is still blocked: 85% and no title
+    // deed must never read as nearly fine.
+    var noTitle = complete(); noTitle.hasTitleDocument = false
+    let blocked = assessReadiness(noTitle, thisYear: 2026)
+    #expect(blocked.score == 85)
+    #expect(blocked.verdict == .blocked)
+}
+
+@Test("The verdict follows the checks, never a percentage cutoff")
+func verdictHasNoThresholds() {
+    // Two holdings on the same score, one blocked and one merely untidy. Any
+    // rule written on the score alone would have to give these the same colour.
+    var noTitle = complete(); noTitle.hasTitleDocument = false
+    var noPin = complete(); noPin.hasLocation = false
+    let a = assessReadiness(noTitle, thisYear: 2026)
+    let b = assessReadiness(noPin, thisYear: 2026)
+    #expect(a.score == b.score)
+    #expect(a.verdict != b.verdict)
+}
+
 @Test("Only the worst three are named, and the rest are counted")
 func blurbIsBounded() {
     var bad = complete(); bad.hasTitleDocument = false

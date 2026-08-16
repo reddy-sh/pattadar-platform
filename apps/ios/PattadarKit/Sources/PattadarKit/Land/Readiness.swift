@@ -34,6 +34,34 @@ public struct Readiness: Sendable {
     }
 
     public var isReady: Bool { failures.isEmpty }
+
+    /// How bad it is, decided ONCE.
+    ///
+    /// Three screens each had their own percentage cutoffs and they disagreed:
+    /// the holding's own ring turned green at 75%, the dashboard card only at
+    /// 100%, and a third rule (since deleted with its screen) went amber at 70%.
+    /// A holding at 85% was therefore green on its own screen and amber on Home
+    /// — the same record, two verdicts, in the same session.
+    ///
+    /// The cutoffs were the mistake. This structure already knows the answer
+    /// exactly: a blocking failure stops a sale, a non-blocking one is untidy,
+    /// and nothing outstanding is ready. No threshold to pick, none to drift.
+    public var verdict: ReadinessVerdict {
+        if !blocking.isEmpty { return .blocked }
+        return failures.isEmpty ? .ready : .untidy
+    }
+}
+
+/// The verdict, named rather than coloured — `PattadarKit` is domain and is
+/// tested with no simulator, so it does not import SwiftUI. The app maps these
+/// three cases onto three tokens in one place (`Palette.tint(for:)`).
+public enum ReadinessVerdict: String, Sendable, CaseIterable {
+    /// Something on this holding stops a sale or a loan until it is fixed.
+    case blocked
+    /// Nothing blocking, but the file is not complete.
+    case untidy
+    /// Every check passes.
+    case ready
 }
 
 /// What a holding needs before somebody else would accept it.

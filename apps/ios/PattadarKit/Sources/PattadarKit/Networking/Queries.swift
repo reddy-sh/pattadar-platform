@@ -46,6 +46,7 @@ public enum Queries {
         boundaryNorth boundarySouth boundaryEast boundaryWest
         headline summary keyPointList caveatList createdAt reading
       }
+      documents { id name docType mimeType sizeBytes fileRef readingId createdAt }
     }
     """
 
@@ -88,6 +89,7 @@ public enum Queries {
 
     public static let propertyDossier = """
     query($target:String!){
+      propertyPhotos(propertyId:$target) { id propertyId fileRef category caption latitude longitude heading capturedAt capturedBy isCover createdAt }
       notes(entityType:"property", entityId:$target) { id body createdAt }
       auditEvents(target:$target) { id actor action target details timestamp }
     }
@@ -171,6 +173,33 @@ public enum Mutations {
     """
     public static let linkDocumentPassbook = """
     mutation($id:String!,$pb:String!){ linkDocumentPassbook(documentId:$id, passbookId:$pb){ id } }
+    """
+
+    /// File a paper WITHOUT reading it — layer 1 of the vault.
+    ///
+    /// `createRegisteredDocument` above stores an AI extraction; this stores
+    /// only the file. Until this existed the phone had no way to keep a
+    /// document that had not been through the reader, so every add spent an
+    /// extraction whether or not anyone wanted one.
+    public static let createDocument = """
+    mutation($docType:String!,$fileRef:String!,$name:String!,$sizeBytes:Int!,$mimeType:String!,$source:String!){
+      createDocument(parcelId:"", passbookId:"", propertyId:"", docType:$docType, fileRef:$fileRef,
+                     docNo:"", sroCode:"", regYear:"", source:$source, tags:"",
+                     name:$name, sizeBytes:$sizeBytes, mimeType:$mimeType){ id }
+    }
+    """
+
+    /// Point a layer-1 document at the land it belongs to. Exclusive: the
+    /// three ids are the whole truth, so an omitted one clears.
+    public static let updateDocumentLink = """
+    mutation($id:String!,$parcel:String!,$pb:String!,$prop:String!){
+      updateDocumentLink(id:$id, parcelId:$parcel, passbookId:$pb, propertyId:$prop){ id }
+    }
+    """
+
+    /// Rename a file to whatever its owner wants to find it by.
+    public static let renameDocument = """
+    mutation($id:String!,$name:String!){ renameDocument(id:$id, name:$name){ id } }
     """
 
     // ── edits ────────────────────────────────────────────────────────────
@@ -278,6 +307,26 @@ public enum Mutations {
     }
     """
     public static let deleteNote = "mutation($id:String!){ deleteNote(id:$id) }"
+
+    // ── photos ───────────────────────────────────────────────────────────
+    // The photo row is evidence metadata; its bytes are already a storage
+    // node by the time these run (fileRef). Coordinates are OPTIONAL in the
+    // schema and sent only when known — null must reach the server as null,
+    // never as 0,0.
+    public static let addParcelPhoto = """
+    mutation($parcelId:String!,$fileRef:String!,$category:String!,$caption:String!,$latitude:Float,$longitude:Float,$heading:Float,$capturedAt:String!){
+      addParcelPhoto(parcelId:$parcelId,fileRef:$fileRef,category:$category,caption:$caption,latitude:$latitude,longitude:$longitude,heading:$heading,capturedAt:$capturedAt){ id }
+    }
+    """
+    public static let addPropertyPhoto = """
+    mutation($propertyId:String!,$fileRef:String!,$category:String!,$caption:String!,$latitude:Float,$longitude:Float,$heading:Float,$capturedAt:String!){
+      addPropertyPhoto(propertyId:$propertyId,fileRef:$fileRef,category:$category,caption:$caption,latitude:$latitude,longitude:$longitude,heading:$heading,capturedAt:$capturedAt){ id }
+    }
+    """
+    public static let setCoverPhoto = "mutation($id:String!){ setCoverPhoto(id:$id) }"
+    public static let setPropertyCoverPhoto = "mutation($id:String!){ setPropertyCoverPhoto(id:$id) }"
+    public static let deleteParcelPhoto = "mutation($id:String!){ deleteParcelPhoto(id:$id) }"
+    public static let deletePropertyPhoto = "mutation($id:String!){ deletePropertyPhoto(id:$id) }"
 
     public static let deleteRegisteredDocument = """
     mutation($id:String!){ deleteRegisteredDocument(id:$id) }

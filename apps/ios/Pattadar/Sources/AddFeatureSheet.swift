@@ -63,19 +63,19 @@ struct AddFeatureSheet: View {
                     if !category.examples.isEmpty {
                         // Suggestions, so nobody has to invent a vocabulary and
                         // so two parcels do not call the same thing two names.
-                        FlowLayout(spacing: 8) {
+                        FlowLayout(spacing: Space.sm) {
                             ForEach(category.examples, id: \.self) { example in
                                 Button { label = example } label: {
                                     Text(example)
                                         .font(.caption)
-                                        .padding(.horizontal, 10).padding(.vertical, 6)
+                                        .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                                         .background(Color(.tertiarySystemFill), in: Capsule())
                                         .foregroundStyle(.primary)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, Space.hair)
                     }
                 } header: {
                     Text(category.title)
@@ -111,7 +111,7 @@ struct AddFeatureSheet: View {
                 }
 
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
 
                 Section {

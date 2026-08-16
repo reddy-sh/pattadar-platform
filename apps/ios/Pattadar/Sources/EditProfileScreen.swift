@@ -30,7 +30,7 @@ struct EditProfileScreen: View {
                 }
 
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
 
                 Section {

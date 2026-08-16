@@ -34,6 +34,9 @@ targets:
       - Pattadar/Sources
       # The icon: the Rye P, white on brick red — the wordmark's own mark.
       - Pattadar/Assets.xcassets
+      # Compiled into the app AND the widget extension. `FileAPaperIntent` runs
+      # in whichever process the system picks, so it has to exist in both.
+      - Shared
     # Same team as the React Native app, so a device build signs without any
     # manual step in Xcode. Automatic signing lets Xcode manage the profile.
     settings:
@@ -41,24 +44,31 @@ targets:
         DEVELOPMENT_TEAM: WME7N6KM67
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The brand amber, light and dark, from design.md. Without this the
+        # asset is compiled but never consulted, and every `Color.accentColor`
+        # in the app — twenty-eight of them — falls back to stock iOS blue.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         # A device build reaches the Mac over the tunnel, not localhost — the
         # simulator shares the Mac's network stack, a phone does not.
         # An id your team ALREADY has a provisioning profile for, so a device
         # build signs with no Apple-account round trip. com.pattadar.app belongs
         # to the React Native app; both must coexist on the phone.
         PRODUCT_BUNDLE_IDENTIFIER: com.rfactory.pattadar
+        # The App Group is the ONLY ground the app and its widgets share. A
+        # widget extension cannot read the app's Documents directory and has no
+        # credentials of its own, so without this the snapshot is written into
+        # a container nothing else can see and every widget stays blank.
+        CODE_SIGN_ENTITLEMENTS: Pattadar/Pattadar.entitlements
     dependencies:
       - package: PattadarKit
-      # ── Home Screen widget: OFF by default ───────────────────────────
-      # It needs a provisioning profile for com.rfactory.pattadar.widget and
-      # an App Group capability. Xcode can create neither while no Apple ID is
-      # signed in (Settings → Accounts), so leaving it on made every DEVICE
-      # build fail with six signing errors while the simulator was fine.
-      #
-      # To turn it on: sign into Xcode, then uncomment these two lines and the
-      # CODE_SIGN_ENTITLEMENTS line in each target, and `xcodegen generate`.
-      # - target: PattadarWidgetExtension
-      #   embed: true
+      # The widgets ship with the app. Both this and the extension's own
+      # entitlements need a provisioning profile that carries the App Group;
+      # automatic signing creates one, which needs an Apple ID signed into
+      # Xcode (Settings → Accounts). A device build fails on signing without it
+      # while the simulator stays green, so check the DEVICE build after
+      # touching either.
+      - target: PattadarWidgetExtension
+        embed: true
     info:
       path: Pattadar/Info.plist
       properties:
@@ -99,7 +109,16 @@ targets:
   PattadarWidgetExtension:
     type: app-extension
     platform: iOS
-    sources: [PattadarWidget]
+    sources:
+      - PattadarWidget
+      # The intent, compiled into both binaries — see the app target above.
+      - Shared
+      # The design system itself, NOT a copy of its values. A widget that
+      # invented its own greens and radii would be recognisably a different
+      # app sitting next to the one it belongs to. The file imports nothing but
+      # PattadarKit and SwiftUI, so it compiles here unchanged.
+      - path: Pattadar/Sources/DesignSystem.swift
+        group: Pattadar/Sources
     dependencies:
       - package: PattadarKit
     settings:
@@ -107,11 +126,13 @@ targets:
         DEVELOPMENT_TEAM: WME7N6KM67
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: com.rfactory.pattadar.widget
-        # CODE_SIGN_ENTITLEMENTS: PattadarWidget/PattadarWidget.entitlements
-        INFOPLIST_KEY_CFBundleDisplayName: Your land
+        CODE_SIGN_ENTITLEMENTS: PattadarWidget/PattadarWidget.entitlements
     info:
       path: PattadarWidget/Info.plist
       properties:
-        CFBundleDisplayName: Your land
+        # "Pattadar" rather than "Your land": this name labels the whole group
+        # in the widget gallery, and it now holds three widgets and a control.
+        # Each says what it is on its own card.
+        CFBundleDisplayName: Pattadar
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension

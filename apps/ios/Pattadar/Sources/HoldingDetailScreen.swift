@@ -82,7 +82,7 @@ struct HoldingDetailScreen: View {
     private func ParcelChip(_ text: String, tint: Color) -> some View {
         Text(text)
             .font(.caption.weight(.medium))
-            .padding(.horizontal, 10).padding(.vertical, 5)
+            .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
             .background(Capsule().fill(tint.opacity(0.18)))
             .foregroundStyle(tint)
     }
@@ -232,6 +232,15 @@ struct HoldingDetailScreen: View {
     @ViewBuilder private var overviewTab: some View {
         NeedsYouCard(readiness: readiness) { fixing = $0 }
 
+        // Photos, up front — the land as it looks, not a tab you have to find.
+        HoldingPhotoStrip(photos: (dossier?.parcelPhotos ?? []).map(GalleryPhoto.init),
+                          target: .parcel(parcel.id),
+                          villageCentroid: villageCentroid,
+                          placeName: passbook?.village ?? "",
+                          onChanged: { Task { await loadDossier() } },
+                          onAdd: { seg = "On the land" },
+                          addPrompt: "Add photos of this land")
+
         QuickActionsRow(actions: [
             .init(id: "Document", icon: "doc.badge.plus") { attaching = true },
             .init(id: "Boundary", icon: "skew") { drawingBoundary = true },
@@ -312,7 +321,7 @@ struct HoldingDetailScreen: View {
                        actionWord: "File it", onAction: { fixing = readiness.checks.first { $0.id == "tax" } })
             ActionFact(label: "Litigation", value: parcel.litigation ? "Under litigation" : "None declared")
             if parcel.litigation, !parcel.litigationNote.isEmpty {
-                Text(parcel.litigationNote).font(.callout).foregroundStyle(.red)
+                Text(parcel.litigationNote).font(.callout).foregroundStyle(Palette.danger)
             }
         }
 
@@ -392,9 +401,9 @@ struct HoldingDetailScreen: View {
 
     @ViewBuilder private var peopleTab: some View {
         Section("Held by") {
-            HStack(spacing: 12) {
+            HStack(spacing: Space.md) {
                 Avatar(name: holderName, size: 40, isSelf: false)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(holderName.isEmpty ? "Not recorded" : holderName)
                         .font(.subheadline.weight(.semibold))
                     Text("On the record" + (parcel.acquisitionSource.isEmpty
@@ -412,14 +421,14 @@ struct HoldingDetailScreen: View {
                 app.selectedTab = .you
             } label: {
                 Label {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.hair) {
                         Text("Beneficiaries").font(.subheadline.weight(.medium))
                         Text("Who inherits this — land is lost more often to a paper nobody could find than to a dispute.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 } icon: {
                     Image(systemName: "person.badge.shield.checkmark")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.caution)
                 }
             }
             .buttonStyle(.plain)
@@ -433,9 +442,11 @@ struct HoldingDetailScreen: View {
                          features: features,
                          onChanged: { Task { await loadDossier() } })
 
-        PhotoSection(photos: dossier?.parcelPhotos ?? [],
-                     villageCentroid: villageCentroid,
-                     placeName: passbook?.village ?? "")
+        HoldingPhotoGallery(photos: (dossier?.parcelPhotos ?? []).map(GalleryPhoto.init),
+                            target: .parcel(parcel.id),
+                            villageCentroid: villageCentroid,
+                            placeName: passbook?.village ?? "",
+                            onChanged: { Task { await loadDossier() } })
     }
 
     // MARK: - Timeline
@@ -600,8 +611,8 @@ struct LocationSection: View {
                             MapPolygon(coordinates: corners.map {
                                 CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
                             })
-                            .foregroundStyle(.green.opacity(0.18))
-                            .stroke(.green, lineWidth: 2)
+                            .foregroundStyle(Palette.success.opacity(0.18))
+                            .stroke(Palette.success, lineWidth: 2)
                         }
                     }
                     // A preview must not steal the scroll gesture; the whole
@@ -613,24 +624,24 @@ struct LocationSection: View {
                             Text(address)
                                 .font(.caption2.weight(.medium))
                                 .lineLimit(1)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
                                 .background(.thinMaterial, in: Capsule())
-                                .padding(10)
+                                .padding(Space.md)
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
                         Label("Maps", systemImage: "map")
                             .font(.caption.weight(.medium))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                             .background(.thinMaterial, in: Capsule())
-                            .padding(10)
+                            .padding(Space.md)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                 } else {
                     // Nothing pinned: an empty map is a lie, so the row says so
                     // and offers the one action available.
                     Label {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             Text("Maps").font(.subheadline.weight(.medium))
                             Text(canAimAt(place)
                                  ? "The pin, and the boundary drawn on the map"
@@ -645,7 +656,7 @@ struct LocationSection: View {
             // On the row, not inside the label: a modifier that configures a
             // List row has no effect applied to a link's contents.
             .listRowInsets(pin == nil && corners.isEmpty
-                           ? nil : EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                           ? nil : EdgeInsets(top: Space.sm, leading: Space.md, bottom: Space.sm, trailing: Space.md))
         }
     }
 }
@@ -756,8 +767,8 @@ struct PropertyDetailScreen: View {
     /// Per-kind hero gradient from the handoff: plot slate, built green.
     private var heroGradient: [Color] {
         kind == .plot || kind == .commercial
-            ? [Color(red: 0.184, green: 0.227, blue: 0.290), Color(red: 0.141, green: 0.180, blue: 0.227)]
-            : [Color(red: 0.184, green: 0.267, blue: 0.220), Color(red: 0.133, green: 0.196, blue: 0.165)]
+            ? [Palette.record, Palette.recordDeep]
+            : [Palette.record, Palette.recordDeep]
     }
 
     private var measuredAcres: Double { boundaryAcres(parseBoundary(property.boundary)) }
@@ -896,6 +907,18 @@ struct PropertyDetailScreen: View {
     @ViewBuilder private var overviewTab: some View {
         NeedsYouCard(readiness: readiness) { fixing = $0 }
 
+        // Photos, up front — the property as it looks, not a tab away. No
+        // village centroid here (a property is addressed, not surveyed), so
+        // the plausibility check stays quiet and coordinates speak for
+        // themselves — same as the land/property tab's gallery.
+        HoldingPhotoStrip(photos: (dossier?.propertyPhotos ?? []).map(GalleryPhoto.init),
+                          target: .property(property.id),
+                          villageCentroid: nil,
+                          placeName: property.city.isEmpty ? property.locality : property.city,
+                          onChanged: { Task { await loadDossier() } },
+                          onAdd: { seg = landTabName },
+                          addPrompt: "Add photos of this property")
+
         QuickActionsRow(actions: [
             .init(id: "Document", icon: "doc.badge.plus") { attaching = true },
             .init(id: "Boundary", icon: "skew") { drawingBoundary = true },
@@ -980,7 +1003,7 @@ struct PropertyDetailScreen: View {
             ActionFact(label: "Litigation",
                        value: property.litigation ? "Under litigation" : "None declared")
             if property.litigation, !property.litigationNote.isEmpty {
-                Text(property.litigationNote).font(.callout).foregroundStyle(.red)
+                Text(property.litigationNote).font(.callout).foregroundStyle(Palette.danger)
             }
         }
 
@@ -1068,9 +1091,9 @@ struct PropertyDetailScreen: View {
 
     @ViewBuilder private var peopleTab: some View {
         Section("Held by") {
-            HStack(spacing: 12) {
+            HStack(spacing: Space.md) {
                 Avatar(name: property.currentOwner, size: 40, isSelf: false)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(property.currentOwner.isEmpty ? "Not recorded" : property.currentOwner)
                         .font(.subheadline.weight(.semibold))
                     Text("On the record" + (property.acquisitionMode.isEmpty
@@ -1102,14 +1125,14 @@ struct PropertyDetailScreen: View {
                 app.selectedTab = .you
             } label: {
                 Label {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.hair) {
                         Text("Beneficiaries").font(.subheadline.weight(.medium))
                         Text("Who inherits this — land is lost more often to a paper nobody could find than to a dispute.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 } icon: {
                     Image(systemName: "person.badge.shield.checkmark")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.caution)
                 }
             }
             .buttonStyle(.plain)
@@ -1122,6 +1145,15 @@ struct PropertyDetailScreen: View {
         OnTheLandSection(entityType: "property", entityId: property.id,
                          features: features,
                          onChanged: { Task { await loadDossier() } })
+
+        // No village centroid on this side — a property is addressed, not
+        // surveyed — so the plausibility check stays quiet and the
+        // coordinates speak for themselves.
+        HoldingPhotoGallery(photos: (dossier?.propertyPhotos ?? []).map(GalleryPhoto.init),
+                            target: .property(property.id),
+                            villageCentroid: nil,
+                            placeName: property.city.isEmpty ? property.locality : property.city,
+                            onChanged: { Task { await loadDossier() } })
     }
 
     // MARK: - Timeline
@@ -1251,7 +1283,7 @@ struct StarButton: View {
             Task { await app.toggleFavourite(type, id) }
         } label: {
             Image(systemName: app.isFavourite(type, id) ? "star.fill" : "star")
-                .foregroundStyle(app.isFavourite(type, id) ? .yellow : .accentColor)
+                .foregroundStyle(app.isFavourite(type, id) ? Palette.accent : .accentColor)
         }
         .accessibilityLabel(app.isFavourite(type, id) ? "Remove from favourites" : "Add to favourites")
     }

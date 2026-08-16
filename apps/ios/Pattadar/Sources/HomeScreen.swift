@@ -10,7 +10,7 @@ struct HomeScreen: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: Space.lg) {
                     if data != nil && !hasHoldings {
                         // No land on file — a beginning, not a fault. But the
                         // beginning must not HIDE what does exist: readings
@@ -74,7 +74,8 @@ struct HomeScreen: View {
                         if readinessItems.contains(where: { !$0.readiness.isReady }) {
                             RecordReadyCard(score: overallReadiness,
                                             blurb: readinessBlurb(readinessItems),
-                                            blockingCount: readinessItems.filter { !$0.readiness.blocking.isEmpty }.count) {
+                                            blockingCount: readinessItems.filter { !$0.readiness.blocking.isEmpty }.count,
+                                            verdict: overallVerdict) {
                                 app.holdingsFilter = .needsAttention
                                 app.selectedTab = .properties
                             }
@@ -92,7 +93,7 @@ struct HomeScreen: View {
                         // this cost. Scrolls horizontally so adding a seventh
                         // does not shrink the others into unreadable chips.
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
+                            HStack(spacing: Space.md) {
                                 Button { app.selectedTab = .documents } label: {
                                     shortcut("Documents", "doc.text.fill",
                                              note: data.map { "\(documentCount($0))" } ?? "")
@@ -118,7 +119,7 @@ struct HomeScreen: View {
                                     shortcut("Timeline", "clock.arrow.circlepath", note: latestActivity)
                                 }
                             }
-                            .padding(.horizontal, 2)
+                            .padding(.horizontal, Space.hair)
                         }
 
                         if !starred.isEmpty {
@@ -129,19 +130,26 @@ struct HomeScreen: View {
                         // of the readiness ring and the attention list — Home
                         // states what you have, and everything past the two
                         // cards was a second screen's worth of restating it.
-                    } else if app.lastFailure != nil {
-                        LoadFailure(message: app.lastFailure)
+                    } else if let failure = ownFailure {
+                        // THIS screen's own dashboard query failed — not
+                        // whatever the app-wide `lastFailure` happened to be
+                        // holding. That field is written by every concurrent
+                        // query, so a sibling succeeding from the cache erased
+                        // the real failure, and a tab switch cancelling a load
+                        // wrote "Stopped." over it. The screen reads only its
+                        // own outcome now.
+                        LoadFailure(message: failure)
                     } else {
-                        ProgressView().padding(.top, 60)
+                        ProgressView().padding(.top, 40)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Space.lg)
                 // Clear of the floating tab bar, which draws OVER the scroll
                 // view: without this the last card is half-covered at the end
                 // of the list and looks clipped rather than scrollable.
                 .padding(.bottom, 40)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Palette.ground)
             // No navigation bar on this screen.
             //
             // A large "Home" title cost about 60 points at the top to repeat
@@ -170,6 +178,10 @@ struct HomeScreen: View {
         d.dashboardStats.totalDocuments
     }
     @State private var documentsSeen = 0
+    /// Why THIS screen has no dashboard, if it has none. Nil means either not
+    /// loaded yet or loaded fine — `data` says which. Cancellation leaves it
+    /// nil, because a view being torn down has nothing to report.
+    @State private var ownFailure: String?
     @State private var documents: [RegisteredDocument] = []
     @State private var expenses: [LandExpense] = []
     @State private var showAdd = false
@@ -208,7 +220,7 @@ struct HomeScreen: View {
     /// One chip in the shortcut row, with an optional second phrase set quieter
     /// — used where the chip can say something about what is behind it.
     private func shortcut(_ title: String, _ icon: String, note: String = "") -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.sm) {
             Image(systemName: icon).font(.footnote).foregroundStyle(Color.accentColor)
             Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                 .lineLimit(1)
@@ -216,45 +228,43 @@ struct HomeScreen: View {
                 Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
-        .background(Capsule().fill(Color(.secondarySystemGroupedBackground)))
+        .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
+        .background(Capsule().fill(Palette.card))
     }
 
     /// Each holding assessed against what a buyer's advocate would ask for —
     /// the same checks, fix sheets and copy the holding screens use; this is
     /// only their front door.
-    private var readinessItems: [(name: String, readiness: Readiness)] {
+    ///
+    /// The assessment itself lives in PattadarKit, because the Home Screen
+    /// widget shows the same verdict and two copies of these rules would drift.
+    private var assessed: [AssessedHolding] {
         guard let h = holdings else { return [] }
-        let year = Calendar.current.component(.year, from: Date())
-        let documentedParcels = Set(documents.map(\.parcelId))
-        let documentedProperties = Set(documents.map(\.propertyId))
+        return assessHoldings(parcels: h.parcels, properties: h.properties,
+                              passbooks: h.passbooks, documents: documents,
+                              favourites: app.favourites,
+                              thisYear: Calendar.current.component(.year, from: Date()))
+    }
 
-        let parcels = h.parcels.map { p -> (String, Readiness) in
-            ("Sy \(p.surveyNo)", assessReadiness(ReadinessInput(
-                hasTitleDocument: documentedParcels.contains(p.id),
-                hasLocation: parseGeoPoint(p.geoPoint) != nil,
-                hasRegistrationNumber: !p.regDocNo.isEmpty,
-                mutationStatus: p.mutationStatus, ecStatus: p.ecStatus,
-                taxPaidUpto: p.taxPaidUpto, litigation: p.litigation), thisYear: year))
-        }
-        let properties = h.properties.map { p -> (String, Readiness) in
-            let name = p.label.isEmpty ? (p.city.isEmpty ? "Property" : p.city) : p.label
-            return (name, assessReadiness(ReadinessInput(
-                hasTitleDocument: documentedProperties.contains(p.id),
-                hasLocation: parseGeoPoint(p.geoPoint) != nil,
-                hasRegistrationNumber: !p.regDocNo.isEmpty,
-                mutationStatus: p.mutationStatus, ecStatus: p.ecStatus,
-                taxPaidUpto: p.taxPaidUpto, litigation: p.litigation), thisYear: year))
-        }
-        return parcels + properties
+    private var readinessItems: [(name: String, readiness: Readiness)] {
+        assessed.map { (name: $0.line.name, readiness: $0.readiness) }
+    }
+
+    /// The worst verdict across the portfolio, by the same rule one holding
+    /// uses. A single blocked holding blocks the whole card: an amber
+    /// dashboard over a field that cannot be sold is a comfortable lie.
+    private var overallVerdict: ReadinessVerdict {
+        if readinessItems.contains(where: { $0.readiness.verdict == .blocked }) { return .blocked }
+        return readinessItems.allSatisfy(\.readiness.isReady) ? .ready : .untidy
     }
 
     /// The share of ALL checks across ALL holdings, not an average of
     /// averages — one perfect parcel must not paper over four broken ones.
     private var overallReadiness: Int {
-        let all = readinessItems.flatMap { $0.readiness.checks }
-        guard !all.isEmpty else { return 0 }
-        return Int((Double(all.filter(\.passed).count) / Double(all.count)) * 100)
+        let checks = assessed.reduce(0) { $0 + $1.line.checks }
+        let passed = assessed.reduce(0) { $0 + $1.line.passed }
+        guard checks > 0 else { return 0 }
+        return Int((Double(passed) / Double(checks)) * 100)
     }
 
     /// This financial year's spend, for the chip. April to March — the year
@@ -289,14 +299,14 @@ struct HomeScreen: View {
     /// the same greeting twice in two scripts — and the date took its place,
     /// which at least says something the greeting does not.
     private var greeting: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center, spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(dateLine)
                     .font(.footnote).foregroundStyle(.secondary)
                 Text(name.isEmpty ? "\(timeOfDay)." : "\(timeOfDay), \(callingName).")
                     // Serif, like every headline in the design language — the
                     // register of a printed record, not an app's chrome.
-                    .font(.system(size: 30, weight: .semibold, design: .serif))
+                    .font(.scaled(30, weight: .semibold, design: .serif))
                     .minimumScaleFactor(0.75)
                     .lineLimit(2)
             }
@@ -310,7 +320,7 @@ struct HomeScreen: View {
             .accessibilityLabel("Your account")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 4)
+        .padding(.top, Space.xs)
     }
 
     /// "Saturday, 1 August" — the one line of the header that changes daily.
@@ -343,109 +353,36 @@ struct HomeScreen: View {
         }
     }
 
-    /// Totalled per kind, each in its own unit, with the passbooks they sit on.
-    private var categories: [KindSummary] {
+    /// Totalled per kind, each in its own unit, with the passbooks they sit
+    /// on. The rules are in PattadarKit so the widget totals the same way.
+    private var categories: [KindTotal] {
         guard let h = holdings else { return [] }
-        var rows: [KindSummary] = []
-
-        /// Distinct passbooks these parcels are filed under. A `passbookId`
-        /// pointing at a passbook that is not there is a broken link, not a
-        /// fifth khata, so it is not counted — the orphans are reported on the
-        /// attention card instead.
-        let known = Set(h.passbooks.map(\.id))
-        func passbookCount(_ parcels: [Parcel]) -> Int {
-            Set(parcels.map(\.passbookId).filter { known.contains($0) }).count
-        }
-
-        // THE UNIT FOLLOWS THE LAND, NOT THE FILING.
-        //
-        // A 25-acre field bought on a deed arrives as a "property", and the
-        // old grouping converted it into 1,21,000 square yards on the plots
-        // card — a number nobody in India says. People know their land as
-        // ACRES of fields and SQUARE YARDS of sites, and the two are never
-        // combined: acre-measured holdings count on the farmland card in
-        // acres wherever they are filed, and yard-measured sites stay on the
-        // plots card in yards.
-        func isAcreMeasured(_ p: Property) -> Bool {
-            switch unitKey(p.landUnit) {
-            case .acre, .cent, .gunta, .hectare: p.landArea > 0
-            default: false
-            }
-        }
-
-        let agri = h.parcels.filter { !$0.classification.lowercased().contains("non") }
-        let acreProperties = h.properties.filter(isAcreMeasured)
-        if !agri.isEmpty || !acreProperties.isEmpty {
-            let propertyAcres = acreProperties.reduce(0.0) {
-                $0 + toAcres($1.landArea, unitKey($1.landUnit))
-            }
-            rows.append(.init(kind: .farmland,
-                              amount: agri.reduce(0) { $0 + $1.extent } + propertyAcres,
-                              count: agri.count + acreProperties.count,
-                              passbooks: passbookCount(agri)))
-        }
-        // Non-agricultural parcels are sites held under a passbook — square
-        // yards, like any other site.
-        let nonAgri = h.parcels.filter { $0.classification.lowercased().contains("non") }
-
-        // Properties, grouped by what they actually are — minus the acre-
-        // measured ones, which are farmland whatever their filing says.
-        var byKind: [HoldingKind: [Property]] = [:]
-        for p in h.properties where !isAcreMeasured(p) {
-            byKind[HoldingKind.of(propertyType: p.type), default: []].append(p)
-        }
-        // Fold the non-agricultural parcels in with the sites.
-        for kind in [HoldingKind.plot, .home, .commercial] {
-            let items = byKind[kind] ?? []
-            let extraParcels = kind == .plot ? nonAgri : []
-            guard !items.isEmpty || !extraParcels.isEmpty else { continue }
-
-            var total = 0.0
-            for p in items {
-                if let a = headlineArea(propertyType: p.type,
-                                        landArea: p.landArea, landUnit: p.landUnit,
-                                        builtupArea: p.builtupArea, builtupUnit: p.builtupUnit) {
-                    total += convert(a.value, from: a.unit, to: kind.unit)
-                }
-            }
-            // A parcel's extent is acres; convert into the kind's unit.
-            for p in extraParcels { total += fromAcres(p.extent, kind.unit) }
-
-            rows.append(.init(kind: kind, amount: total,
-                              count: items.count + extraParcels.count,
-                              // Only the parcels carry a khata. A flat bought
-                              // on a registered deed has none, and printing "0
-                              // passbooks" under it would read as something
-                              // missing rather than something inapplicable.
-                              passbooks: passbookCount(extraParcels)))
-        }
-        // A FIXED order — land, plots, homes, commercial. Sorting by value
-        // made the cards swap places whenever a figure was entered, and a
-        // dashboard whose tiles move is one you have to read every time
-        // instead of glance at.
-        let order: [HoldingKind] = [.farmland, .plot, .home, .commercial]
-        return rows.sorted {
-            (order.firstIndex(of: $0.kind) ?? 9) < (order.firstIndex(of: $1.kind) ?? 9)
-        }
+        return landTotals(parcels: h.parcels, properties: h.properties,
+                          passbooks: h.passbooks)
     }
 
     private func load() async {
-        async let dash = app.load(Queries.dashboard, as: DashboardResponse.self)
+        async let dash = app.fetch(Queries.dashboard, as: DashboardResponse.self)
         async let held = app.load(Queries.holdings, as: HoldingsResponse.self)
         async let docs = app.load(Queries.documents, as: DocumentsResponse.self)
         async let spend = app.load(Queries.landExpenses, as: LandExpensesResponse.self)
-        data = await dash
+        let dashboard = await dash
+        data = dashboard.value
+        ownFailure = dashboard.failure
         holdings = await held
         documents = await docs?.registeredDocuments ?? []
         documentsSeen = documents.count
         expenses = (await spend)?.landExpenses ?? []
         await app.loadFavourites()
-        // Keep the widget in step with what the app just loaded.
-        if let d = data {
-            SharedSnapshot.write(acres: d.dashboardStats.totalExtent,
-                                 parcels: d.dashboardStats.totalParcels,
-                                 passbooks: d.dashboardStats.totalPassbooks,
-                                 unpinned: holdings?.parcels.filter { parseGeoPoint($0.geoPoint) == nil }.count ?? 0)
+        // Keep the widgets in step with what the app just loaded. This is the
+        // ONLY moment they learn anything: a widget has no credentials and no
+        // time budget to fetch, so whatever is not written here cannot be
+        // drawn on the Home Screen.
+        if let d = data, let h = holdings {
+            SharedSnapshot.write(.build(stats: d.dashboardStats, holdings: h,
+                                        documents: documents,
+                                        favourites: app.favourites,
+                                        waiting: app.pendingReviews.count))
         }
     }
 }
@@ -471,7 +408,7 @@ struct ActivityRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: Space.md) {
             // Destructive rows differ by SHAPE as well as colour — colour alone
             // is invisible to a large minority of people.
             // The actor's face, with the severity marked on it by SHAPE as
@@ -479,12 +416,12 @@ struct ActivityRow: View {
             Avatar(name: actorName, size: 28, isSelf: true)
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: isDestructive(event.action) ? "minus.circle.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(.scaled(11))
                         .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, isDestructive(event.action) ? .red : .green)
+                        .foregroundStyle(.white, isDestructive(event.action) ? Palette.danger : Palette.success)
                         .offset(x: 3, y: 3)
                 }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 let entity = eventEntity(action: event.action, target: event.target, details: event.details)
                 Text(actionLabel(event.action) + (entity.isEmpty ? "" : " · \(entity)"))
                     .font(.subheadline)

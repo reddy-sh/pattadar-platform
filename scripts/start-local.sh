@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # Local full-fidelity stack: pattadar API (FastAPI, real local Postgres data)
 # + the REAL gateway (storage on MinIO standing in for S3, local pattadar_hub
-# metadata DB, real Cognito token validation — no auth bypass anywhere)
+# metadata DB, the full token-validation pipeline — no auth bypass anywhere)
 # + web dev server (Vite, hot reload). NO deploys.
 #
-#   ./scripts/start-local.sh   # api :8080, gateway :8082, minio :9000, web :5173
+#   ./scripts/start-local.sh                  # api :8080, gateway :8082, minio :9000, web :5173
+#   LOCAL_COGNITO=0 ./scripts/start-local.sh  # trust the real pool instead (online)
 #
-# REAL application, locally: sign in with your pattadar.com account (email/
-# password or Google) — auth, uploads, preview, delete all work exactly like
-# the cloud; bytes stay in .local/minio-data. NO mock mode: if Docker/MinIO/
-# gateway cannot start, this script FAILS instead of degrading.
+# Cognito is LOCAL by default: the gateway runs its unchanged validation
+# pipeline against a keypair on this laptop (services/gateway/app/
+# local_issuer.py) and mints tokens for any local user through the app's dev
+# door — the entire loop, sign-in included, works with NO internet. The real
+# pool is trusted ALONGSIDE it, so hosted-UI sign-in with your pattadar.com
+# account works too while online. LOCAL_COGNITO=0 drops the laptop key and
+# trusts the real pool alone. Uploads, preview, delete all work
+# exactly like the cloud either way; bytes stay in .local/minio-data. NO mock
+# mode: if Docker/MinIO/gateway cannot start, this script FAILS instead of
+# degrading.
 # Stops api+gateway on Ctrl-C (MinIO container stays).
 # Logs: .local/api.log, .local/gateway.log
 set -euo pipefail
@@ -42,6 +49,21 @@ GW_DB="pattadar_hub"
 export PGPASSWORD="rhub-dev-pwd"
 
 mkdir -p "$PLATFORM_DIR/.local"
+
+# Local trust root (default 1): the gateway trusts this laptop keypair and
+# mints tokens itself — offline sign-in. 0 = trust the real Cognito pool.
+LOCAL_COGNITO="${LOCAL_COGNITO:-1}"
+LOCAL_AUTH_KEY="$PLATFORM_DIR/.local/local-auth-key.pem"
+GW_LOCAL_KEY=""
+if [ "$LOCAL_COGNITO" = "1" ]; then
+  if [ ! -f "$LOCAL_AUTH_KEY" ]; then
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+      -out "$LOCAL_AUTH_KEY" 2>/dev/null
+    chmod 600 "$LOCAL_AUTH_KEY"
+    echo "» local trust-root keypair created (.local/local-auth-key.pem)"
+  fi
+  GW_LOCAL_KEY="$LOCAL_AUTH_KEY"
+fi
 
 # --- preflight ---------------------------------------------------------------
 command -v bun >/dev/null || { echo "bun not found — install: curl -fsSL https://bun.sh/install | bash"; exit 1; }
@@ -192,6 +214,7 @@ PYEOF
     STORAGE_S3_ENDPOINT="http://127.0.0.1:9000" \
     AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin AWS_REGION=ap-south-1 \
     COGNITO_USER_POOL_ID="$COGNITO_USER_POOL_ID" COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
+    LOCAL_AUTH_KEY_FILE="$GW_LOCAL_KEY" \
     API_BASE_URL="http://localhost:8080" \
     "$GW_VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8082 --reload >"$GW_LOG" 2>&1
   ) &
@@ -207,7 +230,11 @@ PYEOF
   if [ "$GATEWAY_UP" != 1 ]; then
     echo "gateway FAILED to start — tail .local/gateway.log:"; tail -20 "$GW_LOG"; exit 1
   fi
-  echo "» gateway healthy ✓ (real auth + real uploads, locally)"
+  if [ "$LOCAL_COGNITO" = "1" ]; then
+    echo "» gateway healthy ✓ (LOCAL trust root, offline dev door — real-pool hosted-UI sign-in ALSO accepted when online)"
+  else
+    echo "» gateway healthy ✓ (real Cognito pool ONLY — hosted-UI sign-in, needs internet; no dev door)"
+  fi
 
 # --- web (Vite: graphql -> :8080, storage/admin -> :8082) --------------------
 cd "$PLATFORM_DIR"
@@ -220,6 +247,11 @@ if [ "$WEB_NEXT" = "1" ]; then
   bun run --filter @pattadar/web-next dev:local
 else
   echo "» starting web on http://localhost:5173  (Ctrl-C stops everything)"
+  if [ "$LOCAL_COGNITO" = "1" ]; then
+    # The SPA has no dev door — its hosted-UI tokens come from the real pool,
+    # which the gateway accepts as its second trust root (needs the network).
+    echo "   note: SPA sign-in uses the real pool — works here too, but only while online."
+  fi
   # REAL sign-in, exactly like pattadar.com — no mock mode.
   VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
   VITE_COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID%%,*}" \

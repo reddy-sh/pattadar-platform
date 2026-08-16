@@ -18,6 +18,10 @@ struct PattadarApp: App {
         WindowGroup {
             RootTabs()
                 .environment(model)
+                // A tap on a widget arrives here as a URL. Anything the widget
+                // vocabulary does not recognise is left alone — the sign-in
+                // callback uses this scheme too.
+                .onOpenURL { model.open(WidgetLink($0)) }
                 // A read that outlived the last launch is picked back up rather
                 // than leaving an idle card over a running upload.
                 .task { await model.adoptRunningRead() }
@@ -58,6 +62,10 @@ final class AppModel {
     /// Set once and shared, so every screen reports the same failure rather
     /// than each inventing its own wording for the same dead server.
     var lastFailure: String?
+    /// When the data on screen was stored, if it came from the offline cache
+    /// rather than the wire. Nil means live. Drives one quiet "as of …" line —
+    /// stale data is said plainly, never dressed up as fresh or as an error.
+    private(set) var servedStaleAt: Date?
 
     // MARK: - Reading a document
 
@@ -223,6 +231,39 @@ final class AppModel {
     /// trap, not a shortcut.
     var requestAddHolding = false
 
+    /// The filing sheet, asked for from anywhere — the centre of the tab bar,
+    /// a widget, or the Control Centre button on a locked phone. One flag, so
+    /// a second door cannot open a second sheet.
+    var requestFiling = false
+
+    /// A holding a widget pointed at, waiting for the Properties list to have
+    /// loaded enough to open it. Consumed once, like every request here.
+    var pendingHolding: String?
+
+    /// Where a tap on a widget lands.
+    func open(_ link: WidgetLink?) {
+        // Nil is not a failure: the Cognito sign-in callback comes back on this
+        // same scheme and belongs to the auth session, not to this.
+        guard let link else { return }
+        switch link {
+        case .home:
+            selectedTab = .home
+        case .vault:
+            selectedTab = .documents
+        case .file:
+            requestFiling = true
+        case .holdings(let filter):
+            holdingsFilter = filter.appFilter
+            selectedTab = .properties
+        case .holding(let id):
+            // The filter is cleared too. A holding opened by name must not
+            // arrive hidden behind whichever filter was last in force.
+            holdingsFilter = .all
+            pendingHolding = id
+            selectedTab = .properties
+        }
+    }
+
     /// Readings waiting for a person to accept them. Survives relaunch.
     var pendingReviews: [ReviewQueue.Entry] { ReviewQueue.shared.entries }
 
@@ -316,6 +357,8 @@ final class AppModel {
         api = PattadarAPI(config: .init(baseURL: api.config.baseURL, userID: user,
                                         authorization: api.config.authorization))
         favourites = []
+        servedStaleAt = nil
+        SyncEngine.shared.identityChanged()
     }
 
     /// Attach a live Cognito token to the client, refreshing it first if it
@@ -332,11 +375,19 @@ final class AppModel {
 
     func signOut() {
         // Revoke first, forget after — best-effort, so signing out with no
-        // signal still signs out.
+        // signal still signs out. The response cache goes too: a cache that
+        // outlives the session is a copy of someone's land records left on a
+        // shared phone.
         Task { await CognitoAuth.shared.signOut() }
+        Task { await ResponseCache.shared.clear() }
         Identity.clear()
         favourites = []
         clearRead()
+        servedStaleAt = nil
+        // Queued filings stay on disk — they are the person's deeds, and the
+        // promise is that they sync when THEIR identity is back. But the
+        // mirror clears now, so the next person never sees them listed.
+        SyncEngine.shared.identityChanged()
     }
 
     func isFavourite(_ type: String, _ id: String) -> Bool {
@@ -376,53 +427,85 @@ final class AppModel {
             .flatMap(URL.init(string:)) ?? URL(string: "http://127.0.0.1:8080")!
         let fallback = setting("PATTADAR_USER", "PattadarUser") ?? "u01"
         api = PattadarAPI(config: .init(baseURL: base, userID: Identity.current(default: fallback)))
+
+        // The sync engine works FOR this model: it borrows a freshened client
+        // for each drain and hands back landed filings for the best-effort
+        // extras. Wired here so a filing queued on a previous launch starts
+        // moving the moment the app is back.
+        SyncEngine.shared.userProvider = { [weak self] in self?.api.config.userID ?? "" }
+        SyncEngine.shared.apiProvider = { [weak self] in
+            guard let self else { return nil }
+            await self.freshenAuth()
+            guard let root = Self.gatewayRoot(of: self.api.config.baseURL) else { return nil }
+            return (self.api, root)
+        }
+        SyncEngine.shared.postProcess = { [weak self] filing in
+            guard let self else { return }
+            let fields = (try? JSONSerialization.jsonObject(
+                with: Data(filing.entry.fieldsJSON.utf8))) as? [String: Any] ?? [:]
+            await self.adoptGround(from: fields, into: LinkTarget(filing.entry.link))
+        }
+        SyncEngine.shared.kick(.launch)
+    }
+
+    /// scheme://host:port with the proxy path dropped — the storage routes
+    /// live at the gateway root, not under /api/gateway/pattadar.
+    static func gatewayRoot(of base: URL) -> URL? {
+        guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
+        parts.path = ""
+        parts.query = nil
+        return parts.url
     }
 
     /// File a scanned document and attach it to what it describes.
     ///
     /// One place, because every add-flow needs the same four steps and the RN
     /// app grew three subtly different copies of them.
+    ///
+    /// Durable first, network second: the filing lands in the outbox — bytes,
+    /// fields, link — and this returns. In a field with no signal that IS the
+    /// filing; the upload, the record, the link and the ground adoption all
+    /// happen when the sync engine can reach the stack, and a retried
+    /// mutation replays instead of duplicating (`x-idempotency-key`). Throws
+    /// only when the phone's own disk refuses, which is a real failure.
     func fileDocument(_ r: ScanResult, linkTo target: LinkTarget) async throws {
-        await freshenAuth()
-        struct Filed: Decodable { let createRegisteredDocument: IDPayload? }
         let payload = String(
             data: try JSONSerialization.data(withJSONObject: r.fields, options: [.sortedKeys]),
             encoding: .utf8) ?? "{}"
-        // fileRef stays empty until this client has a Cognito token for the
-        // storage gateway. The reading and every extracted field still persist,
-        // and the bytes are kept locally so the document can still be opened.
-        let filed = try await api.query(Mutations.createRegisteredDocument,
-                                        variables: ["fileRef": "", "payload": payload],
-                                        as: Filed.self)
-        guard let docID = filed.createRegisteredDocument?.id else {
-            throw PattadarAPI.APIError.graphQL(["the document was not created"])
-        }
-        switch target {
-        case .property(let id):
-            _ = try await api.query(Mutations.linkDocumentProperty,
-                                    variables: ["id": docID, "prop": id], as: AnyMutationResult.self)
-        case .parcel(let id):
-            _ = try await api.query(Mutations.linkDocumentParcel,
-                                    variables: ["id": docID, "parcel": id], as: AnyMutationResult.self)
-        case .passbook(let id):
-            _ = try await api.query(Mutations.linkDocumentPassbook,
-                                    variables: ["id": docID, "pb": id], as: AnyMutationResult.self)
-        case .none:
-            break
-        }
-        // What the document knew about the GROUND, adopted by the holding:
-        // an FMB's point table becomes the drawn boundary, a deed's schedule
-        // becomes the four sides. Only into fields that are still empty —
-        // nothing a person entered is ever overwritten by a reading — and
-        // best-effort, because a document that filed correctly must never be
-        // reported as a failure over a bonus it could not deliver.
-        await adoptGround(from: r.fields, into: target)
         let name = documentFileName(
             docType: r.fields["doc_type"] as? String ?? "",
             village: r.fields["village"] as? String ?? "",
             surveyNo: r.fields["survey_no"] as? String ?? "",
             originalName: r.originalName)
-        try? LocalFiles.save(documentID: docID, from: r.fileURL, displayName: name)
+        try await WriteQueue.shared.enqueueFiling(
+            user: api.config.userID,
+            fieldsJSON: payload,
+            fileURL: r.fileURL,
+            originalName: r.originalName,
+            displayName: name,
+            link: target.filingLink)
+        SyncEngine.shared.kick(.enqueued)
+    }
+
+    /// Keep a paper WITHOUT reading it.
+    ///
+    /// The counterpart of `fileDocument`. That one sends the file to the model
+    /// and files what comes back; this one files the file. Until it existed
+    /// the phone could only keep a document by paying to have it read, which
+    /// is the wrong trade for a tax receipt, a photocopy, or the fourteenth
+    /// page of something the person just wants somewhere safe.
+    ///
+    /// Same durability contract as every other filing: bytes into the outbox,
+    /// entry on disk, then the network. Throws only when the phone's own disk
+    /// refuses.
+    func fileWithoutReading(url: URL, named displayName: String,
+                            linkTo target: LinkTarget) async throws {
+        try await WriteQueue.shared.enqueueFile(
+            user: api.config.userID,
+            fileURL: url,
+            displayName: displayName,
+            link: target.filingLink)
+        SyncEngine.shared.kick(.enqueued)
     }
 
     /// Adopt a filed document's ground facts into the holding it was filed
@@ -482,15 +565,109 @@ final class AppModel {
     }
 
     /// Run a query, remembering the failure instead of throwing into a view.
+    ///
+    /// Offline-first: a fresh answer refreshes the cache; when the network is
+    /// weather, the last good answer renders instead — with `servedStaleAt`
+    /// carrying its age so screens can say so. A screen only sees a failure
+    /// when there is neither network nor history.
+    /// One query's own outcome, told to the caller instead of to a field the
+    /// whole app shares.
+    ///
+    /// `lastFailure` is a single string that every concurrent query writes.
+    /// A screen fires three or four loads at once, so whichever finished last
+    /// decided what every screen believed: a sibling succeeding from the
+    /// offline cache erased the failure that mattered, and a cancellation from
+    /// an ordinary tab switch overwrote a real one. Three separate bugs came
+    /// out of that field in one day. A screen that needs to be right about its
+    /// own primary query asks for the answer AND the failure together.
+    ///
+    /// `failure` is nil when the load was cancelled — a view being torn down
+    /// is not a failure, and there is nobody left to tell.
+    func fetch<T: Decodable & Sendable>(
+        _ document: String, variables: [String: any Sendable] = [:], as: T.Type
+    ) async -> (value: T?, failure: String?) {
+        await freshenAuth()
+        do {
+            let answer = try await api.queryCached(document, variables: variables, as: T.self)
+            lastFailure = nil
+            if let asOf = answer.asOf {
+                servedStaleAt = min(servedStaleAt ?? asOf, asOf)
+            } else {
+                servedStaleAt = nil
+            }
+            return (answer.value, nil)
+        } catch {
+            if case PattadarAPI.APIError.cancelled = error { return (nil, nil) }
+            if error is CancellationError { return (nil, nil) }
+            let described = String(describing: error)
+            lastFailure = described
+            return (nil, described)
+        }
+    }
+
     func load<T: Decodable & Sendable>(_ document: String, variables: [String: any Sendable] = [:], as: T.Type) async -> T? {
         await freshenAuth()
         do {
-            let value = try await api.query(document, variables: variables, as: T.self)
+            let answer = try await api.queryCached(document, variables: variables, as: T.self)
             lastFailure = nil
-            return value
+            // A screen fires several loads at once; the banner shows the
+            // OLDEST stale answer among them, and any fresh answer clears
+            // it — offline, everything is stale, so the clear never races
+            // the set; online, everything is fresh, so it never shows.
+            if let asOf = answer.asOf {
+                servedStaleAt = min(servedStaleAt ?? asOf, asOf)
+            } else {
+                servedStaleAt = nil
+            }
+            return answer.value
         } catch {
+            // A CANCELLED load is not a failure and must never be shown as
+            // one. SwiftUI cancels a `.task` when its view goes away, and this
+            // app rebuilds a tab whenever you leave it (`restartTab`), so
+            // every tab switch cancels whatever was in flight. Reported, that
+            // turned an ordinary tab switch into "Couldn't load your records —
+            // Stopped." on a screen whose fresh copy was already loading.
+            if case PattadarAPI.APIError.cancelled = error { return nil }
             lastFailure = String(describing: error)
             return nil
+        }
+    }
+}
+
+extension WidgetLink.Filter {
+    /// The list's own filter. The mapping lives here rather than in the Kit
+    /// because `HoldingFilter`'s raw values are the words printed on the
+    /// filter chips, and a widget's URL must not depend on a display string.
+    var appFilter: HoldingFilter {
+        switch self {
+        case .all: .all
+        case .agricultural: .agricultural
+        case .plots: .plots
+        case .attention: .needsAttention
+        case .favourites: .favourites
+        }
+    }
+}
+
+/// The durable twin of `LinkTarget` (PattadarKit cannot see app types, and an
+/// outbox entry outlives the process). Conversions live here so the two can
+/// never drift silently — a new case fails to compile on both sides.
+extension LinkTarget {
+    init(_ link: FilingLink) {
+        switch link {
+        case .none: self = .none
+        case .parcel(let id): self = .parcel(id)
+        case .passbook(let id): self = .passbook(id)
+        case .property(let id): self = .property(id)
+        }
+    }
+
+    var filingLink: FilingLink {
+        switch self {
+        case .none: .none
+        case .parcel(let id): .parcel(id)
+        case .passbook(let id): .passbook(id)
+        case .property(let id): .property(id)
         }
     }
 }
@@ -500,7 +677,10 @@ struct RootTabs: View {
     /// Changing this rebuilds the tab bar, which is the only way a tab item
     /// picks up a new image — SwiftUI does not re-evaluate one on its own.
     @State private var avatarVersion = UUID()
-    @State private var filing = false
+    @Environment(\.scenePhase) private var scenePhase
+    /// Read so the filing icon is redrawn when the phone changes appearance —
+    /// an `.alwaysOriginal` image keeps whatever colours it was drawn with.
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         // The `Tab` builder is iOS 18+; the deployment target is 17 so that
@@ -525,10 +705,16 @@ struct RootTabs: View {
             // was three taps deep behind a "+" in a corner. Family moves to the
             // You screen, which is where the people in your records live.
             Color.clear.tabItem {
-                Image(uiImage: Self.filingIcon)
+                Image(uiImage: Self.filingIcon(for: scheme))
                 Text("File")
             }
             .tag(AppModel.Tab.add)
+            // It is drawn as a button and it behaves as one; VoiceOver was
+            // still announcing "File, tab 3 of 5" — an action described as a
+            // place. Said plainly instead.
+            .accessibilityLabel("File a document")
+            .accessibilityHint("Opens the filing sheet")
+            .accessibilityAddTraits(.isButton)
             // "Documents" describes a folder. "Vault" says what it is for:
             // the papers that prove the land is yours, kept where they can be
             // found.
@@ -553,7 +739,7 @@ struct RootTabs: View {
                 // A tab that is really a button: it must not become the selected
                 // tab, or dismissing the sheet would leave a blank screen behind.
                 app.selectedTab = previous == .add ? .home : previous
-                filing = true
+                app.requestFiling = true
                 return
             }
             // The tab being left resets to its first page while offscreen.
@@ -563,14 +749,58 @@ struct RootTabs: View {
                 app.restartTab(previous)
             }
         }
-        .sheet(isPresented: $filing) {
+        .sheet(isPresented: Binding(get: { app.requestFiling },
+                                    set: { app.requestFiling = $0 })) {
             FilingSheet()
+        }
+        // Filing asked for from OUTSIDE the app — the Control Centre button, a
+        // widget, the Lock Screen. Two doors, because the intent runs in
+        // whichever process the system chooses: in this one the notification is
+        // heard at once, and from the extension the note left in the App Group
+        // is still waiting when the app comes to the front. Both are taken
+        // once, so neither can reopen the sheet on the next launch.
+        .onReceive(NotificationCenter.default.publisher(for: .pattadarOpenFiling)) { _ in
+            app.requestFiling = true
+        }
+        .task {
+            if SharedSnapshot.takeFilingRequest() { app.requestFiling = true }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, SharedSnapshot.takeFilingRequest() {
+                app.requestFiling = true
+            }
+        }
+        // The offline truth, said once and quietly: what is on screen is real
+        // data as of a moment, not an error and not a pretence of freshness.
+        // Disappears the instant a live answer lands.
+        .overlay(alignment: .top) {
+            if let asOf = app.servedStaleAt {
+                Text("As of \(Self.staleStamp.string(from: asOf))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.xs)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.top, Space.xs)
+                    .transition(.opacity)
+            }
         }
         .id(avatarVersion)
         .onReceive(NotificationCenter.default.publisher(for: .avatarChanged)) { _ in
             avatarVersion = UUID()
         }
     }
+
+    /// DD/MM/YYYY — the platform's date order, everywhere, always. Locale
+    /// and calendar pinned: a device set to a non-Gregorian calendar would
+    /// otherwise stamp the wrong year on the staleness line.
+    static let staleStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_IN")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "dd/MM/yyyy, h:mm a"
+        return f
+    }()
 
     /// The one ACTION on the tab bar, drawn as one.
     ///
@@ -583,16 +813,24 @@ struct RootTabs: View {
     /// is the only way a tab item keeps its own colours, and the beta's
     /// symbol renderer recoloured the palette version green on the bar.
     /// Plain fills cannot be reinterpreted.
-    private static let filingIcon: UIImage = {
+    /// Drawn per appearance rather than once at launch: `.alwaysOriginal`
+    /// bakes the bitmap, so a single static image would keep the colours it
+    /// was born with when the phone switches between light and dark. The
+    /// circle was also a hardcoded `systemBlue` — the one place in the app
+    /// still painting the stock iOS tint after the brand amber landed.
+    private static func filingIcon(for scheme: ColorScheme) -> UIImage {
+        let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        let fill = UIColor(Palette.accent).resolvedColor(with: traits)
+        let mark = UIColor(Palette.accentInk).resolvedColor(with: traits)
         let size: CGFloat = 30
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         return UIGraphicsImageRenderer(size: rect.size).image { _ in
-            UIColor.systemBlue.setFill()
+            fill.setFill()
             UIBezierPath(ovalIn: rect).fill()
             // The plus: two rounded bars, sized like the symbol's own.
             let arm: CGFloat = size * 0.46
             let thick: CGFloat = size * 0.10
-            UIColor.white.setFill()
+            mark.setFill()
             UIBezierPath(roundedRect: CGRect(x: (size - arm) / 2, y: (size - thick) / 2,
                                              width: arm, height: thick),
                          cornerRadius: thick / 2).fill()
@@ -600,7 +838,7 @@ struct RootTabs: View {
                                              width: thick, height: arm),
                          cornerRadius: thick / 2).fill()
         }.withRenderingMode(.alwaysOriginal)
-    }()
+    }
 }
 
 extension Notification.Name {
@@ -623,6 +861,16 @@ struct LoadFailure: View {
             || (message?.localizedCaseInsensitiveContains("bearer") ?? false)
     }
 
+    /// The server was never reached, as opposed to reached and unhappy. The
+    /// upload paths now speak in `APIError`, so a connection failure arrives
+    /// as one of these sentences rather than as an NSError dump.
+    private var offline: Bool {
+        guard let message else { return false }
+        return message.contains("Couldn’t reach the server")
+            || message.contains("No internet connection")
+            || message.contains("The connection failed")
+    }
+
     var body: some View {
         if needsSignIn {
             ContentUnavailableView {
@@ -634,6 +882,18 @@ struct LoadFailure: View {
                     .buttonStyle(.borderedProminent)
             }
             .sheet(isPresented: $showSignIn) { SignInScreen() }
+        } else if offline {
+            // Offline is not a fault, and it is not the same as a broken
+            // server — but it is only half a promise. The app keeps the last
+            // good answer for every screen you have opened while connected;
+            // a screen you have never opened on this account has nothing to
+            // keep, and saying "the server did not answer" there sends
+            // somebody hunting for a problem that is not theirs.
+            ContentUnavailableView {
+                Label("Nothing saved for this yet", systemImage: "icloud.slash")
+            } description: {
+                Text("You are offline. Pattadar shows the last answer it received, and it has not seen this screen on this account yet. Open it once with a connection and it will be here offline afterwards.")
+            }
         } else {
             ContentUnavailableView(
                 "Couldn’t load your records",

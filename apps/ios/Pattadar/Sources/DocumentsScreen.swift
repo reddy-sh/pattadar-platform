@@ -14,6 +14,17 @@ struct DocumentsScreen: View {
     @State private var groupBy: VaultGrouping = .property
     /// "all", "review", or a family key.
     @State private var filter = "all"
+    /// Picking several papers at once, to send them somewhere as one file.
+    @State private var selection = Set<String>()
+    @State private var editMode: EditMode = .inactive
+    /// The archive being built, then the one waiting to be shared.
+    @State private var archiving = false
+    @State private var archive: URL?
+    @State private var archiveProblem = ""
+    /// Papers filed with no reading — layer 1 of the vault. They have no spine
+    /// to group by, so they get their own shelf rather than being forced into
+    /// a grouping built out of things nobody has read.
+    @State private var unread: [VaultFile] = []
 
     struct VaultRow: Identifiable {
         let doc: RegisteredDocument
@@ -45,7 +56,7 @@ struct DocumentsScreen: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            List(selection: $selection) {
                 Section {
                     // The controls live in the list rather than a toolbar so
                     // they scroll away — rows pinned above 40 documents eat
@@ -56,18 +67,18 @@ struct DocumentsScreen: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.lg, bottom: Space.hair, trailing: Space.lg))
                     .listRowBackground(Color.clear)
 
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: Space.sm) {
                             ForEach(filterChips, id: \.key) { chip in
                                 filterChipView(chip)
                             }
                         }
-                        .padding(.vertical, 2)
+                        .padding(.vertical, Space.hair)
                     }
-                    .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
+                    .listRowInsets(EdgeInsets(top: Space.hair, leading: Space.lg, bottom: Space.sm, trailing: Space.lg))
                     .listRowBackground(Color.clear)
                 }
 
@@ -77,11 +88,40 @@ struct DocumentsScreen: View {
                 if filter != "review", needsYou.things > 0 {
                     Section {
                         Button {
-                            withAnimation(.snappy) { filter = "review" }
+                            withAnimation(Motion.standard()) { filter = "review" }
                         } label: { reviewBanner }
                         .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: Space.hair, leading: Space.lg, bottom: Space.hair, trailing: Space.lg))
                         .listRowBackground(Color.clear)
+                    }
+                }
+
+                // Filings the server has not confirmed yet. Undramatic on
+                // purpose: a queued write is a success from the person's
+                // point of view — the paper is filed, the sync is plumbing.
+                if !SyncEngine.shared.pendingFilings.isEmpty {
+                    Section("Waiting to sync") {
+                        ForEach(SyncEngine.shared.pendingFilings) { entry in
+                            pendingRow(entry)
+                        }
+                    }
+                }
+
+                // Filed, not read. Undramatic: keeping a paper without paying
+                // to have it read is an ordinary thing to want, so this reads
+                // as a shelf rather than a warning.
+                if !unreadShown.isEmpty {
+                    Section {
+                        ForEach(unreadShown) { file in
+                            unreadRow(file)
+                        }
+                    } header: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Not read yet")
+                            Spacer()
+                            Text(unreadShown.count == 1
+                                 ? "1 file" : "\(unreadShown.count) files")
+                        }
                     }
                 }
 
@@ -101,32 +141,182 @@ struct DocumentsScreen: View {
                         }
                     }
                 }
-                if loaded && rows.isEmpty {
+                if loaded && rows.isEmpty && unread.isEmpty && SyncEngine.shared.pendingFilings.isEmpty {
                     ContentUnavailableView("No documents yet", systemImage: "doc.text",
-                                           description: Text("Scan a deed and its details are read for you."))
-                } else if loaded && shown.isEmpty {
+                                           description: Text("Scan a deed and its details are read for you — or just add a file and keep it as it is."))
+                } else if loaded && !(rows.isEmpty && unread.isEmpty) && shown.isEmpty && unreadShown.isEmpty {
                     ContentUnavailableView("Nothing matches", systemImage: "magnifyingglass",
                                            description: Text("Try the survey number, the khata, a name, or the year."))
                 }
             }
             .navigationTitle("Vault")
             .searchable(text: $query, prompt: "Sy. 128/1A · Khata 397 · a name · 2016…")
+            .environment(\.editMode, $editMode)
             .toolbar {
+                // Picking several papers to send at once. Off the critical
+                // path: the button is quiet until it is used.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(editMode.isEditing ? "Done" : "Select") {
+                        withAnimation(Motion.standard()) {
+                            editMode = editMode.isEditing ? .inactive : .active
+                            if !editMode.isEditing { selection.removeAll() }
+                        }
+                    }
+                    .disabled(rows.isEmpty)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    // A mirror, not a mystery: the pill follows the filter.
-                    Text(filter == "all" && query.isEmpty
-                         ? "\(rows.count) filed" : "\(shown.count) shown")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    if editMode.isEditing {
+                        // The count is the useful number while selecting.
+                        Text(selection.isEmpty ? "None selected"
+                             : "\(selection.count) selected")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    } else {
+                        // A mirror, not a mystery: the pill follows the filter.
+                        Text(filter == "all" && query.isEmpty
+                             ? "\(rows.count + unread.count) filed"
+                             : "\(shown.count + unreadShown.count) shown")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showAdd = true } label: { Label("Add", systemImage: "plus") }
+                    if editMode.isEditing {
+                        Button {
+                            Task { await shareSelected() }
+                        } label: {
+                            if archiving {
+                                ProgressView()
+                            } else {
+                                Label("Share", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        .disabled(selection.isEmpty || archiving)
+                    } else {
+                        Button { showAdd = true } label: { Label("Add", systemImage: "plus") }
+                    }
                 }
+            }
+            // Several documents leave as ONE file. Six trips through the share
+            // sheet is six chances to send the wrong one, and the person on the
+            // other end cannot tell what arrived together.
+            .sheet(item: Binding(get: { archive.map(SharedArchive.init) },
+                                 set: { if $0 == nil { archive = nil } })) { item in
+                ShareSheet(url: item.url)
+            }
+            .alert("Couldn’t share those", isPresented: Binding(
+                get: { !archiveProblem.isEmpty },
+                set: { if !$0 { archiveProblem = "" } })) {
+                Button("OK", role: .cancel) { archiveProblem = "" }
+            } message: {
+                Text(archiveProblem)
             }
             .sheet(isPresented: $showAdd) {
                 AddDocumentSheet { Task { await load() } }
             }
-            .refreshable { await load() }
-            .task { await load() }
+            .refreshable {
+                SyncEngine.shared.kick(.userPull)
+                await load()
+            }
+            // One task, keyed: runs on appearance like a plain .task, and
+            // again whenever a filing lands so its "waiting" row becomes a
+            // real one. A second plain .task would double every load.
+            .task(id: SyncEngine.shared.drainedTick) { await load() }
+        }
+    }
+
+    /// A built archive, waiting to be shared. Identifiable so the sheet can be
+    /// driven by its presence rather than a second boolean.
+    private struct SharedArchive: Identifiable {
+        let url: URL
+        var id: String { url.path }
+    }
+
+    /// Zip what is selected and hand it to the share sheet.
+    ///
+    /// Documents with no file stored on this phone are skipped rather than
+    /// failing the whole archive — "details only, no file" is a real state,
+    /// and one of them must not cost the person the other five.
+    private func shareSelected() async {
+        archiving = true
+        defer { archiving = false }
+        let picked = rows.filter { selection.contains($0.id) }
+        let files: [(name: String, url: URL)] = picked.compactMap { r in
+            guard let url = LocalFiles.url(for: r.doc.id) else { return nil }
+            let name = shareFileName(
+                docType: r.doc.docType, village: r.doc.village,
+                date: [r.doc.registrationDate, r.doc.regYear, r.doc.createdAt]
+                    .first { !$0.isEmpty } ?? "",
+                fallbackExtension: url.pathExtension)
+            return (name, url)
+        }
+        // One document is that document, not an archive containing it.
+        if files.count == 1 {
+            archive = files[0].url
+            return
+        }
+        do {
+            archive = try VaultArchive.zip(files)
+        } catch {
+            archiveProblem = error.localizedDescription
+        }
+    }
+
+    /// The unread files the current filter and search let through. They carry
+    /// no spine, so only the fields they actually have are searched.
+    private var unreadShown: [VaultFile] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return unread.filter { f in
+            // "Needs review" is a statement about a READING; a file with none
+            // cannot be on that shelf.
+            switch filter {
+            case "all": break
+            case "review": return false
+            default: if f.family != filter { return false }
+            }
+            return q.isEmpty || f.name.lowercased().contains(q)
+        }
+    }
+
+    @ViewBuilder private func unreadRow(_ file: VaultFile) -> some View {
+        HStack(spacing: Space.md) {
+            DocumentIcon(docType: file.docType, size: 34)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text(file.name).lineLimit(1)
+                // Size and when it arrived — the only honest facts about a
+                // paper nothing has read.
+                Text([file.sizeText, relativeTime(file.createdAt)]
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - Pending filings
+
+    @ViewBuilder private func pendingRow(_ entry: WriteQueue.Entry) -> some View {
+        HStack(spacing: Space.md) {
+            Image(systemName: entry.needsReview
+                  ? "exclamationmark.triangle" : "arrow.triangle.2.circlepath")
+                .foregroundStyle(entry.needsReview ? Palette.caution : .secondary)
+            VStack(alignment: .leading, spacing: Space.hair) {
+                Text(entry.displayName).lineLimit(1)
+                if entry.needsReview {
+                    // The server said no; retrying is not the answer. Say so.
+                    Text(entry.lastError ?? "The server refused this filing.")
+                        .font(.caption).foregroundStyle(Palette.caution).lineLimit(2)
+                } else {
+                    Text("Will sync when the server is reachable")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            // Every waiting entry can be given up on, not just parked ones —
+            // a person must never be trapped watching a retry loop they
+            // cannot end.
+            Button(role: .destructive) {
+                SyncEngine.shared.discard(entry.id)
+            } label: { Label("Discard", systemImage: "trash") }
         }
     }
 
@@ -134,10 +324,10 @@ struct DocumentsScreen: View {
 
     @ViewBuilder private func rowView(_ r: VaultRow) -> some View {
         let hasFile = LocalFiles.url(for: r.doc.id) != nil
-        HStack(spacing: 12) {
+        HStack(spacing: Space.md) {
             VaultTile(docType: r.doc.docType, family: r.spine.family,
                       year: r.year, hasFile: hasFile)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(primaryLine(r))
                     .fontWeight(.semibold)
                     .lineLimit(1)
@@ -159,10 +349,10 @@ struct DocumentsScreen: View {
                 Text(filter == "review"
                      ? "\(r.spine.actionable.count)"
                      : "\(r.spine.actionable.count) to check")
-                    .font(.system(size: 11, weight: .bold)).monospacedDigit()
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Color.orange.opacity(0.15), in: Capsule())
-                    .foregroundStyle(.orange)
+                    .font(.scaled(11, weight: .bold)).monospacedDigit()
+                    .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
+                    .background(Palette.caution.opacity(0.15), in: Capsule())
+                    .foregroundStyle(Palette.caution)
             }
         }
     }
@@ -218,10 +408,9 @@ struct DocumentsScreen: View {
     private var filterChips: [(key: String, label: String, tint: Color?)] {
         var chips: [(key: String, label: String, tint: Color?)] = [("all", "All", nil)]
         if rows.contains(where: { !$0.spine.actionable.isEmpty }) {
-            chips.append(("review", "Needs review", .orange))
+            chips.append(("review", "Needs review", Palette.caution))
         }
-        let families = ["title", "revenue", "map", "identity", "search", "old_record", "unsorted"]
-        chips += families
+        chips += documentFamilies
             .filter { f in rows.contains { $0.spine.family == f } }
             .map { ($0, familyLabel($0), familyTintColor($0)) }
         return chips
@@ -230,15 +419,15 @@ struct DocumentsScreen: View {
     @ViewBuilder private func filterChipView(_ chip: (key: String, label: String, tint: Color?)) -> some View {
         let active = filter == chip.key
         let tint = chip.tint ?? Color.accentColor
-        Button { withAnimation(.snappy) { filter = chip.key } } label: {
-            HStack(spacing: 6) {
+        Button { withAnimation(Motion.standard()) { filter = chip.key } } label: {
+            HStack(spacing: Space.sm) {
                 if let dot = chip.tint {
                     Circle().fill(dot).frame(width: 6, height: 6)
                 }
                 Text(chip.label)
                     .font(.subheadline.weight(active ? .semibold : .regular))
             }
-            .padding(.horizontal, 13).padding(.vertical, 8)
+            .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
             .background(active ? tint.opacity(0.18) : Color(.tertiarySystemFill),
                         in: Capsule())
             .foregroundStyle(active ? tint : Color.primary)
@@ -252,24 +441,24 @@ struct DocumentsScreen: View {
     }
 
     private var reviewBanner: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: Space.md) {
             Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 1) {
+                .foregroundStyle(Palette.caution)
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(bannerHead)
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.caution)
                 Text("Tap to see only those papers")
-                    .font(.caption).foregroundStyle(.orange.opacity(0.7))
+                    .font(.caption).foregroundStyle(Palette.caution.opacity(0.7))
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold)).foregroundStyle(.orange.opacity(0.6))
+                .font(.caption.weight(.semibold)).foregroundStyle(Palette.caution.opacity(0.6))
         }
-        .padding(13)
-        .background(Color.orange.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(Color.orange.opacity(0.22), lineWidth: 1))
+        .padding(Space.md)
+        .background(Palette.caution.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .stroke(Palette.caution.opacity(0.22), lineWidth: 1))
     }
 
     private var bannerHead: String {
@@ -321,9 +510,8 @@ struct DocumentsScreen: View {
                 return display[a]! < display[b]!
             }.map { (display[$0]!, buckets[$0]!) }
         case .type:
-            let order = ["title", "revenue", "map", "identity", "search", "old_record", "unsorted"]
             let by = Dictionary(grouping: shown) { $0.spine.family }
-            return order.compactMap { f in by[f].map { (familyLabel(f), $0) } }
+            return documentFamilies.compactMap { f in by[f].map { (familyLabel(f), $0) } }
         case .person:
             // People merge on the fuzzy key — "Telukutla Sankara Reddy" and
             // "Sankara Reddy Telukutla" are one shelf, shown by the first
@@ -384,6 +572,9 @@ struct DocumentsScreen: View {
 
     private func load() async {
         if let r = await app.load(Queries.documents, as: DocumentsResponse.self) {
+            // A file with a reading is shown by its reading; this shelf is for
+            // the ones nothing has looked at.
+            unread = (r.documents ?? []).filter { $0.readingId.isEmpty }
             rows = r.registeredDocuments.map { d in
                 let reading = (try? JSONSerialization.jsonObject(
                     with: Data(d.reading.utf8))) as? [String: Any] ?? [:]
@@ -436,6 +627,10 @@ struct DocumentDetailScreen: View {
     @State private var sharedCopy: URL?
     /// The page the full-screen scan opens on, when one was tapped.
     @State private var openAtPage: PageSelection?
+    /// Renaming: the name being typed, and whether it is going to the server.
+    @State private var renaming = false
+    @State private var newName = ""
+    @State private var renamingBusy = false
 
     struct PageSelection: Identifiable { let id: Int }
 
@@ -458,36 +653,36 @@ struct DocumentDetailScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 // The paper itself, named once: the chip owns the kind, the
                 // serif headline owns the identity, one subline carries where
                 // and when. Nothing on this card repeats — the old header
                 // said "Sale Deed" three times.
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     if let g = parsedGeometry, spine.family == "map" {
                         // A georeferenced sheet says so up front — the
                         // founder's frame, word for word.
-                        HStack(spacing: 8) {
+                        HStack(spacing: Space.sm) {
                             Text("FMB · GEOREFERENCED")
-                                .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
-                                .padding(.horizontal, 9).padding(.vertical, 4)
-                                .background(Color.cyan.opacity(0.16), in: Capsule())
-                                .foregroundStyle(.cyan)
+                                .font(.scaled(10.5, weight: .semibold)).kerning(0.8)
+                                .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
+                                .background(Palette.Category.plot.opacity(0.16), in: Capsule())
+                                .foregroundStyle(Palette.Category.plot)
                             Text("\(g.points.count) corners · WGS 84"
                                  + (g.utmZoneLabel.map { " · \($0)" } ?? ""))
                                 .font(.caption).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                         Text(fmbHeadline)
-                            .font(.system(size: 30, weight: .semibold, design: .serif))
+                            .font(.scaled(30, weight: .semibold, design: .serif))
                         if !fmbSubline.isEmpty {
                             Text(fmbSubline).font(.subheadline).foregroundStyle(.secondary)
                         }
                     } else {
-                        HStack(spacing: 8) {
+                        HStack(spacing: Space.sm) {
                             Text((doc.docType.isEmpty ? "Document" : doc.docType).uppercased())
-                                .font(.system(size: 10.5, weight: .semibold)).kerning(0.8)
-                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .font(.scaled(10.5, weight: .semibold)).kerning(0.8)
+                                .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
                                 .background(familyTintColor(spine.family).opacity(0.16), in: Capsule())
                                 .foregroundStyle(familyTintColor(spine.family))
                             if !reading.language.isEmpty {
@@ -497,7 +692,7 @@ struct DocumentDetailScreen: View {
                             }
                         }
                         Text(headerTitle)
-                            .font(.system(size: 30, weight: .semibold, design: .serif))
+                            .font(.scaled(30, weight: .semibold, design: .serif))
                         if !registeredLine.isEmpty {
                             Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
                         }
@@ -507,9 +702,9 @@ struct DocumentDetailScreen: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
+                .padding(Space.xl)
                 .background(Color(.secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
 
                 // The spine, made visible: ONE box, hairline-divided — the
                 // template's grid, not four floating cards. What the reader
@@ -519,30 +714,30 @@ struct DocumentDetailScreen: View {
                 if !spineTiles.isEmpty, !(spine.family == "map" && parsedGeometry != nil) {
                     let cells = spineTiles.count.isMultiple(of: 2)
                         ? spineTiles : spineTiles + [(k: "", v: "", n: "")]
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 1),
-                                        GridItem(.flexible(), spacing: 1)],
-                              spacing: 1) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.hair),
+                                        GridItem(.flexible(), spacing: Space.hair)],
+                              spacing: Space.hair) {
                         ForEach(Array(cells.enumerated()), id: \.offset) { _, tile in
                             let revealable = !tile.k.isEmpty && tile.k == identityNumberTileKey
                             Button {
                                 if revealable { toggleTileReveal() }
                             } label: {
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: Space.xs) {
                                     if !tile.k.isEmpty {
-                                        HStack(alignment: .top, spacing: 6) {
+                                        HStack(alignment: .top, spacing: Space.sm) {
                                             Text(tile.k.uppercased())
-                                                .font(.system(size: 10, weight: .bold)).kerning(0.7)
+                                                .font(.scaled(10, weight: .bold)).kerning(0.7)
                                                 .foregroundStyle(.secondary)
                                             if revealable {
                                                 Spacer(minLength: 4)
                                                 Image(systemName: revealedTileNumber == nil
                                                       ? "eye" : "eye.slash")
-                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .font(.scaled(12, weight: .semibold))
                                                     .foregroundStyle(Color.accentColor)
                                             }
                                         }
                                         Text(tile.v)
-                                            .font(.system(size: 17, weight: .semibold))
+                                            .font(.scaled(17, weight: .semibold))
                                             .foregroundStyle(.primary)
                                             .lineLimit(2).minimumScaleFactor(0.75)
                                         if !tile.n.isEmpty {
@@ -553,7 +748,7 @@ struct DocumentDetailScreen: View {
                                     }
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
-                                .padding(13)
+                                .padding(Space.md)
                                 .background(Color(.secondarySystemGroupedBackground))
                                 .contentShape(Rectangle())
                             }
@@ -565,7 +760,7 @@ struct DocumentDetailScreen: View {
                         }
                     }
                     .background(Color(.separator).opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
 
                 // An FMB with a corner table becomes a map you can measure —
@@ -587,10 +782,10 @@ struct DocumentDetailScreen: View {
                 // A paper filed before deep reading degrades QUIETLY — grey
                 // information, never amber alarm. Amber keeps its meaning.
                 if doc.reading.isEmpty {
-                    HStack(spacing: 11) {
+                    HStack(spacing: Space.md) {
                         Image(systemName: "arrow.clockwise.circle")
                             .foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 1) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             Text("Filed before deep reading")
                                 .font(.subheadline.weight(.semibold))
                             Text("Pages, checks and the paper trail arrive when a fresh scan is read.")
@@ -598,9 +793,9 @@ struct DocumentDetailScreen: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(13)
+                    .padding(Space.md)
                     .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
 
                 // ONE review card. The caveat prose, the watch-out line and
@@ -612,7 +807,7 @@ struct DocumentDetailScreen: View {
                 // lists, readable without opening the scan. The vault row
                 // says "4 entries"; this is where the four are.
                 if !recordEntries.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Text("INSIDE THIS RECORD — \(recordEntries.count) \(recordEntries.count == 1 ? "ENTRY" : "ENTRIES")")
                             .font(.caption.weight(.medium)).kerning(1.1)
                             .foregroundStyle(.secondary)
@@ -626,13 +821,13 @@ struct DocumentDetailScreen: View {
                                         .font(.caption).foregroundStyle(.secondary)
                                         .multilineTextAlignment(.trailing)
                                 }
-                                .padding(.vertical, 9)
+                                .padding(.vertical, Space.sm)
                                 if i < recordEntries.count - 1 { Divider() }
                             }
                         }
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, Space.lg)
                         .background(Color(.secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     }
                 }
 
@@ -640,22 +835,22 @@ struct DocumentDetailScreen: View {
                 // is filed against both, and the link has to run in this
                 // direction too — otherwise a document is a dead end.
                 if !coveredHoldings.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Text("COVERS \(coveredHoldings.count) \(coveredHoldings.count == 1 ? "HOLDING" : "HOLDINGS")")
                             .font(.caption.weight(.medium)).kerning(1.1)
                             .foregroundStyle(.secondary)
                         ForEach(coveredHoldings, id: \.0) { name, detail in
-                            HStack(spacing: 12) {
+                            HStack(spacing: Space.md) {
                                 DocumentIcon(docType: doc.docType, size: 34)
-                                VStack(alignment: .leading, spacing: 1) {
+                                VStack(alignment: .leading, spacing: Space.hair) {
                                     Text(name).font(.subheadline.weight(.medium))
                                     Text(detail).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer(minLength: 0)
                             }
-                            .padding(12)
+                            .padding(Space.md)
                             .background(Color(.secondarySystemGroupedBackground),
-                                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                         }
                     }
                 }
@@ -664,21 +859,21 @@ struct DocumentDetailScreen: View {
                 // source: the deed's own words, not asserted links. Reader
                 // links[] upgrade these cards the day they exist.
                 if !railCards.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Text("PAPER TRAIL")
                             .font(.caption.weight(.medium)).kerning(1.1)
                             .foregroundStyle(.secondary)
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 9) {
+                            HStack(spacing: Space.sm) {
                                 ForEach(railCards, id: \.title) { card in
-                                    VStack(alignment: .leading, spacing: 5) {
+                                    VStack(alignment: .leading, spacing: Space.xs) {
                                         Text(card.role.uppercased())
-                                            .font(.system(size: 9.5, weight: .bold)).kerning(0.6)
+                                            .font(.scaled(9.5, weight: .bold)).kerning(0.6)
                                             .foregroundStyle(card.missing
-                                                             ? Color.orange
+                                                             ? Palette.caution
                                                              : familyTintColor(spine.family))
                                         Text(card.title)
-                                            .font(.system(size: 13.5, weight: .semibold))
+                                            .font(.scaled(13.5, weight: .semibold))
                                             .lineLimit(2)
                                         if !card.meta.isEmpty {
                                             Text(card.meta)
@@ -686,13 +881,13 @@ struct DocumentDetailScreen: View {
                                         }
                                     }
                                     .frame(width: 150, alignment: .topLeading)
-                                    .padding(11)
+                                    .padding(Space.md)
                                     .background(card.missing
-                                                ? Color.orange.opacity(0.05)
+                                                ? Palette.caution.opacity(0.05)
                                                 : Color(.secondarySystemGroupedBackground),
-                                                in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-                                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                        .strokeBorder(card.missing ? Color.orange.opacity(0.5) : .clear,
+                                                in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                                        .strokeBorder(card.missing ? Palette.caution.opacity(0.5) : .clear,
                                                       style: StrokeStyle(lineWidth: 1,
                                                                          dash: card.missing ? [4, 3] : [])))
                                 }
@@ -705,7 +900,7 @@ struct DocumentDetailScreen: View {
                 // language. Paragraphs stay paragraphs. The warnings left for
                 // the review card; settled and unsettled are different facts.
                 if !paragraphs.isEmpty || !reading.summaryTe.isEmpty || !doc.keyPointList.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: Space.md) {
                         HStack {
                             Text("In plain words").font(.headline)
                             Spacer()
@@ -713,7 +908,7 @@ struct DocumentDetailScreen: View {
                             // to be an English reader to check it.
                             if !reading.summaryTe.isEmpty {
                                 Button(showTelugu ? "In English" : "తెలుగులో") {
-                                    withAnimation(.snappy) { showTelugu.toggle() }
+                                    withAnimation(Motion.standard()) { showTelugu.toggle() }
                                 }
                                 .font(.subheadline.weight(.medium))
                             }
@@ -724,16 +919,16 @@ struct DocumentDetailScreen: View {
                         if !doc.keyPointList.isEmpty {
                             if !shownParagraphs.isEmpty { Divider() }
                             ForEach(doc.keyPointList, id: \.self) { point in
-                                HStack(alignment: .top, spacing: 8) {
+                                HStack(alignment: .top, spacing: Space.sm) {
                                     Text("•").foregroundStyle(.tint)
                                     Text(maskSensitiveText(point)).font(.subheadline)
                                 }
                             }
                         }
                     }
-                    .padding(16)
+                    .padding(Space.lg)
                     .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
 
                 if let fileURL = LocalFiles.url(for: doc.id) {
@@ -768,7 +963,7 @@ struct DocumentDetailScreen: View {
                     DocumentAllDetailsScreen(doc: doc, reading: reading, spine: spine)
                 } label: {
                     HStack {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: Space.hair) {
                             Text("All the details")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
@@ -779,13 +974,13 @@ struct DocumentDetailScreen: View {
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                     }
-                    .padding(14)
+                    .padding(Space.lg)
                     .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
-                if !problem.isEmpty { Text(problem).foregroundStyle(.red).font(.callout) }
+                if !problem.isEmpty { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
             }
             .padding()
         }
@@ -804,12 +999,19 @@ struct DocumentDetailScreen: View {
             // The destructive action leaves the scroll flow entirely.
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        newName = LocalFiles.all()[doc.id]?.name ?? headerTitle
+                        renaming = true
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
                     Button(role: .destructive) { confirmDelete = true } label: {
                         Label("Delete this document", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("More actions for this document")
             }
         }
         .task {
@@ -822,6 +1024,16 @@ struct DocumentDetailScreen: View {
             // Say what else goes: the summary and the parties are part of this
             // document, not separate things that survive it.
             Text("What was read from it — this summary, the parties and the extracted details — goes with it.")
+        }
+        // Renaming writes BOTH copies: the local index, so the new name is
+        // there with no network, and the server row, so the laptop agrees.
+        .alert("Rename document", isPresented: $renaming) {
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) { }
+            Button("Rename") { Task { await rename() } }
+                .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || renamingBusy)
+        } message: {
+            Text("The name you will find this paper by.")
         }
         .fullScreenCover(item: $openAtPage) { selection in
             if let url = LocalFiles.url(for: doc.id) {
@@ -956,31 +1168,31 @@ struct DocumentDetailScreen: View {
     /// The one amber card: itemised, severity-dotted, placed on its page.
     private var reviewCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { withAnimation(.snappy) { showReview.toggle() } } label: {
-                HStack(spacing: 10) {
+            Button { withAnimation(Motion.standard()) { showReview.toggle() } } label: {
+                HStack(spacing: Space.md) {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Palette.caution)
                     Text(spine.review.count == 1
                          ? "1 thing needs you"
                          : "\(spine.review.count) things need you")
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.caution)
                     Spacer(minLength: 0)
                     Text(showReview ? "Hide" : "Show")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange.opacity(0.75))
+                        .foregroundStyle(Palette.caution.opacity(0.75))
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             if showReview {
-                VStack(alignment: .leading, spacing: 11) {
+                VStack(alignment: .leading, spacing: Space.md) {
                     ForEach(spine.review) { item in
-                        HStack(alignment: .top, spacing: 9) {
+                        HStack(alignment: .top, spacing: Space.sm) {
                             Circle()
-                                .fill(item.severity == "high" ? Color.red : Color.orange)
+                                .fill(item.severity == "high" ? Palette.danger : Palette.caution)
                                 .frame(width: 6, height: 6)
-                                .padding(.top, 6)
-                            VStack(alignment: .leading, spacing: 5) {
+                                .padding(.top, Space.sm)
+                            VStack(alignment: .leading, spacing: Space.xs) {
                                 Text(item.text).font(.subheadline)
                                     .fixedSize(horizontal: false, vertical: true)
                                 // Items promoted from legacy prose have no
@@ -992,7 +1204,7 @@ struct DocumentDetailScreen: View {
                                     } label: {
                                         Label("page \(item.page)", systemImage: "doc.text.magnifyingglass")
                                             .font(.caption.weight(.semibold))
-                                            .padding(.horizontal, 8).padding(.vertical, 4)
+                                            .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
                                             .background(Color.accentColor.opacity(0.12), in: Capsule())
                                     }
                                     .buttonStyle(.plain)
@@ -1007,17 +1219,17 @@ struct DocumentDetailScreen: View {
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Palette.caution)
                     .disabled(reminded)
                 }
-                .padding(.top, 12)
+                .padding(.top, Space.md)
             }
         }
-        .padding(13)
-        .background(Color.orange.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(Color.orange.opacity(0.22), lineWidth: 1))
+        .padding(Space.md)
+        .background(Palette.caution.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .stroke(Palette.caution.opacity(0.22), lineWidth: 1))
     }
 
     /// v1 of the rail: reader-emitted links[] when they exist, else the prior
@@ -1151,6 +1363,36 @@ struct DocumentDetailScreen: View {
             .filter { !$0.isEmpty }
     }
 
+    /// Give this paper the name its owner wants to find it by.
+    ///
+    /// The local index is authoritative for what the phone shows and for the
+    /// filename the document leaves under, so it is written first and never
+    /// depends on the network. The server copy follows so the web vault agrees;
+    /// `renameDocument` accepts a reading id as well as a file id precisely so
+    /// this call does not have to know which of the two it is holding.
+    private func rename() async {
+        let wanted = newName.trimmingCharacters(in: .whitespaces)
+        guard !wanted.isEmpty else { return }
+        renamingBusy = true
+        defer { renamingBusy = false }
+        if let url = LocalFiles.url(for: doc.id) {
+            // Keep the extension: a name without one will not open anywhere.
+            let ext = url.pathExtension
+            let named = (wanted as NSString).pathExtension.isEmpty && !ext.isEmpty
+                ? "\(wanted).\(ext)" : wanted
+            try? LocalFiles.rename(documentID: doc.id, to: named)
+        }
+        struct Renamed: Decodable { let renameDocument: IDOnly?
+            struct IDOnly: Decodable { let id: String } }
+        if await app.load(Mutations.renameDocument,
+                          variables: ["id": doc.id, "name": wanted],
+                          as: Renamed.self) == nil {
+            // The phone still shows the new name; say plainly that the other
+            // devices do not yet.
+            problem = "Renamed on this phone — the server could not be reached."
+        }
+    }
+
     private func remove() async {
         struct Ack: Decodable { let deleteRegisteredDocument: Bool? }
         guard await app.load(Mutations.deleteRegisteredDocument,
@@ -1216,6 +1458,22 @@ struct DocumentDetailScreen: View {
     }
 }
 
+
+/// The system share sheet, presented from code.
+///
+/// `ShareLink` covers the ordinary case — a button that shares a thing already
+/// in hand — but a zip of six documents does not exist until the person asks
+/// for it, and there is no ShareLink for "whatever I am about to build". This
+/// is the small representable that closes that gap.
+struct ShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
 
 /// The four ways a vault is asked for: by the land, by the kind of paper, by
 /// the person, by when it arrived. All four key off the spine, so they are

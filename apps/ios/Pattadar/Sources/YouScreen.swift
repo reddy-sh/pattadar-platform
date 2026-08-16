@@ -26,7 +26,7 @@ struct YouScreen: View {
         NavigationStack {
             List {
                 Section {
-                    HStack(spacing: 14) {
+                    HStack(spacing: Space.lg) {
                         PhotosPicker(selection: $photoItem, matching: .images) {
                             ZStack(alignment: .bottomTrailing) {
                                 if let avatar {
@@ -50,7 +50,7 @@ struct YouScreen: View {
                                     .offset(x: 2, y: 2)
                             }
                         }
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: Space.xs) {
                             Text(name.isEmpty ? "You" : name)
                                 .font(.title3.weight(.semibold))
                             // The user id was here AND under Connection as
@@ -69,7 +69,7 @@ struct YouScreen: View {
                         }
                         Spacer()
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Space.xs)
                 }
 
                 // "What you hold" lived here — Land, Parcels, Plots, Passbooks,
@@ -104,7 +104,7 @@ struct YouScreen: View {
                         // said plainly rather than left to be inferred.
                         Label("No heirs recorded. If nothing is set, your land has no stated succession.",
                               systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout).foregroundStyle(.red)
+                            .font(.callout).foregroundStyle(Palette.danger)
                     }
                 }
 

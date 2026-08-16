@@ -46,7 +46,7 @@ struct FeaturesView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if loaded && features.isEmpty {
                 emptyState
             } else {
@@ -59,12 +59,12 @@ struct FeaturesView: View {
                 Label("Add a feature", systemImage: "plus.circle.fill")
                     .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
+                    .padding(.vertical, Space.md)
                     .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Space.lg)
         .task { await load() }
         .sheet(isPresented: $adding) {
             AddFeatureSheet(entityType: entityType, entityId: entityId) {
@@ -84,15 +84,15 @@ struct FeaturesView: View {
     }
 
     private func card(_ title: String, _ icon: String, _ items: [LandFeature]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.scaled(15, weight: .medium))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 30, height: 30)
                     .background(Color.accentColor.opacity(0.14),
-                                in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                VStack(alignment: .leading, spacing: 1) {
+                                in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(title)
                         .font(.system(.headline, design: .serif))
                     Text(summary(items)).font(.caption).foregroundStyle(.secondary)
@@ -107,7 +107,7 @@ struct FeaturesView: View {
                 Button { confirmDelete = f } label: {
                     Text(f.amount.isEmpty ? f.label : "\(f.label) \(f.amount)")
                         .font(.footnote)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                         .background(Color(.tertiarySystemFill), in: Capsule())
                         .foregroundStyle(.primary)
                 }
@@ -121,9 +121,9 @@ struct FeaturesView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     /// "Borewell · channel · tank side" — what is here, in the words used.
@@ -132,18 +132,18 @@ struct FeaturesView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Image(systemName: "questionmark.circle")
-                .font(.system(size: 22)).foregroundStyle(.secondary)
+                .font(.scaled(22)).foregroundStyle(.secondary)
             Text("Nothing recorded on this land yet")
                 .font(.subheadline.weight(.semibold))
             Text("How deep the borewell is, the electricity service number, which stone marks the corner. None of it is on the deed, and it is the first thing forgotten.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func load() async {
@@ -169,7 +169,7 @@ struct FlowChips<Item: Identifiable, Content: View>: View {
     @ViewBuilder let content: (Item) -> Content
 
     var body: some View {
-        FlowLayout(spacing: 8) {
+        FlowLayout(spacing: Space.sm) {
             ForEach(items) { content($0) }
         }
     }

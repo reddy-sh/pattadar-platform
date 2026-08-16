@@ -50,7 +50,7 @@ struct AddParcelScreen: View {
                         // Classification should route, not just describe. A ROR
                         // lists many survey numbers; entering it as one parcel
                         // throws the rest of the passbook away.
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: Space.sm) {
                             Label("This looks like a passbook, not a single parcel",
                                   systemImage: "arrow.triangle.branch")
                                 .font(.subheadline.weight(.medium))
@@ -64,7 +64,7 @@ struct AddParcelScreen: View {
                             }
                         }
                     }
-                    .listRowBackground(Color.orange.opacity(0.12))
+                    .listRowBackground(Palette.caution.opacity(0.12))
                 }
                 if manualOpen {
                     Section("Details") {
@@ -79,7 +79,7 @@ struct AddParcelScreen: View {
                         FormRow(label: "Survey number", text: $surveyNo, prompt: "124", required: true)
                         FormRow(label: "Sub-division", text: $subdivision, prompt: "1")
                         LabeledContent("Extent") {
-                            HStack(spacing: 6) {
+                            HStack(spacing: Space.sm) {
                                 TextField("0", text: $extent)
                                     .multilineTextAlignment(.trailing)
                                     .keyboardType(.decimalPad)
@@ -99,7 +99,7 @@ struct AddParcelScreen: View {
                         .pickerStyle(.segmented)
                     }
                     if !problem.isEmpty {
-                        Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                        Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                     }
                     Section {
                         PrimaryButton(title: savedID.isEmpty ? "Save parcel" : "Done",

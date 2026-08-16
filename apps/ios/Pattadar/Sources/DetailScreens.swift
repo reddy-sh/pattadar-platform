@@ -39,7 +39,7 @@ struct PassbookDetailScreen: View {
                     // A passbook exists to hold parcels; one with none is
                     // half-entered, not finished. Say what is missing and
                     // offer the way to fix it in the same breath.
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Space.sm) {
                         Text("No parcels filed under this passbook yet.")
                             .foregroundStyle(.secondary)
                         Text("A passbook usually lists several survey numbers. Add them so the extent and the map mean something.")
@@ -130,9 +130,9 @@ struct MemberDetailScreen: View {
     var body: some View {
         List {
             Section {
-                HStack(spacing: 12) {
+                HStack(spacing: Space.md) {
                     Avatar(name: member.name, size: 52, isSelf: member.isSelf)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Space.hair) {
                         Text(member.name).font(.title3.weight(.semibold))
                         if !member.relation.isEmpty {
                             Text(humanize(member.relation))
@@ -140,7 +140,7 @@ struct MemberDetailScreen: View {
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Space.xs)
                 if !member.relation.isEmpty {
                     LabeledContent("Relation", value: humanize(member.relation))
                 }
@@ -160,7 +160,7 @@ struct MemberDetailScreen: View {
                         // accept, which is the whole point of recording them.
                         Label("No phone number — they cannot be asked to confirm",
                               systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(.caption).foregroundStyle(Palette.caution)
                     }
                 } else {
                     Text("Not recorded as an heir.").foregroundStyle(.secondary)

@@ -54,9 +54,9 @@ struct PropertiesMap: View {
             } else if unpinnedCount > 0 {
                 Text("\(unpinnedCount) holding\(unpinnedCount == 1 ? "" : "s") not on the map — no location pinned yet")
                     .font(.caption).foregroundStyle(.secondary)
-                    .padding(10)
+                    .padding(Space.md)
                     .background(.regularMaterial, in: Capsule())
-                    .padding(.bottom, 10)
+                    .padding(.bottom, Space.md)
             }
         }
         .onAppear(perform: frameEverything)
@@ -71,9 +71,9 @@ struct PropertiesMap: View {
             case .property(let p): PropertyDetailScreen(property: p)
             }
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 Image(systemName: h.kind.icon).foregroundStyle(tint(h.kind))
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(h.title).font(.subheadline.weight(.semibold))
                     if !h.village.isEmpty {
                         Text(h.village).font(.caption).foregroundStyle(.secondary)
@@ -83,9 +83,9 @@ struct PropertiesMap: View {
                 Text(h.extentText).font(.subheadline).monospacedDigit()
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .padding(12)
+            .padding(Space.lg)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
+            .padding(Space.md)
         }
         .buttonStyle(.plain)
     }
@@ -96,8 +96,8 @@ struct PropertiesMap: View {
             systemImage: "mappin.slash",
             description: Text("Open a holding and set its location — then it appears here.")
         )
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .padding(24)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
+        .padding(Space.xxl)
     }
 
     /// Open framing everything that IS pinned, rather than a default region
@@ -115,12 +115,5 @@ struct PropertiesMap: View {
         camera = .region(MKCoordinateRegion(center: centre, span: span))
     }
 
-    private func tint(_ k: HoldingKind) -> Color {
-        switch k {
-        case .farmland: .green
-        case .plot: .blue
-        case .home: .orange
-        case .commercial: .purple
-        }
-    }
+    private func tint(_ k: HoldingKind) -> Color { Palette.tint(for: k) }
 }

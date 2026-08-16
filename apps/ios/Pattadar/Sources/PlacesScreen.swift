@@ -100,19 +100,19 @@ struct PlacesScreen: View {
     var body: some View {
         // No scroll view: both tabs OWN the screen, and the controls float
         // over the drawing instead of queueing beneath it.
-        VStack(spacing: 10) {
+        VStack(spacing: Space.md) {
             Picker("View", selection: $mode) {
                 ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Space.lg)
 
             switch mode {
             case .map: mapView
             case .sketch: sketchView
             }
         }
-        .padding(.top, 8)
+        .padding(.top, Space.sm)
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Maps")
         .navigationBarTitleDisplayMode(.inline)
@@ -183,8 +183,8 @@ struct PlacesScreen: View {
                     MapPolygon(coordinates: corners.map {
                         CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
                     })
-                    .foregroundStyle(.green.opacity(0.18))
-                    .stroke(.green, lineWidth: 2)
+                    .foregroundStyle(Palette.success.opacity(0.18))
+                    .stroke(Palette.success, lineWidth: 2)
 
                     // The measurements, on the land itself: each side's
                     // computed length at its midpoint, a dot at each corner.
@@ -193,7 +193,7 @@ struct PlacesScreen: View {
                     if showMeasurements {
                         ForEach(cornerDots) { dot in
                             Annotation("", coordinate: dot.at) {
-                                Circle().fill(.green)
+                                Circle().fill(Palette.success)
                                     .stroke(.white, lineWidth: 1.5)
                                     .frame(width: 9, height: 9)
                             }
@@ -202,7 +202,7 @@ struct PlacesScreen: View {
                             Annotation("", coordinate: side.mid) {
                                 Text(side.text)
                                     .font(.caption2.weight(.semibold).monospacedDigit())
-                                    .padding(.horizontal, 6).padding(.vertical, 3)
+                                    .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
                                     .background(.thinMaterial, in: Capsule())
                             }
                         }
@@ -221,24 +221,24 @@ struct PlacesScreen: View {
                     Button { showMeasurements.toggle() } label: {
                         Label("Measurements", systemImage: "ruler")
                             .labelStyle(.iconOnly)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.scaled(15, weight: .semibold))
                             .foregroundStyle(showMeasurements ? Color.accentColor : .secondary)
                             .frame(width: 40, height: 40)
                             .background(.thinMaterial, in: Circle())
                     }
                     .accessibilityLabel(showMeasurements ? "Hide measurements" : "Show measurements")
-                    .padding(.trailing, 16)
-                    .padding(.top, 12)
+                    .padding(.trailing, Space.lg)
+                    .padding(.top, Space.md)
                 }
             }
             .overlay(alignment: .topLeading) {
                 if !corners.isEmpty && showMeasurements {
                     Text(String(format: "%.2f acres drawn", boundaryAcres(corners)))
                         .font(.caption.weight(.semibold).monospacedDigit())
-                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                         .background(.thinMaterial, in: Capsule())
-                        .padding(.leading, 16)
-                        .padding(.top, 12)
+                        .padding(.leading, Space.lg)
+                        .padding(.top, Space.md)
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -246,9 +246,9 @@ struct PlacesScreen: View {
                     Label(address, systemImage: "mappin.and.ellipse")
                         .font(.caption.weight(.medium))
                         .lineLimit(1)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .padding(.horizontal, Space.md).padding(.vertical, Space.sm)
                         .background(.thinMaterial, in: Capsule())
-                        .padding(.leading, 16)
+                        .padding(.leading, Space.lg)
                         .padding(.bottom, 108)
                 }
             }
@@ -259,14 +259,14 @@ struct PlacesScreen: View {
                     Label(pin == nil ? "Set location" : "Move pin",
                           systemImage: "mappin.and.ellipse")
                         .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
                         .background(.thinMaterial, in: Capsule())
                 }
-                .padding(.trailing, 16)
+                .padding(.trailing, Space.lg)
                 .padding(.bottom, 64)
             }
         } else {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: Space.md) {
                 emptyCard(icon: "mappin.slash",
                           title: "Nothing on the map yet",
                           body: canAimAt(place)
@@ -277,20 +277,20 @@ struct PlacesScreen: View {
                 } label: {
                     Label("Set the exact location", systemImage: "mappin.and.ellipse")
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, Space.md)
                         .background(Color(.secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 }
                 Spacer()
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Space.lg)
         }
     }
 
     // MARK: - Sketch
 
     @ViewBuilder private var sketchView: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if corners.isEmpty {
                 emptyCard(
                     icon: "scribble.variable",
@@ -307,7 +307,7 @@ struct PlacesScreen: View {
                         .monospacedDigit().foregroundStyle(.secondary)
                 }
                 .font(.subheadline)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, Space.xs)
 
                 let warning = boundaryExtentMismatch(drawnAcres: boundaryAcres(corners),
                                                      recordedAcres: recordedAcres)
@@ -315,7 +315,7 @@ struct PlacesScreen: View {
                     // The one sentence that makes the sketch worth checking:
                     // the outline and the record disagree about how much land
                     // this is.
-                    Text(warning).font(.caption).foregroundStyle(.orange)
+                    Text(warning).font(.caption).foregroundStyle(Palette.caution)
                 }
             }
 
@@ -323,9 +323,9 @@ struct PlacesScreen: View {
                 Label(corners.isEmpty ? "Add boundary corners" : "Edit corners",
                       systemImage: corners.isEmpty ? "plus.circle.fill" : "square.and.pencil")
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, Space.md)
                     .background(Color(.secondarySystemGroupedBackground),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
 
             // The survey office's own drawing, beside the redrawn one — the
@@ -366,8 +366,8 @@ struct PlacesScreen: View {
 
             if corners.isEmpty { Spacer() }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Space.lg)
+        .padding(.bottom, Space.sm)
         .confirmationDialog("Remove this document?",
                             isPresented: Binding(get: { confirmRemoveDoc != nil },
                                                  set: { if !$0 { confirmRemoveDoc = nil } }),
@@ -393,9 +393,9 @@ struct PlacesScreen: View {
     }
 
     private func fmbRow(_ doc: RegisteredDocument, note: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Space.md) {
             DocumentIcon(docType: doc.docType.isEmpty ? "fmb" : doc.docType, size: 34)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.hair) {
                 Text(doc.docType.isEmpty ? "FMB sheet" : doc.docType)
                     .font(.subheadline.weight(.medium))
                 Text([doc.village, doc.surveyNo.isEmpty ? "" : "Sy \(doc.surveyNo)", note]
@@ -407,23 +407,23 @@ struct PlacesScreen: View {
                 Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .padding(12)
+        .padding(Space.md)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func emptyCard(icon: String, title: String, body: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             Image(systemName: icon)
-                .font(.system(size: 22))
+                .font(.scaled(22))
                 .foregroundStyle(.secondary)
             Text(title).font(.subheadline.weight(.semibold))
             Text(body).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(Space.lg)
         .background(Color(.secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 }
 
@@ -440,7 +440,7 @@ struct MapsHelpSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: Space.lg) {
                     row(icon: "map",
                         title: "The map is your land, outlined",
                         body: "The green boundary is drawn from the corners of your FMB sheet over today's satellite imagery — so you can see exactly which fields the record covers, and what stands on them now.")
@@ -461,7 +461,7 @@ struct MapsHelpSheet: View {
                         title: "A record, not a survey",
                         body: "This drawing is computed from corners you typed in. It is your copy of what the FMB says — useful for checking, showing and remembering — but it is not a licensed survey, and a boundary dispute is settled by the government's records, not by this screen.")
                 }
-                .padding(20)
+                .padding(Space.xl)
             }
             .navigationTitle("Reading this screen")
             .navigationBarTitleDisplayMode(.inline)
@@ -473,14 +473,14 @@ struct MapsHelpSheet: View {
     }
 
     private func row(icon: String, title: String, body: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: Space.lg) {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .medium))
+                .font(.scaled(17, weight: .medium))
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 38, height: 38)
                 .background(Color.accentColor.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-            VStack(alignment: .leading, spacing: 3) {
+                            in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            VStack(alignment: .leading, spacing: Space.xs) {
                 Text(title).font(.subheadline.weight(.semibold))
                 Text(body).font(.footnote).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

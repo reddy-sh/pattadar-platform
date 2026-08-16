@@ -118,8 +118,8 @@ struct SetLocationScreen: View {
             // coordinate — hence the offset. Without it the saved point is the
             // middle of the balloon, ~20pt north of where it looks.
             Image(systemName: "mappin")
-                .font(.system(size: 36, weight: .semibold))
-                .foregroundStyle(.red)
+                .font(.scaled(36, weight: .semibold))
+                .foregroundStyle(Palette.danger)
                 .shadow(radius: 3, y: 1)
                 .offset(y: -18)
                 .allowsHitTesting(false)
@@ -155,7 +155,7 @@ struct SetLocationScreen: View {
     /// picking a place and being assigned one.
     private var searchBar: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: Space.sm) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search a village or place", text: $query)
                     .textInputAutocapitalization(.words)
@@ -172,8 +172,8 @@ struct SetLocationScreen: View {
                 }
                 if searching { ProgressView().controlSize(.small) }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, Space.md)
             .background(.regularMaterial, in: Capsule())
 
             if !results.isEmpty {
@@ -183,11 +183,11 @@ struct SetLocationScreen: View {
                         Button {
                             choose(r)
                         } label: {
-                            HStack(spacing: 12) {
+                            HStack(spacing: Space.md) {
                                 Image(systemName: r.isSettlement
                                       ? "building.2.crop.circle.fill" : "mappin.circle.fill")
-                                    .foregroundStyle(r.namesTheVillage ? .green : .red)
-                                VStack(alignment: .leading, spacing: 2) {
+                                    .foregroundStyle(r.namesTheVillage ? Palette.success : Palette.danger)
+                                VStack(alignment: .leading, spacing: Space.hair) {
                                     Text(r.name).font(.subheadline.weight(.medium))
                                         .foregroundStyle(.primary)
                                     if !r.detail.isEmpty {
@@ -197,29 +197,29 @@ struct SetLocationScreen: View {
                                 }
                                 Spacer(minLength: 0)
                             }
-                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .padding(.horizontal, Space.lg).padding(.vertical, Space.md)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(.top, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .padding(.top, Space.sm)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Space.md)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
     /// Floating map controls, above the card and out of the thumb's way.
     private var controls: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Space.md) {
             if villageCentroid != nil {
                 mapButton("scope", label: "Centre on \(placeLabel)") { recentre() }
             }
             mapButton("location.fill", label: "Use my location") { Task { await useMyLocation() } }
         }
-        .padding(.trailing, 16)
+        .padding(.trailing, Space.lg)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .padding(.bottom, 220)
     }
@@ -227,7 +227,7 @@ struct SetLocationScreen: View {
     private func mapButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.scaled(17, weight: .semibold))
                 .frame(width: 44, height: 44)
                 .background(.regularMaterial, in: Circle())
         }
@@ -235,9 +235,9 @@ struct SetLocationScreen: View {
     }
 
     private var sheet: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if aiming {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.sm) {
                     ProgressView()
                     Text(placeLabel.isEmpty ? "Finding the place…" : "Finding \(placeLabel)…")
                         .font(.subheadline).foregroundStyle(.secondary)
@@ -259,7 +259,7 @@ struct SetLocationScreen: View {
             }
             if sanity.suspect {
                 Label(sanity.message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(Palette.caution)
             }
             if !aimed && !aiming {
                 Text("Move the map, search, or use your location to place the pin.")
@@ -272,7 +272,7 @@ struct SetLocationScreen: View {
                 Label(saved == nil ? "Save this location" : "Update location",
                       systemImage: "checkmark")
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Space.xs)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -284,10 +284,10 @@ struct SetLocationScreen: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+        .padding(Space.lg)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.hero, style: .continuous))
+        .padding(.horizontal, Space.md)
+        .padding(.bottom, Space.md)
     }
 
     private func commit(force: Bool) {

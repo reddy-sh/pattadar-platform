@@ -56,16 +56,16 @@ struct VaultTile: View {
     var hasFile: Bool = true
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: Space.hair) {
             Text(documentMono(docType))
-                .font(.system(size: 12, weight: .heavy))
+                .font(.scaled(12, weight: .heavy))
                 .kerning(0.3)
                 .lineLimit(1).minimumScaleFactor(0.7)
             if !year.isEmpty {
                 // Usually a year; for a map sheet the survey era ("Re-survey")
                 // — the longer word scales down rather than truncating.
                 Text(year)
-                    .font(.system(size: 8.5, weight: .semibold)).monospacedDigit()
+                    .font(.scaled(8.5, weight: .semibold)).monospacedDigit()
                     .lineLimit(1).minimumScaleFactor(0.7)
                     .opacity(0.62)
             }
@@ -73,13 +73,13 @@ struct VaultTile: View {
         .foregroundStyle(hasFile ? color : color.opacity(0.55))
         .frame(width: 38, height: 44)
         .background(color.opacity(hasFile ? 0.15 : 0.08),
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
             if !hasFile {
                 Image(systemName: "eye.slash.fill")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.scaled(9, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .padding(3)
+                    .padding(Space.xs)
                     .background(.background, in: Circle())
                     .offset(x: 4, y: 4)
             }
@@ -97,11 +97,11 @@ struct VaultTile: View {
 /// adjacent screens. The kit names it (`familyTint`); the `Color` lives here.
 func familyTintColor(_ family: String) -> Color {
     switch familyTint(family) {
-    case "blue": .blue
-    case "green": .green
-    case "cyan": .cyan
-    case "purple": .purple
-    case "orange": .orange
+    case "blue": Palette.accent
+    case "green": Palette.success
+    case "cyan": Palette.Category.plot
+    case "purple": Palette.Category.commercial
+    case "orange": Palette.caution
     case "brown": .brown
     default: .gray
     }
@@ -111,14 +111,14 @@ func familyTintColor(_ family: String) -> Color {
 /// the viewer's kind chip.
 func documentTintColor(_ docType: String) -> Color {
     switch documentKind(docType).tint {
-        case "blue": .blue
-        case "pink": .pink
-        case "orange": .orange
+        case "blue": Palette.accent
+        case "pink": Palette.Category.home
+        case "orange": Palette.caution
         case "brown": .brown
-        case "purple": .purple
-        case "green": .green
-        case "teal": .teal
-        case "indigo": .indigo
+        case "purple": Palette.Category.commercial
+        case "green": Palette.success
+        case "teal": Palette.Category.plot
+        case "indigo": Palette.Category.commercial
         case "mint": .mint
         case "gray": .gray
         default: .secondary

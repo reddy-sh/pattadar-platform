@@ -274,8 +274,16 @@ async def upload_file(
     file: UploadFile = File(...),
     parentId: Optional[str] = Query(None),
     appId: Optional[str] = Query(None),
+    onConflict: str = Query("version", pattern="^(version|duplicate)$"),
     _claims: dict = Depends(require_auth),
 ):
+    """Upload a file.
+
+    `onConflict=version` (default) folds a same-named upload into the existing
+    file as a new version. `onConflict=duplicate` keeps both, suffixing the
+    newcomer — what a document vault wants, where two originals of one deed is
+    an ordinary thing to hold.
+    """
     owner = extract_user_id(request)
     svc = get_storage()
     data = await file.read()
@@ -297,6 +305,7 @@ async def upload_file(
                 org_id=org_id,
                 workspace_id=workspace_id,
                 app_id=appId,
+                on_conflict=onConflict,
             )
         )
     except Exception as exc:  # noqa: BLE001

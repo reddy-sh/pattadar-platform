@@ -35,15 +35,15 @@ struct BoundarySketch: View {
             for p in pts.dropFirst() { path.addLine(to: place(p)) }
             path.closeSubpath()
 
-            context.fill(path, with: .color(.green.opacity(0.14)))
-            context.stroke(path, with: .color(.green.opacity(0.85)),
+            context.fill(path, with: .color(Palette.success.opacity(0.14)))
+            context.stroke(path, with: .color(Palette.success.opacity(0.85)),
                            style: StrokeStyle(lineWidth: 2, lineJoin: .round))
 
             // Corner dots, so a mis-typed corner is findable by eye.
             for p in pts {
                 let dot = place(p)
                 context.fill(Path(ellipseIn: CGRect(x: dot.x - 3, y: dot.y - 3, width: 6, height: 6)),
-                             with: .color(.green))
+                             with: .color(Palette.success))
             }
 
             // Each side's length at its midpoint — the numbers written along
@@ -60,7 +60,7 @@ struct BoundarySketch: View {
                 let out = CGPoint(x: mid.x + dx / norm * 14, y: mid.y + dy / norm * 14)
                 context.draw(
                     Text(sideLengthText(lengths[i]))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.scaled(10, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary),
                     at: out)
             }
@@ -76,10 +76,10 @@ struct BoundarySketch: View {
             head.addLine(to: CGPoint(x: n.x, y: n.y - 6))
             head.addLine(to: CGPoint(x: n.x + 4, y: n.y + 1))
             context.stroke(head, with: .color(.secondary), lineWidth: 1.5)
-            context.draw(Text("N").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary),
+            context.draw(Text("N").font(.scaled(10, weight: .semibold)).foregroundStyle(.secondary),
                          at: CGPoint(x: n.x, y: n.y + 20))
         }
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
             .fill(Color(.secondarySystemGroupedBackground)))
     }
 }
@@ -123,7 +123,7 @@ struct BoundaryEditorSheet: View {
                     Section("What this draws") {
                         BoundarySketch(corners: corners)
                             .frame(height: 200)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.md, bottom: Space.sm, trailing: Space.md))
                         HStack {
                             Text("\(corners.count) corners")
                             Spacer()
@@ -135,7 +135,7 @@ struct BoundaryEditorSheet: View {
                 }
 
                 if !problem.isEmpty {
-                    Section { Text(problem).foregroundStyle(.red).font(.callout) }
+                    Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
 
                 Section {

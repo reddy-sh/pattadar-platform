@@ -37,16 +37,32 @@ runs the package tests. A green simulator says nothing about whether the app
 can be SIGNED for a device — that was reported as ready twice while the device
 build failed on six signing errors.
 
-## Home Screen widget — off by default
+## Widgets — one Xcode sign-in away
 
-`PattadarWidget/` is written and works on the simulator, but it is not embedded
-in device builds. It needs a provisioning profile for
-`com.rfactory.pattadar.widget` and an App Group capability, and Xcode can
-create neither while no Apple ID is signed in.
+`PattadarWidget/` ships three widgets and a Control Centre control:
 
-To enable: sign into Xcode (Settings → Accounts), then uncomment the
-`PattadarWidgetExtension` dependency and the two `CODE_SIGN_ENTITLEMENTS` lines
-in `project.yml`, and regenerate.
+| | Families | Shows |
+|---|---|---|
+| **Your land** | small, medium, large, inline, rectangular | Total acres, then each kind in its own unit |
+| **Needs attention** | small, medium, circular, rectangular | Record-ready %, and the holdings failing a check |
+| **A holding** | small, medium, rectangular | One survey number you pick, with its verdict |
+| **File a paper** | Control Centre, Lock Screen | Opens the camera on a locked phone |
+
+They read `SharedSnapshot` from the App Group and never fetch: an extension has
+no credentials and a fraction of a second to draw. The app writes the snapshot
+at the end of every `HomeScreen.load()`, so whatever is not in
+`LandSnapshot.build` cannot appear on the Home Screen.
+
+**Device builds need an Apple ID in Xcode** (Settings → Accounts). The App Group
+`group.com.rfactory.pattadar` and the App ID `com.rfactory.pattadar.widget` do
+not exist on the account yet, and automatic signing cannot create them without
+one — `xcodebuild` fails with *"No Accounts: Add a new account in Accounts
+settings"*. Simulator builds are unaffected, because entitlements there are
+simulated.
+
+To defer instead: comment out the `PattadarWidgetExtension` dependency and both
+`CODE_SIGN_ENTITLEMENTS` lines in `project.yml`, and regenerate. The widgets
+stop shipping; nothing else changes.
 
 ## Tests
 

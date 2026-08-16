@@ -135,5 +135,6 @@ export { barFraction } from './land/scale';
 export { canonicalizeNameTokens, nameVariantPair } from './land/names';
 export * from './records/registry';
 export * from './records/completeness';
+export * from './records/docFamilies';
 export * from './format/docName';
 export * from './format/dob';

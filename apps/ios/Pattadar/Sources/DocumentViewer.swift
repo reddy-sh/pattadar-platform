@@ -76,11 +76,11 @@ struct ConfidencePill: View {
 
     var body: some View {
         Text(level == "unsure" ? "The agent is unsure" : "Check this")
-            .font(.system(size: 10.5, weight: .semibold))
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background((level == "unsure" ? Color.red : Color.orange).opacity(0.16),
+            .font(.scaled(10.5, weight: .semibold))
+            .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
+            .background((level == "unsure" ? Palette.danger : Palette.caution).opacity(0.16),
                         in: Capsule())
-            .foregroundStyle(level == "unsure" ? Color.red : Color.orange)
+            .foregroundStyle(level == "unsure" ? Palette.danger : Palette.caution)
     }
 }
 
@@ -98,10 +98,10 @@ struct PDFPageStrip: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: Space.md) {
                 ForEach(0..<pageCount, id: \.self) { index in
                     Button { onOpen(index) } label: {
-                        VStack(spacing: 4) {
+                        VStack(spacing: Space.xs) {
                             Group {
                                 if let image = thumbs[index] {
                                     Image(uiImage: image)
@@ -113,12 +113,12 @@ struct PDFPageStrip: View {
                             }
                             .frame(width: 78, height: 104)
                             .background(Color(.tertiarySystemFill))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                                 .stroke(Color.primary.opacity(0.1), lineWidth: 1))
 
                             Text(label(index))
-                                .font(.system(size: 10))
+                                .font(.scaled(10))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -126,7 +126,7 @@ struct PDFPageStrip: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 2)
+            .padding(.horizontal, Space.hair)
         }
         .task { await render() }
     }
@@ -213,7 +213,7 @@ struct FileContentsSection: View {
     var body: some View {
         let runs = mergedRuns
         if !runs.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text("WHAT IS INSIDE THIS FILE")
                     .font(.caption.weight(.medium)).kerning(1.1)
                     .foregroundStyle(.secondary)
@@ -228,11 +228,11 @@ struct FileContentsSection: View {
                             HStack {
                                 let family = documentFamily(entry.kind)
                                 Text(documentMono(entry.kind))
-                                    .font(.system(size: 10.5, weight: .heavy)).kerning(0.3)
+                                    .font(.scaled(10.5, weight: .heavy)).kerning(0.3)
                                     .lineLimit(1).minimumScaleFactor(0.7)
                                     .frame(width: 28, height: 28)
                                     .background(familyTintColor(family).opacity(0.14),
-                                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                                in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                                     .foregroundStyle(familyTintColor(family))
                                 Text(entry.kind).font(.subheadline.weight(.medium))
                                     .foregroundStyle(.primary)
@@ -243,15 +243,15 @@ struct FileContentsSection: View {
                                 Image(systemName: "chevron.right")
                                     .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
                             }
-                            .padding(.vertical, 9)
+                            .padding(.vertical, Space.sm)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Space.lg)
                 .background(Color(.secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
     }
@@ -309,7 +309,7 @@ struct DocDetailsSection: View {
 
     var body: some View {
         ForEach(groups.filter { !$0.rows.isEmpty }, id: \.title) { group in
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Space.sm) {
                 Text(group.title.uppercased())
                     .font(.caption.weight(.medium)).kerning(1.1)
                     .foregroundStyle(.secondary)
@@ -322,9 +322,9 @@ struct DocDetailsSection: View {
                         rowView(row, id: "\(group.title)-\(i)")
                     }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Space.lg)
                 .background(Color(.secondarySystemGroupedBackground),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
         }
     }
@@ -341,17 +341,17 @@ struct DocDetailsSection: View {
             if let page { onOpenPage(page - 1) }
             else if sensitive { toggleReveal(rowID) }
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.hair) {
                     Text(row.label).font(.subheadline).foregroundStyle(.secondary)
                     if let page {
                         Text("page \(page)")
-                            .font(.system(size: 10.5)).monospacedDigit()
+                            .font(.scaled(10.5)).monospacedDigit()
                             .foregroundStyle(.tertiary)
                     }
                 }
                 Spacer(minLength: 12)
-                VStack(alignment: .trailing, spacing: 3) {
+                VStack(alignment: .trailing, spacing: Space.xs) {
                     Text(sensitive && !isOpen ? maskedIdentity(row.value) : row.value)
                         .font(sensitive
                               ? .system(.subheadline, design: .monospaced).weight(.medium)
@@ -361,7 +361,7 @@ struct DocDetailsSection: View {
                     if sensitive {
                         Button { toggleReveal(rowID) } label: {
                             Text(isOpen ? "Hide" : "Tap to reveal")
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(.scaled(10.5, weight: .semibold))
                                 .foregroundStyle(.tint)
                         }
                         .buttonStyle(.borderless)
@@ -369,7 +369,7 @@ struct DocDetailsSection: View {
                     if let confidence { ConfidencePill(level: confidence) }
                 }
             }
-            .padding(.vertical, 9)
+            .padding(.vertical, Space.sm)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
