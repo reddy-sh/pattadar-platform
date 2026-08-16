@@ -7,6 +7,9 @@ import UserNotifications
 struct PattadarApp: App {
     @State private var model = AppModel()
     @State private var showOnboarding = false
+    /// The Account screen's Appearance choice, applied at the root so every
+    /// screen follows. Empty string = never chosen = match the device.
+    @AppStorage(AppearanceChoice.key) private var appearanceRaw = ""
     // A background upload finishing while the app is dead RELAUNCHES it, and
     // iOS delivers the result only through the app delegate. Without this hook
     // the transfer completes and the answer is dropped on the floor — which is
@@ -31,6 +34,8 @@ struct PattadarApp: App {
                 .task {
                     if !Onboarding.hasSeen { showOnboarding = true }
                 }
+                .preferredColorScheme(
+                    (AppearanceChoice(rawValue: appearanceRaw) ?? .system).colorScheme)
         }
     }
 }
@@ -206,7 +211,7 @@ final class AppModel {
     /// Held here so a figure on the dashboard can open the list it counts. A
     /// count you cannot tap is a dead end — the number tells you something is
     /// there and then refuses to show it to you.
-    enum Tab: Hashable { case home, properties, add, family, documents, you }
+    enum Tab: Hashable { case home, properties, add, documents, you }
     var selectedTab: Tab = .home
     /// A tab you LEFT starts over. Changing a tab's version rebuilds its
     /// screen — offscreen, while you are elsewhere — so coming back always
@@ -674,9 +679,6 @@ extension LinkTarget {
 
 struct RootTabs: View {
     @Environment(AppModel.self) private var app
-    /// Changing this rebuilds the tab bar, which is the only way a tab item
-    /// picks up a new image — SwiftUI does not re-evaluate one on its own.
-    @State private var avatarVersion = UUID()
     @Environment(\.scenePhase) private var scenePhase
     /// Read so the filing icon is redrawn when the phone changes appearance —
     /// an `.alwaysOriginal` image keeps whatever colours it was drawn with.
@@ -715,24 +717,19 @@ struct RootTabs: View {
             .accessibilityLabel("File a document")
             .accessibilityHint("Opens the filing sheet")
             .accessibilityAddTraits(.isButton)
-            // "Documents" describes a folder. "Vault" says what it is for:
-            // the papers that prove the land is yours, kept where they can be
-            // found.
+            // "Papers" is the person's own word for what lives here — the
+            // deeds, passbooks and receipts that prove the land. ("Vault"
+            // described the lock; the M-series comps name the contents.)
+            // The Tab case stays `.documents`: WidgetLink URLs and installed
+            // widgets speak that vocabulary and must keep working.
             DocumentsScreen().id(app.tabVersions[.documents])
-                .tabItem { Label("Vault", systemImage: "lock.doc.fill") }
+                .tabItem { Label("Papers", systemImage: "doc.text.fill") }
                 .tag(AppModel.Tab.documents)
-            YouScreen().id(app.tabVersions[.you])
-                .tabItem {
-                // Your own face on your own tab. Falls back to the symbol
-                // until a photo is chosen.
-                if let avatar = Identity.tabAvatar() {
-                    Image(uiImage: avatar)
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                }
-                Text("You")
-            }
-            .tag(AppModel.Tab.you)
+            // "More" rather than a face: the tab is a hub of places (M24),
+            // and the person now lives one push inside it, on Account.
+            MoreScreen().id(app.tabVersions[.you])
+                .tabItem { Label("More", systemImage: "ellipsis") }
+                .tag(AppModel.Tab.you)
         }
         .onChange(of: app.selectedTab) { previous, now in
             if now == .add {
@@ -785,10 +782,6 @@ struct RootTabs: View {
                     .transition(.opacity)
             }
         }
-        .id(avatarVersion)
-        .onReceive(NotificationCenter.default.publisher(for: .avatarChanged)) { _ in
-            avatarVersion = UUID()
-        }
     }
 
     /// DD/MM/YYYY — the platform's date order, everywhere, always. Locale
@@ -839,11 +832,6 @@ struct RootTabs: View {
                          cornerRadius: thick / 2).fill()
         }.withRenderingMode(.alwaysOriginal)
     }
-}
-
-extension Notification.Name {
-    /// Posted when the account photo is set or removed.
-    static let avatarChanged = Notification.Name("pattadar.avatarChanged")
 }
 
 /// One place to say a load failed, so the wording cannot drift per screen.

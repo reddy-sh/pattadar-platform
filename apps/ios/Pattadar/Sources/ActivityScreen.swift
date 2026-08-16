@@ -70,45 +70,5 @@ struct ActivityScreen: View {
     }
 }
 
-struct AccountScreen: View {
-    @Environment(AppModel.self) private var app
-    @State private var stats: DashboardStats?
-    @State private var name = ""
-
-    var body: some View {
-        List {
-            Section("You") {
-                LabeledContent("Name", value: name.isEmpty ? "—" : name)
-                LabeledContent("Signed in as", value: app.api.config.userID)
-            }
-            if let s = stats {
-                Section("Your records") {
-                    LabeledContent("Passbooks", value: "\(s.totalPassbooks)")
-                    LabeledContent("Parcels", value: "\(s.totalParcels)")
-                    LabeledContent("Documents", value: "\(s.totalDocuments)")
-                    LabeledContent("Groups", value: "\(s.totalGroups)")
-                }
-            }
-            Section("Connection") {
-                LabeledContent("Server", value: app.api.config.baseURL.host ?? "—")
-                // Said plainly rather than hidden: this build trusts a header,
-                // and anyone who knows a user id can read that user's records.
-                Label("This build identifies you with a header, not a password. Sign-in arrives with the Cognito client.",
-                      systemImage: "exclamationmark.shield")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                NavigationLink { ActivityScreen() } label: {
-                    Label("Activity log", systemImage: "clock.arrow.circlepath")
-                }
-            }
-        }
-        .navigationTitle("Account")
-        .task {
-            if let d = await app.load(Queries.dashboard, as: DashboardResponse.self) {
-                stats = d.dashboardStats
-                name = d.me?.name ?? ""
-            }
-        }
-    }
-}
+// The legacy AccountScreen that lived here — a pre-Cognito facts list with no
+// call site — is gone. The real one (M20) is `AccountScreen.swift`.

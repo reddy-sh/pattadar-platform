@@ -46,27 +46,6 @@ enum Identity {
     static func removeAvatar() {
         try? FileManager.default.removeItem(at: avatarURL)
     }
-
-    /// A circular avatar sized for the tab bar.
-    ///
-    /// A tab item takes a rendered image, not a view, and by default tints it
-    /// as a template — which turns a photograph into a solid blue blob. The
-    /// `.alwaysOriginal` rendering mode is what makes it show as a picture.
-    static func tabAvatar(size: CGFloat = 26) -> UIImage? {
-        guard let source = avatar() else { return nil }
-        let rect = CGRect(x: 0, y: 0, width: size, height: size)
-        let renderer = UIGraphicsImageRenderer(size: rect.size)
-        let circular = renderer.image { _ in
-            UIBezierPath(ovalIn: rect).addClip()
-            // Fill the circle without distorting the face.
-            let scale = max(size / source.size.width, size / source.size.height)
-            let drawn = CGSize(width: source.size.width * scale, height: source.size.height * scale)
-            source.draw(in: CGRect(x: (size - drawn.width) / 2,
-                                   y: (size - drawn.height) / 2,
-                                   width: drawn.width, height: drawn.height))
-        }
-        return circular.withRenderingMode(.alwaysOriginal)
-    }
 }
 
 /// Sign in. Shown when no identity has been chosen, and from You → Switch.
