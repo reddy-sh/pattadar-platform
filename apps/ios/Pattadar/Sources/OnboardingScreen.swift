@@ -85,8 +85,8 @@ struct OnboardingScreen: View {
         HStack(spacing: Space.sm) {
             ForEach(0..<slides.count, id: \.self) { i in
                 Capsule()
-                    .fill(i <= index ? Color.accentColor : Color.white.opacity(0.18))
-                    .frame(height: 3)
+                    .fill(i == index ? Color.accentColor : Palette.ruleOnRecord)
+                    .frame(width: i == index ? 22 : 7, height: 7)
             }
         }
         .animation(Motion.standard(), value: index)
@@ -111,7 +111,7 @@ struct OnboardingScreen: View {
 
             Text(s.body)
                 .font(.body)
-                .foregroundStyle(.white.opacity(0.62))
+                .foregroundStyle(Palette.inkSoftOnRecord)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -124,7 +124,7 @@ struct OnboardingScreen: View {
             // should not have to read three screens first.
             Button("Skip") { finish(startAdding: false) }
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.55))
+                .foregroundStyle(Palette.inkSoftOnRecord)
 
             Button {
                 advance()
