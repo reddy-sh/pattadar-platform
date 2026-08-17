@@ -44,24 +44,28 @@ struct AccountScreen: View {
                 // gave two bars and a back button to the wrong place.
                 Button { app.selectedTab = .documents } label: {
                     HStack {
-                        Label("Papers", systemImage: "doc.text.fill")
-                            .foregroundStyle(Color.accentColor, Color(.label))
+                        Label {
+                            Text("Papers").foregroundStyle(Color(.label))
+                        } icon: {
+                            Image(systemName: "doc.text.fill")
+                                .foregroundStyle(Color.accentColor)
+                        }
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption).foregroundStyle(.tertiary)
                     }
                 }
-                .foregroundStyle(.primary)
                 Link(destination: URL(string: "https://pattadar.com/app")!) {
                     HStack {
                         Label {
                             VStack(alignment: .leading, spacing: Space.hair) {
-                                Text("Invitations")
+                                Text("Invitations").foregroundStyle(Color(.label))
                                 Text("Shares & verification invites · Web only")
-                                    .font(.note).foregroundStyle(.secondary)
+                                    .font(.note).foregroundStyle(Color(.secondaryLabel))
                             }
                         } icon: {
                             Image(systemName: "envelope")
+                                .foregroundStyle(Color.accentColor)
                         }
                         Spacer()
                         Image(systemName: "arrow.up.forward.square")
@@ -280,33 +284,31 @@ struct AccountScreen: View {
                 HStack {
                     Label {
                         VStack(alignment: .leading, spacing: Space.hair) {
-                            Text("Export your records")
+                            Text("Export your records").foregroundStyle(Color(.label))
                             Text("Select papers in Papers, then Share — they leave as one zip")
-                                .font(.note).foregroundStyle(.secondary)
+                                .font(.note).foregroundStyle(Color(.secondaryLabel))
                         }
                     } icon: {
                         Image(systemName: "square.and.arrow.down")
+                            .foregroundStyle(Color.accentColor)
                     }
-                    .foregroundStyle(Color.accentColor, Color(.label))
                     Spacer()
                     Image(systemName: "arrow.up.right")
                         .font(.caption).foregroundStyle(.tertiary)
                 }
             }
-            .foregroundStyle(.primary)
             Button { confirmClearCache = true } label: {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {
-                        Text("Clear cached files")
+                        Text("Clear cached files").foregroundStyle(Color(.label))
                         Text("Frees space used by downloaded copies")
-                            .font(.note).foregroundStyle(.secondary)
+                            .font(.note).foregroundStyle(Color(.secondaryLabel))
                     }
                 } icon: {
                     Image(systemName: "trash.slash")
+                        .foregroundStyle(Color.accentColor)
                 }
-                .foregroundStyle(Color.accentColor, Color(.label))
             }
-            .foregroundStyle(.primary)
             Button(role: .destructive) { explainDeleteAccount = true } label: {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {
