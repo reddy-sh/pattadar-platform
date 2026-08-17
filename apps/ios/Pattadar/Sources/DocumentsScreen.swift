@@ -57,6 +57,16 @@ struct DocumentsScreen: View {
     var body: some View {
         NavigationStack {
             List(selection: $selection) {
+                if landing {
+                    // The M07 landing: what the vault promises, said once.
+                    Section {
+                        encryptedBanner
+                            .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.lg,
+                                                      bottom: Space.hair, trailing: Space.lg))
+                            .listRowBackground(Color.clear)
+                    }
+                }
+                if !landing {
                 Section {
                     // The controls live in the list rather than a toolbar so
                     // they scroll away — rows pinned above 40 documents eat
@@ -80,6 +90,7 @@ struct DocumentsScreen: View {
                     }
                     .listRowInsets(EdgeInsets(top: Space.hair, leading: Space.lg, bottom: Space.sm, trailing: Space.lg))
                     .listRowBackground(Color.clear)
+                }
                 }
 
                 // ONE amber banner, and only when something is genuinely
@@ -125,6 +136,19 @@ struct DocumentsScreen: View {
                     }
                 }
 
+                if landing {
+                    // The eight shelves (M07): the vault answered as an index
+                    // rather than a hundred rows. A shelf opens its family;
+                    // the chips take over from there.
+                    Section {
+                        shelfGrid
+                            .listRowInsets(EdgeInsets(top: Space.hair, leading: Space.lg,
+                                                      bottom: Space.sm, trailing: Space.lg))
+                            .listRowBackground(Color.clear)
+                    } header: {
+                        Text("\(rows.count + unread.count) papers · encrypted at rest")
+                    }
+                } else {
                 ForEach(grouped, id: \.key) { group in
                     Section {
                         ForEach(group.rows) { r in
@@ -141,6 +165,7 @@ struct DocumentsScreen: View {
                         }
                     }
                 }
+                }
                 if loaded && rows.isEmpty && unread.isEmpty && SyncEngine.shared.pendingFilings.isEmpty {
                     ContentUnavailableView("No documents yet", systemImage: "doc.text",
                                            description: Text("Scan a deed and its details are read for you — or just add a file and keep it as it is."))
@@ -149,7 +174,7 @@ struct DocumentsScreen: View {
                                            description: Text("Try the survey number, the khata, a name, or the year."))
                 }
             }
-            .navigationTitle("Vault")
+            .navigationTitle("Papers")
             .searchable(text: $query, prompt: "Sy. 128/1A · Khata 397 · a name · 2016…")
             .environment(\.editMode, $editMode)
             .toolbar {
@@ -399,6 +424,114 @@ struct DocumentsScreen: View {
         case .type, .recent: [s.placeLine, s.quantumLine]
         }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    // MARK: - The M07 landing
+
+    /// True when nothing narrows the vault: no filter, no search, no
+    /// selection under way. That is when the shelves answer instead of rows.
+    private var landing: Bool {
+        filter == "all" && query.trimmingCharacters(in: .whitespaces).isEmpty
+            && !editMode.isEditing
+    }
+
+    /// The vault's promise, in the words that are actually true of it.
+    private var encryptedBanner: some View {
+        HStack(alignment: .top, spacing: Space.sm) {
+            Image(systemName: "checkmark.shield")
+                .foregroundStyle(Palette.success)
+            Text("Stored encrypted in Mumbai (ap-south-1). Identity papers stay masked until Face ID.")
+                .font(.note).foregroundStyle(Palette.success)
+        }
+        .padding(Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.success.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+    }
+
+    /// The families that actually hold papers, as 2-up shelf cards, each
+    /// wearing its spine colour on the left edge — the packages/core eight.
+    private var shelfGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.md),
+                            GridItem(.flexible(), spacing: Space.md)],
+                  spacing: Space.md) {
+            ForEach(shelves, id: \.key) { shelf in
+                Button {
+                    withAnimation(Motion.standard()) { filter = shelf.key }
+                } label: {
+                    shelfCard(shelf.key, count: shelf.count)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var shelves: [(key: String, count: Int)] {
+        documentFamilies.compactMap { f in
+            let count = rows.filter { $0.spine.family == f }.count
+            return count > 0 ? (f, count) : nil
+        }
+    }
+
+    private func shelfCard(_ family: String, count: Int) -> some View {
+        HStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(familyTintColor(family))
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack {
+                    Image(systemName: Self.familySymbol(family))
+                        .font(.scaled(17))
+                        .foregroundStyle(familyTintColor(family))
+                    Spacer()
+                    Text("\(count)")
+                        .font(.callout.weight(.medium)).monospacedDigit()
+                }
+                VStack(alignment: .leading, spacing: Space.hair) {
+                    Text(familyLabel(family))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    Text(Self.familyBlurb(family))
+                        .font(.note).foregroundStyle(.secondary)
+                        .lineLimit(2, reservesSpace: true)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .padding(Space.md)
+        }
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+            .fill(Color(.secondarySystemGroupedBackground)))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(familyLabel(family)), \(count) papers")
+    }
+
+    private static func familySymbol(_ family: String) -> String {
+        switch family {
+        case "title": "doc.text"
+        case "revenue": "text.book.closed"
+        case "map": "map"
+        case "identity": "person.text.rectangle"
+        case "search": "doc.text.magnifyingglass"
+        case "old_record": "scroll"
+        case "photo": "photo.on.rectangle"
+        default: "questionmark.folder"
+        }
+    }
+
+    private static func familyBlurb(_ family: String) -> String {
+        switch family {
+        case "title": "Deeds, wills, agreements"
+        case "revenue": "Passbooks, ROR, mutations"
+        case "map": "FMB, tippons, sketches"
+        case "identity": "Masked until you unlock"
+        case "search": "ECs, receipts, challans"
+        case "old_record": "Sethwar, khasra"
+        case "photo": "Of the land itself"
+        default: "Nothing recognised it"
+        }
     }
 
     // MARK: - Filter chips & banner
@@ -658,52 +791,68 @@ struct DocumentDetailScreen: View {
                 // serif headline owns the identity, one subline carries where
                 // and when. Nothing on this card repeats — the old header
                 // said "Sale Deed" three times.
+                // The M44 dark hero: a paper's head is a printed record and
+                // wears the record surface in both appearances. Chips go
+                // glass — the family tints resolve per-appearance and cannot
+                // be trusted on a surface that is always dark.
                 VStack(alignment: .leading, spacing: Space.md) {
                     if let g = parsedGeometry, spine.family == "map" {
                         // A georeferenced sheet says so up front — the
                         // founder's frame, word for word.
                         HStack(spacing: Space.sm) {
+                            Image(systemName: "map")
+                                .font(.scaled(13))
+                                .foregroundStyle(Palette.inkSoftOnRecord)
                             Text("FMB · GEOREFERENCED")
                                 .font(.scaled(10.5, weight: .semibold)).kerning(0.8)
                                 .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
-                                .background(Palette.Category.plot.opacity(0.16), in: Capsule())
-                                .foregroundStyle(Palette.Category.plot)
+                                .background(Palette.ruleOnRecord, in: Capsule())
+                                .foregroundStyle(Palette.inkOnRecord)
                             Text("\(g.points.count) corners · WGS 84"
                                  + (g.utmZoneLabel.map { " · \($0)" } ?? ""))
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(Palette.inkSoftOnRecord)
                                 .lineLimit(1)
                         }
                         Text(fmbHeadline)
                             .font(.scaled(30, weight: .semibold, design: .serif))
+                            .foregroundStyle(Palette.inkOnRecord)
                         if !fmbSubline.isEmpty {
-                            Text(fmbSubline).font(.subheadline).foregroundStyle(.secondary)
+                            Text(fmbSubline).font(.subheadline)
+                                .foregroundStyle(Palette.inkSoftOnRecord)
                         }
                     } else {
                         HStack(spacing: Space.sm) {
+                            Image(systemName: documentKind(doc.docType).icon)
+                                .font(.scaled(13))
+                                .foregroundStyle(Palette.inkSoftOnRecord)
                             Text((doc.docType.isEmpty ? "Document" : doc.docType).uppercased())
                                 .font(.scaled(10.5, weight: .semibold)).kerning(0.8)
                                 .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
-                                .background(familyTintColor(spine.family).opacity(0.16), in: Capsule())
-                                .foregroundStyle(familyTintColor(spine.family))
+                                .background(Palette.ruleOnRecord, in: Capsule())
+                                .foregroundStyle(Palette.inkOnRecord)
                             if !reading.language.isEmpty {
                                 Text(reading.language)
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.caption).foregroundStyle(Palette.inkSoftOnRecord)
                                     .lineLimit(1)
                             }
                         }
                         Text(headerTitle)
                             .font(.scaled(30, weight: .semibold, design: .serif))
+                            .foregroundStyle(Palette.inkOnRecord)
                         if !registeredLine.isEmpty {
-                            Text(registeredLine).font(.subheadline).foregroundStyle(.secondary)
+                            Text(registeredLine).font(.subheadline)
+                                .foregroundStyle(Palette.inkSoftOnRecord)
                         }
                         if !metaLine.isEmpty {
-                            Text(metaLine).font(.caption).foregroundStyle(.tertiary)
+                            Text(metaLine).font(.caption)
+                                .foregroundStyle(Palette.inkSoftOnRecord.opacity(0.8))
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Space.xl)
-                .background(Color(.secondarySystemGroupedBackground),
+                .background(LinearGradient(colors: [Palette.record, Palette.recordDeep],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
                             in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
 
                 // The spine, made visible: ONE box, hairline-divided — the
