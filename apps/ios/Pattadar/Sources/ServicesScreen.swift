@@ -22,7 +22,7 @@ struct ServicesScreen: View {
                 Text("Priced for 3 parcels in Kakinada dist.")
                     .font(.note).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
             }
 
             if bundleState == "open" {
@@ -130,11 +130,15 @@ struct ServicesScreen: View {
                     .buttonStyle(.bordered)
                 }
             }
-            .padding(.vertical, Space.xs)
-            .listRowBackground(
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-                    .strokeBorder(Color.accentColor.opacity(0.4)))
+            .padding(Space.lg)
+            .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground)))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.4)))
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.lg,
+                                      bottom: Space.xs, trailing: Space.lg))
+            .listRowSeparator(.hidden)
         }
     }
 
@@ -223,7 +227,7 @@ struct OrderDetailScreen: View {
                 }
                 .padding(.vertical, Space.xs)
                 .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
             }
 
             Section {

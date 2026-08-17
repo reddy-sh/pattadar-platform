@@ -12,6 +12,7 @@ struct SearchScreen: View {
     let documents: [RegisteredDocument]
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var searchActive = true
     @State private var asking: RequestKind?
 
     var body: some View {
@@ -85,12 +86,13 @@ struct SearchScreen: View {
                     Text("Searching finds records and papers wherever they are. To narrow a list you are already looking at, use Filter.")
                         .font(.note).foregroundStyle(.secondary)
                         .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                 }
             }
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+            .searchable(text: $query, isPresented: $searchActive,
+                        placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Survey no., village, paper, name")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

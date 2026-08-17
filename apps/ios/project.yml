@@ -26,7 +26,32 @@ schemes:
         # Local API for development runs from Xcode; the installed app
         # defaults to production (see the bundle plist below).
         PATTADAR_API_URL: http://127.0.0.1:8080
+  # The screenshot tour — the only pair of eyes on a Mac whose simulators
+  # run headless. `xcodebuild test -scheme PattadarUITour`, then export the
+  # attachments from the result bundle.
+  PattadarUITour:
+    build:
+      targets:
+        Pattadar: all
+        PattadarUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - PattadarUITests
 targets:
+  PattadarUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - PattadarUITests
+    dependencies:
+      - target: Pattadar
+    settings:
+      base:
+        DEVELOPMENT_TEAM: WME7N6KM67
+        CODE_SIGN_STYLE: Automatic
+        TEST_TARGET_NAME: Pattadar
+        GENERATE_INFOPLIST_FILE: YES
   Pattadar:
     type: application
     platform: iOS

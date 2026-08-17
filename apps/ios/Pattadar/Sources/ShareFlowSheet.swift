@@ -69,7 +69,7 @@ struct ShareFlowSheet: View {
                     }
                     .padding(.vertical, Space.xs)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
                 }
 
                 Section("How") {

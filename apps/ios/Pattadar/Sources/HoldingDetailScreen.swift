@@ -198,6 +198,7 @@ struct HoldingDetailScreen: View {
                 }
             }
         }
+        .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom) {
             RecordActionBar { sharing = true }
         }
@@ -915,6 +916,7 @@ struct PropertyDetailScreen: View {
                 }
             }
         }
+        .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom) {
             RecordActionBar { sharing = true }
         }

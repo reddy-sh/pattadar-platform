@@ -61,9 +61,10 @@ struct DocumentsScreen: View {
                     // The M07 landing: what the vault promises, said once.
                     Section {
                         encryptedBanner
-                            .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.lg,
-                                                      bottom: Space.hair, trailing: Space.lg))
+                            .listRowInsets(EdgeInsets(top: Space.sm, leading: Space.xl,
+                                                      bottom: Space.hair, trailing: Space.xl))
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                 }
                 if !landing {
@@ -136,19 +137,20 @@ struct DocumentsScreen: View {
                     }
                 }
 
-                if landing {
+                if landing, !shelves.isEmpty {
                     // The eight shelves (M07): the vault answered as an index
                     // rather than a hundred rows. A shelf opens its family;
                     // the chips take over from there.
                     Section {
                         shelfGrid
-                            .listRowInsets(EdgeInsets(top: Space.hair, leading: Space.lg,
-                                                      bottom: Space.sm, trailing: Space.lg))
+                            .listRowInsets(EdgeInsets(top: Space.hair, leading: Space.xl,
+                                                      bottom: Space.sm, trailing: Space.xl))
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     } header: {
                         Text("\(rows.count + unread.count) papers · encrypted at rest")
                     }
-                } else {
+                } else if !landing {
                 ForEach(grouped, id: \.key) { group in
                     Section {
                         ForEach(group.rows) { r in

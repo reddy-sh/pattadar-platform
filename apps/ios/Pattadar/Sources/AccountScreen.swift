@@ -45,11 +45,13 @@ struct AccountScreen: View {
                 Button { app.selectedTab = .documents } label: {
                     HStack {
                         Label("Papers", systemImage: "doc.text.fill")
+                            .foregroundStyle(Color.accentColor, Color(.label))
                         Spacer()
                         Image(systemName: "arrow.up.right")
                             .font(.caption).foregroundStyle(.tertiary)
                     }
                 }
+                .foregroundStyle(.primary)
                 Link(destination: URL(string: "https://pattadar.com/app")!) {
                     HStack {
                         Label {
@@ -216,8 +218,11 @@ struct AccountScreen: View {
             Button(role: .destructive) { identityRemoved = true } label: {
                 VStack(alignment: .leading, spacing: Space.hair) {
                     Label("This isn't me", systemImage: "person.crop.circle.badge.xmark")
+                        .foregroundStyle(Palette.danger)
+                    // A concrete colour: the destructive tint would otherwise
+                    // bleed through `.secondary` and turn the subline pink.
                     Text("Remove this name, date of birth, address and Aadhaar")
-                        .font(.note).foregroundStyle(.secondary)
+                        .font(.note).foregroundStyle(Color(.secondaryLabel))
                 }
             }
         } header: {
@@ -282,11 +287,13 @@ struct AccountScreen: View {
                     } icon: {
                         Image(systemName: "square.and.arrow.down")
                     }
+                    .foregroundStyle(Color.accentColor, Color(.label))
                     Spacer()
                     Image(systemName: "arrow.up.right")
                         .font(.caption).foregroundStyle(.tertiary)
                 }
             }
+            .foregroundStyle(.primary)
             Button { confirmClearCache = true } label: {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {
@@ -297,7 +304,9 @@ struct AccountScreen: View {
                 } icon: {
                     Image(systemName: "trash.slash")
                 }
+                .foregroundStyle(Color.accentColor, Color(.label))
             }
+            .foregroundStyle(.primary)
             Button(role: .destructive) { explainDeleteAccount = true } label: {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {

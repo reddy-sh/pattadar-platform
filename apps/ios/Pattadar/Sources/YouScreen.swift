@@ -32,6 +32,7 @@ struct MoreScreen: View {
                             Button { displacedShowing = tab } label: {
                                 HStack {
                                     Label(tab.label, systemImage: tab.symbol)
+                                        .foregroundStyle(Color.accentColor, Color(.label))
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.caption).foregroundStyle(.tertiary)
@@ -61,6 +62,7 @@ struct MoreScreen: View {
                     Button { showFamily = true } label: {
                         HStack {
                             Label("Groups", systemImage: "person.2")
+                                .foregroundStyle(Color.accentColor, Color(.label))
                             Spacer()
                             Text(groupsValue)
                                 .font(.caption).foregroundStyle(.secondary)
@@ -68,12 +70,14 @@ struct MoreScreen: View {
                                 .font(.caption).foregroundStyle(.tertiary)
                         }
                     }
+                    .foregroundStyle(.primary)
                     NavigationLink { ServicesScreen() } label: {
                         Label("Services", systemImage: "storefront")
                     }
                     Link(destination: URL(string: "https://pattadar.com/app")!) {
                         HStack {
                             Label("Invitations", systemImage: "envelope")
+                                .foregroundStyle(Color.accentColor, Color(.label))
                             Spacer()
                             if let pending = stats?.pendingInvitations, pending > 0 {
                                 Text("\(pending)")

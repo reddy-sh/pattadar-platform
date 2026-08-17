@@ -265,8 +265,10 @@ struct HoldingsScreen: View {
                             StatTripleCard(totals: mineTotals) { chosen in
                                 filter = chosen
                             }
-                            .listRowInsets(EdgeInsets())
+                            .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.lg,
+                                                      bottom: Space.xs, trailing: Space.lg))
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                         }
                     }
                     if filter == .passbooks {
@@ -345,6 +347,8 @@ struct HoldingsScreen: View {
                     // switch cancelling a load wrote "Stopped." into it. This
                     // is this screen's own holdings query and nothing else.
                     LoadFailure(message: failure)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 } else {
                     Section { HStack { ProgressView(); Text("Loading your land…") } }
                 }
@@ -352,6 +356,7 @@ struct HoldingsScreen: View {
             }
             }
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Properties")
             .searchable(text: $search, prompt: "Survey number, village, owner")
             .toolbar {
@@ -652,43 +657,45 @@ struct HoldingsScreen: View {
 
     @ViewBuilder
     private func row(_ h: Holding, hero: Bool = false) -> some View {
-        switch h {
-        case .parcel(let parcel, let pb):
-            NavigationLink { HoldingDetailScreen(parcel: parcel, passbook: pb) } label: {
-                rowLabel(h, hero: hero)
+        if hero {
+            // The card IS the row: the link rides invisibly underneath so the
+            // List's own chevron and inset chrome never draw over it.
+            ZStack {
+                NavigationLink { HoldingDestination(holding: h) } label: { EmptyView() }
+                    .opacity(0)
+                HoldingHeroCard(holding: h,
+                                starred: app.isFavourite(h.entityType, h.entityId))
             }
-            .listRowBackground(hero ? Color.clear : nil)
+            .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.lg,
+                                      bottom: Space.xs, trailing: Space.lg))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
             .swipeActions(edge: .leading) { starButton(h) }
-            .swipeActions(edge: .trailing) {
-                Button(role: .destructive) { confirmParcel = parcel } label: {
-                    Label("Delete", systemImage: "trash.fill")
-                }
-                Button { editParcel = parcel } label: { Label("Edit", systemImage: "pencil.line") }
-                    .tint(Palette.accent)
+            .swipeActions(edge: .trailing) { trailingActions(h) }
+        } else {
+            NavigationLink { HoldingDestination(holding: h) } label: {
+                HoldingRow(holding: h, showPassbook: grouping != .passbook)
             }
-        case .property(let property):
-            NavigationLink { PropertyDetailScreen(property: property) } label: {
-                rowLabel(h, hero: hero)
-            }
-            .listRowBackground(hero ? Color.clear : nil)
             .swipeActions(edge: .leading) { starButton(h) }
-            .swipeActions(edge: .trailing) {
-                Button(role: .destructive) { confirmProperty = property } label: {
-                    Label("Delete", systemImage: "trash.fill")
-                }
-                Button { editProperty = property } label: { Label("Edit", systemImage: "pencil.line") }
-                    .tint(Palette.accent)
-            }
+            .swipeActions(edge: .trailing) { trailingActions(h) }
         }
     }
 
     @ViewBuilder
-    private func rowLabel(_ h: Holding, hero: Bool) -> some View {
-        if hero {
-            HoldingHeroCard(holding: h,
-                            starred: app.isFavourite(h.entityType, h.entityId))
-        } else {
-            HoldingRow(holding: h, showPassbook: grouping != .passbook)
+    private func trailingActions(_ h: Holding) -> some View {
+        switch h {
+        case .parcel(let parcel, _):
+            Button(role: .destructive) { confirmParcel = parcel } label: {
+                Label("Delete", systemImage: "trash.fill")
+            }
+            Button { editParcel = parcel } label: { Label("Edit", systemImage: "pencil.line") }
+                .tint(Palette.accent)
+        case .property(let property):
+            Button(role: .destructive) { confirmProperty = property } label: {
+                Label("Delete", systemImage: "trash.fill")
+            }
+            Button { editProperty = property } label: { Label("Edit", systemImage: "pencil.line") }
+                .tint(Palette.accent)
         }
     }
 

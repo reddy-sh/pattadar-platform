@@ -83,7 +83,7 @@ struct CustomiseTabsScreen: View {
                 Text("Three tabs plus More. Drag to reorder — the first one is what opens when you launch the app.")
                     .font(.bodyCopy).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
             }
 
             Section("In the tab bar") {
