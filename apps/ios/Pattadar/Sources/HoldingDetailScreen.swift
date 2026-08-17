@@ -90,7 +90,7 @@ struct HoldingDetailScreen: View {
     /// Which of the shell's views is rendered. Chips FILTER sections — the
     /// handoff is explicit that they must not scroll-to-anchor.
     @State private var seg = "Overview"
-    private static let segs = ["Overview", "The record", "Documents", "People", "On the land", "Timeline"]
+    private static let segs = ["Overview", "The record", "Papers", "Features", "People", "Services", "Money", "Timeline"]
     /// The gap being fixed, when a Needs-you row was tapped.
     @State private var fixing: ReadinessCheck?
     /// "Have Pattadar do it" lands on the request screen.
@@ -101,10 +101,49 @@ struct HoldingDetailScreen: View {
     /// passed-in parcel is a snapshot and does not reload under this screen.
     @State private var editingSides = false
     @State private var savedSides: BoundarySides?
+    /// The M08 share flow — modes, expiry, masking.
+    @State private var sharing = false
 
     private var currentSides: BoundarySides {
         savedSides ?? BoundarySides(east: parcel.boundaryEast, south: parcel.boundarySouth,
                                     west: parcel.boundaryWest, north: parcel.boundaryNorth)
+    }
+
+    /// Services (M09) and Money (M49) hangers — the segue map's two new doors.
+    private var servicesTab: some View {
+        Section("Services") {
+            NavigationLink { ServicesScreen() } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: Space.hair) {
+                        Text("Browse services")
+                        Text("EC, survey, caretaker, legal — priced for this district")
+                            .font(.note).foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "storefront")
+                }
+            }
+            NavigationLink { GetItDoneScreen() } label: {
+                Label("Your requests", systemImage: "list.bullet.rectangle")
+            }
+        }
+    }
+
+    private var moneyTab: some View {
+        Section("Money") {
+            Fact(label: "Market value",
+                 value: parcel.marketValue > 0 ? rupees(parcel.marketValue) : "—")
+            Fact(label: "Purchase price",
+                 value: parcel.purchasePrice > 0 ? rupees(parcel.purchasePrice) : "—")
+            if parcel.loanAmount > 0 {
+                LabeledContent("Loan outstanding") {
+                    Text(rupees(parcel.loanAmount)).foregroundStyle(Palette.danger)
+                }
+            }
+            NavigationLink { SpendScreen() } label: {
+                Label("Spend on your land", systemImage: "indianrupeesign.circle")
+            }
+        }
     }
 
     /// The holder, once — hero fact strip, nowhere else.
@@ -121,26 +160,33 @@ struct HoldingDetailScreen: View {
         List {
             // The identity, once: classification and khata in the eyebrow,
             // extent and holder in the fact strip, the verdict as the ring.
-            RecordHero(kicker: [classificationLabel,
+            RecordHero(kicker: ["Land parcel",
                                 passbook.map { "Khata \($0.pattadarNo)" } ?? ""]
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                        title: "Sy " + parcel.surveyNo
                             + (parcel.subdivision.isEmpty ? "" : "/\(parcel.subdivision)"),
                        subtitle: parcelWhere,
-                       facts: [("Extent", areaText(parcel.extent, .acre)),
+                       facts: parcel.marketValue > 0
+                            ? [("Extent", areaText(parcel.extent, .acre)),
+                               ("Market", compactRupees(parcel.marketValue)),
+                               ("Per acre", parcel.extent > 0
+                                    ? compactRupees(parcel.marketValue / parcel.extent) : "—")]
+                            : [("Extent", areaText(parcel.extent, .acre)),
                                ("Class", classificationLabel),
                                ("Held by", holderName.isEmpty ? "—" : holderName)],
                        readiness: readiness,
-                       statusChip: parcel.status.lowercased() == "owned"
-                            ? "" : humanize(parcel.status))
+                       statusChip: humanize(parcel.status))
 
-            SegChips(tabs: Self.segs, selection: $seg)
+            SegChips(tabs: Self.segs, selection: $seg,
+                     counts: ["Papers": documents.count, "Features": features.count])
 
             switch seg {
             case "The record": recordTab
-            case "Documents": documentsTab
+            case "Papers": documentsTab
             case "People": peopleTab
-            case "On the land": onTheLandTab
+            case "Features": onTheLandTab
+            case "Services": servicesTab
+            case "Money": moneyTab
             case "Timeline": timelineTab
             default: overviewTab
             }
@@ -151,6 +197,14 @@ struct HoldingDetailScreen: View {
                     Label("Delete parcel", systemImage: "trash.fill")
                 }
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            RecordActionBar { sharing = true }
+        }
+        .sheet(isPresented: $sharing) {
+            ShareFlowSheet(subject: "Sy \(parcel.surveyNo)"
+                            + (parcel.subdivision.isEmpty ? "" : "/\(parcel.subdivision)"),
+                           paperCount: documents.count)
         }
         // No repeated title: the hero IS the title, and "30 Acres · Sy 1"
         // twice in the first inch was the first duplication on the screen.
@@ -240,20 +294,20 @@ struct HoldingDetailScreen: View {
                           villageCentroid: villageCentroid,
                           placeName: passbook?.village ?? "",
                           onChanged: { Task { await loadDossier() } },
-                          onAdd: { seg = "On the land" },
+                          onAdd: { seg = "Features" },
                           addPrompt: "Add photos of this land")
 
         QuickActionsRow(actions: [
             .init(id: "Document", icon: "doc.badge.plus") { attaching = true },
             .init(id: "Boundary", icon: "skew") { drawingBoundary = true },
-            .init(id: "Feature", icon: "leaf") { seg = "On the land" },
+            .init(id: "Feature", icon: "leaf") { seg = "Features" },
             .init(id: "Request", icon: "person.badge.clock") { requesting = true },
         ])
 
         CountsList(documents: documents.count,
                    boundaryDrawn: !parseBoundary(parcel.boundary).isEmpty,
                    spent: spentHere,
-                   onDocuments: { seg = "Documents" },
+                   onDocuments: { seg = "Papers" },
                    onBoundary: { seg = "The record" })
     }
 
@@ -724,6 +778,40 @@ struct PropertyDetailScreen: View {
     /// local copy keeps the screen honest until the next reload.
     @State private var editingSides = false
     @State private var savedSides: BoundarySides?
+    /// The M08 share flow — modes, expiry, masking.
+    @State private var sharing = false
+
+    /// Services (M09) and Money (M49) hangers — the segue map's two new doors.
+    private var servicesTab: some View {
+        Section("Services") {
+            NavigationLink { ServicesScreen() } label: {
+                Label {
+                    VStack(alignment: .leading, spacing: Space.hair) {
+                        Text("Browse services")
+                        Text("EC, survey, caretaker, legal — priced for this district")
+                            .font(.note).foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "storefront")
+                }
+            }
+            NavigationLink { GetItDoneScreen() } label: {
+                Label("Your requests", systemImage: "list.bullet.rectangle")
+            }
+        }
+    }
+
+    private var moneyTab: some View {
+        Section("Money") {
+            Fact(label: "Market value",
+                 value: property.marketValue > 0 ? rupees(property.marketValue) : "—")
+            Fact(label: "Purchase price",
+                 value: property.purchasePrice > 0 ? rupees(property.purchasePrice) : "—")
+            NavigationLink { SpendScreen() } label: {
+                Label("Spend on this property", systemImage: "indianrupeesign.circle")
+            }
+        }
+    }
 
     private var currentSides: BoundarySides {
         if let savedSides { return savedSides }
@@ -760,10 +848,10 @@ struct PropertyDetailScreen: View {
     private var kind: HoldingKind { HoldingKind.of(propertyType: property.type) }
 
     /// The land tab's name changes with what stands on it.
-    private var landTabName: String { kind == .plot ? "On the land" : "On the property" }
+    private var landTabName: String { "Features" }
 
     private var segTabs: [String] {
-        ["Overview", "The record", "Documents", "People", landTabName, "Timeline"]
+        ["Overview", "The record", "Papers", "Features", "People", "Services", "Money", "Timeline"]
     }
 
     /// Per-kind hero gradient from the handoff: plot slate, built green.
@@ -803,17 +891,19 @@ struct PropertyDetailScreen: View {
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                        facts: heroFacts,
                        readiness: readiness,
-                       statusChip: property.holdingStatus.lowercased() == "owned"
-                            ? "" : humanize(property.holdingStatus),
+                       statusChip: humanize(property.holdingStatus),
                        gradient: heroGradient)
 
-            SegChips(tabs: segTabs, selection: $seg)
+            SegChips(tabs: segTabs, selection: $seg,
+                     counts: ["Papers": documents.count, "Features": features.count])
 
             switch seg {
             case "The record": recordTab
-            case "Documents": documentsTab
+            case "Papers": documentsTab
             case "People": peopleTab
-            case landTabName: landTab
+            case "Features": landTab
+            case "Services": servicesTab
+            case "Money": moneyTab
             case "Timeline": timelineTab
             default: overviewTab
             }
@@ -824,6 +914,13 @@ struct PropertyDetailScreen: View {
                     Label("Delete property", systemImage: "trash.fill")
                 }
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            RecordActionBar { sharing = true }
+        }
+        .sheet(isPresented: $sharing) {
+            ShareFlowSheet(subject: property.label.isEmpty ? humanize(property.type) : property.label,
+                           paperCount: documents.count)
         }
         // The hero is the title; repeating it in the bar was the screen's
         // first duplicated fact.
@@ -935,7 +1032,7 @@ struct PropertyDetailScreen: View {
         CountsList(documents: documents.count,
                    boundaryDrawn: !parseBoundary(property.boundary).isEmpty,
                    spent: spentHere,
-                   onDocuments: { seg = "Documents" },
+                   onDocuments: { seg = "Papers" },
                    onBoundary: { seg = "The record" })
     }
 

@@ -140,36 +140,83 @@ struct ReadinessRing: View {
 // MARK: - Sub-navigation
 
 /// Horizontally scrolling chips that FILTER the rendered sections — the
-/// handoff is explicit: no scroll-to-anchor.
+/// handoff is explicit: no scroll-to-anchor. The selected chip wears the
+/// accent (M04); a count after the name says what a hanger holds; a locked
+/// chip (M23's shared holdings) stays visible but answers to nobody.
 struct SegChips: View {
     let tabs: [String]
     @Binding var selection: String
+    var counts: [String: Int] = [:]
+    var locked: Set<String> = []
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.sm) {
                 ForEach(tabs, id: \.self) { tab in
                     Button {
+                        guard !locked.contains(tab) else { return }
                         withAnimation(Motion.standard()) { selection = tab }
                     } label: {
-                        Text(tab)
-                            .font(.scaled(13, weight: .semibold))
-                            .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
-                            .background(selection == tab
-                                        ? AnyShapeStyle(Color.primary)
-                                        : AnyShapeStyle(Color(.secondarySystemGroupedBackground)),
-                                        in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                            .foregroundStyle(selection == tab
-                                             ? AnyShapeStyle(Color(.systemBackground))
-                                             : AnyShapeStyle(Color.secondary))
+                        HStack(spacing: Space.xs) {
+                            Text(tab)
+                            if let n = counts[tab], n > 0 {
+                                Text("\(n)")
+                                    .monospacedDigit()
+                                    .opacity(0.72)
+                            }
+                            if locked.contains(tab) {
+                                Image(systemName: "lock")
+                                    .font(.scaled(11))
+                            }
+                        }
+                        .font(.scaled(13, weight: .semibold))
+                        .padding(.horizontal, Space.lg).padding(.vertical, Space.sm)
+                        .background(selection == tab
+                                    ? AnyShapeStyle(Color.accentColor)
+                                    : AnyShapeStyle(Color(.secondarySystemGroupedBackground)),
+                                    in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        .foregroundStyle(selection == tab
+                                         ? AnyShapeStyle(Palette.accentInk)
+                                         : AnyShapeStyle(Color.secondary))
+                        .opacity(locked.contains(tab) ? 0.45 : 1)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityHint(locked.contains(tab) ? "Not available on a shared holding" : "")
                 }
             }
             .padding(.horizontal, Space.lg)
         }
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
+    }
+}
+
+/// The pinned bottom bar of a holding 360 (M04): the one primary action —
+/// share the record, securely — and the door to the storefront beside it.
+struct RecordActionBar: View {
+    let onShare: () -> Void
+
+    var body: some View {
+        HStack(spacing: Space.sm) {
+            Button(action: onShare) {
+                Label("Share securely", systemImage: "square.and.arrow.up")
+                    .font(.callout.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            NavigationLink { ServicesScreen() } label: {
+                Image(systemName: "storefront")
+                    .font(.scaled(18, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 48, height: 48)
+                    .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                        .fill(Palette.accentWash))
+            }
+            .accessibilityLabel("Services for this holding")
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.sm)
+        .background(.bar)
     }
 }
 
