@@ -93,7 +93,7 @@ export function StampDutyTool() {
   if (isLoading) return <TableSkeleton rows={4} />;
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2 }}>
       <Card>
         <CardContent>
           <Typography variant="h6" component="h2" sx={{ mb: 2 }}>

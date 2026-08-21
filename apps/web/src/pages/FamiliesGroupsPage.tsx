@@ -127,7 +127,7 @@ export function FamiliesGroupsPage() {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)' },
+              gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr)', lg: 'repeat(3, minmax(0, 1fr))' },
               gap: 1.5,
               mb: 2.5,
             }}

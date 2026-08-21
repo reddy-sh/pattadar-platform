@@ -1,8 +1,11 @@
 /**
- * Doc-type taxonomy — ported verbatim from the rhub pattadar app's
- * docTypes.ts + documentClassify.ts (keys, labels, groups, classifier map).
- * Pure data/functions, no React imports.
+ * Doc-type taxonomy — the `doc_type` KEYS, their labels, and the classifier
+ * map (ported from the rhub pattadar app). Pure data/functions, no React.
+ *
+ * The shelves these group into live in @pattadar/core so the phone and the web
+ * agree; see the note above `familyOfType` at the bottom of this file.
  */
+import { documentFamily as coreDocumentFamily } from '@pattadar/core';
 
 export interface DocCategory {
   key: string;
@@ -81,23 +84,24 @@ export function isDeedType(type: string): boolean {
   return DEED_GROUP.has(type);
 }
 
-/** Family names for the filter chips (group → display family). */
-const GROUP_FAMILY: Record<DocCategory['group'], string> = {
-  deed: 'Deeds',
-  ec: 'EC',
-  record: 'Records',
-  survey: 'Survey',
-  legal: 'Legal',
-  photo: 'Photos',
-  other: 'Other',
-};
+/**
+ * Which shelf a document sits on.
+ *
+ * This used to be its own taxonomy — `Deeds · EC · Records · Survey · Legal ·
+ * Photos · Other` — while the phone shelved the same papers as `Title ·
+ * Revenue record · Map · Identity · Search & tax · Old record · Unsorted`. One
+ * vault, two filing cabinets. The shared set in @pattadar/core is now the only
+ * one, and `documentFamily` there reads free text, so it can shelve a file
+ * nothing has read yet.
+ *
+ * `DOC_CATEGORIES` above still stands: those keys ARE the `doc_type` column,
+ * and the "Change type…" picker offers them. Only the grouping above them
+ * moved.
+ */
+export { DOC_FAMILIES, documentFamily, familyBlurb, familyLabel, familyTint } from '@pattadar/core';
+export type { DocFamily } from '@pattadar/core';
 
-const FAMILY_OF: Record<string, string> = Object.fromEntries(
-  DOC_CATEGORIES.map((c) => [c.key, GROUP_FAMILY[c.group]]),
-);
-
-export const FAMILIES = ['All', 'Deeds', 'EC', 'Records', 'Survey', 'Legal', 'Photos', 'Other'];
-
-export function familyOfType(type: string): string {
-  return FAMILY_OF[type] || 'Other';
+/** The label a category's key resolves to on a shelf. */
+export function familyOfType(type: string, mimeType = ''): string {
+  return coreDocumentFamily(type === 'other' ? '' : labelOfType(type), mimeType);
 }

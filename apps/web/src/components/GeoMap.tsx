@@ -1,8 +1,9 @@
 /**
  * GeoMap — port of the rhub design-system GeoMap (Leaflet + OpenStreetMap /
- * Esri satellite, fully open source, no API key), restyled for the Emerald &
- * Gold theme (rounded emerald-bordered container, emerald shapes/pins; colors
- * resolve from the MUI CSS theme variables so dark mode follows along).
+ * Esri satellite, fully open source, no API key), on the Bloom system
+ * (design.md at repo root): hairline container, amber shapes/pins. Colours
+ * resolve from the MUI CSS theme variables so both schemes follow along.
+ * Pin/vertex strokes stay neutral white — they sit on satellite imagery.
  *
  * Industry-standard building blocks, all key-free:
  *  - Place search via Nominatim (OpenStreetMap geocoder).
@@ -48,14 +49,17 @@ export interface GeoMapProps {
   autoLocate?: string | string[];
 }
 
-/** Emerald accent from the MUI theme CSS variables (Leaflet SVG layers need a
- *  resolved color string — presentation attributes can't read var()). */
+/** Brand amber from the MUI theme CSS variables (Leaflet SVG layers need a
+ *  resolved color string — presentation attributes can't read var()).
+ *  The fallback is the Bloom accent; it used to be MUI's default blue, which
+ *  is what shipped whenever the variable wasn't resolvable yet. */
 function accent(): string {
-  if (typeof document === 'undefined') return '#1976D2';
+  const FALLBACK = '#fe860f'; // --color-accent
+  if (typeof document === 'undefined') return FALLBACK;
   const v = getComputedStyle(document.documentElement)
     .getPropertyValue('--mui-palette-primary-main')
     .trim();
-  return v || '#1976D2';
+  return v || FALLBACK;
 }
 
 function pinIcon(): L.DivIcon {
@@ -511,17 +515,17 @@ export default function GeoMap(props: GeoMapProps) {
   const inputStyle: CSSProperties = {
     flex: 1,
     padding: '5px 10px',
-    border: '1px solid var(--mui-palette-divider, #d9d9d9)',
+    border: '1px solid var(--mui-palette-divider, #312622)',
     background: 'var(--mui-palette-background-paper, #fff)',
-    color: 'var(--mui-palette-text-primary, #222)',
+    color: 'var(--mui-palette-text-primary, #f3ede7)',
     borderRadius: 8,
     fontSize: 13,
   };
   const btnStyle: CSSProperties = {
     cursor: 'pointer',
-    border: '1px solid var(--mui-palette-divider, #d9d9d9)',
+    border: '1px solid var(--mui-palette-divider, #312622)',
     background: 'var(--mui-palette-background-paper, #fff)',
-    color: 'var(--mui-palette-text-primary, #222)',
+    color: 'var(--mui-palette-text-primary, #f3ede7)',
     borderRadius: 8,
     padding: '4px 12px',
     fontSize: 13,
@@ -557,7 +561,7 @@ export default function GeoMap(props: GeoMapProps) {
           width: '100%',
           borderRadius: 12,
           overflow: 'hidden',
-          border: '1px solid var(--mui-palette-primary-main, #1976D2)',
+          border: '1px solid var(--mui-palette-primary-main, #fe860f)',
         }}
       />
       {!readOnly ? (
@@ -566,7 +570,7 @@ export default function GeoMap(props: GeoMapProps) {
           style={{
             marginTop: 6,
             fontSize: 12,
-            color: 'var(--mui-palette-text-secondary, #8c8c8c)',
+            color: 'var(--mui-palette-text-secondary, #bfb5ae)',
             display: 'flex',
             alignItems: 'center',
             gap: 10,
@@ -589,12 +593,12 @@ export default function GeoMap(props: GeoMapProps) {
             </>
           ) : null}
           {area > 0 ? (
-            <span style={{ color: 'var(--mui-palette-primary-main, #1976D2)', fontWeight: 600 }}>
+            <span style={{ color: 'var(--mui-palette-primary-main, #fe860f)', fontWeight: 600 }}>
               Area {fmtArea(area)}
               {perim > 0 ? ` · Perimeter ${fmtLen(perim)}` : ''}
             </span>
           ) : perim > 0 ? (
-            <span style={{ color: 'var(--mui-palette-primary-main, #1976D2)', fontWeight: 600 }}>Length {fmtLen(perim)}</span>
+            <span style={{ color: 'var(--mui-palette-primary-main, #fe860f)', fontWeight: 600 }}>Length {fmtLen(perim)}</span>
           ) : null}
         </div>
       ) : null}

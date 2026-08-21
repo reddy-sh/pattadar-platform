@@ -124,7 +124,7 @@ export function ProfilePage() {
         subtitle="Your identity, preferences and consent — used across passbooks, families and notifications."
         sample={isSample}
       />
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 2fr' }, gap: 2 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 2fr)' }, gap: 2 }}>
         {/* ── Identity ─────────────────────────────────────────────── */}
         <Card>
           <CardContent>
@@ -160,7 +160,7 @@ export function ProfilePage() {
             <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
               Preferences & Consent
             </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 2 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2, mb: 2 }}>
               <TextField
                 select
                 size="small"

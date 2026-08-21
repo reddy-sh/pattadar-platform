@@ -62,19 +62,19 @@ export function ExportMenu<T = any>({ filename, brand, cols, rows, label = 'Expo
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
         <MenuItem onClick={() => void run('pdf')}>
           <ListItemIcon>
-            <PictureAsPdfOutlinedIcon fontSize="small" sx={{ color: '#c0392b' }} />
+            <PictureAsPdfOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
           </ListItemIcon>
           <ListItemText>PDF</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => void run('excel')}>
           <ListItemIcon>
-            <GridOnOutlinedIcon fontSize="small" sx={{ color: '#1d6f42' }} />
+            <GridOnOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
           </ListItemIcon>
           <ListItemText>Excel (.xlsx)</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => void run('csv')}>
           <ListItemIcon>
-            <TextSnippetOutlinedIcon fontSize="small" sx={{ color: '#8c8c8c' }} />
+            <TextSnippetOutlinedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
           </ListItemIcon>
           <ListItemText>CSV</ListItemText>
         </MenuItem>

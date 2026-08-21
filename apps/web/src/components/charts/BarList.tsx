@@ -32,7 +32,7 @@ export function BarList({ rows, color, onRowClick }: BarListProps) {
             onClick={onRowClick ? () => onRowClick(row) : undefined}
             sx={{
               display: 'grid',
-              gridTemplateColumns: '96px 1fr auto',
+              gridTemplateColumns: '96px minmax(0, 1fr) auto',
               alignItems: 'center',
               gap: 1.25,
               cursor: onRowClick ? 'pointer' : 'default',

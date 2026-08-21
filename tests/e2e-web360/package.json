@@ -1,0 +1,14 @@
+{
+  "name": "@pattadar/e2e-web360",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end gate for the record-360 web app (W01–W15). Own API (:18080) + own built web (:5175) + own seeded identity (w360-demo), so the founder's :8080/:5173 stack and real records are never touched.",
+  "scripts": {
+    "seed": "../../.local/api-venv/bin/python ../../scripts/seed-web360.py w360-demo",
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0"
+  }
+}

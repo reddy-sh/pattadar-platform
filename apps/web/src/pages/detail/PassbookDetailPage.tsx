@@ -419,7 +419,8 @@ export function PassbookDetailPage() {
                 cursor: 'pointer',
                 fontSize: 28,
                 bgcolor: avaColor(pb.ownerName || '?'),
-                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                border: 1,
+                borderColor: 'divider',
               }}
             >
               {(pb.ownerName || '?').slice(0, 1).toUpperCase()}

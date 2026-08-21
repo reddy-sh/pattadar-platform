@@ -1,10 +1,16 @@
 /**
- * All documents — functional port of the rhub DocumentsView (table mode) +
- * FilesPanel upload pipeline: every classified document with doc-type chips,
- * real My-Drive filenames, preview/download via blob fetch, upload (≤10
- * files / 1 GB per batch) with background AI classification, link-to-parcel /
- * link-to-khata, "Create parcel from this deed", change-type, and the trash
- * flow (storage node DELETE + document row removal).
+ * All documents — layer 1 of the vault: every FILE, with its own name, size
+ * and type, whether or not anything has read it.
+ *
+ * Uploading is free. It stores the bytes, writes the row, and stops — no
+ * model runs and no credit is spent. (Every upload used to be sent to the AI
+ * classifier in the background, whether or not anyone wanted a reading.)
+ * Reading is the explicit "Read with AI…" action, and what it finds is shown
+ * for a person to accept before any of it is written down.
+ *
+ * Also here: preview/download via blob fetch, upload (≤10 files / 1 GB per
+ * batch), link-to-parcel / link-to-khata, "Create parcel from this deed",
+ * change-type, and the trash flow (storage node DELETE + row removal).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -40,6 +46,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
+import ViewListIcon from '@mui/icons-material/ViewList';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { sampleDocuments, sampleParcels, samplePassbooks } from '@pattadar/core';
@@ -55,8 +64,10 @@ import { useLiveOrSample } from '../../data/useLiveOrSample';
 import {
   DOC_CATEGORIES,
   DEED_GROUP,
-  FAMILIES,
-  classifierToType,
+  DOC_FAMILIES,
+  familyBlurb,
+  familyLabel,
+  familyTint,
   familyOfType,
   isDeedType,
   labelOfType,
@@ -65,11 +76,15 @@ import {
   STORAGE_OFFLINE_MSG,
   downloadBlob,
   fetchFileBlob,
-  fetchNodeNames,
   nestUnderPattadar,
+  renameNode,
   trashDocument,
-  uploadToDrive,
 } from './storage';
+import { archiveName, uniqueNames, zipStore } from '../../lib/zip';
+import { PaperTrailDialog } from './PaperTrailDialog';
+import type { TrailDoc } from './PaperTrailDialog';
+import { StorageOffline, applyReading, readDocument, uploadDocument } from './upload';
+import type { Reading } from './upload';
 
 const MAX_BATCH_FILES = 10;
 const MAX_BATCH_BYTES = 1024 * 1024 * 1024; // 1 GB per upload batch
@@ -85,6 +100,13 @@ interface DocFull {
   regYear?: string;
   source?: string;
   createdAt?: string;
+  /** The file's own facts, on the row. Before these existed the page made one
+   *  storage request PER ROW just to learn its own filenames. */
+  name?: string;
+  sizeBytes?: number;
+  mimeType?: string;
+  /** → registered_documents.id; '' while nothing has read this file. */
+  readingId?: string;
 }
 
 interface ParcelOpt {
@@ -130,7 +152,7 @@ function useDocumentsFull() {
     'documents-full',
     async () => {
       const d = await gql<DocsData>(
-        `query { documents { id fileRef docType parcelId passbookId propertyId docNo regYear source createdAt } parcels { id surveyNo subdivision passbookId } passbooks { id ref pattadarNo ownerName village } }`,
+        `query { documents { id fileRef docType parcelId passbookId propertyId docNo regYear source createdAt name sizeBytes mimeType readingId } parcels { id surveyNo subdivision passbookId } passbooks { id ref pattadarNo ownerName village } }`,
       );
       return { documents: d.documents ?? [], parcels: d.parcels ?? [], passbooks: d.passbooks ?? [] };
     },
@@ -167,6 +189,36 @@ interface Row {
   createdAt: string;
   name: string;
   linkedTo: string;
+  family: string;
+  sizeBytes: number;
+  /** True once a reading has been accepted for this file. */
+  isRead: boolean;
+}
+
+/** The shared tint NAMES (@pattadar/core) mapped onto MUI palette slots. The
+ *  core keeps names rather than hex so each app can honour its own theme while
+ *  the two still agree which shelf is which colour. */
+const FOLDER_TINT: Record<string, string> = {
+  blue: 'info',
+  green: 'success',
+  cyan: 'info',
+  purple: 'secondary',
+  orange: 'warning',
+  brown: 'warning',
+  pink: 'secondary',
+  gray: 'primary',
+};
+const folderTint = (family: string) => FOLDER_TINT[familyTint(family)] ?? 'primary';
+
+/** "1.4 MB". Files are shown in the units a file manager uses — decimal, one
+ *  decimal place — because that is what the operating system told them the
+ *  file weighed. An unknown size shows as an em dash, never as "0 B". */
+function fmtBytes(bytes: number): string {
+  if (!bytes || bytes < 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log10(bytes) / 3));
+  const value = bytes / 1000 ** i;
+  return `${i === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[i]}`;
 }
 
 type PickerMode = 'parcel' | 'khata' | 'deed' | 'type';
@@ -179,12 +231,35 @@ export function DocumentsTab({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data, isSample, isLoading } = useDocumentsFull();
-  const [family, setFamily] = useState('All');
+  // The shelf being looked at — a family key from @pattadar/core, or 'all'.
+  const [family, setFamily] = useState('all');
+  // Folders or a flat list. Remembered, because it is a working preference:
+  // somebody filing a stack wants folders, somebody hunting one paper wants
+  // the list and the search box.
+  const [view, setView] = useState<'folders' | 'list'>(() =>
+    (typeof localStorage !== 'undefined' && localStorage.getItem('pattadar.vault.view')) === 'list'
+      ? 'list'
+      : 'folders',
+  );
+  useEffect(() => {
+    try {
+      localStorage.setItem('pattadar.vault.view', view);
+    } catch {
+      /* private browsing — the preference just does not persist */
+    }
+  }, [view]);
   const [search, setSearch] = useState('');
-  const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
-  const [classifying, setClassifying] = useState<Set<string>>(new Set());
+  /// The read-on-request flow: running the reader, then showing what it found
+  /// for a person to accept. Nothing is written until they do.
+  const [reading, setReading] = useState<{
+    row: Row;
+    state: 'running' | 'found' | 'saving';
+    found?: Reading;
+  } | null>(null);
   const [menuFor, setMenuFor] = useState<{ el: HTMLElement; row: Row } | null>(null);
+  const [renaming, setRenaming] = useState<{ row: Row; name: string; busy?: boolean } | null>(null);
+  const [trailFor, setTrailFor] = useState<TrailDoc | null>(null);
   const [picker, setPicker] = useState<{ mode: PickerMode; row: Row; sel: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Row | null>(null);
   const [busy, setBusy] = useState(false);
@@ -196,21 +271,9 @@ export function DocumentsTab({
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['pattadar', 'documents-full'] });
 
-  // Resolve real My Drive filenames from the storage node ids (best-effort).
-  useEffect(() => {
-    const refs = Array.from(new Set(data.documents.map((d) => d.fileRef).filter(Boolean)));
-    if (!refs.length) {
-      setFileNames({});
-      return;
-    }
-    let cancelled = false;
-    void fetchNodeNames(refs).then((names) => {
-      if (!cancelled) setFileNames(names);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [data.documents]);
+  // (Filenames used to be fetched here, one storage request per row, every
+  // render pass. The row carries its own name now — it loads with the list and
+  // it is there when the gateway is not.)
 
   const rows: Row[] = useMemo(() => {
     const parcelById = new Map(data.parcels.map((p) => [p.id, p]));
@@ -239,23 +302,40 @@ export function DocumentsTab({
         source: d.source || '',
         createdAt: d.createdAt || '',
         name:
-          fileNames[d.fileRef] ||
+          d.name ||
           d.docNo ||
           (d.docType === 'photo' ? 'Photo' : titleize(d.docType || 'Document')),
         linkedTo,
+        family: familyOfType(d.docType || '', d.mimeType || ''),
+        sizeBytes: Number(d.sizeBytes || 0),
+        isRead: !!d.readingId,
       };
     });
-  }, [data, fileNames]);
+  }, [data]);
 
   const shown = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (family !== 'All' && familyOfType(r.docType) !== family) return false;
+      if (family !== 'all' && r.family !== family) return false;
       if (needle && ![r.name, r.docTypeLabel, r.linkedTo, r.source].join(' ').toLowerCase().includes(needle))
         return false;
       return true;
     });
   }, [rows, family, search]);
+
+  // How many papers sit on each shelf — the folder cards' counts, and what
+  // decides which chips are worth showing. Counted over the SEARCH-filtered
+  // rows so the numbers agree with what clicking through would reveal.
+  const counts = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const out: Record<string, number> = {};
+    for (const r of rows) {
+      if (needle && ![r.name, r.docTypeLabel, r.linkedTo, r.source].join(' ').toLowerCase().includes(needle))
+        continue;
+      out[r.family] = (out[r.family] ?? 0) + 1;
+    }
+    return out;
+  }, [rows, search]);
 
   // Selection only ever spans the rows currently shown — filtering away a
   // selected row deselects it, so bulk actions never touch hidden rows.
@@ -279,6 +359,12 @@ export function DocumentsTab({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selected.size]);
+
+  // Standing at the top of the folders, rather than inside one. The grid shows
+  // here and the table does not; a search or a selection collapses straight to
+  // rows, because both are ways of saying "I mean these documents".
+  const atFolderLevel =
+    view === 'folders' && family === 'all' && !search.trim() && selected.size === 0;
 
   const allShownSelected = shown.length > 0 && shown.every((r) => selected.has(r.id));
   const toggleAll = () => {
@@ -334,66 +420,10 @@ export function DocumentsTab({
     }
   };
 
-  // ── upload + background AI classification (FilesPanel pipeline) ───────
-  const uploadOne = async (file: File, notify = true) => {
-    const nodeId = await uploadToDrive(file);
-    if (!nodeId) throw new Error('storage-offline');
-    // Videos are typed directly (the AI classifier only reads documents/images);
-    // everything else lands as "other" and is reclassified in the background.
-    const isVideo = String(file.type || '').startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name || '');
-    const created = await gql<{ createDocument: { id: string } | null }>(
-      'mutation($parcelId:String!,$passbookId:String!,$docType:String!,$fileRef:String!,$docNo:String!,$sroCode:String!,$regYear:String!,$source:String!,$tags:String!){ createDocument(parcelId:$parcelId,passbookId:$passbookId,docType:$docType,fileRef:$fileRef,docNo:$docNo,sroCode:$sroCode,regYear:$regYear,source:$source,tags:$tags){ id } }',
-      {
-        parcelId: '',
-        passbookId: '',
-        docType: isVideo ? 'video' : 'other',
-        fileRef: nodeId,
-        docNo: '',
-        sroCode: '',
-        regYear: '',
-        source: 'upload',
-        tags: isVideo ? 'video' : '',
-      },
-    );
-    const newId = created?.createDocument?.id;
-    refresh();
-    if (isVideo) {
-      if (notify) onToast('File uploaded', 'success');
-      return;
-    }
-    if (newId) setClassifying((s) => new Set(s).add(newId));
-    // Background classify → reclassify.
-    void (async () => {
-      try {
-        const fd = new FormData();
-        fd.append('file', file);
-        const er = await apiFetch('/api/gateway/pattadar/import-registered-document', {
-          method: 'POST',
-          body: fd,
-        });
-        if (er.ok && newId) {
-          const f = (await er.json())?.fields || {};
-          const detected = classifierToType(String(f.doc_type || ''));
-          await gql('mutation($id:String!,$t:String!){ updateDocumentType(id:$id,docType:$t){ id } }', {
-            id: newId,
-            t: detected,
-          });
-        }
-      } catch {
-        /* stays Other */
-      } finally {
-        if (newId)
-          setClassifying((s) => {
-            const n = new Set(s);
-            n.delete(newId);
-            return n;
-          });
-        refresh();
-      }
-    })();
-    if (notify) onToast('File uploaded', 'success');
-  };
-
+  // ── upload — storage only, no model, no credit ────────────────────────
+  // Every uploaded file used to be sent to the AI classifier in the background,
+  // whether or not anyone wanted a reading. Uploading is now free and offline-
+  // tolerant; reading is the "Read this document" action below.
   const uploadBatch = async (files: File[]) => {
     let batch = files;
     if (batch.length > MAX_BATCH_FILES) {
@@ -409,11 +439,11 @@ export function DocumentsTab({
     let done = 0;
     for (const f of batch) {
       try {
-        await uploadOne(f, batch.length === 1);
+        await uploadDocument(f);
         done += 1;
       } catch (err) {
         // Storage gateway unreachable (local dev) — one clear message, stop the batch.
-        if (err instanceof Error && err.message === 'storage-offline') {
+        if (err instanceof StorageOffline) {
           onToast(STORAGE_OFFLINE_MSG, 'info');
           break;
         }
@@ -421,7 +451,43 @@ export function DocumentsTab({
       }
     }
     setUploading(false);
-    if (done > 1) onToast(`${done} files uploaded`, 'success');
+    refresh();
+    if (done === 1) onToast('File uploaded', 'success');
+    else if (done > 1) onToast(`${done} files uploaded`, 'success');
+  };
+
+  // ── read on request ───────────────────────────────────────────────────
+  // The reader runs only when asked, and what it finds is SHOWN before it is
+  // written. Nothing about the document changes until Accept.
+  const startReading = async (r: Row) => {
+    if (!r.fileRef) {
+      onToast('This row has no stored file to read', 'info');
+      return;
+    }
+    setReading({ row: r, state: 'running' });
+    try {
+      const blob = await fetchFileBlob(r.fileRef);
+      const found = await readDocument(blob, r.name);
+      setReading({ row: r, state: 'found', found });
+    } catch (err) {
+      setReading(null);
+      onToast(err instanceof Error ? err.message : 'The document could not be read', 'error');
+    }
+  };
+
+  const acceptReading = async () => {
+    if (!reading || reading.state !== 'found' || !reading.found) return;
+    const { row, found } = reading;
+    setReading({ row, state: 'saving', found });
+    try {
+      await applyReading(row.id, found, row.fileRef);
+      setReading(null);
+      onToast(`Filed as ${found.docTypeLabel}`, 'success');
+      refresh();
+    } catch (err) {
+      setReading(null);
+      onToast(err instanceof Error ? err.message : 'The reading could not be saved', 'error');
+    }
   };
 
   // ── link / reclassify / create-parcel actions ─────────────────────────
@@ -531,6 +597,9 @@ export function DocumentsTab({
     else onToast(`${ok} deleted, ${failed} failed — ${reason}`, 'error');
   };
 
+  // More than one file arrives as ONE archive. Firing N separate downloads got
+  // blocked by the browser after the third and scattered the rest across the
+  // downloads folder — a selection is one thing the person asked for.
   const bulkDownload = async () => {
     const targets = shown.filter((r) => selected.has(r.id) && r.fileRef);
     if (!targets.length) {
@@ -538,19 +607,76 @@ export function DocumentsTab({
       return;
     }
     setBulk({ mode: 'download', done: 0, total: targets.length });
-    let ok = 0;
+    const fetched: { row: Row; bytes: Uint8Array }[] = [];
+    const failed: string[] = [];
     for (const r of targets) {
       try {
-        downloadBlob(await fetchFileBlob(r.fileRef), r.name);
-        ok += 1;
+        const blob = await fetchFileBlob(r.fileRef);
+        fetched.push({ row: r, bytes: new Uint8Array(await blob.arrayBuffer()) });
       } catch {
-        /* counted in the summary */
+        failed.push(r.name);
       }
       setBulk((b) => (b ? { ...b, done: b.done + 1 } : b));
     }
     setBulk(null);
-    if (ok === targets.length) onToast(`${ok} ${ok === 1 ? 'file' : 'files'} downloaded`, 'success');
-    else onToast(`${ok} downloaded, ${targets.length - ok} failed — the file storage could not be reached`, 'error');
+
+    if (!fetched.length) {
+      onToast('None of the selected files could be downloaded — the file storage could not be reached', 'error');
+      return;
+    }
+    // One file is that file, not an archive containing it.
+    if (fetched.length === 1 && !failed.length) {
+      downloadBlob(new Blob([fetched[0].bytes as BlobPart]), fetched[0].row.name);
+      onToast('1 file downloaded', 'success');
+      return;
+    }
+    try {
+      const names = uniqueNames(fetched.map((f) => f.row.name));
+      downloadBlob(
+        zipStore(fetched.map((f, i) => ({ name: names[i], bytes: f.bytes }))),
+        archiveName(),
+      );
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : 'The archive could not be built', 'error');
+      return;
+    }
+    // A file left out of the archive is named, never silently dropped.
+    if (!failed.length) onToast(`${fetched.length} files zipped`, 'success');
+    else
+      onToast(
+        `${fetched.length} zipped, ${failed.length} left out — ${failed.slice(0, 3).join(', ')}${
+          failed.length > 3 ? `, +${failed.length - 3} more` : ''
+        }`,
+        'error',
+      );
+  };
+
+  // ── rename ────────────────────────────────────────────────────────────
+  // Both copies are written: the storage node (so My Drive agrees) and the
+  // vault row (so the new name is there offline and without a node lookup).
+  const doRename = async () => {
+    if (!renaming) return;
+    const { row, name } = renaming;
+    const wanted = name.trim();
+    if (!wanted || wanted === row.name) {
+      setRenaming(null);
+      return;
+    }
+    setRenaming({ row, name: wanted, busy: true });
+    try {
+      const settled = row.fileRef ? await renameNode(row.fileRef, wanted) : wanted;
+      await gql('mutation($id:String!,$n:String!){ renameDocument(id:$id,name:$n){ id } }', {
+        id: row.id,
+        n: settled,
+      });
+      setRenaming(null);
+      // Say so when storage would not take the exact name asked for.
+      onToast(settled === wanted ? 'Renamed' : `Renamed to “${settled}” — that name was taken`, 'success');
+      refresh();
+    } catch {
+      setRenaming(null);
+      onToast('Could not rename this document', 'error');
+    }
   };
 
   const pickerOk = async () => {
@@ -609,7 +735,7 @@ export function DocumentsTab({
           {bulk ? (
             <>
               <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                {bulk.mode === 'delete' ? 'Deleting' : 'Downloading'} {Math.min(bulk.done + 1, bulk.total)} of{' '}
+                {bulk.mode === 'delete' ? 'Deleting' : 'Collecting'} {Math.min(bulk.done + 1, bulk.total)} of{' '}
                 {bulk.total}…
               </Typography>
               <LinearProgress
@@ -629,7 +755,7 @@ export function DocumentsTab({
                 Delete
               </Button>
               <Button color="inherit" onClick={() => void bulkDownload()}>
-                Download
+                {selected.size > 1 ? 'Download as zip' : 'Download'}
               </Button>
               <Button color="inherit" onClick={() => setSelected(new Set())}>
                 Clear
@@ -658,7 +784,7 @@ export function DocumentsTab({
               }}
             />
             <Box sx={{ flexGrow: 1 }} />
-            <Tooltip title="PDF / JPG / PNG / MP4 · up to 10 files, 1 GB per upload · type is detected automatically">
+            <Tooltip title="PDF / JPG / PNG / MP4 · up to 10 files, 1 GB per upload · nothing is read until you ask">
               <span>
                 <Button component="label" variant="contained" startIcon={<UploadFileOutlinedIcon />} disabled={uploading}>
                   {uploading ? 'Uploading…' : 'Upload'}
@@ -678,33 +804,117 @@ export function DocumentsTab({
             </Tooltip>
             <ExportMenu filename="pattadar-documents" brand={exportBrand} cols={exportCols} rows={shown} />
           </Box>
-          {/* Type filter — visually subordinate to the page tabs (was reading
-              as a second tab row, founder-reported). */}
+          {/* The shelves. In folder view this row is a breadcrumb; in list
+              view it is the filter it has always been. Either way the names
+              are the ones the phone uses. */}
           <Box sx={{ display: 'flex', gap: 0.75, mb: 1.5, flexWrap: 'wrap', alignItems: 'center', color: 'text.secondary' }}>
-            <FilterAltOutlinedIcon sx={{ fontSize: 18 }} />
-            <Typography variant="caption" sx={{ fontWeight: 600, letterSpacing: 0.6, mr: 0.5 }}>
-              TYPE
-            </Typography>
-            {FAMILIES.map((f) => (
-              <Chip
-                key={f}
+            {view === 'folders' && family !== 'all' ? (
+              <>
+                <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => setFamily('all')}>
+                  All folders
+                </Button>
+                <Typography variant="caption" sx={{ opacity: 0.6 }}>/</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                  {familyLabel(family)}
+                </Typography>
+              </>
+            ) : (
+              <>
+                <FilterAltOutlinedIcon sx={{ fontSize: 18 }} />
+                <Typography variant="caption" sx={{ fontWeight: 600, letterSpacing: 0.6, mr: 0.5 }}>
+                  TYPE
+                </Typography>
+                <Chip
+                  size="small"
+                  label="All"
+                  color={family === 'all' ? 'primary' : 'default'}
+                  variant={family === 'all' ? 'filled' : 'outlined'}
+                  onClick={() => setFamily('all')}
+                />
+                {/* Only shelves that hold something get a chip — a filter that
+                    can only ever say "nothing matches" is furniture. */}
+                {DOC_FAMILIES.filter((f) => counts[f]).map((f) => (
+                  <Chip
+                    key={f}
+                    size="small"
+                    label={`${familyLabel(f)} · ${counts[f]}`}
+                    color={family === f ? 'primary' : 'default'}
+                    variant={family === f ? 'filled' : 'outlined'}
+                    onClick={() => setFamily(f)}
+                  />
+                ))}
+              </>
+            )}
+            <Box sx={{ flexGrow: 1 }} />
+            <Tooltip title={view === 'folders' ? 'Show one flat list' : 'Show folders'}>
+              <IconButton
                 size="small"
-                label={f}
-                color={family === f ? 'primary' : 'default'}
-                variant={family === f ? 'filled' : 'outlined'}
-                onClick={() => setFamily(f)}
-              />
-            ))}
+                aria-label={view === 'folders' ? 'Show one flat list' : 'Show folders'}
+                onClick={() => {
+                  setView((v) => (v === 'folders' ? 'list' : 'folders'));
+                  setFamily('all');
+                }}
+              >
+                {view === 'folders' ? <ViewListIcon fontSize="small" /> : <FolderOutlinedIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
           </Box>
         </>
       )}
 
-      {shown.length === 0 ? (
+      {/* The folder grid — one card per shelf, with what is on it. Shown only
+          at the top level, and never while a search is narrowing things: a
+          person typing a survey number wants rows, not folders. */}
+      {atFolderLevel ? (
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 1.5,
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr 1fr' },
+          }}
+        >
+          {DOC_FAMILIES.filter((f) => counts[f]).map((f) => (
+            <Card
+              key={f}
+              onClick={() => setFamily(f)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') setFamily(f);
+              }}
+              sx={{
+                p: 2,
+                cursor: 'pointer',
+                display: 'flex',
+                gap: 1.5,
+                alignItems: 'flex-start',
+                transition: 'border-color .15s, transform .15s',
+                '&:hover': { borderColor: 'primary.main', transform: 'translateY(-1px)' },
+              }}
+            >
+              <FolderOutlinedIcon sx={{ color: `${folderTint(f)}.main`, mt: 0.25 }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  {familyLabel(f)}
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                  {counts[f]} {counts[f] === 1 ? 'document' : 'documents'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 0.5 }}>
+                  {familyBlurb(f)}
+                </Typography>
+              </Box>
+            </Card>
+          ))}
+        </Box>
+      ) : null}
+
+      {atFolderLevel ? null : shown.length === 0 ? (
         <Card>
           <EmptyState
             icon={<DescriptionOutlinedIcon />}
-            title={family === 'All' ? 'No documents yet' : `No ${family.toLowerCase()} here yet`}
-            description="Upload a deed or passbook photo — it is read automatically and filed under the right parcel."
+            title={family === 'all' ? 'No documents yet' : `Nothing on the ${familyLabel(family).toLowerCase()} shelf yet`}
+            description="Upload a deed, a passbook photo, anything. It is kept as it is — ask for a reading when you want one."
           />
         </Card>
       ) : (
@@ -725,6 +935,7 @@ export function DocumentsTab({
                   </TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell>Type</TableCell>
+                  <TableCell align="right">Size</TableCell>
                   <TableCell>Linked to</TableCell>
                   <TableCell>Reg. Year</TableCell>
                   <TableCell>Source</TableCell>
@@ -756,11 +967,21 @@ export function DocumentsTab({
                       </Box>
                     </TableCell>
                     <TableCell>
-                      {classifying.has(r.id) ? (
-                        <Chip size="small" label="Classifying…" color="info" variant="outlined" />
+                      {reading?.row.id === r.id && reading.state !== 'found' ? (
+                        <Chip size="small" label="Reading…" color="info" variant="outlined" />
                       ) : (
-                        <Chip size="small" variant="outlined" label={r.docTypeLabel} />
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={r.docTypeLabel}
+                          // A type nobody has confirmed says so quietly. An
+                          // unread file is a normal state, not a problem.
+                          color={r.isRead ? 'primary' : 'default'}
+                        />
                       )}
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>
+                      {fmtBytes(r.sizeBytes) || '—'}
                     </TableCell>
                     <TableCell>
                       {r.linkedTo ? <Chip size="small" variant="outlined" label={r.linkedTo} /> : '—'}
@@ -800,11 +1021,30 @@ export function DocumentsTab({
         </MenuItem>
         <MenuItem
           onClick={() => {
+            if (menuFor) setRenaming({ row: menuFor.row, name: menuFor.row.name });
+            setMenuFor(null);
+          }}
+        >
+          Rename…
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
             if (menuFor) void downloadFile(menuFor.row);
             setMenuFor(null);
           }}
         >
           Download
+        </MenuItem>
+        {/* Reading is opt-in and says so — it is the one action here that
+            spends an extraction, and it never runs on its own. */}
+        <MenuItem
+          disabled={!menuFor?.row.fileRef}
+          onClick={() => {
+            if (menuFor) void startReading(menuFor.row);
+            setMenuFor(null);
+          }}
+        >
+          {menuFor?.row.isRead ? 'Read again with AI…' : 'Read with AI…'}
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -821,6 +1061,19 @@ export function DocumentsTab({
           }}
         >
           Link to khata…
+        </MenuItem>
+        {/* The chain of title. A deed bought from someone who bought it
+            themselves cites the earlier deed; this is where that is said. */}
+        <MenuItem
+          onClick={() => {
+            if (menuFor) {
+              const r = menuFor.row;
+              setTrailFor({ id: r.id, name: r.name, docTypeLabel: r.docTypeLabel, regYear: r.regYear });
+            }
+            setMenuFor(null);
+          }}
+        >
+          Paper trail…
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -854,6 +1107,105 @@ export function DocumentsTab({
           Delete
         </MenuItem>
       </Menu>
+
+      <PaperTrailDialog
+        doc={trailFor}
+        candidates={rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          docTypeLabel: r.docTypeLabel,
+          regYear: r.regYear,
+        }))}
+        onClose={() => setTrailFor(null)}
+        onToast={onToast}
+      />
+
+      {/* Rename — the file's own name, in both places it is kept. */}
+      <Dialog open={!!renaming} onClose={() => !renaming?.busy && setRenaming(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Rename document</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Name"
+            value={renaming?.name ?? ''}
+            disabled={renaming?.busy}
+            onChange={(e) => setRenaming((r) => (r ? { ...r, name: e.target.value } : r))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !renaming?.busy) void doRename();
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenaming(null)} disabled={renaming?.busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={!renaming?.name.trim() || renaming?.busy}
+            onClick={() => void doRename()}
+          >
+            Rename
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* What the reader found, before any of it is written down. A machine's
+          reading never becomes a record without a person saying so — the same
+          rule the iOS vault keeps. */}
+      <Dialog open={!!reading} onClose={() => reading?.state === 'found' && setReading(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          {reading?.state === 'found' ? 'Is this right?' : 'Reading the document…'}
+        </DialogTitle>
+        <DialogContent>
+          {reading?.state !== 'found' ? (
+            <>
+              <DialogContentText sx={{ mb: 2 }}>
+                {reading?.state === 'saving' ? 'Filing what it found…' : reading?.row.name}
+              </DialogContentText>
+              <LinearProgress />
+            </>
+          ) : (
+            <>
+              <DialogContentText sx={{ mb: 1.5 }}>
+                This is what was read from <strong>{reading.row.name}</strong>. Nothing has been saved yet.
+              </DialogContentText>
+              <Chip size="small" color="primary" label={reading.found?.docTypeLabel ?? 'Other'} sx={{ mb: 1.5 }} />
+              {reading.found?.findings.length ? (
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 0.75, columnGap: 2 }}>
+                  {reading.found.findings.map((f) => (
+                    <Box key={f.label} sx={{ display: 'contents' }}>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                        {f.label}
+                      </Typography>
+                      <Typography variant="body2">{f.value}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  It recognised the kind of paper but could not pull out any details. Accepting still files
+                  it under that type.
+                </Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReading(null)} disabled={reading?.state === 'saving'}>
+            {reading?.state === 'found' ? 'Discard' : 'Cancel'}
+          </Button>
+          <Button
+            variant="contained"
+            disabled={reading?.state !== 'found'}
+            onClick={() => void acceptReading()}
+          >
+            Accept
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Picker dialog (parcel / khata / deed-owner / type) */}
       <Dialog open={!!picker} onClose={() => setPicker(null)} maxWidth="xs" fullWidth>

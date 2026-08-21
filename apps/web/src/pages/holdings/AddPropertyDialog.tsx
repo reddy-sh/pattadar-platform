@@ -500,7 +500,7 @@ export function AddPropertyDialog({ open, onClose, onCreated, notify }: Props) {
   );
 
   const propertyForm = (
-    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
       <TextField
         select
         size="small"
@@ -558,7 +558,7 @@ export function AddPropertyDialog({ open, onClose, onCreated, notify }: Props) {
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           Boundaries
         </Typography>
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 1.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
           {text('boundaryNorth', 'North')}
           {text('boundarySouth', 'South')}
           {text('boundaryEast', 'East')}
@@ -571,7 +571,7 @@ export function AddPropertyDialog({ open, onClose, onCreated, notify }: Props) {
             <Typography variant="body2">More (stamp duty &amp; fees)</Typography>
           </AccordionSummary>
           <AccordionDetails>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
               {text('stampDuty', 'Stamp duty (₹)', { number: true })}
               {text('regFee', 'Registration fee (₹)', { number: true })}
             </Box>
@@ -638,7 +638,7 @@ export function AddPropertyDialog({ open, onClose, onCreated, notify }: Props) {
             )}
           </Box>
         ) : (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '260px 1fr' }, gap: 2.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '260px minmax(0, 1fr)' }, gap: 2.5 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {drafts.map((d) => {
                 const isSel = d.id === selectedId;

@@ -453,7 +453,7 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
       </Box>
       <GeoMap value={draft} onChange={setDraft} drawMode={drawMode} height={430} showSearch label={pinInfoHtml} autoLocate={geoCandidates} />
       {ring.length >= 3 ? (
-        <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
+        <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.5 }}>
           <SectionCard title="Boundary measurements">
             <Field label="Area">{`${formatArea(acres)} (${round2(fromAcres(acres, 'sqyd')).toLocaleString('en-IN')} sq.yd)`}</Field>
             <Field label="Perimeter">{`${round2(perimM).toLocaleString('en-IN')} m · ${round2(perimFt).toLocaleString('en-IN')} ft`}</Field>
@@ -794,7 +794,7 @@ export function ParcelDetailPage() {
 
   const overview = (
     <Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 1.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 3fr) minmax(0, 2fr)' }, gap: 1.5 }}>
         <SectionCard title="Parcel record">
           <FieldGrid>
             <Field label="Survey number">{`${p.surveyNo}${sub}`}</Field>
@@ -863,7 +863,7 @@ export function ParcelDetailPage() {
           </SectionCard>
         </Box>
       </Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.5, mt: 1.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.5, mt: 1.5 }}>
         <SectionCard title="Financials">
           <FieldGrid columns={1}>
             <Field label="Purchase price (invested)">{money(p.purchasePrice)}</Field>

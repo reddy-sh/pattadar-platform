@@ -72,20 +72,26 @@ export const charcoal = {
 /**
  * Status hues (good / warning / serious / critical) — reserved meanings,
  * always shipped with an icon + label, never reused as chart series.
- * Orange lives HERE (warning), nowhere else.
+ *
+ * `good` / `warning` / `critical` are the SAME values as MUI's
+ * success / warning / error in apps/web/src/theme.ts (design.md § Theme).
+ * They were separate values before, so a chart's "good" green and a chip's
+ * success green disagreed on the same screen. `serious` is the one hue with
+ * no MUI counterpart — the step between warning and critical.
+ * All ratios measured on Bloom paper (#0d0504 dark / #f9f6f2 light).
  */
 export const status = {
   light: {
-    good: '#2e7d32',
-    warning: '#b45309',
-    serious: '#c43e1c',
-    critical: '#a61b1b',
+    good: '#27762f', // 5.24:1 on paper · 5.65:1 w/ white
+    warning: '#905d00', // 5.20:1 · 5.60:1 w/ white
+    serious: '#a82700', // 6.60:1 · 7.11:1 w/ white
+    critical: '#be222a', // 5.65:1 · 6.08:1 w/ white
   },
   dark: {
-    good: '#6fcf97',
-    warning: '#e8a13d',
-    serious: '#e8714a',
-    critical: '#ef6a6a',
+    good: '#61c568', // 9.32:1 on paper
+    warning: '#f5ae39', // 10.57:1
+    serious: '#fd6844', // 6.96:1
+    critical: '#ff5453', // 6.39:1
   },
 } as const;
 
@@ -94,24 +100,39 @@ export const semantic = {
   success: status.light.good,
   warning: status.light.warning,
   error: status.light.critical,
-  info: '#0083a0',
+  info: '#3d6a7f', // Bloom light info — the one cool seam
 } as const;
 
 // ---------------------------------------------------------------------------
-// Chart palette — validated with the dataviz six-checks validator.
+// Chart palette — re-derived on the Bloom hue family 2026-08-14 (design.md).
 // Fixed slot order (follows the entity, never cycled):
-//   1 blue · 2 gold · 3 teal · 4 terracotta · 5 plum · 6 olive
-// Light validated on #F7F8FA, dark on #121212 — ALL CHECKS PASS both modes
-// (worst adjacent CVD ΔE 16.2 light / 14.7 dark; normal-vision 22.0 / 20.2).
+//   1 amber(brand) · 2 teal · 3 coral · 4 green · 5 plum · 6 slate
+//
+// The previous ramp led with #1976D2 and was validated against a NEUTRAL grey
+// surface (#121212). Bloom's dark paper is warm near-black (#0d0504 / #170c09),
+// so both the hue family and the validation surface were wrong: cold series on
+// warm paper, against a contrast baseline that no longer existed.
+//
+// VALIDATED (measured, this palette, these surfaces):
+//   · every slot ≥ 3:1 against its own surface —
+//     dark  7.90 8.67 4.43 11.47 5.78 7.83  on #170c09
+//     light 4.37 6.04 8.23  4.91 7.50 5.57  on #fdfcf9
+//   · slots 1 and 3 are the two warm hues and so the colour-blindness risk;
+//     they are separated by LIGHTNESS, not hue alone — 1.78:1 normal vision,
+//     1.69:1 under simulated deuteranopia (Viénot projection).
+//
+// NOT RE-RUN: the full dataviz six-checks adjacent-ΔE sweep across all 15
+// pairs. Contrast and the warm-pair CVD case are measured above; the complete
+// sweep should be re-run before this palette carries a dense multi-series view.
 // ---------------------------------------------------------------------------
 
 export const chartCategorical = {
-  light: ['#1976D2', '#B8860B', '#0E97AD', '#C96040', '#83368F', '#6F7D28'],
-  dark: ['#3B8DE0', '#A6790F', '#0097B2', '#C86A4E', '#8F4EA8', '#7E9027'],
+  light: ['#b3621e', '#006c72', '#97182f', '#387d3d', '#793887', '#426a8c'],
+  dark: ['#fe860f', '#3ebfc6', '#da4053', '#8cda8f', '#ba71cb', '#80aace'],
 } as const;
 
-/** Chart surfaces the palettes were validated against. */
-export const chartSurface = { light: '#f7f8fa', dark: '#121212' } as const;
+/** Chart surfaces the palettes were validated against (Bloom paper / paper-2). */
+export const chartSurface = { light: '#fdfcf9', dark: '#170c09' } as const;
 
 // ---------------------------------------------------------------------------
 // Colour schemes (light / dark)

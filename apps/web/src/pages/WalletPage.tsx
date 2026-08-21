@@ -1,6 +1,8 @@
 /**
- * Wallet — design-forward coming-soon view. Gold-glass balance card with
- * disabled Add money / Send actions, a sample transaction history
+ * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ *
+ * Wallet — design-forward coming-soon view. Hairline balance card with a mono
+ * figure and disabled Add money / Send actions, a sample transaction history
  * (DD/MM/YYYY), and a plain-language explainer of what the wallet will do.
  */
 import Box from '@mui/material/Box';
@@ -22,7 +24,6 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
 import { formatINR, parseISOToDisplay } from '@pattadar/core';
-import { GlassCard } from '../components/GlassCard';
 import { PageHeader } from '../components/PageHeader';
 import { useStatusColors } from '../components/charts/chartColors';
 import { useWallet } from '../data/hooks';
@@ -41,13 +42,14 @@ export function WalletPage() {
         actions={<Chip size="small" color="secondary" variant="outlined" label="Coming soon" />}
       />
 
-      {/* ── Gold-glass balance card ─────────────────────────────────── */}
-      <GlassCard tone="gold" sx={{ mb: 2.5, maxWidth: 560 }}>
+      {/* ── Balance card — hairline surface, mono figure ─────────────── */}
+      <Card sx={{ mb: 2.5, maxWidth: 560, p: { xs: 2.5, sm: 3 } }}>
         <Typography variant="overline" color="text.secondary">
           Wallet balance
         </Typography>
         <Typography
           component="p"
+          className="tnum"
           sx={{ fontSize: { xs: 34, sm: 44 }, fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}
         >
           {formatINR(wallet.balance)}
@@ -71,10 +73,10 @@ export function WalletPage() {
             </span>
           </Tooltip>
         </Box>
-      </GlassCard>
+      </Card>
 
       {/* ── What the wallet will do ─────────────────────────────────── */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 1.5, mb: 2.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, mb: 2.5 }}>
         {[
           {
             icon: <ReceiptLongOutlinedIcon />,

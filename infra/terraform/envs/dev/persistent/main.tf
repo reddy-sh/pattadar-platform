@@ -43,8 +43,8 @@ module "persistent" {
   noncurrent_version_expiration_days = 30
   parking_storage_class              = var.parking_storage_class
 
-  spa_callback_urls = ["http://localhost:5173/auth/callback"]
-  spa_logout_urls   = ["http://localhost:5173/"]
+  spa_callback_urls = ["http://localhost:5173/auth/callback", "http://127.0.0.1:5173/auth/callback"]
+  spa_logout_urls   = ["http://localhost:5173/", "http://127.0.0.1:5173/"]
 
   manage_dns          = var.manage_dns
   manage_github_oidc  = var.manage_github_oidc

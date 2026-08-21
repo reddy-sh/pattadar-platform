@@ -516,7 +516,7 @@ export function PassbookCreateDialog({ open, onClose, onCreated, notify }: Props
   );
 
   const form = (
-    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
       <TextField
         label="Pattadar / Khata Number"
         required
@@ -584,7 +584,7 @@ export function PassbookCreateDialog({ open, onClose, onCreated, notify }: Props
             </Box>
           </Box>
         ) : (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '260px 1fr' }, gap: 2.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '260px minmax(0, 1fr)' }, gap: 2.5 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {drafts.map((d) => {
                 const isSel = d.id === selectedId;
@@ -641,7 +641,7 @@ export function PassbookCreateDialog({ open, onClose, onCreated, notify }: Props
                       <Typography variant="subtitle2" sx={{ mb: 1 }}>
                         What I read
                       </Typography>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 0.5 }}>
                         <Typography variant="body2">
                           <b>Khata:</b> {selected.extracted?.pattadar_no || '—'}
                         </Typography>

@@ -1,10 +1,16 @@
 /**
- * Shell chrome — "Emerald & Gold" redesign. AppBar header (matte surface,
- * emerald wordmark with a gold dot), navigation drawer regrouped under
- * section headers (permanent on desktop, temporary on mobile), routed
- * content area, slim footer, and a right-hand assistant panel placeholder.
- * Selected nav item renders as an emerald pill; the Wallet item carries a
- * small gold dot.
+ * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ *
+ * Shell chrome — AppBar header (matte surface, ink wordmark + amber dot),
+ * navigation drawer regrouped under section headers (permanent on desktop,
+ * temporary on mobile), measure-capped content area, slim footer, and a
+ * right-hand assistant panel. All accents come from `palette.*` seams so both
+ * colour schemes stay correct — no hardcoded ramps.
+ *
+ * Accent budget (design.md § CTA voice, ≤5% per viewport): the amber in this
+ * bar is the brand dot, the selected nav pill and the Wallet dot — three
+ * deliberate marks. The wordmark and the avatar were amber too, which left
+ * nothing reading as primary.
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
@@ -45,7 +51,6 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
 import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import { brand } from '@pattadar/tokens';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 import { FileViewerHost } from '../components/FileViewer';
@@ -74,7 +79,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Dashboard', path: '/app', icon: <DashboardOutlinedIcon /> },
       { label: 'Passbooks', path: '/app/passbooks', icon: <MenuBookOutlinedIcon /> },
       { label: 'Land & Properties', path: '/app/parcels', icon: <MapOutlinedIcon /> },
-      { label: 'Documents', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
+      { label: 'Vault', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
       { label: 'Families & Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
       { label: 'Invitations', path: '/app/invitations', icon: <MailOutlinedIcon /> },
       { label: 'Notifications', path: '/app/notifications', icon: <NotificationsOutlinedIcon /> },
@@ -154,17 +159,13 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                   borderRadius: 999, // M3 inset active pill
                   '& .MuiSvgIcon-root': { fontSize: 24 },
                   '&.Mui-selected': {
-                    bgcolor: brand[100],
-                    color: brand[800],
-                    '& .MuiListItemIcon-root': { color: brand[700] },
+                    bgcolor: 'primary.container',
+                    color: 'primary.onContainer',
+                    '& .MuiListItemIcon-root': { color: 'primary.onContainer' },
                     '& .MuiListItemText-primary': { fontWeight: 600 },
-                    '&:hover': { bgcolor: brand[200] },
-                    ...t.applyStyles('dark', {
-                      bgcolor: 'rgba(144, 202, 249, 0.16)',
-                      color: brand[300],
-                      '& .MuiListItemIcon-root': { color: brand[300] },
-                      '&:hover': { bgcolor: 'rgba(144, 202, 249, 0.24)' },
-                    }),
+                    '&:hover': {
+                      bgcolor: `color-mix(in srgb, ${(t.vars ?? t).palette.primary.main} 24%, transparent)`,
+                    },
                   },
                 })}
               >
@@ -172,14 +173,13 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                 <ListItemText primary={item.label} />
                 {item.goldDot && (
                   <Box
-                    sx={(t) => ({
+                    sx={{
                       width: 7,
                       height: 7,
                       borderRadius: '50%',
-                      bgcolor: brand[600],
+                      bgcolor: 'primary.main',
                       flexShrink: 0,
-                      ...t.applyStyles('dark', { bgcolor: brand[300] }),
-                    })}
+                    }}
                   />
                 )}
               </ListItemButton>
@@ -229,28 +229,29 @@ export function AppShell() {
           >
             <MenuIcon />
           </IconButton>
-          {/* Brand wordmark — NOT a heading: each page owns its single <h1>. */}
+          {/* Brand wordmark — NOT a heading: each page owns its single <h1>.
+              Ink wordmark + amber dot is the landing nav's exact voice
+              (design.md § What pages MUST share); an all-amber wordmark was
+              one of six accents competing in this bar. */}
           <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, flexGrow: 1 }}>
             <Typography
               variant="h6"
               component="div"
-              sx={(t) => ({
+              sx={{
                 fontWeight: 700,
                 letterSpacing: '-0.01em',
-                color: brand[700],
-                ...t.applyStyles('dark', { color: brand[300] }),
-              })}
+                color: 'text.primary',
+              }}
             >
               Pattadar
             </Typography>
             <Box
-              sx={(t) => ({
+              sx={{
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                bgcolor: brand[500],
-                ...t.applyStyles('dark', { bgcolor: brand[300] }),
-              })}
+                bgcolor: 'primary.main',
+              }}
             />
           </Box>
           {isAuthMocked && (
@@ -271,7 +272,17 @@ export function AppShell() {
             aria-label="Account menu"
             sx={{ ml: 1 }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: brand[600], fontSize: 15 }}>
+            {/* Neutral, not amber — identity is not an action. */}
+            <Avatar
+              sx={{
+                width: 32,
+                height: 32,
+                bgcolor: 'action.selected',
+                color: 'text.primary',
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
               {(user?.email?.[0] ?? 'P').toUpperCase()}
             </Avatar>
           </IconButton>
@@ -327,11 +338,22 @@ export function AppShell() {
 
       <Box component="main" sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Toolbar />
-        <Box sx={{ flexGrow: 1, p: { xs: 2, sm: 3 } }}>
+        {/* Measure cap + centring: without it, content hugged the left edge and
+            left ~400px of dead gutter on a 1440 viewport. 80rem is --max-width
+            from tokens.css, so the app and the marketing pages agree. */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            width: '100%',
+            maxWidth: '80rem',
+            mx: 'auto',
+            p: { xs: 2, sm: 3 },
+          }}
+        >
           <Outlet />
         </Box>
         <Divider />
-        <Box component="footer" sx={{ px: 3, py: 1.5 }}>
+        <Box component="footer" sx={{ width: '100%', maxWidth: '80rem', mx: 'auto', px: 3, py: 1.5 }}>
           <Typography variant="caption" color="text.secondary">
             Pattadar — your land and property, in one place. Dates shown DD/MM/YYYY.
           </Typography>

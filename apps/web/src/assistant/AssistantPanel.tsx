@@ -22,7 +22,6 @@ import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import { brand } from '@pattadar/tokens';
 import { apiFetch } from '../api/client';
 
 const ASSISTANT_BASE = '/api/gateway/assistant/api';
@@ -227,23 +226,20 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
             px: 2,
             py: 1.5,
             borderBottom: 2,
-            borderColor: brand[500],
+            borderColor: 'primary.main',
           }}
         >
-          <SmartToyOutlinedIcon
-            sx={(t) => ({ color: brand[700], ...t.applyStyles('dark', { color: brand[300] }) })}
-          />
+          <SmartToyOutlinedIcon sx={{ color: 'primary.main' }} />
           <Typography variant="subtitle1" sx={{ fontWeight: 700, flexGrow: 1 }}>
             Assistant
           </Typography>
           <Box
-            sx={(t) => ({
+            sx={{
               width: 7,
               height: 7,
               borderRadius: '50%',
-              bgcolor: brand[500],
-              ...t.applyStyles('dark', { bgcolor: brand[300] }),
-            })}
+              bgcolor: 'primary.main',
+            }}
           />
           <IconButton aria-label="Close assistant" onClick={onClose} size="small">
             <CloseIcon fontSize="small" />
@@ -265,14 +261,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
             </Box>
           ) : empty ? (
             <Box sx={{ textAlign: 'center', mt: 6, px: 2 }}>
-              <SmartToyOutlinedIcon
-                sx={(t) => ({
-                  fontSize: 40,
-                  color: brand[600],
-                  mb: 1,
-                  ...t.applyStyles('dark', { color: brand[300] }),
-                })}
-              />
+              <SmartToyOutlinedIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
               <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                 Hello! I'm your Pattadar assistant.
               </Typography>
@@ -302,8 +291,8 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
                     overflowWrap: 'anywhere',
                     ...(m.role === 'user'
                       ? {
-                          bgcolor: brand[600],
-                          color: '#fff',
+                          bgcolor: 'primary.main',
+                          color: 'primary.contrastText',
                           borderBottomRightRadius: 6,
                         }
                       : {
@@ -311,7 +300,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
                           border: 1,
                           borderColor: 'divider',
                           borderBottomLeftRadius: 6,
-                          ...t.applyStyles('dark', { bgcolor: 'rgba(255,255,255,0.04)' }),
+                          ...t.applyStyles('dark', { bgcolor: (t.vars ?? t).palette.action.hover }),
                         }),
                   })}
                 >
@@ -319,7 +308,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
                     m.text ? (
                       <MarkdownLite text={m.text} />
                     ) : (
-                      <CircularProgress size={14} sx={{ color: brand[600], my: 0.5 }} />
+                      <CircularProgress size={14} sx={{ color: 'primary.main', my: 0.5 }} />
                     )
                   ) : (
                     m.text
@@ -370,10 +359,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
               aria-label="Send message"
               onClick={() => void send()}
               disabled={busy || !input.trim()}
-              sx={(t) => ({
-                color: brand[700],
-                ...t.applyStyles('dark', { color: brand[300] }),
-              })}
+              sx={{ color: 'primary.main' }}
             >
               <SendIcon />
             </IconButton>

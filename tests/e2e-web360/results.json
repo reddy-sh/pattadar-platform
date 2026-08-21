@@ -1,0 +1,2275 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+      "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-web360/node_modules/.bin/playwright",
+      "test"
+    ],
+    "configFile": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-web360/playwright.config.ts",
+    "rootDir": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-web360/specs",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-web360/global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-web360/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-web360/specs",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "results.json"
+        }
+      ],
+      [
+        "html",
+        {
+          "open": "never"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "crud.spec.ts",
+      "file": "crud.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "W02 · the list acts",
+          "file": "crud.spec.ts",
+          "line": 42,
+          "column": 15,
+          "specs": [
+            {
+              "title": "Add opens the drawer, and a new parcel lands in the grid",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1131,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:43.100Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-0b6d980ea4ac95eed3ce",
+              "file": "crud.spec.ts",
+              "line": 45,
+              "column": 7
+            },
+            {
+              "title": "Edit from the kebab changes only what the form touched",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1087,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:44.320Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-10910052bc26ddeb04d1",
+              "file": "crud.spec.ts",
+              "line": 72,
+              "column": 7
+            },
+            {
+              "title": "Archive removes it from the list; the Archived facet brings it back",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1224,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:45.410Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-689bf8bc51eb440f1011",
+              "file": "crud.spec.ts",
+              "line": 91,
+              "column": 7
+            },
+            {
+              "title": "the bulk bar orders an EC for the selection, and Services lists it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2689,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:46.638Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-acbcdb3a4442a8f26a66",
+              "file": "crud.spec.ts",
+              "line": 117,
+              "column": 7
+            },
+            {
+              "title": "the bulk bar tags the selection, and the rail learns the tag",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1884,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:49.332Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-064486f529200922caa3",
+              "file": "crud.spec.ts",
+              "line": 134,
+              "column": 7
+            },
+            {
+              "title": "Delete takes the record and everything filed under it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1089,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:51.220Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-97a2f6bdc354d6ab4c92",
+              "file": "crud.spec.ts",
+              "line": 149,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W02 · the list is usable without a mouse",
+          "file": "crud.spec.ts",
+          "line": 170,
+          "column": 15,
+          "specs": [
+            {
+              "title": "the kebab opens on Enter, arrows move, and Escape returns focus",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1009,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:52.975Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-dc6ebc4cb3815f46584d",
+              "file": "crud.spec.ts",
+              "line": 173,
+              "column": 7
+            },
+            {
+              "title": "a sort click keeps focus on the heading it was made from",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 976,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:53.990Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-1637f4cf25c361f3de08",
+              "file": "crud.spec.ts",
+              "line": 199,
+              "column": 7
+            },
+            {
+              "title": "renaming a record leaves its extent in the unit it is stored in",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1422,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:54.970Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-62ea5899169befb1882a",
+              "file": "crud.spec.ts",
+              "line": 214,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W02 · what archiving and deleting must not touch",
+          "file": "crud.spec.ts",
+          "line": 237,
+          "column": 15,
+          "specs": [
+            {
+              "title": "an archived record stops asking for things on the Dashboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2451,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:57.359Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-1a0dcdce75c777357e8f",
+              "file": "crud.spec.ts",
+              "line": 240,
+              "column": 7
+            },
+            {
+              "title": "a tag whose only record is archived leaves the rail",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1918,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:17:59.816Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-2e296e0fbd9611608e35",
+              "file": "crud.spec.ts",
+              "line": 260,
+              "column": 7
+            },
+            {
+              "title": "reclassifying a property does not re-measure it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1737,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:01.738Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-7009b5de8e8aba3afe44",
+              "file": "crud.spec.ts",
+              "line": 275,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W02 · list view mechanics",
+          "file": "crud.spec.ts",
+          "line": 300,
+          "column": 6,
+          "specs": [
+            {
+              "title": "the header is a band of sort controls, and Worth actually sorts",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1015,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:04.443Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-ff23da3ce6e1b489625d",
+              "file": "crud.spec.ts",
+              "line": 301,
+              "column": 7
+            },
+            {
+              "title": "every row carries its own kebab, and the header its select-all",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1004,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:05.464Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-56c9e25e8c6641b707cd",
+              "file": "crud.spec.ts",
+              "line": 329,
+              "column": 7
+            },
+            {
+              "title": "Export writes the visible list to a CSV",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 976,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:06.471Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "cf7a9ded24aec8272401-0fdfe5d82378d3c93bfd",
+              "file": "crud.spec.ts",
+              "line": 343,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "screens.spec.ts",
+      "file": "screens.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "W01 · dashboard",
+          "file": "screens.spec.ts",
+          "line": 29,
+          "column": 6,
+          "specs": [
+            {
+              "title": "states the portfolio, and its totals are its own records summed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 999,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:07.458Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-6a3be5123079230ea351",
+              "file": "screens.spec.ts",
+              "line": 30,
+              "column": 7
+            },
+            {
+              "title": "the recently-opened strip mixes parcels and built property",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 937,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:08.461Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-155071a2b2bb9dc0e488",
+              "file": "screens.spec.ts",
+              "line": 69,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W02 · properties",
+          "file": "screens.spec.ts",
+          "line": 78,
+          "column": 6,
+          "specs": [
+            {
+              "title": "one faceted list, and the rail agrees with the grid",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 990,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:09.401Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-18170b6378d5fa6f8f9b",
+              "file": "screens.spec.ts",
+              "line": 79,
+              "column": 7
+            },
+            {
+              "title": "a facet narrows the grid, and the hidden count explains the rest",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1047,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:10.394Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-cc58885a88fa5bdc4000",
+              "file": "screens.spec.ts",
+              "line": 104,
+              "column": 7
+            },
+            {
+              "title": "the filter lives in the URL, so a narrowed list is shareable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 934,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:11.444Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-4871e35ff35df70c6b27",
+              "file": "screens.spec.ts",
+              "line": 116,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W03 · the record 360",
+          "file": "screens.spec.ts",
+          "line": 123,
+          "column": 6,
+          "specs": [
+            {
+              "title": "hero, hangers and the right rail",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 939,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:12.382Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-f125f12ed4ef067842ed",
+              "file": "screens.spec.ts",
+              "line": 124,
+              "column": 7
+            },
+            {
+              "title": "the paper shelf chips filter the list",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 933,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:13.324Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-c9c8a81c39f3b36f0dce",
+              "file": "screens.spec.ts",
+              "line": 157,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W07 · features",
+          "file": "screens.spec.ts",
+          "line": 164,
+          "column": 6,
+          "specs": [
+            {
+              "title": "fourteen features, worst first, chips matching the categories",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1173,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:14.261Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-ab3d2288f79cf12ee5ab",
+              "file": "screens.spec.ts",
+              "line": 165,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W08 · people",
+          "file": "screens.spec.ts",
+          "line": 190,
+          "column": 6,
+          "specs": [
+            {
+              "title": "five people, graded by whether you pay them",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 966,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:15.439Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-aa71367fc8645e9190c5",
+              "file": "screens.spec.ts",
+              "line": 191,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W10 · money",
+          "file": "screens.spec.ts",
+          "line": 213,
+          "column": 6,
+          "specs": [
+            {
+              "title": "paid, government and market are three separate numbers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 928,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:16.410Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-cc467a38aaf2e89ee663",
+              "file": "screens.spec.ts",
+              "line": 214,
+              "column": 7
+            },
+            {
+              "title": "changing the appreciation rate changes the estimate, and says it is an assumption",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1002,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:17.343Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-d379369d87a75df19392",
+              "file": "screens.spec.ts",
+              "line": 239,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W11 + W12 · the ledger",
+          "file": "screens.spec.ts",
+          "line": 247,
+          "column": 6,
+          "specs": [
+            {
+              "title": "a parcel splits capital from running, and states the cost of holding",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 923,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:18.349Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-8f6ed0c12c5be9d539c3",
+              "file": "screens.spec.ts",
+              "line": 248,
+              "column": 7
+            },
+            {
+              "title": "a let property puts rent in the same list as money in",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 918,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:19.276Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-d75465c48b2226001b85",
+              "file": "screens.spec.ts",
+              "line": 268,
+              "column": 7
+            },
+            {
+              "title": "the drawer files an expense as capital or running",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1071,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:20.197Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-64e345014b2f4105577f",
+              "file": "screens.spec.ts",
+              "line": 279,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W04 · map and boundary",
+          "file": "screens.spec.ts",
+          "line": 299,
+          "column": 6,
+          "specs": [
+            {
+              "title": "four marks, one moved, and deleting one keeps its history",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 941,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:21.272Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-d97a6fd0dc514dc91c3f",
+              "file": "screens.spec.ts",
+              "line": 300,
+              "column": 7
+            },
+            {
+              "title": "accepting a moved position settles the mark",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 979,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:22.217Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-b1473b179904117f78a4",
+              "file": "screens.spec.ts",
+              "line": 318,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W05 + W14 · photos",
+          "file": "screens.spec.ts",
+          "line": 325,
+          "column": 6,
+          "specs": [
+            {
+              "title": "the gallery states provenance and allows only the caption to change",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 951,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:23.199Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-168085cae4c1dd341c16",
+              "file": "screens.spec.ts",
+              "line": 326,
+              "column": 7
+            },
+            {
+              "title": "a caption edit persists",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1772,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:24.153Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-3c64264a8ec0d87419a3",
+              "file": "screens.spec.ts",
+              "line": 342,
+              "column": 7
+            },
+            {
+              "title": "scoped to a feature it becomes the provenance panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 983,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:25.929Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-821ace434a03798325a5",
+              "file": "screens.spec.ts",
+              "line": 354,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W15 · the vault",
+          "file": "screens.spec.ts",
+          "line": 373,
+          "column": 6,
+          "specs": [
+            {
+              "title": "eight shelves and every link out",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 933,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:26.916Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-3d618339d3fae773d126",
+              "file": "screens.spec.ts",
+              "line": 374,
+              "column": 7
+            },
+            {
+              "title": "the header total is the shelves added up",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 923,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:27.853Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-ed0d37a8d9c1f5607eb8",
+              "file": "screens.spec.ts",
+              "line": 399,
+              "column": 7
+            },
+            {
+              "title": "revoking a link removes it from the list",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 974,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:28.780Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-f779a5e5171fb8685e2b",
+              "file": "screens.spec.ts",
+              "line": 408,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W13 · reading a document",
+          "file": "screens.spec.ts",
+          "line": 419,
+          "column": 6,
+          "specs": [
+            {
+              "title": "the scan on the left, what was read from it on the right",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 941,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:29.758Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-6c4c695a10672519d013",
+              "file": "screens.spec.ts",
+              "line": 420,
+              "column": 7
+            },
+            {
+              "title": "paging moves through the scan",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 947,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:30.703Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-4ff63f491d5f6ceb3f9c",
+              "file": "screens.spec.ts",
+              "line": 446,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W09 · shared with me",
+          "file": "screens.spec.ts",
+          "line": 453,
+          "column": 6,
+          "specs": [
+            {
+              "title": "someone else's kit, read-only, and out of your totals",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 948,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:31.655Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-f72346995a264dc391cf",
+              "file": "screens.spec.ts",
+              "line": 454,
+              "column": 7
+            },
+            {
+              "title": "a shared kit's acres are not in the portfolio total",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 921,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:32.607Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-114faedbe5eb6336adef",
+              "file": "screens.spec.ts",
+              "line": 476,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "W06 · find by map",
+          "file": "screens.spec.ts",
+          "line": 485,
+          "column": 6,
+          "specs": [
+            {
+              "title": "colour is status, and hovering a row lights its shape",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1010,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:33.532Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-6c7f1ff4a7672b5e062f",
+              "file": "screens.spec.ts",
+              "line": 486,
+              "column": 7
+            },
+            {
+              "title": "a facet narrows both the map and the list",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 954,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:34.545Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-591631292e90091b2d4d",
+              "file": "screens.spec.ts",
+              "line": 505,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "the shell",
+          "file": "screens.spec.ts",
+          "line": 513,
+          "column": 6,
+          "specs": [
+            {
+              "title": "every rail destination resolves and none errors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 12566,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:35.503Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-1c357c7aea8045e72d25",
+              "file": "screens.spec.ts",
+              "line": 514,
+              "column": 7
+            },
+            {
+              "title": "the scheme toggle survives a reload",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1827,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:48.073Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-43f56df087be0d2a217e",
+              "file": "screens.spec.ts",
+              "line": 531,
+              "column": 7
+            },
+            {
+              "title": "the jump box actually jumps — parcel, paper, person",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1078,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:49.904Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-3c6cc0cac209082d10b4",
+              "file": "screens.spec.ts",
+              "line": 541,
+              "column": 7
+            },
+            {
+              "title": "a search with no hits says so, and Enter still lands somewhere",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 969,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:50.986Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-cd95aad5d7cb0ca7dd8f",
+              "file": "screens.spec.ts",
+              "line": 569,
+              "column": 7
+            },
+            {
+              "title": "at desktop the hamburger collapses the rail to icons, and remembers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1844,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:51.959Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-4f491a4776f04b5e41ae",
+              "file": "screens.spec.ts",
+              "line": 579,
+              "column": 7
+            },
+            {
+              "title": "on a phone the hamburger opens the rail",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1356,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:53.806Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-806214ac137b149609df",
+              "file": "screens.spec.ts",
+              "line": 605,
+              "column": 7
+            },
+            {
+              "title": "⌘K focuses the jump box",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 938,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:55.166Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-2a72562ca535acce268a",
+              "file": "screens.spec.ts",
+              "line": 618,
+              "column": 7
+            },
+            {
+              "title": "the old vocabulary still resolves",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1747,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:56.108Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-a3028a6b323455dca0fe",
+              "file": "screens.spec.ts",
+              "line": 625,
+              "column": 7
+            },
+            {
+              "title": "a record that is not yours is refused, not crashed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 899,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:57.859Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-9e89af43fc7bd96920e3",
+              "file": "screens.spec.ts",
+              "line": 632,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "no record renders as an empty shell",
+          "file": "screens.spec.ts",
+          "line": 638,
+          "column": 6,
+          "specs": [
+            {
+              "title": "every record in the list has figures, papers, features and people",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8447,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:18:58.763Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-1fc5e9e03d7a6e34e7be",
+              "file": "screens.spec.ts",
+              "line": 639,
+              "column": 7
+            },
+            {
+              "title": "a record's money and ledger both have rows",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2575,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:19:07.214Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-000c1e28ce74694e2820",
+              "file": "screens.spec.ts",
+              "line": 662,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "the record body fills the window",
+          "file": "screens.spec.ts",
+          "line": 677,
+          "column": 6,
+          "specs": [
+            {
+              "title": "tall window · the two columns reach the bottom of the region",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1288,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:19:09.793Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-4a287639051e91e1d4aa",
+              "file": "screens.spec.ts",
+              "line": 681,
+              "column": 9
+            },
+            {
+              "title": "short window · the two columns reach the bottom of the region",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1291,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:19:11.086Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-b99a211bc0d7fac00e3a",
+              "file": "screens.spec.ts",
+              "line": 681,
+              "column": 9
+            }
+          ]
+        },
+        {
+          "title": "responsive",
+          "file": "screens.spec.ts",
+          "line": 698,
+          "column": 6,
+          "specs": [
+            {
+              "title": "laptop · no page scrolls sideways",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6212,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:19:12.381Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-f3cb56ed19447ba862dc",
+              "file": "screens.spec.ts",
+              "line": 700,
+              "column": 9
+            },
+            {
+              "title": "tablet · no page scrolls sideways",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6191,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:19:18.597Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-cb42a476d4f111fed5a4",
+              "file": "screens.spec.ts",
+              "line": 700,
+              "column": 9
+            },
+            {
+              "title": "phone · no page scrolls sideways",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6238,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-21T22:19:24.793Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "2676ef668c5398eed988-554ef5487d2f7f04b08b",
+              "file": "screens.spec.ts",
+              "line": 700,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-21T22:17:41.664Z",
+    "duration": 109548.471,
+    "expected": 59,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

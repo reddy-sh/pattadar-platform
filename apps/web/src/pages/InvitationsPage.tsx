@@ -307,7 +307,7 @@ export function InvitationsPage() {
             helperText={errors.contact}
             sx={{ mt: 1 }}
           />
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, mt: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5, mt: 2 }}>
             <TextField
               select
               size="small"
@@ -330,7 +330,7 @@ export function InvitationsPage() {
               helperText={errors.scopeId}
             />
           </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, mt: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5, mt: 2 }}>
             <TextField
               select
               size="small"

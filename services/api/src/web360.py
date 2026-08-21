@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import json
 import strawberry
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 
 # Bound by main.py at import time so this module never imports main (circular).
@@ -232,6 +233,16 @@ _DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_shared_kit_checks_kit ON shared_kit_checks (kit_id)",
 
+    # The Pattadar wallet the caretaker, surveyor and advocate are paid from.
+    # Its balance was a literal in the resolver; a balance is a fact and needs
+    # somewhere to live.
+    """CREATE TABLE IF NOT EXISTS wallet_accounts (
+        owner_user_id TEXT PRIMARY KEY,
+        topped_up DOUBLE PRECISION NOT NULL DEFAULT 0,
+        auto_top_up BOOLEAN NOT NULL DEFAULT false,
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+
     # A note is written by a person; the table never recorded who.
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS author TEXT NOT NULL DEFAULT ''",
 
@@ -290,6 +301,31 @@ _DDL = [
     "ALTER TABLE parcel_photos ADD COLUMN IF NOT EXISTS local_time TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE parcel_photos ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0",
 
+    # A built property files its photos in its own table; it needs the same
+    # provenance columns, or counting them fails outright.
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'app'",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS sha256 TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS order_ref TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS feature_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS accuracy_m DOUBLE PRECISION NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS device_clock_ok BOOLEAN NOT NULL DEFAULT true",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS pin_distance_m DOUBLE PRECISION NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS media_kind TEXT NOT NULL DEFAULT 'photo'",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS width INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS height INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS file_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS local_time TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS caption TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS captured_at TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS captured_by TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS is_cover BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE property_photos ADD COLUMN IF NOT EXISTS owner_user_id TEXT NOT NULL DEFAULT ''",
+
     # W13 — the reader's summary and the flag it raises, plus shelf + page count.
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS shelf TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS page_count INTEGER NOT NULL DEFAULT 0",
@@ -309,6 +345,11 @@ _DDL = [
     "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS shape TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE properties ADD COLUMN IF NOT EXISTS shape TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_name TEXT NOT NULL DEFAULT ''",
+
+    # W02 — archived records leave every list and sum but are never deleted;
+    # the Properties rail grows an "Archived" facet only while any exist.
+    "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
 ]
 
 
@@ -895,6 +936,15 @@ class MapView:
 
 
 @strawberry.type
+class SearchHit:
+    id: str
+    kind: str          # record | paper | person
+    title: str
+    subtitle: str
+    route: str
+
+
+@strawberry.type
 class Order:
     id: str
     kind: str
@@ -950,6 +1000,7 @@ async def _cards(conn, uid: str) -> List[dict]:
         title = f"Sy {r['survey_no']}" + (f"/{sub}" if sub else "")
         rows.append({
             "id": r["id"], "kind": "parcel", "title": title,
+            "archived": bool(r.get("archived")), "passbook_id": r.get("passbook_id") or "",
             "subtitle": r.get("owner_name") or "",
             "classification": r.get("classification") or "agri",
             "status": r.get("status") or "owned",
@@ -971,6 +1022,7 @@ async def _cards(conn, uid: str) -> List[dict]:
         built = _f(r.get("builtup_area"))
         rows.append({
             "id": r["id"], "kind": "property", "title": r.get("label") or "Property",
+            "archived": bool(r.get("archived")), "passbook_id": "",
             "subtitle": r.get("owner_name") or "",
             "classification": r.get("type") or "open_plot",
             "status": r.get("holding_status") or "owned",
@@ -992,6 +1044,12 @@ async def _cards(conn, uid: str) -> List[dict]:
     # only ever show parcels.
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return rows
+
+
+def _active(rows: List[dict]) -> List[dict]:
+    """Archived records leave every aggregate, map and search — the Properties
+    screen's own Archived facet is the one place they still answer from."""
+    return [r for r in rows if not r.get("archived")]
 
 
 async def _tags_for(conn, uid: str, entity_type: str) -> dict:
@@ -1179,7 +1237,7 @@ class WebQuery:
     async def portfolio(self, info: strawberry.Info) -> Portfolio:
         uid = _uid(info)
         async with _pool.connection() as conn:
-            rows = await _cards(conn, uid)
+            rows = _active(await _cards(conn, uid))
             tags = await _tags_for(conn, uid, "record")
 
             farm = [r for r in rows if r["kind"] == "parcel"]
@@ -1202,12 +1260,19 @@ class WebQuery:
             top = ranked[0][1] if ranked else 1.0
             bars = [ValueBar(label=k, value=v, share=(v / top) if top else 0) for k, v in ranked]
 
+            # An archived record must stop asking for things. Its deadlines
+            # and its running costs left the tiles but stayed in "Waiting on
+            # you" and in the year's cost, so a record you had put away kept
+            # generating work on the Dashboard.
+            live = [r["id"] for r in rows]
+
             # icon='map' items are map insights ("these two share a boundary"),
             # which belong on W06 and not in the deadline list — they have no
             # deadline and no office waiting on you.
             cur = await conn.execute(
                 "SELECT * FROM waiting_items WHERE owner_user_id=%s AND done=false "
-                "AND icon <> 'map' ORDER BY sort, id", (uid,))
+                "AND icon <> 'map' AND (record_id = '' OR record_id = ANY(%s)) "
+                "ORDER BY sort, id", (uid, live))
             waiting = [WaitingItem(
                 id=r["id"], title=r["title"], detail=r["detail"], icon=r["icon"],
                 action_label=r["action_label"], action_kind=r["action_kind"],
@@ -1215,7 +1280,8 @@ class WebQuery:
 
             cur = await conn.execute(
                 "SELECT COALESCE(SUM(amount),0) AS s FROM land_expenses "
-                "WHERE owner_user_id=%s AND kind='running'", (uid,))
+                "WHERE owner_user_id=%s AND kind='running' AND entity_id = ANY(%s)",
+                (uid, live))
             running = _f((await cur.fetchone() or {}).get("s"))
 
             # "N papers" is the vault total — the eight shelves added up, which
@@ -1233,13 +1299,25 @@ class WebQuery:
             # the screens were first drawn around.
             cur = await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))
             display = ((await cur.fetchone() or {}).get("name") or "").strip()
+            # A login handle is not a name. "shankarreddy.t" has no space and a
+            # dot — greet from the paperwork instead.
+            if display == uid or ("." in display and " " not in display):
+                display = ""
             if not display:
                 # Fall back to the name on the paperwork — the pattadar's own.
+                # The name that stands behind the most parcels, not whichever
+                # passbook row the heap returns first: an empty passbook left
+                # by a deleted record must never become the greeting.
                 cur = await conn.execute(
-                    "SELECT owner_name FROM passbooks WHERE owner_user_id=%s "
-                    "AND owner_name <> '' LIMIT 1", (uid,))
+                    "SELECT pb.owner_name FROM passbooks pb"
+                    " JOIN parcels p ON p.passbook_id = pb.id"
+                    " WHERE pb.owner_user_id=%s AND pb.owner_name <> ''"
+                    " GROUP BY pb.owner_name ORDER BY count(*) DESC LIMIT 1", (uid,))
                 display = ((await cur.fetchone() or {}).get("owner_name") or "").strip()
-            display = display.split()[0] if display else ""
+            # "T. Sankara Rao" greets as "Sankara", not "T." — initials are
+            # not what anyone is called.
+            parts = [w for w in display.split() if len(w.rstrip(".")) > 1]
+            display = parts[0] if parts else (display.split()[0] if display else "")
 
             shops = len([r for r in built if r["classification"] == "shop"])
             flats = len(built) - shops
@@ -1247,17 +1325,29 @@ class WebQuery:
             def money(v: float) -> str:
                 return _inr_short(v)
 
-            tiles = [
-                Tile(key="farmland", label="Farmland", value=f"{farm_extent:,.2f}",
-                     unit="acres", note=f"{len(farm)} parcels"),
-                Tile(key="plots", label="Plots", value=f"{plot_extent:,.0f}",
-                     unit="sq.yd", note=f"{len(plots)} open plot" + ("s" if len(plots) != 1 else "")),
-                Tile(key="built", label="Built", value=f"{built_extent:,.0f}", unit="sq.ft",
-                     note=(f"{flats} flat" + ("s" if flats != 1 else "")
-                           + (f", {shops} shop" + ("s" if shops != 1 else "") if shops else ""))),
+            # A tile for a kind the portfolio does not hold is noise: someone
+            # who owns only land was shown "BUILT 0 sq.ft · 0 flats". The money
+            # tiles always appear — nil invested is itself worth stating.
+            tiles = []
+            if farm:
+                tiles.append(Tile(
+                    key="farmland", label="Farmland", value=f"{farm_extent:,.2f}", unit="acres",
+                    note=f"{len(farm)} parcel" + ("s" if len(farm) != 1 else "")))
+            if plots:
+                tiles.append(Tile(
+                    key="plots", label="Plots", value=f"{plot_extent:,.0f}", unit="sq.yd",
+                    note=f"{len(plots)} open plot" + ("s" if len(plots) != 1 else "")))
+            if built:
+                tiles.append(Tile(
+                    key="built", label="Built", value=f"{built_extent:,.0f}", unit="sq.ft",
+                    note=", ".join(
+                        ([f"{flats} flat" + ("s" if flats != 1 else "")] if flats else [])
+                        + ([f"{shops} shop" + ("s" if shops != 1 else "")] if shops else []))))
+            tiles += [
                 Tile(key="invested", label="Invested", value=money(invested)),
                 Tile(key="worth", label="Worth now", value=money(worth)),
-                Tile(key="gain", label="Gain", value=("+" if worth >= invested else "−") + money(abs(worth - invested)),
+                Tile(key="gain", label="Gain",
+                     value=("+" if worth >= invested else "−") + money(abs(worth - invested)),
                      tone="up" if worth >= invested else "down"),
                 Tile(key="loans", label="Loans", value=money(loans), note="outstanding",
                      tone="down" if loans else "plain"),
@@ -1290,8 +1380,20 @@ class WebQuery:
         kinds, statuses = kinds or [], statuses or []
         stakes, derived, tags = stakes or [], derived or [], tags or []
         async with _pool.connection() as conn:
-            rows = await _cards(conn, uid)
+            all_rows = await _cards(conn, uid)
             tagmap = await _tags_for(conn, uid, "record")
+
+            # An archived record sits outside the list, the counts and the
+            # totals until its own facet is ticked. It wears "archived" as its
+            # status here so the one status test below covers both worlds.
+            archived_rows: List[dict] = []
+            for r in all_rows:
+                if r.get("archived"):
+                    r = dict(r)
+                    r["status"] = "archived"
+                    archived_rows.append(r)
+            base = _active(all_rows)
+            rows = base + archived_rows if "archived" in statuses else base
 
             def keep(r: dict) -> bool:
                 if kinds and r["kind"] not in kinds:
@@ -1312,42 +1414,53 @@ class WebQuery:
             hidden_places = sorted({(r["mandal"] or r["district"] or r["village"])
                                     for r in hidden if (r["mandal"] or r["district"] or r["village"])})
 
-            # Facet counts come off the SAME list the grid renders from.
+            # Facet counts come off the SAME list the grid renders from —
+            # the active records. Archived ones count only in their own option.
             def group(key: str, label: str, opts: List[tuple], active: List[str], get) -> FacetGroup:
                 return FacetGroup(key=key, label=label, options=[
-                    FacetOption(key=k, label=lbl, count=len([r for r in rows if get(r) == k]),
+                    FacetOption(key=k, label=lbl, count=len([r for r in base if get(r) == k]),
                                 active=k in active)
                     for k, lbl in opts
-                    if len([r for r in rows if get(r) == k])
+                    if len([r for r in base if get(r) == k])
                 ])
 
+            # Tags are read off the ACTIVE records, like every other facet.
+            # Taken off the raw tag table, a tag whose only record had been
+            # archived stayed in the rail and filtered to an empty grid.
             all_tags: List[str] = []
-            for v in tagmap.values():
-                for t in v:
+            for r in base:
+                for t in tagmap.get(r["id"], []):
                     if t not in all_tags:
                         all_tags.append(t)
             all_derived: List[str] = []
-            for r in rows:
+            for r in base:
                 for cand in (r["village"], r["khata_no"]):
                     if cand and cand not in all_derived:
                         all_derived.append(cand)
 
+            status_group = group(
+                "status", "Status",
+                [("owned", "Owned"), ("for_sale", "For sale"), ("disputed", "Disputed")],
+                statuses, lambda r: r["status"])
+            if archived_rows:
+                status_group.options.append(FacetOption(
+                    key="archived", label="Archived", count=len(archived_rows),
+                    active="archived" in statuses))
+
             facets = [
                 group("kind", "Kind", [("parcel", "Land parcels"), ("property", "Properties")],
                       kinds, lambda r: r["kind"]),
-                group("status", "Status",
-                      [("owned", "Owned"), ("for_sale", "For sale"), ("disputed", "Disputed")],
-                      statuses, lambda r: r["status"]),
+                status_group,
                 group("stake", "My stake",
                       [("owned", "Owned"), ("managed", "Managed"), ("watch", "Watch")],
                       stakes, lambda r: r["stake"]),
                 FacetGroup(key="derived", label="Derived", options=[
                     FacetOption(key=d, label=d, active=d in derived,
-                                count=len([r for r in rows if d in (r["village"], r["khata_no"])]))
+                                count=len([r for r in base if d in (r["village"], r["khata_no"])]))
                     for d in all_derived]),
                 FacetGroup(key="tags", label="Your tags", options=[
                     FacetOption(key=t, label=t, active=t in tags,
-                                count=len([rid for rid, tl in tagmap.items() if t in tl]))
+                                count=len([r for r in base if t in tagmap.get(r["id"], [])]))
                     for t in all_tags]),
             ]
 
@@ -1537,14 +1650,16 @@ class WebQuery:
                 amount=_f(r.get("amount")), direction=r.get("direction") or "out",
                 state=r.get("state") or "settled") for r in await cur.fetchall()]
 
-            # The wallet balance is what went in less what has been paid out of
-            # it, across the whole account — never a number typed into a file.
+            # Topped up, less everything settled out of it. Never a literal.
             cur = await conn.execute(
-                "SELECT COALESCE(SUM(CASE WHEN direction='in' THEN amount ELSE -amount END),0)"
-                " AS bal FROM people_payments WHERE owner_user_id=%s AND state='settled'",
+                "SELECT topped_up, auto_top_up FROM wallet_accounts WHERE owner_user_id=%s",
                 (uid,))
-            settled = _f((await cur.fetchone() or {}).get("bal"))
-            balance = max(0.0, 25_000.0 + settled)
+            wallet = await cur.fetchone() or {}
+            cur = await conn.execute(
+                "SELECT COALESCE(SUM(amount),0) AS out FROM people_payments"
+                " WHERE owner_user_id=%s AND state='settled' AND direction='out'", (uid,))
+            paid_out = _f((await cur.fetchone() or {}).get("out"))
+            balance = max(0.0, _f(wallet.get("topped_up")) - paid_out)
             monthly = 0.0
             seasonal = 0.0
             for p in people:
@@ -1553,12 +1668,15 @@ class WebQuery:
                 if "season" in (p.pay_value or ""):
                     seasonal += _rupees(p.pay_value)
             escrowed = sum(p.amount for p in pays if p.state == "escrow")
+            note = "auto top-up on" if wallet.get("auto_top_up") else "auto top-up off"
+            if escrowed:
+                note = f"{_inr_short(escrowed)} more held in escrow · {note}"
+            if not wallet:
+                note = "no wallet yet — top up to pay from Pattadar"
             return PeopleView(
                 people=people, payments=pays, count=len(people),
                 monthly_out=monthly, seasonal_in=seasonal,
-                wallet_balance=balance,
-                wallet_note=(f"{_inr_short(escrowed)} of it held in escrow"
-                             if escrowed else "auto top-up off"))
+                wallet_balance=balance, wallet_note=note)
 
     @strawberry.field
     async def boundary(self, info: strawberry.Info, record_id: str) -> Optional[BoundaryView]:
@@ -1914,6 +2032,48 @@ class WebQuery:
             return await _kit(conn, row) if row else None
 
     @strawberry.field
+    async def search(self, info: strawberry.Info, q: str) -> List[SearchHit]:
+        """The jump box: a parcel by survey number, village, khata or owner;
+        a paper by its name; a person by theirs. Each hit carries the route
+        it opens, so the client never re-derives where things live."""
+        uid = _uid(info)
+        needle = (q or "").strip()
+        if len(needle) < 2:
+            return []
+        out: List[SearchHit] = []
+        like = f"%{needle}%"
+        ql = needle.lower()
+        async with _pool.connection() as conn:
+            for d in _active(await _cards(conn, uid)):
+                hay = (f"{d['title']} {d['village']} {d['mandal']} "
+                       f"{d['khata_no']} {d['owner_name']}").lower()
+                if ql in hay:
+                    out.append(SearchHit(
+                        id=d["id"], kind="record", title=d["title"],
+                        subtitle=_place_line(d["village"], d["mandal"]) or d["district"],
+                        route=f"/app/records/{d['id']}"))
+                if len(out) >= 6:
+                    break
+            cur = await conn.execute(
+                "SELECT id, name, subtitle, shelf FROM documents WHERE owner_user_id=%s "
+                "AND name ILIKE %s ORDER BY name LIMIT 5", (uid, like))
+            for r in await cur.fetchall():
+                out.append(SearchHit(
+                    id=r["id"], kind="paper", title=r.get("name") or "Paper",
+                    subtitle=(r.get("subtitle") or r.get("shelf") or "")[:70],
+                    route=f"/app/papers/{r['id']}"))
+            cur = await conn.execute(
+                "SELECT DISTINCT ON (person_name) id, person_name, role, record_id "
+                "FROM record_people WHERE owner_user_id=%s AND person_name ILIKE %s "
+                "ORDER BY person_name, id LIMIT 5", (uid, like))
+            for r in await cur.fetchall():
+                out.append(SearchHit(
+                    id=r["id"], kind="person", title=r["person_name"],
+                    subtitle=r.get("role") or "",
+                    route=f"/app/records/{r['record_id']}/people"))
+        return out
+
+    @strawberry.field
     async def orders(self, info: strawberry.Info,
                      record_id: Optional[str] = None) -> List[Order]:
         """Services ordered against a record — the Services hanger, and the
@@ -1941,7 +2101,7 @@ class WebQuery:
     async def map_records(self, info: strawberry.Info) -> MapView:
         uid = _uid(info)
         async with _pool.connection() as conn:
-            rows = await _cards(conn, uid)
+            rows = _active(await _cards(conn, uid))
             cur = await conn.execute(
                 "SELECT entity_id, label, category FROM land_features WHERE owner_user_id=%s "
                 "ORDER BY sort", (uid,))
@@ -1990,9 +2150,11 @@ class WebQuery:
             counts.append(FacetOption(key="bore", label="Has a bore", count=bore, active=False))
 
             districts = sorted({r.village for r in out if r.village})
+            # An insight about a pin that is no longer on the map is noise.
             cur = await conn.execute(
                 "SELECT id, title, detail FROM waiting_items WHERE owner_user_id=%s "
-                "AND icon='map' AND done=false ORDER BY sort", (uid,))
+                "AND icon='map' AND done=false AND (record_id = '' OR record_id = ANY(%s)) "
+                "ORDER BY sort", (uid, [r.id for r in out]))
             insights = [MapInsight(id=r["id"], title=r["title"], detail=r["detail"])
                         for r in await cur.fetchall()]
             return MapView(area_label=" & ".join(districts[:2]) if districts else "",
@@ -2053,10 +2215,362 @@ async def _kit(conn, r: dict) -> SharedKit:
         checks_total=sum(c.price for c in checks))
 
 
+# ── Record writes ─────────────────────────────────────────────────────
+
+@strawberry.input
+class RecordInput:
+    """One form for both kinds. Every field is optional so an update can send
+    only what changed — an omitted field is left alone, never blanked."""
+    id: Optional[str] = None
+    kind: str = "parcel"               # parcel | property (create only)
+    title: Optional[str] = None        # parcel: "Sy 214/2"; property: its name
+    classification: Optional[str] = None
+    status: Optional[str] = None
+    stake: Optional[str] = None
+    khata_no: Optional[str] = None
+    owner_name: Optional[str] = None
+    village: Optional[str] = None      # property: locality
+    mandal: Optional[str] = None       # property: city
+    district: Optional[str] = None
+    extent: Optional[float] = None
+    extent_unit: Optional[str] = None  # ac | sq.yd | sq.ft
+    market_value: Optional[float] = None
+    purchase_price: Optional[float] = None
+
+
+def _survey_parts(title: str) -> tuple:
+    """'Sy 214/2' → ('214', '2'); 'sy. 88' → ('88', ''). The form takes the
+    number the way people say it; the table stores its two columns."""
+    t = (title or "").strip()
+    if t.lower().startswith("sy"):
+        t = t[2:].lstrip(". ").strip()
+    no, _, sub = t.partition("/")
+    return no.strip(), sub.strip()
+
+
+def _now_iso() -> str:
+    """created_at drives 'recently opened'; a bare date makes every add of the
+    same day sort arbitrarily, so the time comes too."""
+    return datetime.now().isoformat(timespec="seconds")
+
+
+async def _record_kind(conn, uid: str, rid: str) -> str:
+    """Which table a record lives in — '' when it is not this user's to touch.
+    Every write below goes through this, so no id from the wire can reach a
+    row the caller does not own."""
+    cur = await conn.execute(
+        "SELECT 1 FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id"
+        " WHERE p.id=%s AND pb.owner_user_id=%s", (rid, uid))
+    if await cur.fetchone():
+        return "parcel"
+    cur = await conn.execute(
+        "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (rid, uid))
+    return "property" if await cur.fetchone() else ""
+
+
+async def _create_record(conn, uid: str, inp: RecordInput) -> str:
+    import uuid as _uuid
+    rid = f"rec-{_uuid.uuid4().hex[:12]}"
+    now = _now_iso()
+    if inp.kind == "parcel":
+        # A parcel hangs off a passbook (that is where the khata, village and
+        # owner's name live). Reuse the user's matching passbook when there is
+        # one; otherwise the parcel gets its own.
+        khata = (inp.khata_no or "").strip()
+        village = (inp.village or "").strip()
+        pb_id = ""
+        if khata:
+            cur = await conn.execute(
+                "SELECT id FROM passbooks WHERE owner_user_id=%s AND pattadar_no=%s"
+                " AND village=%s LIMIT 1", (uid, khata, village))
+            row = await cur.fetchone()
+            pb_id = row["id"] if row else ""
+        if not pb_id:
+            pb_id = f"pb-{_uuid.uuid4().hex[:12]}"
+            # A passbook belongs to a family group; Families & Groups sums its
+            # parcels' extent by group. A passbook created without one leaves
+            # the new parcel out of those totals, so it joins the default.
+            await conn.execute(
+                "INSERT INTO passbooks (id, owner_user_id, pattadar_no, owner_name,"
+                " district, mandal, village, group_id, created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s, COALESCE((SELECT id FROM groups"
+                " WHERE owner_user_id=%s AND type='family' ORDER BY created_at LIMIT 1), ''), %s)",
+                (pb_id, uid, khata, (inp.owner_name or "").strip(),
+                 (inp.district or "").strip(), (inp.mandal or "").strip(), village, uid, now))
+        no, sub = _survey_parts(inp.title or "")
+        await conn.execute(
+            "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent,"
+            " classification, status, stake, market_value, purchase_price, created_at)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (rid, pb_id, no, sub, _f(inp.extent), inp.classification or "agri",
+             inp.status or "owned", inp.stake or "owned",
+             _f(inp.market_value), _f(inp.purchase_price), now))
+        return rid
+    built = (inp.extent_unit or ("sq.ft" if (inp.classification or "flat")
+                                 in ("flat", "shop") else "sq.yd")) == "sq.ft"
+    await conn.execute(
+        "INSERT INTO properties (id, owner_user_id, type, label, locality, city,"
+        " district, khata_no, owner_name, holding_status, stake, land_area,"
+        " builtup_area, market_value, current_value, purchase_price, created_at)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (rid, uid, inp.classification or "flat", (inp.title or "Property").strip(),
+         (inp.village or "").strip(), (inp.mandal or "").strip(),
+         (inp.district or "").strip(), (inp.khata_no or "").strip(),
+         (inp.owner_name or "").strip(), inp.status or "owned", inp.stake or "owned",
+         0.0 if built else _f(inp.extent), _f(inp.extent) if built else 0.0,
+         _f(inp.market_value), _f(inp.market_value), _f(inp.purchase_price), now))
+    return rid
+
+
+async def _update_record(conn, uid: str, inp: RecordInput) -> str:
+    import uuid as _uuid
+    rid = inp.id or ""
+    cur = await conn.execute(
+        "SELECT p.id, p.passbook_id FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id"
+        " WHERE p.id=%s AND pb.owner_user_id=%s", (rid, uid))
+    par = await cur.fetchone()
+    if par:
+        sets: List[str] = []
+        args: List = []
+        if inp.title is not None:
+            no, sub = _survey_parts(inp.title)
+            sets += ["survey_no=%s", "subdivision=%s"]
+            args += [no, sub]
+        for col, val in (("classification", inp.classification), ("status", inp.status),
+                         ("stake", inp.stake)):
+            if val is not None:
+                sets.append(f"{col}=%s")
+                args.append(val)
+        for col, num in (("extent", inp.extent), ("market_value", inp.market_value),
+                         ("purchase_price", inp.purchase_price)):
+            if num is not None:
+                sets.append(f"{col}=%s")
+                args.append(_f(num))
+        if sets:
+            await conn.execute(
+                f"UPDATE parcels SET {', '.join(sets)} WHERE id=%s", (*args, rid))
+        # Khata, owner and place live on the passbook — and a passbook can
+        # stand behind several parcels. Editing one parcel must not silently
+        # move its siblings, so a shared passbook is split before it changes.
+        pb_sets: List[str] = []
+        pb_args: List = []
+        for col, val in (("pattadar_no", inp.khata_no), ("owner_name", inp.owner_name),
+                         ("village", inp.village), ("mandal", inp.mandal),
+                         ("district", inp.district)):
+            if val is not None:
+                pb_sets.append(f"{col}=%s")
+                pb_args.append(val.strip())
+        if pb_sets:
+            pb_id = par["passbook_id"]
+            cur = await conn.execute(
+                "SELECT count(*) AS c FROM parcels WHERE passbook_id=%s", (pb_id,))
+            if _i((await cur.fetchone() or {}).get("c")) > 1:
+                new_id = f"pb-{_uuid.uuid4().hex[:12]}"
+                # The clone must carry EVERY column the original had. Leaving
+                # group_id behind dropped the parcel out of its family group's
+                # acreage; leaving `photo` behind lost the scanned passbook.
+                await conn.execute(
+                    "INSERT INTO passbooks (id, owner_user_id, pattadar_no, owner_name,"
+                    " father_husband_name, state, district, mandal, village, group_id,"
+                    " photo, created_at)"
+                    " SELECT %s, owner_user_id, pattadar_no, owner_name,"
+                    " father_husband_name, state, district, mandal, village, group_id,"
+                    " photo, created_at"
+                    " FROM passbooks WHERE id=%s", (new_id, pb_id))
+                await conn.execute(
+                    "UPDATE parcels SET passbook_id=%s WHERE id=%s", (new_id, rid))
+                pb_id = new_id
+            await conn.execute(
+                f"UPDATE passbooks SET {', '.join(pb_sets)} WHERE id=%s", (*pb_args, pb_id))
+        return rid
+
+    cur = await conn.execute(
+        "SELECT id, builtup_area FROM properties WHERE id=%s AND owner_user_id=%s",
+        (rid, uid))
+    prop = await cur.fetchone()
+    if not prop:
+        raise ValueError("record not found")
+    sets, args = [], []
+    if inp.title is not None:
+        sets.append("label=%s")
+        args.append(inp.title.strip())
+    for col, val in (("type", inp.classification), ("holding_status", inp.status),
+                     ("stake", inp.stake), ("khata_no", inp.khata_no),
+                     ("owner_name", inp.owner_name), ("locality", inp.village),
+                     ("city", inp.mandal), ("district", inp.district)):
+        if val is not None:
+            sets.append(f"{col}=%s")
+            args.append(val.strip())
+    if inp.extent is not None:
+        built = (inp.extent_unit or ("sq.ft" if _f(prop.get("builtup_area"))
+                                     else "sq.yd")) == "sq.ft"
+        if built:
+            sets.append("builtup_area=%s")
+            args.append(_f(inp.extent))
+        else:
+            # Measured in yards now — it is a plot, so the built-up figure
+            # (which would otherwise win the card's extent) goes with it.
+            sets += ["land_area=%s", "builtup_area=0"]
+            args.append(_f(inp.extent))
+    if inp.market_value is not None:
+        # current_value shadows market_value in the card read; keep them one.
+        sets += ["market_value=%s", "current_value=%s"]
+        args += [_f(inp.market_value), _f(inp.market_value)]
+    if inp.purchase_price is not None:
+        sets.append("purchase_price=%s")
+        args.append(_f(inp.purchase_price))
+    if sets:
+        await conn.execute(
+            f"UPDATE properties SET {', '.join(sets)} WHERE id=%s", (*args, rid))
+    return rid
+
+
 # ── Mutation namespace ────────────────────────────────────────────────
 
 @strawberry.type
 class WebMutation:
+
+    @strawberry.mutation
+    async def save_record(self, info: strawberry.Info, input: RecordInput) -> str:
+        """Create (no id) or partially update (with id) one record. Returns
+        the record's id either way."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            if input.id:
+                return await _update_record(conn, uid, input)
+            return await _create_record(conn, uid, input)
+
+    @strawberry.mutation
+    async def delete_records(self, info: strawberry.Info, ids: List[str]) -> int:
+        """Delete records and everything filed under them — papers (with their
+        versions and live links), photos, features, people, money rows, notes,
+        tags, open orders. The passbook behind a parcel is left alone: the
+        legacy Passbooks screen still owns it."""
+        uid = _uid(info)
+        n = 0
+        async with _pool.connection() as conn:
+            cur = await conn.execute("SELECT to_regclass('demo_stamp') AS t")
+            has_stamp = bool((await cur.fetchone() or {}).get("t"))
+            for rid in ids:
+                kind = await _record_kind(conn, uid, rid)
+                if not kind:
+                    continue
+                # A paper reaches a record by whichever key filed it: the web
+                # 360 writes record_id, while the mobile upload path and the
+                # vault backfill write parcel_id / property_id and leave
+                # record_id empty. Matching only record_id orphaned every
+                # paper a built property had ever been sent.
+                own_key = "parcel_id" if kind == "parcel" else "property_id"
+                cur = await conn.execute(
+                    f"SELECT id, reading_id FROM documents WHERE owner_user_id=%s"
+                    f" AND (record_id=%s OR {own_key}=%s)", (uid, rid, rid))
+                docs = await cur.fetchall()
+                doc_ids = [r["id"] for r in docs]
+                # The reading behind a paper must go too. init_db's vault
+                # backfill re-creates a document row for every reading that
+                # has none, so a deleted deed came back at the next restart.
+                reading_ids = [r["reading_id"] for r in docs if r.get("reading_id")]
+                if reading_ids:
+                    await conn.execute(
+                        "DELETE FROM registered_documents WHERE owner_user_id=%s"
+                        " AND id = ANY(%s)", (uid, reading_ids))
+                await conn.execute(
+                    f"DELETE FROM registered_documents WHERE owner_user_id=%s"
+                    f" AND {own_key}=%s", (uid, rid))
+                if doc_ids:
+                    await conn.execute(
+                        "DELETE FROM share_links WHERE document_id = ANY(%s)", (doc_ids,))
+                    await conn.execute(
+                        "DELETE FROM document_versions WHERE document_id = ANY(%s)", (doc_ids,))
+                    await conn.execute(
+                        "DELETE FROM record_tags WHERE entity_id = ANY(%s)", (doc_ids,))
+                    await conn.execute(
+                        "DELETE FROM documents WHERE id = ANY(%s)", (doc_ids,))
+                ptable, pkey = _photo_table(kind), _photo_key(kind)
+                cur = await conn.execute(f"SELECT id FROM {ptable} WHERE {pkey}=%s", (rid,))
+                photo_ids = [r["id"] for r in await cur.fetchall()]
+                if photo_ids:
+                    await conn.execute(
+                        "DELETE FROM record_tags WHERE entity_id = ANY(%s)", (photo_ids,))
+                    await conn.execute(f"DELETE FROM {ptable} WHERE {pkey}=%s", (rid,))
+                for table, col in (
+                    ("record_tags", "entity_id"), ("boundary_marks", "record_id"),
+                    ("record_people", "record_id"), ("people_payments", "record_id"),
+                    ("purchase_lots", "record_id"), ("capital_costs", "record_id"),
+                    ("waiting_items", "record_id"), ("land_features", "entity_id"),
+                    ("land_expenses", "entity_id"), ("notes", "entity_id"),
+                    ("work_requests", "entity_id"),
+                ):
+                    await conn.execute(f"DELETE FROM {table} WHERE {col}=%s", (rid,))
+                if has_stamp:
+                    await conn.execute("DELETE FROM demo_stamp WHERE record_id=%s", (rid,))
+                await conn.execute(
+                    f"DELETE FROM {'parcels' if kind == 'parcel' else 'properties'}"
+                    " WHERE id=%s", (rid,))
+                n += 1
+        return n
+
+    @strawberry.mutation
+    async def archive_records(self, info: strawberry.Info, ids: List[str],
+                              archived: bool = True) -> int:
+        uid = _uid(info)
+        n = 0
+        async with _pool.connection() as conn:
+            for rid in ids:
+                kind = await _record_kind(conn, uid, rid)
+                if not kind:
+                    continue
+                await conn.execute(
+                    f"UPDATE {'parcels' if kind == 'parcel' else 'properties'}"
+                    " SET archived=%s WHERE id=%s", (archived, rid))
+                n += 1
+        return n
+
+    @strawberry.mutation
+    async def tag_records(self, info: strawberry.Info, ids: List[str], tag: str) -> int:
+        """One tag onto many records — the bulk bar's 'Tag…'."""
+        uid = _uid(info)
+        word = (tag or "").strip()
+        if not word:
+            return 0
+        n = 0
+        async with _pool.connection() as conn:
+            for rid in ids:
+                if not await _record_kind(conn, uid, rid):
+                    continue
+                await conn.execute(
+                    "INSERT INTO record_tags (id, owner_user_id, entity_type, entity_id,"
+                    " tag, created_at) VALUES (%s,%s,'record',%s,%s, to_char(now(),'YYYY-MM-DD'))"
+                    " ON CONFLICT (owner_user_id, entity_type, entity_id, tag) DO NOTHING",
+                    (f"tag-{uid}-{rid}-{word}"[:64], uid, rid, word))
+                n += 1
+        return n
+
+    @strawberry.mutation
+    async def order_service(self, info: strawberry.Info, record_ids: List[str],
+                            kind: str = "ec") -> int:
+        """Place one service order per record — the bulk bar's 'Order EC ×N'.
+        The orders land in work_requests, so Services and Assigned pick them
+        up like any other order."""
+        uid = _uid(info)
+        import uuid as _uuid
+        title = {"ec": "Encumbrance Certificate"}.get(kind, kind.replace("_", " ").title())
+        due = (date.today() + timedelta(days=7)).strftime("%d/%m/%Y")
+        n = 0
+        async with _pool.connection() as conn:
+            for rid in record_ids:
+                if not await _record_kind(conn, uid, rid):
+                    continue
+                await conn.execute(
+                    "INSERT INTO work_requests (id, owner_user_id, kind, title,"
+                    " entity_type, entity_id, assignee, cost, stage, needs_you, note,"
+                    " due_date, closed, created_at)"
+                    " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s)",
+                    (f"wr-{_uuid.uuid4().hex[:12]}", uid, kind, title, rid,
+                     1180.0 if kind == "ec" else 0.0,
+                     "Ordered from the properties list", due, _now_iso()))
+                n += 1
+        return n
 
     @strawberry.mutation
     async def set_tag(self, info: strawberry.Info, entity_type: str, entity_id: str,

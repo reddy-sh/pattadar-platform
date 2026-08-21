@@ -211,7 +211,7 @@ export function DeedImportDialog({ open, onClose, onSaved, onToast }: Props) {
     <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth>
       <DialogTitle>Register a Deed</DialogTitle>
       <DialogContent>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '13fr 11fr' }, gap: 2.5, mt: 0.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 13fr) minmax(0, 11fr)' }, gap: 2.5, mt: 0.5 }}>
           {/* ── Left: AI import ─────────────────────────────────────── */}
           <Box>
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
@@ -308,7 +308,7 @@ export function DeedImportDialog({ open, onClose, onSaved, onToast }: Props) {
           </Box>
 
           {/* ── Right: editable fields ───────────────────────────────── */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1.25, alignContent: 'start' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: 1.25, alignContent: 'start' }}>
             <Box sx={{ gridColumn: 'span 3' }}>{field('docType', 'Document Type (Sale Deed / Gift / …)', true)}</Box>
             {field('documentNo', 'Doc No.')}
             {field('regYear', 'Year')}

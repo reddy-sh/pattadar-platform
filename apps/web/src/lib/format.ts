@@ -38,9 +38,17 @@ export function humanEntity(ref?: string | null, detail?: string | null): string
   return '';
 }
 
+/**
+ * Deterministic avatar ramp — 12 hues evenly walked around the wheel at a
+ * fixed oklch(48% 0.120 H), warm hues first so the common case sits near the
+ * Bloom anchor (design.md § Theme). Constant lightness means white initials
+ * clear AA on every swatch: measured 5.85:1 worst case (hue 200), 7.00:1 best.
+ * Replaces an Ant Design ramp whose 14 entries ranged #1677ff → #eb2f96 and
+ * varied wildly in lightness, so some initials were unreadable.
+ */
 const AVA_COLORS = [
-  '#1677ff', '#389e0d', '#722ed1', '#d46b08', '#eb2f96', '#08979c', '#cf1322',
-  '#d48806', '#2f54eb', '#c41d7f', '#d4380d', '#5b8c00', '#873800', '#0ea5b7',
+  '#953c43', '#944123', '#8f4700', '#7c5600', '#556600', '#197037',
+  '#00725a', '#007078', '#006894', '#3c5aa1', '#694b96', '#82417d',
 ];
 
 /** Deterministic avatar colour from a name/string (same hash as source). */

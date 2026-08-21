@@ -3,7 +3,7 @@
  * combined HoldingsView + AllHoldingsView: "<n> holdings" header, per-tab
  * stat tiles, All / Land Parcels / Properties tabs, search, quick filters
  * (kind / status / stake / family / passbook), List/Grid modes, CSV/Excel/PDF
- * export, status+stake badges on emerald hero cards, and the Add flows
+ * export, status+stake badges on hairline hero cards, and the Add flows
  * (AI-classified Add for properties/deeds, manual Add Parcel).
  *
  * Deep links: /app/parcels?pb=<passbookId> lands on Land Parcels filtered to
@@ -444,7 +444,11 @@ export function LandPropertiesPage() {
             eyebrow="Your holdings"
             title="Land & Properties"
             sample={isSample}
-            titleChips={<Chip size="small" color="primary" label={`${t.parcels + t.properties} holdings`} />}
+            /* Outlined, not filled: a count is a fact, not a call to action —
+               a solid amber chip competed with the page's real amber CTA. */
+            titleChips={
+              <Chip size="small" color="primary" variant="outlined" label={`${t.parcels + t.properties} holdings`} />
+            }
             subtitle={`${t.parcels} land parcel${t.parcels !== 1 ? 's' : ''} (${formatArea(t.acres)}) · ${t.properties} propert${t.properties !== 1 ? 'ies' : 'y'}${t.managed ? ` · ${t.managed} managed` : ''}${t.watch ? ` · ${t.watch} watched` : ''}.`}
           />
 
@@ -603,7 +607,7 @@ export function LandPropertiesPage() {
           )}
 
           {view === 'grid' ? (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 3 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr)', lg: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gap: 3 }}>
               {shown.map((r) => (
                 <Card
                   key={`${r.kind}-${r.id}`}
@@ -623,7 +627,15 @@ export function LandPropertiesPage() {
                       <Typography sx={{ fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {r.title}
                       </Typography>
-                      <Chip size="small" color={r.typeColor} label={r.typeLabel} sx={{ flexShrink: 0 }} />
+                      {/* Outlined: a land-type label classifies, it doesn't alert.
+                          Filled success/info chips were the loudest thing on the card. */}
+                      <Chip
+                        size="small"
+                        color={r.typeColor}
+                        variant="outlined"
+                        label={r.typeLabel}
+                        sx={{ flexShrink: 0 }}
+                      />
                     </Box>
                     <Typography variant="body2" color="text.secondary" noWrap>
                       {r.owner || '—'}

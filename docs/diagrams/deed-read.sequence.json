@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Deed Reading Job",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1700, 760],
+    "views": [
+      { "id": "submit", "label": "Ack in seconds", "focus": ["ios", "api", "jobs"], "note": "The upload returns a job id long before the deed has been read." },
+      { "id": "background", "label": "Read in background", "focus": ["api", "anthropic", "jobs"], "note": "Extraction runs in a detached task; the job row is the only place the result lands." },
+      { "id": "poll", "label": "Poll until settled", "focus": ["ios", "api", "jobs"], "note": "Every four seconds against a twelve minute deadline, riding out blips." }
+    ]
+  },
+  "participants": [
+    { "id": "ios", "type": "frontend", "label": "iOS App", "sublabel": "BackgroundRead.swift" },
+    { "id": "api", "type": "backend", "label": "api", "sublabel": "FastAPI" },
+    { "id": "jobs", "type": "database", "label": "_import_jobs", "sublabel": "in-process, 30 min TTL" },
+    { "id": "anthropic", "type": "external", "label": "Anthropic API", "sublabel": "deed extraction" }
+  ],
+  "segments": [
+    { "from": 150, "to": 288, "label": "Submit" },
+    { "from": 304, "to": 428, "label": "Read in background" },
+    { "from": 444, "to": 690, "label": "Poll until settled" }
+  ],
+  "messages": [
+    { "id": "submit", "from": "ios", "to": "api", "y": 180, "label": "POST /import-registered-document-async", "variant": "emphasis", "note": "Rejects over 25 MB, or anything that is not PDF, JPG or PNG." },
+    { "id": "create-job", "from": "api", "to": "jobs", "y": 220, "label": "create job, state running", "variant": "emphasis" },
+    { "id": "ack", "from": "api", "to": "ios", "y": 260, "label": "job id, in seconds", "variant": "return" },
+    { "id": "extract", "from": "api", "to": "anthropic", "y": 320, "label": "extract deed fields", "variant": "default", "note": "A detached task, so nothing holds the upload connection open." },
+    { "id": "fields", "from": "anthropic", "to": "api", "y": 360, "label": "fields or error", "variant": "return" },
+    { "id": "settle", "from": "api", "to": "jobs", "y": 400, "label": "state done or failed", "variant": "emphasis" },
+    { "id": "poll-1", "from": "ios", "to": "api", "y": 460, "label": "GET /import-status/{job}", "variant": "default" },
+    { "id": "read-1", "from": "api", "to": "jobs", "y": 500, "label": "read state", "variant": "default" },
+    { "id": "still-running", "from": "jobs", "to": "api", "y": 540, "label": "running", "variant": "return" },
+    { "id": "keep-waiting", "from": "api", "to": "ios", "y": 580, "label": "state running, ask again in 4s", "variant": "dashed" },
+    { "id": "poll-n", "from": "ios", "to": "api", "y": 620, "label": "GET /import-status/{job}", "variant": "default" },
+    { "id": "deliver", "from": "api", "to": "ios", "y": 660, "label": "state done, extracted fields", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "api", "from": 174, "to": 268, "type": "backend" },
+    { "participant": "jobs", "from": 214, "to": 410, "type": "database" },
+    { "participant": "api", "from": 314, "to": 408, "type": "backend" },
+    { "participant": "anthropic", "from": 314, "to": 368, "type": "external" },
+    { "participant": "api", "from": 454, "to": 588, "type": "backend" },
+    { "participant": "jobs", "from": 494, "to": 548, "type": "database" },
+    { "participant": "api", "from": 614, "to": 668, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "Why the read split in two", "items": ["A phone cannot hold a response open for the minutes a deed takes to read", "Background transfers hung up and silently re-sent: one deed read five times, delivered zero"] },
+    { "dot": "emerald", "title": "The contract", "items": ["POST /import-registered-document-async acks with a job id (main.py:5855)", "GET /import-status/{job} answers running, done or failed (main.py:5904)"] },
+    { "dot": "orange", "title": "How the app waits", "items": ["Asks every 4 seconds against a 12 minute deadline", "The job id is kept with the pending read, so a relaunched app resumes"] }
+  ]
+}

@@ -103,7 +103,7 @@ export function AddParcelDialog({ open, onClose, onCreated, passbooks, notify }:
     <Dialog open={open} onClose={close} maxWidth="sm" fullWidth>
       <DialogTitle>Add Parcel</DialogTitle>
       <DialogContent>
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5, pt: 0.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5, pt: 0.5 }}>
           <Box sx={{ gridColumn: '1 / -1' }}>
             <TextField
               select

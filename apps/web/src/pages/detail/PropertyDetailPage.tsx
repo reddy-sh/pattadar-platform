@@ -553,7 +553,7 @@ export function PropertyDetailPage() {
 
   const overview = (
     <Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 1.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 3fr) minmax(0, 2fr)' }, gap: 1.5 }}>
         <SectionCard title="Property record">
           <FieldGrid>
             <Field label="Name / label">{dashVal(p.label)}</Field>
@@ -610,7 +610,7 @@ export function PropertyDetailPage() {
           </SectionCard>
         </Box>
       </Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.5, mt: 1.5 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.5, mt: 1.5 }}>
         <SectionCard title="Financials">
           <FieldGrid columns={1}>
             <Field label="Purchase price (invested)">{money(p.purchasePrice)}</Field>

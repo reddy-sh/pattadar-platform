@@ -33,7 +33,66 @@ bun run build        # production bundle
 | `/terms` | Public | Terms of use placeholder — TODO(DPDP) final EN+Telugu |
 | `/auth/callback` | Public | Completes the SOCIAL-login redirect, then continues to `/app` (or the preserved return path) |
 | `/verify/:token` | Public | Beneficiary verification — must work WITHOUT login |
-| `/app/*` | Auth required (`RequireAuth`) | App shell + all views below |
+| `/app/*` | Auth required (`RequireAuth`) | Record-360 app (W01–W15) — see below |
+| `/legacy/*` | Auth required (`RequireAuth`) | The previous app shell, intact |
+
+## The record-360 app (`/app/*`)
+
+Design handover W01–W15, built 2026-08-15. Spec:
+`docs/specs/2026-08-15-web-360-design.md`. Code: `src/w360/`, styled by
+`src/w360/w360.css` (Bloom tokens only — no colour literals).
+
+Record-first rather than record-type-first: one faceted **Properties** list
+covers parcels and built property alike, and every record opens a 360 with six
+hangers.
+
+| Route | Screen |
+| --- | --- |
+| `/app` | W01 · dashboard — portfolio, what's waiting, where the value sits |
+| `/app/properties` | W02 · faceted list; the filter lives in the URL |
+| `/app/map` | W06 · find by map |
+| `/app/records/:id` | W03 · the 360, Papers hanger |
+| `…/features` `…/people` `…/services` `…/money` `…/expenses` `…/history` | W07 · W08 · services · W10 · W11+W12 · history |
+| `…/map` | W04 · boundary marks |
+| `…/photos` (+ `?feature=`) | W05 gallery · W14 provenance |
+| `/app/papers` · `/app/papers/:id` | W15 · the vault · W13 · the reader |
+| `/app/shared` | W09 · someone else's kit, never in your totals |
+
+Eight sections the handover did not draw (groups, invitations, notifications,
+wallet, tools, audit, admin, profile) render a short page naming what they are
+for and linking to the working `/legacy/*` screen. Old `/app` URLs
+(`/app/parcels`, `/app/documents`, `/app/passbooks`) redirect into the new
+vocabulary.
+
+### Seeing the demo data
+
+```sh
+.local/api-venv/bin/python scripts/seed-web360.py w360-demo    # the 9 drawn records
+.local/api-venv/bin/python scripts/seed-demo-data.py w360-demo # fill the rest
+bun run dev:demo          # :5175, injects x-user-id: w360-demo
+```
+
+To see your OWN records with the screens fully populated, and to undo it:
+
+```sh
+.local/api-venv/bin/python scripts/seed-demo-data.py shankarreddy.t
+.local/api-venv/bin/python scripts/seed-demo-data.py --purge shankarreddy.t
+```
+
+The filler is entirely removable — `demo-` ids plus a `demo_stamp` table that
+records which empty base fields were filled, so `--purge` puts the records back
+exactly as they were.
+
+`bun run dev` (:5173, the founder's own records) is unchanged. The seed writes
+to a dedicated `w360-demo` identity precisely so it cannot bury the 30 real
+parcels under `shankarreddy.t`.
+
+End-to-end gate: `tests/e2e-web360` — 59 tests against the built bundle on
+:5175 and its own API on :18080. `specs/screens.spec.ts` holds the W01–W15
+figures to the mock; `specs/crud.spec.ts` walks a record through add → edit
+→ archive → order → tag → delete on the Properties screen and checks the
+list view's sorting, select-all and CSV export — including the keyboard
+path through the kebab menus and the sort headings.
 
 ## Auth (native Cognito SRP + social-only redirect)
 

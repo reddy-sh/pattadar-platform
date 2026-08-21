@@ -41,6 +41,11 @@ locals {
 
   persistent = data.terraform_remote_state.persistent.outputs
 
+  # The web ECR repo lands with the D4 web-migration cutover; until an env's
+  # persistent layer has it, the web task definition/service must not even
+  # EVALUATE (the repo-URL index would fail every plan and destroy).
+  web_enabled = contains(keys(local.persistent.ecr_repository_urls), "web")
+
   # The persistent zone id is null when this env's persistent layer runs with
   # manage_dns = false (shared-account dev). In that case pass the owning
   # env's zone id explicitly via var.route53_zone_id.

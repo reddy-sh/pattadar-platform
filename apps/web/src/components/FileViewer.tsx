@@ -155,7 +155,7 @@ export function FileViewerHost() {
         if (e.key === 'ArrowRight') step(1);
         if (e.key === 'ArrowLeft') step(-1);
       }}
-      slotProps={{ paper: { sx: { bgcolor: '#141414', color: '#fff' } } }}
+      slotProps={{ paper: { sx: { bgcolor: 'var(--color-paper)', color: 'var(--color-ink)' } } }}
     >
       {/* Top bar — filename, counter, Download, close. */}
       <Box
@@ -165,7 +165,7 @@ export function FileViewerHost() {
           gap: 1,
           px: 2,
           py: 1,
-          borderBottom: '1px solid rgba(255,255,255,0.12)',
+          borderBottom: '1px solid var(--color-rule)',
           flexShrink: 0,
         }}
       >
@@ -182,12 +182,12 @@ export function FileViewerHost() {
           startIcon={<FileDownloadOutlinedIcon />}
           onClick={download}
           disabled={cur.state !== 'ready'}
-          sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.4)', flexShrink: 0 }}
+          sx={{ color: 'var(--color-ink)', borderColor: 'var(--color-rule-strong)', flexShrink: 0 }}
           variant="outlined"
         >
           Download
         </Button>
-        <IconButton onClick={close} aria-label="Close viewer" sx={{ color: '#fff', flexShrink: 0 }}>
+        <IconButton onClick={close} aria-label="Close viewer" sx={{ color: 'var(--color-ink)', flexShrink: 0 }}>
           <CloseIcon />
         </IconButton>
       </Box>
@@ -204,7 +204,7 @@ export function FileViewerHost() {
           overflow: 'hidden',
         }}
       >
-        {cur.state === 'loading' && <CircularProgress sx={{ color: '#fff' }} aria-label="Loading file" />}
+        {cur.state === 'loading' && <CircularProgress sx={{ color: 'var(--color-ink)' }} aria-label="Loading file" />}
         {cur.state === 'error' && (
           <Box sx={{ textAlign: 'center', px: 3 }}>
             <Typography sx={{ fontSize: 40 }}>⚠️</Typography>
@@ -222,6 +222,8 @@ export function FileViewerHost() {
             sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
           />
         )}
+        {/* White stays: a PDF page IS white, and tinting the frame behind it
+            would show as a halo around the document. */}
         {cur.state === 'ready' && cur.kind === 'pdf' && (
           <Box component="iframe" title={name} src={cur.url} sx={{ border: 0, width: '100%', height: '100%', bgcolor: '#fff' }} />
         )}
@@ -240,6 +242,8 @@ export function FileViewerHost() {
             </Button>
           </Box>
         )}
+        {/* Neutral white-on-scrim: these float over arbitrary user media, so a
+            palette tint would fight whatever photo is underneath. */}
         {many && (
           <>
             <IconButton

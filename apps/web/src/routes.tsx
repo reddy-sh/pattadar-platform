@@ -52,7 +52,32 @@ const ForgotPasswordPage = lazy(() =>
 );
 const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ default: m.VerifyPage })));
 
-// App shell + pages: loaded only after sign-in.
+// Record-360 app (screens W01–W15) — the current design, mounted at /app.
+// Its data model and API contract are docs/specs/2026-08-15-web-360-design.md.
+const W360Shell = lazy(() => import('./w360/Shell').then((m) => ({ default: m.Shell })));
+const W360Dashboard = lazy(() => import('./w360/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
+const W360Properties = lazy(() => import('./w360/pages/Properties').then((m) => ({ default: m.Properties })));
+const W360MapFind = lazy(() => import('./w360/pages/MapFind').then((m) => ({ default: m.MapFind })));
+const W360Record = lazy(() => import('./w360/pages/Record').then((m) => ({ default: m.Record })));
+const W360Papers = lazy(() => import('./w360/pages/RecordPapers').then((m) => ({ default: m.RecordPapers })));
+const W360Features = lazy(() => import('./w360/pages/RecordFeatures').then((m) => ({ default: m.RecordFeatures })));
+const W360People = lazy(() => import('./w360/pages/RecordPeople').then((m) => ({ default: m.RecordPeople })));
+const W360Money = lazy(() => import('./w360/pages/RecordMoney').then((m) => ({ default: m.RecordMoney })));
+const W360Expenses = lazy(() => import('./w360/pages/RecordExpenses').then((m) => ({ default: m.RecordExpenses })));
+const W360Boundary = lazy(() => import('./w360/pages/RecordBoundary').then((m) => ({ default: m.RecordBoundary })));
+const W360Photos = lazy(() => import('./w360/pages/RecordPhotos').then((m) => ({ default: m.RecordPhotos })));
+const W360Vault = lazy(() => import('./w360/pages/Vault').then((m) => ({ default: m.Vault })));
+const W360Reader = lazy(() => import('./w360/pages/Reader').then((m) => ({ default: m.Reader })));
+const W360Shared = lazy(() => import('./w360/pages/Shared').then((m) => ({ default: m.Shared })));
+const W360RecordServices = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.RecordServices })));
+const W360RecordHistory = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.RecordHistory })));
+const W360Assigned = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.Assigned })));
+const W360Services = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.Services })));
+const W360Section = lazy(() => import('./w360/pages/Section').then((m) => ({ default: m.Section })));
+
+// Previous app shell + pages. Still routed, under /legacy, for the sections the
+// W01–W15 handover did not redraw (groups, invitations, wallet, tools, audit,
+// admin, profile) — nothing that worked has been deleted.
 const AppShell = lazy(() => import('./layout/AppShell').then((m) => ({ default: m.AppShell })));
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
@@ -111,6 +136,20 @@ function suspended(Component: LazyExoticComponent<ComponentType>) {
   );
 }
 
+/** Same as `suspended`, for a lazy component that takes props (the shared
+ *  Section page, which is told which section it is rendering). */
+function suspendedWith<P extends object>(Component: LazyExoticComponent<ComponentType<P>>, props: P) {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Component {...props} />
+    </Suspense>
+  );
+}
+
+/** The eight sections the W01–W15 handover did not draw. Each renders the
+ *  shared Section page and links to its still-working /legacy screen. */
+const UNDRAWN = ['groups', 'invitations', 'notifications', 'wallet', 'tools', 'audit', 'admin', 'profile'] as const;
+
 export const router = createBrowserRouter([
   { path: '/', element: suspended(LandingPage) },
   { path: '/login', element: suspended(LoginPage) },
@@ -122,7 +161,46 @@ export const router = createBrowserRouter([
   { path: '/verify/:token', element: suspended(VerifyPage) },
   { path: '/active/:token', element: suspended(VerifyPage) },
   {
+    // The current design (W01–W15). Record-first: one faceted Properties list,
+    // and every record opens a 360 with six hangers.
     path: '/app',
+    element: <RequireAuth>{suspended(W360Shell)}</RequireAuth>,
+    children: [
+      { index: true, element: suspended(W360Dashboard) },
+      { path: 'properties', element: suspended(W360Properties) },
+      { path: 'map', element: suspended(W360MapFind) },
+      { path: 'shared', element: suspended(W360Shared) },
+      { path: 'assigned', element: suspended(W360Assigned) },
+      { path: 'services', element: suspended(W360Services) },
+      { path: 'papers', element: suspended(W360Vault) },
+      { path: 'papers/:id', element: suspended(W360Reader) },
+      {
+        path: 'records/:id',
+        element: suspended(W360Record),
+        children: [
+          { index: true, element: suspended(W360Papers) },
+          { path: 'features', element: suspended(W360Features) },
+          { path: 'people', element: suspended(W360People) },
+          { path: 'services', element: suspended(W360RecordServices) },
+          { path: 'money', element: suspended(W360Money) },
+          { path: 'expenses', element: suspended(W360Expenses) },
+          { path: 'history', element: suspended(W360RecordHistory) },
+          { path: 'map', element: suspended(W360Boundary) },
+          { path: 'photos', element: suspended(W360Photos) },
+        ],
+      },
+      ...UNDRAWN.map((id) => ({ path: id, element: suspendedWith(W360Section, { id }) })),
+      // The old vocabulary still resolves: a bookmarked parcel or document URL
+      // lands on the same thing under its new name.
+      { path: 'parcels', element: <Navigate to="/app/properties?kind=parcel" replace /> },
+      { path: 'parcels/:id', element: <Navigate to="/app/properties" replace /> },
+      { path: 'documents', element: <Navigate to="/app/papers" replace /> },
+      { path: 'passbooks', element: <Navigate to="/app/properties?kind=parcel" replace /> },
+    ],
+  },
+  {
+    // The previous app, intact. Reachable for the sections not yet redrawn.
+    path: '/legacy',
     element: <RequireAuth>{suspended(AppShell)}</RequireAuth>,
     children: [
       { index: true, element: suspended(DashboardPage) },
@@ -140,13 +218,13 @@ export const router = createBrowserRouter([
       { path: 'audit', element: suspended(AuditLogPage) },
       { path: 'admin', element: suspended(AdminRefDataPage) },
       { path: 'profile', element: suspended(ProfilePage) },
-      // Legacy routes → the new structure (kept working, like the rhub app).
-      { path: 'properties', element: <Navigate to="/app/parcels?tab=properties" replace /> },
-      { path: 'deeds', element: <Navigate to="/app/documents" replace /> },
-      { path: 'sro', element: <Navigate to="/app/tools?tab=sro" replace /> },
-      { path: 'stamp-duty', element: <Navigate to="/app/tools?tab=stamp-duty" replace /> },
-      { path: 'market-value', element: <Navigate to="/app/tools?tab=market-value" replace /> },
-      { path: 'calculator', element: <Navigate to="/app/tools?tab=calculator" replace /> },
+      // Within the legacy app, its own older aliases still resolve.
+      { path: 'properties', element: <Navigate to="/legacy/parcels?tab=properties" replace /> },
+      { path: 'deeds', element: <Navigate to="/legacy/documents" replace /> },
+      { path: 'sro', element: <Navigate to="/legacy/tools?tab=sro" replace /> },
+      { path: 'stamp-duty', element: <Navigate to="/legacy/tools?tab=stamp-duty" replace /> },
+      { path: 'market-value', element: <Navigate to="/legacy/tools?tab=market-value" replace /> },
+      { path: 'calculator', element: <Navigate to="/legacy/tools?tab=calculator" replace /> },
     ],
   },
 ]);

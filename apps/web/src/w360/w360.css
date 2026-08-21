@@ -1,0 +1,1052 @@
+/* Hallmark · Bloom, applied to the record-360 app surface (screens W01–W15).
+ *
+ * Every colour here resolves through a token in styles/tokens.css — design.md's
+ * app-surface rule: "No colour literals in app code." Surfaces separate with a
+ * 1px rule, never a shadow; the only elevation is on things that genuinely
+ * float (the hover card, the drawer).
+ *
+ * Scope: `.w360`. The screens are drawn dark, but light is a first-class
+ * scheme — `.w360[data-scheme='light']` restates the same slots with the
+ * warm-tinted light values design.md derives, so the header toggle works.
+ */
+
+/* Border-box throughout: several elements here are given an explicit width
+   (the jump box, the filter rail) and then padded. Under content-box those
+   widths overflow their container on a phone. */
+.w360, .w360 *, .w360 *::before, .w360 *::after { box-sizing: border-box; }
+
+.w360 {
+  --w-bg: var(--color-paper);
+  --w-surface: var(--color-paper-2);
+  --w-surface-2: var(--color-paper-3);
+  --w-line: var(--color-rule);
+  --w-line-strong: var(--color-rule-strong);
+  --w-ink: var(--color-ink);
+  --w-ink-2: var(--color-ink-2);
+  --w-ink-3: var(--color-ink-3);
+  --w-accent: var(--color-accent);
+  --w-accent-ink: var(--color-accent-ink);
+  --w-accent-wash: color-mix(in oklab, var(--color-accent) 14%, transparent);
+  --w-danger: var(--color-error);
+  --w-danger-wash: color-mix(in oklab, var(--color-error) 12%, transparent);
+  --w-ok: var(--color-success);
+  --w-warn: oklch(80% 0.140 75);
+  --w-info: oklch(76% 0.070 230);
+  --w-rail: 15rem;
+
+  background: var(--w-bg);
+  color: var(--w-ink);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.w360[data-scheme='light'] {
+  --w-bg: #f9f6f2;
+  --w-surface: #fdfcf9;
+  --w-surface-2: #f2ece5;
+  --w-line: #e3ddd8;
+  --w-line-strong: #cbc2ba;
+  --w-ink: #261d1a;
+  --w-ink-2: #615956;
+  --w-ink-3: #7d736e;
+  --w-accent: #aa5910;
+  --w-accent-ink: #fffaf4;
+  --w-danger: #be222a;
+  --w-ok: #27762f;
+  --w-warn: #905d00;
+  --w-info: #3d6a7f;
+}
+
+/* ── Type roles ─────────────────────────────────────────────────────── */
+
+/* A mono eyebrow always sits on its own line, whether it was written as a <p>
+   or a <span> — inline, it ran into the value underneath it. `.row` and other
+   layout classes are declared later and still win where one is applied. */
+.w360 .eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+  margin: 0 0 var(--space-xs);
+}
+
+.w360 h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.9rem, 2.6vw + 0.6rem, 2.75rem);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.w360 h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.1875rem;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.w360 h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.w360 .lede { color: var(--w-ink-2); font-size: 0.9375rem; line-height: 1.5; margin: 0; }
+.w360 .muted { color: var(--w-ink-3); }
+.w360 .note { color: var(--w-ink-3); font-size: 0.8125rem; line-height: 1.5; }
+.w360 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.w360 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.w360 .accent { color: var(--w-accent); }
+.w360 .up { color: var(--w-ok); }
+.w360 .down { color: var(--w-danger); }
+
+/* ── Shell ──────────────────────────────────────────────────────────── */
+
+.w360 .topbar {
+  display: grid;
+  grid-template-columns: var(--w-rail) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--w-line);
+  background: var(--w-bg);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.w360 .brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: -0.02em;
+  color: var(--w-ink);
+  text-decoration: none;
+}
+.w360 .brand span { color: var(--w-accent); }
+
+.w360 .jump { position: relative; justify-self: center; width: min(36rem, 100%); min-width: 0; }
+.w360 .jump .search { width: 100%; }
+
+/* Results float under the box — the one other thing allowed to float is the
+   drawer, and both are things that genuinely sit above the page. */
+.w360 .jump-results {
+  position: absolute;
+  top: calc(100% + 0.375rem);
+  left: 0;
+  right: 0;
+  background: var(--w-bg);
+  border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1.5rem 3rem -1rem rgb(0 0 0 / 0.55);
+  z-index: 50;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.w360 .jump-results .hit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  text-align: left;
+  padding: 0.5625rem 0.875rem;
+  border: 0;
+  border-bottom: 1px solid var(--w-line);
+  background: none;
+  color: var(--w-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.w360 .jump-results .hit:last-of-type { border-bottom: 0; }
+.w360 .jump-results .hit.active { background: var(--w-surface); }
+
+.w360 .search {
+  justify-self: center;
+  width: min(36rem, 100%);
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-pill);
+  background: var(--w-surface);
+  color: var(--w-ink-3);
+}
+.w360 .search input {
+  flex: 1;
+  border: 0;
+  background: none;
+  color: var(--w-ink);
+  font: inherit;
+  font-size: 0.875rem;
+  outline: none;
+  min-width: 0;
+}
+.w360 .search kbd {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-xs);
+  color: var(--w-ink-3);
+}
+
+.w360 .topbar-right { display: flex; align-items: center; gap: var(--space-xs); }
+
+/* The hamburger lives at every width: it collapses the rail at desktop and
+   slides the drawer on a phone. */
+.w360 .nav-scrim {
+  display: none;
+  position: fixed;
+  inset: 3.5rem 0 0 0;
+  background: rgb(0 0 0 / 0.45);
+  border: 0;
+  z-index: 39;
+}
+
+.w360 .lang {
+  display: flex;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.w360 .lang button {
+  border: 0;
+  background: none;
+  color: var(--w-ink-3);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.3125rem 0.75rem;
+  cursor: pointer;
+}
+.w360 .lang button[aria-pressed='true'] {
+  background: var(--w-accent-wash);
+  color: var(--w-accent);
+  font-weight: 600;
+}
+
+.w360 .iconbtn {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--w-ink-2);
+  cursor: pointer;
+}
+.w360 .iconbtn:hover { background: var(--w-surface-2); color: var(--w-ink); }
+
+.w360 .avatar {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-pill);
+  background: var(--w-surface-2);
+  border: 1px solid var(--w-line);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.w360 .body { display: grid; grid-template-columns: var(--w-rail) minmax(0, 1fr); }
+
+/* Rail collapsed at desktop: it narrows to its icons rather than vanishing —
+   every section stays one click away, named by its tooltip. Counts shrink to
+   corner badges. Scoped above the drawer breakpoint so the phone keeps its
+   drawer. */
+@media (min-width: 901px) {
+  .w360[data-rail='hidden'] .body { grid-template-columns: 4rem minmax(0, 1fr); }
+  .w360[data-rail='hidden'] .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .w360[data-rail='hidden'] .nav { padding: var(--space-md) 0.5rem; }
+  .w360[data-rail='hidden'] .nav a { justify-content: center; gap: 0; padding: 0.5625rem; }
+  .w360[data-rail='hidden'] .nav .lbl { display: none; }
+  .w360[data-rail='hidden'] .nav .count {
+    position: absolute;
+    top: 0.125rem;
+    right: 0.125rem;
+    margin: 0;
+    font-size: 0.5625rem;
+    padding: 0.0625rem 0.3125rem;
+  }
+  .w360[data-rail='hidden'] .nav .dot {
+    position: absolute;
+    top: 0.375rem;
+    right: 0.375rem;
+    margin: 0;
+  }
+}
+
+.w360 .nav {
+  border-right: 1px solid var(--w-line);
+  padding: var(--space-md) var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  align-content: start;
+  position: sticky;
+  top: 3.5rem;
+  height: calc(100vh - 3.5rem);
+  overflow-y: auto;
+}
+
+.w360 .nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6875rem;
+  padding: 0.5625rem 0.75rem;
+  border-radius: var(--radius-md);
+  color: var(--w-ink-2);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.w360 .nav a:hover { background: var(--w-surface); color: var(--w-ink); }
+.w360 .nav a[aria-current='page'] {
+  background: var(--w-accent-wash);
+  color: var(--w-accent);
+  border-color: color-mix(in oklab, var(--w-accent) 28%, transparent);
+  font-weight: 600;
+}
+.w360 .nav .count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  padding: 0.0625rem 0.4375rem;
+  border-radius: var(--radius-pill);
+  background: var(--w-surface-2);
+  color: var(--w-ink-2);
+}
+.w360 .nav .dot {
+  margin-left: auto;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: var(--radius-pill);
+  background: var(--w-accent);
+}
+
+/* A column, so the page's last region can claim the height left over. Without
+   this the two-column record body sized itself to its content and stopped
+   two-thirds down a tall window, leaving the right rail hanging in dead space. */
+.w360 main {
+  padding: var(--space-lg) var(--space-xl) var(--space-3xl);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.w360 main.flush { padding: 0; }
+.w360 main > .split,
+.w360 main > .two { flex: 1 1 auto; }
+
+/* ── Page head ──────────────────────────────────────────────────────── */
+
+.w360 .pagehead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+.w360 .pagehead .grow { flex: 1 1 20rem; min-width: 0; }
+/* On a wide page the actions hold their size; on a phone three buttons are
+   wider than the screen, so below the breakpoint they wrap onto their own row
+   instead of pushing the document sideways. */
+.w360 .pagehead .actions { display: flex; gap: var(--space-xs); flex-shrink: 0; flex-wrap: wrap; }
+
+@media (max-width: 700px) {
+  .w360 .pagehead .actions { flex: 1 1 100%; flex-shrink: 1; }
+}
+
+.w360 .crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  font-size: 0.8125rem;
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+}
+.w360 .crumbs a { color: var(--w-accent); text-decoration: none; }
+.w360 .crumbs a:hover { text-decoration: underline; }
+.w360 .crumbs span { color: var(--w-ink-3); }
+.w360 .crumbs .sep { color: var(--w-ink-3); opacity: 0.6; }
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+
+.w360 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--w-line-strong);
+  background: none;
+  color: var(--w-ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out);
+}
+.w360 .btn:hover { border-color: var(--w-ink-3); }
+.w360 .btn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.w360 .btn.primary { background: var(--w-accent); color: var(--w-accent-ink); border-color: var(--w-accent); }
+.w360 .btn.primary:hover { filter: brightness(1.06); }
+.w360 .btn.soft { background: var(--w-accent-wash); color: var(--w-accent); border-color: transparent; }
+.w360 .btn.danger { color: var(--w-danger); border-color: color-mix(in oklab, var(--w-danger) 40%, transparent); }
+.w360 .btn.danger:hover { background: var(--w-danger-wash); }
+.w360 .btn.sm { padding: 0.3125rem 0.6875rem; font-size: 0.75rem; }
+.w360 .btn.icon { padding: 0.4375rem; }
+
+/* ── Chips ──────────────────────────────────────────────────────────── */
+
+.w360 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--w-line);
+  background: none;
+  color: var(--w-ink-2);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.w360 .chip:hover { border-color: var(--w-line-strong); color: var(--w-ink); }
+.w360 .chip[aria-pressed='true'],
+.w360 .chip.on {
+  background: var(--w-accent);
+  border-color: var(--w-accent);
+  color: var(--w-accent-ink);
+  font-weight: 600;
+}
+.w360 .chip.wash[aria-pressed='true'] {
+  background: var(--w-accent-wash);
+  border-color: color-mix(in oklab, var(--w-accent) 30%, transparent);
+  color: var(--w-accent);
+}
+.w360 .chip .n { font-family: var(--font-mono); opacity: 0.8; }
+.w360 .chip.static { cursor: default; }
+.w360 .chip.alert { color: var(--w-danger); border-color: color-mix(in oklab, var(--w-danger) 35%, transparent); }
+.w360 .chip.alert[aria-pressed='true'] { background: var(--w-danger); border-color: var(--w-danger); color: var(--w-bg); }
+
+/* A tag the owner wrote — always amber-washed, never a plain outline, so
+   "my tag" and "the system's classification" never look alike. */
+.w360 .tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1875rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--w-accent-wash);
+  color: var(--w-accent);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+.w360 .tag.alert { background: var(--w-danger-wash); color: var(--w-danger); }
+
+.w360 .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.1875rem 0.5625rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: var(--w-surface-2);
+  color: var(--w-ink-2);
+}
+.w360 .pill.for_sale { background: color-mix(in oklab, var(--w-info) 22%, transparent); color: var(--w-info); }
+.w360 .pill.managed { background: var(--w-accent-wash); color: var(--w-accent); }
+.w360 .pill.disputed { background: var(--w-danger-wash); color: var(--w-danger); }
+.w360 .pill.owned { background: color-mix(in oklab, var(--w-ok) 20%, transparent); color: var(--w-ok); }
+.w360 .pill.agri { background: color-mix(in oklab, var(--w-ok) 18%, transparent); color: var(--w-ok); }
+.w360 .pill.flat,
+.w360 .pill.open_plot { background: color-mix(in oklab, var(--w-info) 20%, transparent); color: var(--w-info); }
+.w360 .pill.shop { background: var(--w-danger-wash); color: var(--w-danger); }
+/* Archived is a shelf, not a state of alarm — it reads in quiet ink. */
+.w360 .pill.archived { background: var(--w-surface-2); color: var(--w-ink-3); }
+
+/* A state dot + word: "Working", "Yield dropped". */
+.w360 .state { display: inline-flex; align-items: center; gap: 0.4375rem; font-size: 0.8125rem; font-weight: 500; }
+.w360 .state::before { content: ''; width: 0.4375rem; height: 0.4375rem; border-radius: var(--radius-pill); background: currentColor; }
+.w360 .state.good { color: var(--w-ok); }
+.w360 .state.warn { color: var(--w-warn); }
+.w360 .state.bad { color: var(--w-danger); }
+
+/* ── Cards + rules ──────────────────────────────────────────────────── */
+
+.w360 .card {
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: var(--w-surface);
+  padding: var(--space-md);
+}
+.w360 .card.pad-lg { padding: var(--space-lg); }
+.w360 .card.flat { background: none; }
+.w360 .card.dashed { border-style: dashed; background: none; }
+.w360 .card.alert { border-color: color-mix(in oklab, var(--w-danger) 35%, transparent); background: var(--w-danger-wash); }
+.w360 .card.accent { border-color: color-mix(in oklab, var(--w-accent) 35%, transparent); }
+
+.w360 .cardhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+.w360 .cardhead .link { color: var(--w-accent); font-size: 0.8125rem; text-decoration: none; }
+
+.w360 .hr { height: 1px; background: var(--w-line); border: 0; margin: var(--space-md) 0; }
+
+/* ── Stat strip ─────────────────────────────────────────────────────── */
+
+.w360 .strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: var(--w-surface);
+  overflow: hidden;
+}
+.w360 .strip > * { padding: var(--space-md) var(--space-md); border-left: 1px solid var(--w-line); min-width: 0; }
+.w360 .strip > *:first-child { border-left: 0; }
+.w360 .strip .k {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+  display: block;
+  margin-bottom: 0.4375rem;
+}
+.w360 .strip .v {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  display: block;
+}
+.w360 .strip .v small { font-size: 0.9375rem; font-weight: 400; }
+.w360 .strip .s {
+  display: block;
+  margin-top: 0.3125rem;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  color: var(--w-ink-3);
+  line-height: 1.4;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+
+.w360 .tabs {
+  display: flex;
+  gap: var(--space-lg);
+  border-bottom: 1px solid var(--w-line);
+  margin-bottom: var(--space-md);
+  overflow-x: auto;
+}
+.w360 .tabs a, .w360 .tabs button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--w-ink-2);
+  padding: 0 0 0.6875rem;
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.w360 .tabs a:hover, .w360 .tabs button:hover { color: var(--w-ink); }
+.w360 .tabs [aria-current='page'], .w360 .tabs [aria-selected='true'] {
+  color: var(--w-accent);
+  border-bottom-color: var(--w-accent);
+  font-weight: 600;
+}
+.w360 .tabs .n { font-family: var(--font-mono); font-size: 0.8125rem; margin-left: 0.3125rem; opacity: 0.85; }
+
+/* Segmented control — FMB sketch | Satellite | Both */
+.w360 .segmented { display: inline-flex; border: 1px solid var(--w-line); border-radius: var(--radius-pill); padding: 0.1875rem; }
+.w360 .segmented button {
+  border: 0; background: none; font: inherit; font-size: 0.8125rem;
+  color: var(--w-ink-2); padding: 0.3125rem 0.875rem; border-radius: var(--radius-pill); cursor: pointer;
+}
+.w360 .segmented button[aria-pressed='true'] { background: var(--w-accent-wash); color: var(--w-accent); font-weight: 600; }
+
+/* ── Layout helpers ─────────────────────────────────────────────────── */
+
+.w360 .row { display: flex; align-items: center; gap: var(--space-xs); flex-wrap: wrap; }
+.w360 .row.tight { gap: 0.375rem; }
+.w360 .row.between { justify-content: space-between; }
+/* `minmax(0, 1fr)`, never a bare auto track — design.md's rule. A single-column
+   grid whose track is `auto` floors at its widest child, so one non-shrinking
+   thing inside (the money table) scrolls the whole page sideways. */
+.w360 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); align-content: start; }
+.w360 .stack.sm { gap: var(--space-xs); }
+.w360 .stack.lg { gap: var(--space-lg); }
+.w360 .split { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-lg); align-items: stretch; }
+.w360 .two { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: var(--space-lg); align-items: stretch; }
+.w360 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); }
+.w360 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-md); }
+.w360 .grow { flex: 1; min-width: 0; }
+.w360 .right { text-align: right; }
+.w360 .sec { margin-top: var(--space-xl); }
+
+@media (max-width: 1200px) {
+  .w360 .split, .w360 .two { grid-template-columns: minmax(0, 1fr); }
+  .w360 .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .w360 .body { grid-template-columns: minmax(0, 1fr); }
+  /* The rail becomes an off-canvas drawer the hamburger slides in. It used to
+     be display:none with no way back — a phone had no navigation at all. */
+  .w360 .nav {
+    position: fixed;
+    top: 3.5rem;
+    bottom: 0;
+    left: 0;
+    height: auto;
+    width: min(17rem, 85vw);
+    background: var(--w-bg);
+    z-index: 40;
+    transform: translateX(-105%);
+    transition: transform var(--dur-base) var(--ease-out);
+  }
+  .w360 .nav.open { transform: none; }
+  .w360 .nav-scrim { display: block; }
+  .w360 .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  /* The keyboard hint means nothing to a thumb. */
+  .w360 .search kbd { display: none; }
+  .w360 .grid3, .w360 .grid4 { grid-template-columns: minmax(0, 1fr); }
+  .w360 main { padding: var(--space-md); }
+  .w360 .strip { grid-auto-flow: row; grid-auto-columns: auto; }
+  .w360 .strip > * { border-left: 0; border-top: 1px solid var(--w-line); }
+  .w360 .strip > *:first-child { border-top: 0; }
+}
+
+/* On a phone the topbar keeps hamburger, brand, search and account; the
+   language toggle and assistant move behind the drawer-sized breakpoint —
+   with them the bar was 411px wide on a 390px screen. */
+@media (max-width: 640px) {
+  .w360 .topbar { padding: var(--space-sm) var(--space-md); gap: var(--space-xs); }
+  .w360 .lang, .w360 .assistant-btn { display: none; }
+}
+
+/* ── Record cards (W02) ─────────────────────────────────────────────── */
+
+/* Wide enough that a record's extent, its alternate unit and its worth all sit
+   on one line — the card's whole job. Narrower tracks wrapped that row. */
+.w360 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--space-md); }
+
+.w360 .rec {
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: var(--w-surface);
+  /* Not overflow:hidden — the card's kebab opens a menu that must escape it.
+     The art clips its own top corners instead. */
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.w360 .rec:hover { transform: translateY(-2px); border-color: var(--w-line-strong); }
+.w360 .rec.selected { border-color: var(--w-accent); }
+.w360 .rec .art {
+  height: 6.5rem;
+  display: grid;
+  place-items: center;
+  position: relative;
+  border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
+  background: linear-gradient(155deg,
+    color-mix(in oklab, var(--w-accent) 16%, var(--w-surface-2)),
+    var(--w-surface-2));
+  color: color-mix(in oklab, var(--w-accent) 55%, transparent);
+}
+.w360 .rec .art.built {
+  background: linear-gradient(155deg,
+    color-mix(in oklab, var(--w-info) 16%, var(--w-surface-2)), var(--w-surface-2));
+  color: color-mix(in oklab, var(--w-info) 55%, transparent);
+}
+.w360 .rec .art.shop {
+  background: linear-gradient(155deg,
+    color-mix(in oklab, var(--w-danger) 16%, var(--w-surface-2)), var(--w-surface-2));
+  color: color-mix(in oklab, var(--w-danger) 50%, transparent);
+}
+.w360 .rec .art .badges { position: absolute; top: 0.5rem; left: 0.5rem; display: flex; gap: 0.3125rem; align-items: center; }
+.w360 .rec .art .more { position: absolute; top: 0.25rem; right: 0.25rem; }
+
+/* The card's checkbox: invisible until the pointer is over the card or a
+   selection is under way, so the resting grid stays exactly the mock. */
+.w360 .rec .sel { display: flex; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.w360 .rec:hover .sel,
+.w360 .rec.selected .sel,
+.w360 .cards.selecting .sel,
+.w360 .rec .sel:has(input:focus-visible) { opacity: 1; }
+.w360 .rec .sel input { accent-color: var(--w-accent); width: 1rem; height: 1rem; margin: 0; cursor: pointer; }
+.w360 .rec .meat { padding: var(--space-sm) var(--space-md) var(--space-md); }
+.w360 .rec .figure {
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────── */
+
+/* A ledger has seven columns and will not shrink below its content. It scrolls
+   inside its own card rather than taking the page sideways with it. */
+.w360 .scroll-x { overflow-x: auto; }
+.w360 table { width: 100%; border-collapse: collapse; }
+.w360 thead th {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+  font-weight: 400;
+  text-align: left;
+  padding: 0 var(--space-sm) var(--space-xs);
+  border-bottom: 1px solid var(--w-line);
+  white-space: nowrap;
+}
+.w360 tbody td { padding: var(--space-sm); border-bottom: 1px solid var(--w-line); font-size: 0.8125rem; vertical-align: middle; }
+.w360 tbody tr:last-child td { border-bottom: 0; }
+
+/* The records list (W02's list view). Its header is a band, not floating
+   letters: a washed row with a firm rule under it, and every column heading is
+   a sort control. */
+.w360 .rectable thead th {
+  background: var(--w-surface-2);
+  padding: 0.5625rem var(--space-sm);
+  border-bottom: 1px solid var(--w-line-strong);
+}
+.w360 .rectable thead th:first-child { border-top-left-radius: calc(var(--radius-md) - 1px); }
+.w360 .rectable thead th:last-child { border-top-right-radius: calc(var(--radius-md) - 1px); }
+.w360 .rectable tbody tr:hover td { background: color-mix(in oklab, var(--w-accent) 4%, transparent); }
+.w360 .rectable tbody tr.selected td { background: var(--w-accent-wash); }
+.w360 .rectable .selcol { width: 2.25rem; text-align: center; padding-right: 0; }
+.w360 .rectable .selcol input { accent-color: var(--w-accent); width: 0.9375rem; height: 0.9375rem; margin: 0; cursor: pointer; vertical-align: middle; }
+.w360 .rectable .menucol { width: 2.5rem; text-align: right; padding: 0 0.25rem; }
+.w360 .sortbtn {
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0.25rem;
+}
+.w360 .sortbtn:hover { color: var(--w-ink); }
+.w360 .sortbtn .arrow { font-size: 0.5rem; width: 0.625rem; }
+.w360 thead th[aria-sort] .sortbtn { color: var(--w-accent); }
+.w360 thead th.right .sortbtn { width: 100%; justify-content: flex-end; }
+.w360 tbody tr.total td { background: var(--w-accent-wash); font-weight: 500; }
+.w360 tbody tr.income td { background: color-mix(in oklab, var(--w-ok) 8%, transparent); }
+.w360 tbody tr.flagged td { background: color-mix(in oklab, var(--w-accent) 7%, transparent); }
+
+/* A hairline-ruled list — the timetable row from the marketing pages,
+   reused wherever the app lists things that are read, not clicked. */
+.w360 .rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* A row carries an icon, a title block, a status and one or two actions. On a
+   laptop that is one line; on a phone the actions wrap under the title rather
+   than pushing the page sideways. */
+.w360 .rows > * {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--w-line);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.w360 .rows > * > .grow { min-width: 0; }
+.w360 .rows > *:last-child { border-bottom: 0; }
+.w360 .rows.boxed > * { padding: var(--space-sm) var(--space-md); }
+
+/* ── Bars (W01 "Where the value sits") ──────────────────────────────── */
+
+.w360 .bars { display: grid; gap: 0.5625rem; }
+.w360 .bar { display: grid; grid-template-columns: 8rem minmax(0, 1fr) 5.5rem; gap: var(--space-sm); align-items: center; font-size: 0.8125rem; }
+.w360 .bar .track { height: 0.625rem; border-radius: var(--radius-xs); background: var(--w-surface-2); overflow: hidden; }
+/* `display: block` is load-bearing: the fill is a <span>, and an inline box
+   ignores height, so without this every bar renders as an empty track. */
+.w360 .bar .fill { display: block; height: 100%; background: var(--w-accent); border-radius: var(--radius-xs); }
+
+/* ── Filter rail (W02) ──────────────────────────────────────────────── */
+
+.w360 .withrail { display: grid; grid-template-columns: 14rem minmax(0, 1fr); }
+.w360 .filters {
+  border-right: 1px solid var(--w-line);
+  padding: var(--space-lg) var(--space-md);
+  display: grid;
+  gap: var(--space-lg);
+  align-content: start;
+  position: sticky;
+  top: 3.5rem;
+  max-height: calc(100vh - 3.5rem);
+  overflow-y: auto;
+}
+.w360 .filters .grp { display: grid; gap: 0.4375rem; }
+.w360 .check {
+  display: flex;
+  align-items: center;
+  gap: 0.5625rem;
+  font-size: 0.8125rem;
+  color: var(--w-ink-2);
+  cursor: pointer;
+  padding: 0.125rem 0;
+}
+.w360 .check input { accent-color: var(--w-accent); width: 0.9375rem; height: 0.9375rem; margin: 0; }
+.w360 .check .n { margin-left: auto; font-family: var(--font-mono); font-size: 0.75rem; color: var(--w-ink-3); }
+.w360 .check:has(input:checked) { color: var(--w-accent); }
+.w360 .check:has(input:checked) .n { color: var(--w-accent); }
+
+@media (max-width: 900px) {
+  .w360 .withrail { grid-template-columns: minmax(0, 1fr); }
+  .w360 .filters { position: static; border-right: 0; border-bottom: 1px solid var(--w-line); max-height: none; }
+}
+
+/* ── Map surfaces (W04, W06) ────────────────────────────────────────── */
+
+.w360 .plot {
+  position: relative;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(120% 80% at 30% 20%, color-mix(in oklab, var(--w-accent) 6%, transparent), transparent 60%),
+    var(--w-surface);
+  overflow: hidden;
+  min-height: 24rem;
+}
+.w360 .plot svg { display: block; width: 100%; height: 100%; }
+.w360 .plot .hint {
+  position: absolute; top: var(--space-md); left: var(--space-md);
+  max-width: 18rem; padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: var(--w-bg); font-size: 0.75rem; color: var(--w-ink-2); line-height: 1.5;
+}
+.w360 .plot .cap {
+  position: absolute; left: var(--space-md); bottom: var(--space-md);
+  font-family: var(--font-mono); font-size: 0.6875rem; color: var(--w-ink-3);
+}
+.w360 .plot .zoom { position: absolute; right: var(--space-md); bottom: var(--space-md); display: grid; gap: 0.375rem; }
+.w360 .plot .zoom button {
+  width: 2rem; height: 2rem; display: grid; place-items: center;
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: var(--w-bg); color: var(--w-ink-2); cursor: pointer; font: inherit;
+}
+.w360 .legend {
+  position: absolute; left: var(--space-md); bottom: 3rem;
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: var(--w-bg); padding: var(--space-sm) var(--space-md);
+}
+.w360 .legend .k { font-family: var(--font-mono); font-size: 0.5625rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-ink-3); }
+.w360 .swatch { display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; }
+.w360 .swatch i { width: 0.6875rem; height: 0.6875rem; border-radius: 0.1875rem; border: 1.5px solid currentColor; }
+
+.w360 .hovercard {
+  position: absolute;
+  width: 20rem;
+  border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--w-bg);
+  box-shadow: 0 1.5rem 3rem -1rem rgb(0 0 0 / 0.55);
+  overflow: hidden;
+  z-index: 5;
+}
+
+/* ── Photo surfaces (W05, W14) ──────────────────────────────────────── */
+
+/* Full height minus the app bar AND this screen's own sub-header, so the
+   filmstrip lands on the fold instead of just below it. */
+.w360 .lightbox { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; height: calc(100vh - 7.5rem); }
+.w360 .lightbox .stage {
+  position: relative; display: grid; place-items: center;
+  padding: var(--space-lg); border-right: 1px solid var(--w-line);
+}
+.w360 .lightbox .side { padding: var(--space-lg); overflow-y: auto; }
+.w360 .frame {
+  position: relative;
+  width: min(100%, 44rem);
+  aspect-ratio: 4 / 3;
+  border: 1px dashed var(--w-line-strong);
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  background: linear-gradient(150deg,
+    color-mix(in oklab, var(--w-accent) 10%, var(--w-surface)), var(--w-surface));
+  color: var(--w-ink-3);
+}
+.w360 .frame .stamp {
+  position: absolute; left: var(--space-md); bottom: var(--space-md);
+  font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.5;
+  background: color-mix(in oklab, black 55%, transparent);
+  color: white; /* over arbitrary user media — neutral, never a palette tint */
+  padding: 0.375rem 0.5rem; border-radius: var(--radius-xs);
+}
+.w360 .thumbs { display: flex; gap: 0.5rem; padding: var(--space-sm) var(--space-lg); border-top: 1px solid var(--w-line); overflow-x: auto; }
+.w360 .thumb {
+  width: 3.5rem; height: 3.5rem; flex: none;
+  border-radius: var(--radius-sm); border: 1px solid var(--w-line);
+  background: var(--w-surface-2); display: grid; place-items: center;
+  color: var(--w-ink-3); cursor: pointer; position: relative; font: inherit;
+}
+.w360 .thumb[aria-current='true'] { border-color: var(--w-accent); }
+.w360 .thumb .src { position: absolute; right: 0.1875rem; bottom: 0.1875rem; width: 0.375rem; height: 0.375rem; border-radius: var(--radius-pill); background: var(--w-ok); }
+.w360 .thumb .src.no { background: var(--w-danger); }
+
+.w360 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; }
+.w360 .tiles .t {
+  aspect-ratio: 1; border-radius: var(--radius-sm); border: 1px solid var(--w-line);
+  background: var(--w-surface-2); display: grid; place-items: center;
+  color: var(--w-ink-3); text-decoration: none; font-family: var(--font-mono); font-size: 0.75rem;
+}
+
+/* A key/value slab — "Taken / Your time / By / Where / Order". */
+.w360 .kv { border: 1px solid var(--w-line); border-radius: var(--radius-sm); overflow: hidden; }
+.w360 .kv > div {
+  display: flex; justify-content: space-between; gap: var(--space-md);
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--w-line); font-size: 0.8125rem;
+}
+.w360 .kv > div:last-child { border-bottom: 0; }
+.w360 .kv dt, .w360 .kv .k { color: var(--w-ink-2); margin: 0; }
+.w360 .kv dd, .w360 .kv .v { margin: 0; font-family: var(--font-mono); text-align: right; }
+.w360 .kv .hl { box-shadow: inset 2px 0 0 var(--w-accent); }
+
+/* A checklist line with a leading tick — W14's provenance. */
+.w360 .checks { display: grid; }
+.w360 .checks > * {
+  display: flex; align-items: center; gap: 0.625rem;
+  padding: 0.5625rem 0.75rem; border-bottom: 1px solid var(--w-line); font-size: 0.8125rem;
+}
+.w360 .checks > *:last-child { border-bottom: 0; }
+
+/* ── Drawer (W11 "Add an expense") ──────────────────────────────────── */
+
+.w360 .drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(26rem, 100vw);
+  background: var(--w-bg); border-left: 1px solid var(--w-line);
+  padding: var(--space-lg); overflow-y: auto; z-index: 40;
+  display: grid; gap: var(--space-md); align-content: start;
+  box-shadow: -1.5rem 0 3rem -1.5rem rgb(0 0 0 / 0.5);
+}
+.w360 .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); z-index: 39; border: 0; }
+
+/* ── Kebab menus and small dialogs ──────────────────────────────────── */
+
+.w360 .menu { display: inline-flex; }
+/* The page ground and the strong hairline — the treatment this file gives
+   every surface that floats WITHOUT a scrim behind it (.jump-results,
+   .hovercard). On --w-surface the menu was the card's own fill over the
+   card's own border colour, so it had no edge at all. */
+.w360 .menu-list {
+  position: fixed; z-index: 60; min-width: 10.5rem;
+  background: var(--w-bg); border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-md); padding: 0.25rem;
+  box-shadow: 0 1rem 3rem -1rem rgb(0 0 0 / 0.55);
+  display: grid;
+}
+.w360 .menu-list button {
+  text-align: left; padding: 0.4375rem 0.625rem; border: 0; background: none;
+  color: var(--w-ink); font: inherit; font-size: 0.8125rem;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.w360 .menu-list button:hover { background: var(--w-surface-2); }
+.w360 .menu-list button.danger { color: var(--w-danger); }
+.w360 .menu-list button.danger:hover { background: var(--w-danger-wash); }
+
+.w360 .overlay {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  background: rgb(0 0 0 / 0.45); padding: var(--space-lg);
+}
+.w360 .dialog {
+  width: min(26rem, 100%); background: var(--w-bg);
+  border: 1px solid var(--w-line); border-radius: var(--radius-lg);
+  padding: var(--space-lg); display: grid; gap: var(--space-md);
+  box-shadow: 0 2rem 4rem -1.5rem rgb(0 0 0 / 0.6);
+}
+
+/* The bulk bar wakes up when a selection exists. */
+.w360 .bulkbar.on {
+  border-color: color-mix(in oklab, var(--w-accent) 45%, transparent);
+  background: var(--w-accent-wash);
+}
+
+.w360 .field { display: grid; gap: 0.375rem; }
+.w360 .field > label {
+  font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--w-ink-3);
+}
+.w360 input[type='text'], .w360 input[type='date'], .w360 input[type='number'], .w360 select, .w360 textarea {
+  width: 100%; padding: 0.5625rem 0.75rem; font: inherit; font-size: 0.875rem;
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: var(--w-surface); color: var(--w-ink);
+}
+.w360 input:focus-visible, .w360 select:focus-visible, .w360 textarea:focus-visible {
+  outline: 2px solid var(--color-focus); outline-offset: 1px; border-color: transparent;
+}
+.w360 .choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xs); }
+.w360 .choice button {
+  text-align: left; padding: 0.625rem 0.75rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--w-line); background: none; color: var(--w-ink); font: inherit; cursor: pointer;
+}
+.w360 .choice button[aria-pressed='true'] { border-color: var(--w-accent); background: var(--w-accent-wash); }
+.w360 .choice small { display: block; color: var(--w-ink-3); font-size: 0.6875rem; margin-top: 0.1875rem; line-height: 1.4; }
+
+.w360 .switch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); }
+.w360 .switch button {
+  width: 2.25rem; height: 1.25rem; border-radius: var(--radius-pill); flex: none;
+  border: 1px solid var(--w-line); background: var(--w-surface-2); cursor: pointer; position: relative;
+}
+.w360 .switch button::after {
+  content: ''; position: absolute; top: 0.125rem; left: 0.125rem;
+  width: 0.875rem; height: 0.875rem; border-radius: var(--radius-pill);
+  background: var(--w-ink-3); transition: transform var(--dur-fast) var(--ease-out);
+}
+.w360 .switch button[aria-pressed='true'] { background: var(--w-accent-wash); border-color: var(--w-accent); }
+.w360 .switch button[aria-pressed='true']::after { transform: translateX(0.9375rem); background: var(--w-accent); }
+
+/* ── Misc ───────────────────────────────────────────────────────────── */
+
+.w360 .avatarlg {
+  width: 2.75rem; height: 2.75rem; border-radius: var(--radius-pill); flex: none;
+  display: grid; place-items: center; font-weight: 600; font-size: 0.875rem;
+  background: var(--w-surface-2); border: 1px solid var(--w-line); color: var(--w-ink-2);
+}
+.w360 .shelf {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--w-line); border-left: 3px solid var(--w-accent);
+  border-radius: var(--radius-md); background: var(--w-surface); padding: var(--space-md);
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.w360 .shelf:hover { transform: translateY(-2px); }
+
+.w360 .skeleton { border-radius: var(--radius-sm); background: var(--w-surface-2); animation: w-pulse 1.4s var(--ease-in-out) infinite; }
+@keyframes w-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.w360 .rise { animation: w-rise var(--dur-slow) var(--ease-out) both; }
+@keyframes w-rise { from { opacity: 0; transform: translateY(0.5rem); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .w360 *, .w360 *::before, .w360 *::after {
+    animation-duration: 0.15s !important;
+    transition-duration: 0.15s !important;
+  }
+  .w360 .rise { animation: none; }
+  .w360 .rec:hover, .w360 .shelf:hover { transform: none; }
+}

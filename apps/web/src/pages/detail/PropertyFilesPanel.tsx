@@ -2,11 +2,13 @@
  * Files panel for the record-detail pages — functional port of the rhub
  * pattadar FilesPanel for the `property` and `parcel` scopes: drag-drop +
  * Upload button (≤10 files / 1 GB per batch), files go to My Drive then a
- * createDocument row is linked to the record, background AI classification
- * (import-registered-document → updateDocumentType), real My Drive
- * filenames, image thumbnails, preview/download, Reclassify (guard inside
- * the handler — never a hidden/disabled action) and Delete via the trash
- * flow. Parcel uploads are filed My Drive / Pattadar / Passbook <ref> /
+ * createDocument row is linked to the record, real My Drive filenames, image
+ * thumbnails, preview/download, Reclassify and Delete via the trash
+ * flow. Uploading spends nothing: it goes through documents/upload.ts, which
+ * stores the file and stops. (This panel used to run the AI classifier over
+ * every uploaded file in the background — its own copy of a pipeline
+ * DocumentsTab also had. One pipeline now, and it never calls a model.)
+ * Parcel uploads are filed My Drive / Pattadar / Passbook <ref> /
  * Parcel <label> (source parity); property uploads stay unfiled, exactly
  * like the source. When the storage gateway is unreachable (local dev) an
  * upload attempt shows ONE clear inline alert instead of per-file toasts.
@@ -44,24 +46,22 @@ import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { sampleDocuments } from '@pattadar/core';
-import { apiFetch, gql } from '../../api/client';
+import { gql } from '../../api/client';
 import { openFileViewer } from '../../components/FileViewer';
 import { useBlobUrl } from '../../components/holdingCards';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { fmtLocal } from '../../lib/format';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
-import { DEED_GROUP, DOC_CATEGORIES, classifierToType, labelOfType } from '../documents/docTypes';
+import { DEED_GROUP, DOC_CATEGORIES, labelOfType } from '../documents/docTypes';
 import {
   STORAGE_OFFLINE_MSG,
-  createDocumentRow,
   downloadBlob,
   fetchFileBlob,
   fetchNodeNames,
-  nestUnderPattadar,
   trashDocuments,
-  uploadToDrive,
 } from '../documents/storage';
+import { uploadDocument } from '../documents/upload';
 
 const MAX_BATCH_FILES = 10;
 const MAX_BATCH_BYTES = 1024 * 1024 * 1024; // 1 GB per upload batch
@@ -90,7 +90,6 @@ interface PanelDoc {
 interface Row extends PanelDoc {
   docTypeLabel: string;
   name: string;
-  isClassifying: boolean;
 }
 
 const isImageDoc = (d: { docType: string; tags?: string }) => d.docType === 'photo' || d.tags === 'photo';
@@ -187,7 +186,6 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
   const { data: docs, isSample } = usePanelDocs(scope);
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
-  const [classifying, setClassifying] = useState<Set<string>>(new Set());
   const [storageDown, setStorageDown] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [menuFor, setMenuFor] = useState<{ el: HTMLElement; row: Row } | null>(null);
@@ -222,9 +220,8 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
         docType: d.docType || 'other',
         docTypeLabel: labelOfType(d.docType),
         name: fileNames[d.fileRef] || d.docNo || (isImageDoc(d) ? 'Photo' : titleize(d.docType || 'Document')),
-        isClassifying: classifying.has(d.id),
       })),
-    [docs, fileNames, classifying],
+    [docs, fileNames],
   );
 
   // ── preview / download ────────────────────────────────────────────────
@@ -254,52 +251,21 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
     }
   };
 
-  // ── upload + background AI classification (FilesPanel pipeline) ───────
+  // ── upload — storage only, no model, no credit ────────────────────────
+  // This panel carried its own copy of the upload pipeline, including the
+  // background AI classify nobody asked for. Both copies now go through the
+  // one in documents/upload.ts, so the two surfaces cannot drift again.
   const uploadOne = async (file: File, notifyOne: boolean) => {
-    const nodeId = await uploadToDrive(file);
-    if (!nodeId) throw new Error('storage-offline');
-    // Videos are typed directly (the AI classifier only reads documents/images);
-    // everything else lands as "other" and is reclassified in the background.
-    const isVideo = String(file.type || '').startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name || '');
-    const newId = await createDocumentRow(
-      scope.kind === 'property' ? { propertyId: scope.propertyId } : { parcelId: scope.parcelId },
-      { docType: isVideo ? 'video' : 'other', fileRef: nodeId, tags: isVideo ? 'video' : '' },
-    );
-    if (!newId) throw new Error('create failed');
-    // Parcel uploads are filed like the source parcel 360; property uploads
-    // have no folder-nesting behavior in the source — kept identical.
-    if (scope.kind === 'parcel')
-      await nestUnderPattadar({ passbookRef: scope.passbookRef || '', parcelLabel: scope.parcelLabel || '' }, nodeId);
+    await uploadDocument(file, {
+      ...(scope.kind === 'property'
+        ? { propertyId: scope.propertyId }
+        : {
+            parcelId: scope.parcelId,
+            passbookRef: scope.passbookRef || '',
+            parcelLabel: scope.parcelLabel || '',
+          }),
+    });
     refresh();
-    if (isVideo) {
-      if (notifyOne) notify('File uploaded');
-      return;
-    }
-    setClassifying((s) => new Set(s).add(newId));
-    // Background classify → reclassify.
-    void (async () => {
-      try {
-        const fd = new FormData();
-        fd.append('file', file);
-        const er = await apiFetch('/api/gateway/pattadar/import-registered-document', { method: 'POST', body: fd });
-        if (er.ok) {
-          const f = ((await er.json()) as { fields?: { doc_type?: string } })?.fields || {};
-          await gql('mutation($id:String!,$t:String!){ updateDocumentType(id:$id,docType:$t){ id } }', {
-            id: newId,
-            t: classifierToType(String(f.doc_type || '')),
-          });
-        }
-      } catch {
-        /* stays Other */
-      } finally {
-        setClassifying((s) => {
-          const n = new Set(s);
-          n.delete(newId);
-          return n;
-        });
-        refresh();
-      }
-    })();
     if (notifyOne) notify('File uploaded');
   };
 
@@ -472,11 +438,7 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      {r.isClassifying ? (
-                        <Chip size="small" label="Classifying…" color="info" variant="outlined" />
-                      ) : (
-                        <Chip size="small" variant="outlined" label={r.docTypeLabel} />
-                      )}
+                      <Chip size="small" variant="outlined" label={r.docTypeLabel} />
                     </TableCell>
                     <TableCell>{r.regYear || '—'}</TableCell>
                     <TableCell>{r.source || '—'}</TableCell>
@@ -519,13 +481,7 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
         </MenuItem>
         <MenuItem
           onClick={() => {
-            if (menuFor) {
-              if (menuFor.row.isClassifying) {
-                notify('Still classifying — try again in a moment.', 'info');
-              } else {
-                setReclassify({ row: menuFor.row, sel: menuFor.row.docType });
-              }
-            }
+            if (menuFor) setReclassify({ row: menuFor.row, sel: menuFor.row.docType });
             setMenuFor(null);
           }}
         >

@@ -90,7 +90,7 @@ export function MarketValueTool() {
       </Box>
 
       {village !== ALL && shown.length > 0 && (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: `repeat(${Math.min(3, shown.length)}, 1fr)` }, gap: 1.5, mb: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: `repeat(${Math.min(3, shown.length)}, minmax(0, 1fr))` }, gap: 1.5, mb: 2 }}>
           {shown.map((r) => (
             <Card key={r.id}>
               <CardContent>

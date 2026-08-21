@@ -59,6 +59,7 @@ module "runtime" {
   api_image_tag       = var.api_image_tag
   web_image_tag       = var.web_image_tag
   desired_count       = var.desired_count
+  web_desired_count   = var.web_desired_count
 
   deletion_protection         = var.deletion_protection
   final_snapshot_suffix       = var.final_snapshot_suffix

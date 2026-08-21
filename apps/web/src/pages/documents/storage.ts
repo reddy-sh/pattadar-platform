@@ -20,20 +20,70 @@ export const isStorageRef = (ref: string | undefined | null): ref is string =>
 export const STORAGE_OFFLINE_MSG =
   'File storage runs on the cloud gateway — uploads work on pattadar.com; local preview shows metadata only';
 
-/** Upload a file to My Drive (appId=pattadar). Returns the node id or ''. */
-export async function uploadToDrive(file: File): Promise<string> {
+/** What the storage gateway knows about a stored file, once it is stored. */
+export interface StoredNode {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
+/**
+ * Upload a file to My Drive (appId=pattadar).
+ *
+ * `onConflict=duplicate` is deliberate: the gateway's default folds a
+ * same-named upload into the existing file as a NEW VERSION, which quietly
+ * replaced the first copy's bytes. Two originals of one deed is an ordinary
+ * thing to hold in a land vault, so the second upload lands beside the first
+ * as "deed (2).pdf" instead of over it. An explicit "Upload new version"
+ * action is what asks for the versioning behaviour.
+ *
+ * Returns the stored node, or null when storage is unreachable.
+ */
+export async function uploadToDrive(file: File): Promise<StoredNode | null> {
   try {
     const fd = new FormData();
     fd.append('file', file);
-    const res = await apiFetch('/api/gateway/storage/files?appId=pattadar', {
+    const res = await apiFetch('/api/gateway/storage/files?appId=pattadar&onConflict=duplicate', {
       method: 'POST',
       body: fd,
     });
-    if (!res.ok) return '';
-    const node = (await res.json()) as { id?: string };
-    return node?.id || '';
+    if (!res.ok) return null;
+    const node = (await res.json()) as Partial<StoredNode>;
+    if (!node?.id) return null;
+    return {
+      id: node.id,
+      name: node.name || file.name || 'Document',
+      sizeBytes: Number(node.sizeBytes ?? file.size ?? 0),
+      mimeType: node.mimeType || file.type || '',
+    };
   } catch {
-    return '';
+    return null;
+  }
+}
+
+/** Rename a stored file. Returns the name it actually ended up with — the
+ * gateway rejects a clash, so the caller's second choice is reported back
+ * rather than a silent no-op. */
+export async function renameNode(nodeId: string, name: string): Promise<string> {
+  if (!isStorageRef(nodeId)) return name;
+  const attempt = async (candidate: string) => {
+    const res = await apiFetch(`/api/gateway/storage/nodes/${nodeId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: candidate }),
+    });
+    return res.ok ? candidate : '';
+  };
+  try {
+    const first = await attempt(name);
+    if (first) return first;
+    // A name clash in the same folder — offer the same shape the uploader uses.
+    const dot = name.lastIndexOf('.');
+    const alt = dot > 0 ? `${name.slice(0, dot)} (2)${name.slice(dot)}` : `${name} (2)`;
+    return (await attempt(alt)) || name;
+  } catch {
+    return name;
   }
 }
 
@@ -85,11 +135,21 @@ export function downloadBlob(blob: Blob, name: string): void {
  */
 export async function createDocumentRow(
   target: { parcelId?: string; passbookId?: string; propertyId?: string },
-  fields: { docType: string; fileRef: string; tags?: string; source?: string },
+  fields: {
+    docType: string;
+    fileRef: string;
+    tags?: string;
+    source?: string;
+    // The file's own facts, carried on the row so the vault never has to ask
+    // the storage gateway what its own files are called.
+    name?: string;
+    sizeBytes?: number;
+    mimeType?: string;
+  },
 ): Promise<string> {
   try {
     const r = await gql<{ createDocument: { id: string } | null }>(
-      'mutation($parcelId:String!,$passbookId:String!,$propertyId:String!,$docType:String!,$fileRef:String!,$docNo:String!,$sroCode:String!,$regYear:String!,$source:String!,$tags:String!){ createDocument(parcelId:$parcelId,passbookId:$passbookId,propertyId:$propertyId,docType:$docType,fileRef:$fileRef,docNo:$docNo,sroCode:$sroCode,regYear:$regYear,source:$source,tags:$tags){ id } }',
+      'mutation($parcelId:String!,$passbookId:String!,$propertyId:String!,$docType:String!,$fileRef:String!,$docNo:String!,$sroCode:String!,$regYear:String!,$source:String!,$tags:String!,$name:String!,$sizeBytes:Int!,$mimeType:String!){ createDocument(parcelId:$parcelId,passbookId:$passbookId,propertyId:$propertyId,docType:$docType,fileRef:$fileRef,docNo:$docNo,sroCode:$sroCode,regYear:$regYear,source:$source,tags:$tags,name:$name,sizeBytes:$sizeBytes,mimeType:$mimeType){ id } }',
       {
         parcelId: target.parcelId || '',
         passbookId: target.passbookId || '',
@@ -101,6 +161,9 @@ export async function createDocumentRow(
         regYear: '',
         source: fields.source || 'upload',
         tags: fields.tags || '',
+        name: fields.name || '',
+        sizeBytes: Math.max(0, Math.round(fields.sizeBytes || 0)),
+        mimeType: fields.mimeType || '',
       },
     );
     return r?.createDocument?.id || '';
@@ -119,9 +182,16 @@ export async function uploadCoverPhoto(
   file: File,
   target: { parcelId?: string; propertyId?: string },
 ): Promise<'ok' | 'storage' | 'error'> {
-  const nodeId = await uploadToDrive(file);
-  if (!nodeId) return 'storage';
-  const id = await createDocumentRow(target, { docType: 'photo', fileRef: nodeId, tags: 'photo' });
+  const node = await uploadToDrive(file);
+  if (!node) return 'storage';
+  const id = await createDocumentRow(target, {
+    docType: 'photo',
+    fileRef: node.id,
+    tags: 'photo',
+    name: node.name,
+    sizeBytes: node.sizeBytes,
+    mimeType: node.mimeType,
+  });
   return id ? 'ok' : 'error';
 }
 

@@ -48,6 +48,12 @@ variable "desired_count" {
   default     = 1
 }
 
+variable "web_desired_count" {
+  description = "Web service task count; 0 until the D4 cutover ships a web image."
+  type        = number
+  default     = 0
+}
+
 variable "deletion_protection" {
   description = "RDS deletion protection — platform-down.sh flips this to false right before destroy."
   type        = bool
@@ -67,9 +73,9 @@ variable "restore_snapshot_identifier" {
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch log retention (prod 365, dev 30)."
+  description = "CloudWatch log retention. 30 pre-launch; revisit at launch (DPDP may require longer)."
   type        = number
-  default     = 365
+  default     = 30
 }
 
 variable "alert_email" {

@@ -73,8 +73,16 @@ export function Donut({ slices, size = 190, thickness = 20, centerLabel, centerS
         role="img"
         aria-label={visible.map((s) => `${s.label} ${s.display}`).join(', ') || 'No data'}
       >
+        {/* Empty track — the scheme's own rule colour, not a fixed grey. */}
         {visible.length === 0 && (
-          <circle cx={c} cy={c} r={r} fill="none" strokeWidth={thickness} stroke="rgba(128,128,128,0.14)" />
+          <circle
+            cx={c}
+            cy={c}
+            r={r}
+            fill="none"
+            strokeWidth={thickness}
+            stroke="var(--mui-palette-divider)"
+          />
         )}
         {visible.length === 1 && (
           <circle

@@ -12,8 +12,11 @@ resource "aws_ecs_cluster" "main" {
   name = local.prefix
 
   setting {
+    # Insights' custom metrics were the entire CloudWatch bill (~$18/mo across
+    # both envs, Aug 2026) while log ingestion rounded to $0; the free CPU/mem
+    # alarms in observability.tf cover pre-launch monitoring.
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
 
   tags = local.tags
@@ -446,6 +449,9 @@ resource "aws_ecs_service" "assistant" {
 # args, see apps/web-next/Dockerfile), so the task needs no runtime secrets.
 # Not deployed until the web-migration cutover (D4); until then desired_count
 # is 0 in dev and the web target group simply has no registered targets.
+# Task definition + service are gated on local.web_enabled (web repo present
+# in the persistent layer); the IAM role and target group are free and stay
+# unconditional — the ALB HTTPS listener's default action needs the TG.
 
 resource "aws_iam_role" "web_task" {
   name               = "${local.prefix}-web-task"
@@ -454,6 +460,8 @@ resource "aws_iam_role" "web_task" {
 }
 
 resource "aws_ecs_task_definition" "web" {
+  count = local.web_enabled ? 1 : 0
+
   family                   = "${local.prefix}-web"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -502,10 +510,12 @@ resource "aws_ecs_task_definition" "web" {
 }
 
 resource "aws_ecs_service" "web" {
+  count = local.web_enabled ? 1 : 0
+
   name            = "web"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.web.arn
-  desired_count   = var.desired_count
+  task_definition = aws_ecs_task_definition.web[0].arn
+  desired_count   = var.web_desired_count
   launch_type     = "FARGATE"
 
   network_configuration {

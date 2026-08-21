@@ -315,7 +315,7 @@ export function PersonDialog({
             {formError}
           </Alert>
         )}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '5fr 7fr' }, gap: 2.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 5fr) minmax(0, 7fr)' }, gap: 2.5 }}>
           {/* ── Left: Scan Aadhaar / ID (AI) ─────────────────────────── */}
           <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2.5, p: 2 }}>
             <Typography variant="subtitle2" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
@@ -399,7 +399,7 @@ export function PersonDialog({
 
           {/* ── Right: manual form ───────────────────────────────────── */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.75 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '7fr 5fr', gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 7fr) minmax(0, 5fr)', gap: 1.5 }}>
               <TextField
                 size="small"
                 label="Full name"
@@ -445,7 +445,7 @@ export function PersonDialog({
                 </TextField>
               )}
             </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
               <TextField
                 size="small"
                 label="Phone"
@@ -492,7 +492,7 @@ export function PersonDialog({
                 helperText={errors.email}
               />
             </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
               <TextField
                 size="small"
                 label="Date of birth"
@@ -561,7 +561,7 @@ export function PersonDialog({
                   gap: 1.5,
                 }}
               >
-                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1.5 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
                   <TextField
                     select
                     size="small"
@@ -614,7 +614,8 @@ export function PersonDialog({
                     sx={{
                       border: 1,
                       borderColor: 'warning.main',
-                      bgcolor: 'rgba(237, 108, 2, 0.06)',
+                      bgcolor: (t) =>
+                        `color-mix(in oklch, ${(t.vars ?? t).palette.warning.main} 8%, transparent)`,
                       borderRadius: 2,
                       p: 1.5,
                       display: 'flex',
@@ -663,7 +664,8 @@ export function PersonDialog({
                     sx={{
                       border: 1,
                       borderColor: 'info.main',
-                      bgcolor: 'rgba(2, 136, 209, 0.06)',
+                      bgcolor: (t) =>
+                        `color-mix(in oklch, ${(t.vars ?? t).palette.info.main} 8%, transparent)`,
                       borderRadius: 2,
                       p: 1.5,
                       display: 'flex',
@@ -681,7 +683,7 @@ export function PersonDialog({
                       error={!!errors.spouseName}
                       helperText={errors.spouseName}
                     />
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
                       <TextField
                         size="small"
                         label="Spouse contact"
@@ -713,7 +715,7 @@ export function PersonDialog({
                   <Typography variant="body2">Advanced — Parents / Spouse links (optional)</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' }, gap: 1.5 }}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.5 }}>
                     {linkSelect('fatherId', 'Father')}
                     {linkSelect('motherId', 'Mother')}
                     {linkSelect('spouseId', 'Spouse')}

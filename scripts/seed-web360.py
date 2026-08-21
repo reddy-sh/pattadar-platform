@@ -201,6 +201,10 @@ VERSIONS = [
     (P + "dv-4417-2", P + "d-deed-4417", 2, "Colour rescan, 300 dpi", "14/03/2024", "you", "", 2),
     (P + "dv-4417-1", P + "d-deed-4417", 1, "First photo, from the phone", "02/11/2022",
      "", "kept, never deleted", 1),
+    # W04's sheet card reads "v2 · replaced 04/2024 · v1 kept", which is these
+    # two rows — the sentence is derived from them, not written out.
+    (P + "dv-fmb-2", P + "d-fmb-214", 2, "Re-issued sheet", "04/2024", "SRO", "", 2),
+    (P + "dv-fmb-1", P + "d-fmb-214", 1, "Original tracing", "11/2019", "", "kept", 1),
 ]
 
 # ── W04 · boundary marks ──────────────────────────────────────────────

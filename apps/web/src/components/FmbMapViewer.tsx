@@ -109,12 +109,16 @@ const fmtLen = (metres: number, unit: 'm' | 'ft', map = false) =>
     ? `${metres.toFixed(2)} m`
     : `${(metres * FEET_PER_METRE).toFixed(map ? 0 : 1)} ft`;
 
-// The design's colour rules: cyan for the parcel (the map family colour),
+// The design's colour rules: teal for the parcel (the map family colour),
 // red for corners and measured-not-walked lines, amber for the current
 // selection. Nothing else — colour carries meaning here.
-const CYAN = '#0891b2';
-const RED = '#dc2626';
-const AMBER = '#d97706';
+//
+// These are drawn onto an SVG sketch over imagery, not onto app paper, so
+// they are literals by necessity — but they are now the Bloom chart teal /
+// status critical / brand amber rather than a stray Tailwind triplet.
+const CYAN = '#3ebfc6'; // chartCategorical.dark[1] — teal
+const RED = '#ff5453'; // status.dark.critical
+const AMBER = '#fe860f'; // --color-accent
 
 const VIEW = 760;
 const INSET = 42;
@@ -257,7 +261,7 @@ export function FmbMapViewer({
         <IconButton aria-label="Close" onClick={onClose}><CloseIcon /></IconButton>
       </DialogTitle>
       <DialogContent>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr 1fr' }, gap: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1.2fr) minmax(0, 1fr)' }, gap: 2 }}>
           {/* The map fills its canvas; tapping empty space clears back to
               the parcel summary. */}
           <Box sx={{ bgcolor: 'action.hover', borderRadius: 2, p: 1 }}>

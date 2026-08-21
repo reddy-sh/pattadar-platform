@@ -104,7 +104,10 @@ export function FieldGrid({ columns = 2, children }: { columns?: 1 | 2; children
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: columns === 2 ? { xs: '1fr', sm: '1fr 1fr' } : '1fr',
+        gridTemplateColumns:
+          columns === 2
+            ? { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr)' }
+            : 'minmax(0, 1fr)',
         columnGap: 2,
       }}
     >
@@ -311,8 +314,9 @@ const heroChipSx = {
   px: 1.5,
   py: 0.75,
   borderRadius: 999,
-  bgcolor: 'rgba(0,0,0,0.65)',
-  color: '#fff',
+  // Neutral scrim — these chips sit over arbitrary user photos.
+  bgcolor: 'rgb(0 0 0 / 0.65)',
+  color: 'common.white',
   fontSize: 13,
   fontWeight: 600,
   backdropFilter: 'blur(2px)',
@@ -322,10 +326,11 @@ const heroChipSx = {
 
 /**
  * Full-width hero banner above the record tabs — the newest photo (or a
- * video placeholder) as cover, "📷 N Photos" / "🎬 Video" chips bottom-left.
- * Clicking opens the in-portal FileViewer over all of the record's media
- * (never a new tab). Blob failures / no media degrade to the emerald
- * gradient — never a broken image.
+ * video placeholder) as cover, media-count chips bottom-left. Clicking opens
+ * the in-portal FileViewer over all of the record's media (never a new tab).
+ * Blob failures / no media degrade to a warm paper band — never a broken
+ * image. (The fallback was a blue gradient, #144E8C → #4D9BE0, described in
+ * this comment as "emerald" — it had outlived two design systems.)
  */
 export function MediaHero({
   photos,
@@ -361,7 +366,9 @@ export function MediaHero({
         overflow: 'hidden',
         cursor: 'pointer',
         mb: 1.5,
-        background: 'linear-gradient(135deg, #144E8C 0%, #4D9BE0 100%)',
+        background:
+          'linear-gradient(135deg, var(--mui-palette-background-paper) 0%, ' +
+          'color-mix(in oklch, var(--mui-palette-primary-main) 12%, var(--mui-palette-background-default)) 100%)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

@@ -1,7 +1,15 @@
 /**
+ * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ *
  * Card building blocks for the Passbooks and Land & Properties grids —
  * functional port of the rhub pattadar app's ParcelGallery helpers
  * (CardHero, CardActions, parcelPill, stakePill) in MUI.
+ *
+ * Every colour is a `--mui-palette-*` CSS variable, so the pills, scrims and
+ * media fallback follow the active colour scheme instead of assuming light.
+ * These helpers previously carried an Ant Design status ramp (#1677ff blue,
+ * #cf1322 red) and a blue media gradient with the two mixing endpoints
+ * hardcoded to #FFFFFF / #16191c.
  */
 import { useEffect, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
@@ -21,23 +29,26 @@ export interface Pill {
   color: string;
 }
 
+/** Scheme-reactive palette reference — resolves per active colorScheme. */
+const paletteVar = (slot: string) => `var(--mui-palette-${slot})`;
+
 /** Status pill for a holding card hero — colour-coded like a listing site. */
 export function parcelPill(status?: string, litigation?: boolean): Pill {
-  if (litigation) return { text: 'Litigation', color: '#cf1322' };
+  if (litigation) return { text: 'Litigation', color: paletteVar('error-main') };
   const s = String(status || 'owned');
   const colors: Record<string, string> = {
-    owned: '#2e7d32',
-    'for-sale': '#1677ff',
-    sold: '#8c8c8c',
-    disputed: '#cf1322',
+    owned: paletteVar('success-main'),
+    'for-sale': paletteVar('info-main'),
+    sold: paletteVar('text-secondary'),
+    disputed: paletteVar('error-main'),
   };
-  return { text: s.replace(/-/g, ' '), color: colors[s] || '#2e7d32' };
+  return { text: s.replace(/-/g, ' '), color: colors[s] || paletteVar('success-main') };
 }
 
 /** Stake pill (managed / watch) — owned holdings show no second pill. */
 export function stakePill(stake?: string): Pill | undefined {
-  if (stake === 'managed') return { text: 'Managed', color: '#d48806' };
-  if (stake === 'watch') return { text: 'Watch', color: '#1677ff' };
+  if (stake === 'managed') return { text: 'Managed', color: paletteVar('warning-main') };
+  if (stake === 'watch') return { text: 'Watch', color: paletteVar('info-main') };
   return undefined;
 }
 
@@ -71,10 +82,13 @@ export function useBlobUrl(fileRef?: string): string {
   return url;
 }
 
-/** Small TONAL overlay chip (M3): tinted container fill + readable on-colour. */
+/** Small TONAL overlay chip (M3): tinted container fill + readable on-colour.
+ *  Mixes toward the scheme's own paper/ink, not fixed white/near-black. */
 const pillSx = (color: string) => ({
-  bgcolor: `color-mix(in srgb, ${color} 14%, #FFFFFF)`,
-  color: `color-mix(in srgb, ${color} 78%, #16191c)`,
+  bgcolor: `color-mix(in oklch, ${color} 16%, var(--mui-palette-background-paper))`,
+  color: `color-mix(in oklch, ${color} 78%, var(--mui-palette-text-primary))`,
+  border: '1px solid',
+  borderColor: `color-mix(in oklch, ${color} 32%, transparent)`,
   fontSize: 11,
   fontWeight: 700,
   lineHeight: 1,
@@ -99,21 +113,22 @@ export const clickableCardSx = (t: Theme) => ({
     duration: t.transitions.duration.standard,
     easing: t.transitions.easing.easeInOut,
   }),
+  // Hairline hover, no drop shadow — mirrors site.css `.card:hover`
+  // (design.md § Microinteractions: "−1px translate + border-strong on cards").
   '&:hover': {
     transform: 'translateY(-2px)',
-    borderColor: `color-mix(in srgb, ${(t.vars ?? t).palette.primary.main} 45%, transparent)`,
-    boxShadow: '0 4px 12px rgba(13, 38, 25, 0.12)',
+    borderColor: `color-mix(in oklch, ${(t.vars ?? t).palette.primary.main} 45%, transparent)`,
+    backgroundColor: (t.vars ?? t).palette.action.hover,
   },
   '&:active': {
     transform: 'translateY(0)',
-    boxShadow: 'none',
     backgroundColor: (t.vars ?? t).palette.action.selected,
   },
 });
 
 /**
  * Card media band (M3 anatomy, full-bleed under the card's own radius) —
- * the cover photo when there is one, else a layered emerald gradient with a
+ * the cover photo when there is one, else a warm paper band with a
  * large, partially-cropped, low-opacity motif anchored bottom-right. Status
  * pills overlay the top-left as small tonal chips on a subtle scrim.
  */
@@ -142,8 +157,11 @@ export function CardHero({
         height,
         flexShrink: 0,
         overflow: 'hidden',
+        // Warm paper band with a low amber wash — the media fallback, not a
+        // brand surface, so the accent stays at a whisper.
         background:
-          'radial-gradient(120% 100% at 85% -20%, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 55%), linear-gradient(150deg, #144E8C 0%, #1976D2 48%, #4D9BE0 100%)',
+          'linear-gradient(150deg, var(--mui-palette-background-paper) 0%, ' +
+          'color-mix(in oklch, var(--mui-palette-primary-main) 12%, var(--mui-palette-background-default)) 100%)',
       }}
     >
       {url ? (
@@ -171,13 +189,15 @@ export function CardHero({
           {fallbackIcon}
         </Box>
       )}
-      {/* Subtle top scrim so overlaid chips and the ⋮ read on any media. */}
+      {/* Subtle top scrim so overlaid chips and the ⋮ read on any media.
+          Neutral black at low alpha: this sits over arbitrary user photos, so
+          it must darken regardless of scheme — a palette colour would tint. */}
       <Box
         sx={{
           position: 'absolute',
           inset: 0,
           background:
-            'linear-gradient(180deg, rgba(9,20,33,0.32) 0%, rgba(9,20,33,0.10) 32%, rgba(9,20,33,0) 55%)',
+            'linear-gradient(180deg, rgb(0 0 0 / 0.34) 0%, rgb(0 0 0 / 0.11) 32%, rgb(0 0 0 / 0) 55%)',
           pointerEvents: 'none',
         }}
       />
@@ -213,11 +233,11 @@ export function CardActionsMenu({ actions }: { actions: CardAction[] }) {
         onClick={open}
         sx={{
           // Scrim circle for contrast over media; always visible (touch),
-          // brightens on hover.
-          bgcolor: 'rgba(10, 26, 17, 0.40)',
-          color: '#fff',
+          // brightens on hover. Neutral black — it sits over user photos.
+          bgcolor: 'rgb(0 0 0 / 0.42)',
+          color: 'common.white',
           backdropFilter: 'blur(2px)',
-          '&:hover': { bgcolor: 'rgba(10, 26, 17, 0.62)' },
+          '&:hover': { bgcolor: 'rgb(0 0 0 / 0.64)' },
         }}
       >
         <MoreVertIcon fontSize="small" />
@@ -253,8 +273,9 @@ export function StatRow({ children }: { children: ReactNode }) {
         alignItems: 'stretch',
         mb: 2,
         borderRadius: 4, // 16px — card shape
-        bgcolor: 'rgba(25, 118, 210, 0.05)',
-        ...t.applyStyles('dark', { bgcolor: 'rgba(144, 202, 249, 0.08)' }),
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: `color-mix(in oklch, ${(t.vars ?? t).palette.primary.main} 5%, transparent)`,
         '& > *': { flex: 1, minWidth: 140 },
         '& > * + *': { borderLeft: '1px solid', borderColor: 'divider' },
       })}

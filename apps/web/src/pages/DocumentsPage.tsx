@@ -34,12 +34,12 @@ export function DocumentsPage() {
     <>
       <PageHeader
         eyebrow="Records"
-        title="Documents"
-        subtitle="Deeds, passbooks, certificates and photos — every file linked to the land it belongs to."
+        title="Vault"
+        subtitle="Deeds, passbooks, certificates and photos — every file you keep, filed under the land it belongs to."
         sample={isSample}
       />
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="All documents" value="all" />
+        <Tab label="All files" value="all" />
         <Tab label="Registered deeds" value="deeds" />
       </Tabs>
       {tab === 'all' ? <DocumentsTab onToast={onToast} /> : <RegisteredDeedsTab onToast={onToast} />}

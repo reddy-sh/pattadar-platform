@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Pattadar Platform",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "request-path", "label": "Primary request path", "focus": ["web", "cloudfront", "alb", "gateway", "api", "rds"], "note": "Browser traffic stays same-origin: the SPA calls /api/* on pattadar.com and CloudFront routes it to the ALB." },
+      { "id": "identity", "label": "Identity boundary", "focus": ["cognito", "gateway", "api", "assistant"], "note": "The gateway is the only place a Cognito JWT becomes a trusted x-user-id header." },
+      { "id": "documents", "label": "Documents and extraction", "focus": ["gateway", "s3docs", "api", "anthropic"], "note": "Uploads land in S3 through the gateway storage API; extraction runs from the api service." },
+      { "id": "native", "label": "Native client", "focus": ["ios", "alb", "gateway"], "note": "The iOS app skips CloudFront and reaches the ALB directly on api.pattadar.com." }
+    ]
+  },
+  "components": [
+    { "id": "web", "type": "frontend", "label": "Web SPA", "sublabel": "React + MUI", "pos": [40, 235], "size": [150, 64] },
+    { "id": "ios", "type": "frontend", "label": "iOS App", "sublabel": "SwiftUI native", "pos": [40, 425], "size": [150, 64] },
+    { "id": "cloudfront", "type": "cloud", "label": "CloudFront", "sublabel": "pattadar.com", "pos": [255, 235], "size": [160, 64], "tag": "WAF" },
+    { "id": "cognito", "type": "security", "label": "Cognito", "sublabel": "user pool", "pos": [480, 130], "size": [150, 64] },
+    { "id": "s3docs", "type": "cloud", "label": "S3 documents", "sublabel": "SSE-KMS, versioned", "pos": [700, 130], "size": [150, 64] },
+    { "id": "alb", "type": "cloud", "label": "ALB", "sublabel": "api.pattadar.com", "pos": [480, 330], "size": [150, 64] },
+    { "id": "gateway", "type": "backend", "label": "gateway", "sublabel": "auth + proxy + storage", "pos": [700, 330], "size": [150, 64] },
+    { "id": "api", "type": "backend", "label": "api", "sublabel": "FastAPI + Strawberry", "pos": [920, 330], "size": [150, 64] },
+    { "id": "rds", "type": "database", "label": "RDS PostgreSQL 17", "sublabel": "pattadar, hub", "pos": [1140, 330], "size": [175, 64] },
+    { "id": "eventbridge", "type": "cloud", "label": "EventBridge", "sublabel": "inactivity_check", "pos": [255, 530], "size": [160, 64] },
+    { "id": "assistant", "type": "backend", "label": "assistant", "sublabel": "SSE chat", "pos": [700, 530], "size": [150, 64] },
+    { "id": "anthropic", "type": "external", "label": "Anthropic API", "sublabel": "document extraction", "pos": [1140, 530], "size": [175, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "AWS ap-south-1 (Mumbai)", "wraps": ["cloudfront", "cognito", "s3docs", "alb", "gateway", "api", "rds", "eventbridge", "assistant"] },
+    { "kind": "security-group", "label": "ECS Fargate cluster", "wraps": ["gateway", "api", "assistant"] }
+  ],
+  "connections": [
+    { "id": "web-edge", "from": "web", "to": "cloudfront", "label": "HTTPS same-origin", "variant": "emphasis", "labelDy": -34 },
+    { "id": "cdn-origin", "from": "cloudfront", "to": "alb", "label": "/api/*", "variant": "emphasis" },
+    { "id": "ios-direct", "from": "ios", "to": "alb", "label": "HTTPS" },
+    { "id": "alb-gateway", "from": "alb", "to": "gateway", "variant": "emphasis" },
+    { "id": "jwt-exchange", "from": "cognito", "to": "gateway", "label": "verify JWT to x-user-id", "variant": "security" },
+    { "id": "proxy-api", "from": "gateway", "to": "api", "label": "/api/gateway/pattadar/*", "variant": "emphasis", "labelDy": -34 },
+    { "id": "proxy-assistant", "from": "gateway", "to": "assistant", "label": "/api/gateway/assistant/* SSE", "variant": "dashed", "labelDy": 60 },
+    { "id": "storage-api", "from": "gateway", "to": "s3docs", "label": "storage API" },
+    { "id": "api-sql", "from": "api", "to": "rds", "label": "SQL" },
+    { "id": "api-extraction", "from": "api", "to": "anthropic", "label": "extraction", "variant": "dashed" },
+    { "id": "cron-alb", "from": "eventbridge", "to": "alb", "label": "cron", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Edge", "items": ["CloudFront with WAF fronts pattadar.com and the /app/* SPA", "ALB serves api.pattadar.com directly for native and cron traffic"] },
+    { "dot": "emerald", "title": "Services", "items": ["gateway proxies to api buffered and never retried", "assistant is reached only through the gateway, streaming SSE", "One core in packages/core feeds both the web and native heads"] },
+    { "dot": "rose", "title": "Security", "items": ["x-user-id reaches upstream only after the gateway validates the JWT", "Documents are versioned and SSE-KMS encrypted in S3"] }
+  ]
+}

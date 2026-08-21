@@ -75,6 +75,12 @@ variable "desired_count" {
   default     = 1
 }
 
+variable "web_desired_count" {
+  description = "Task count for the web service only. Stays 0 until the D4 cutover pushes a web image — the repo exists but is empty, so launching earlier crash-loops on CannotPullContainerError."
+  type        = number
+  default     = 0
+}
+
 variable "gateway_image_tag" {
   description = "Image tag deployed for the gateway service (ECR repo from persistent)."
   type        = string

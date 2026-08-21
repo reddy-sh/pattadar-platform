@@ -67,9 +67,15 @@ variable "dmarc_rua_email" {
 variable "spa_callback_urls" {
   description = "OAuth callback URLs for the SPA app client (hosted-UI code flow)."
   type        = list(string)
+  # Cognito matches redirect_uri byte-for-byte, and the SPA sends its
+  # browsing origin — so localhost and 127.0.0.1 are DIFFERENT callbacks.
+  # A dev tab opened on 127.0.0.1:5173 died on redirect_mismatch until both
+  # loopback spellings were registered (http is only allowed on loopback,
+  # so this widens nothing for the internet).
   default = [
     "https://pattadar.com/auth/callback",
     "http://localhost:5173/auth/callback",
+    "http://127.0.0.1:5173/auth/callback",
   ]
 }
 
@@ -79,6 +85,7 @@ variable "spa_logout_urls" {
   default = [
     "https://pattadar.com/",
     "http://localhost:5173/",
+    "http://127.0.0.1:5173/",
   ]
 }
 

@@ -220,8 +220,11 @@ DEMO_TABLES = [
     "record_tags", "boundary_marks", "record_people", "people_payments",
     "purchase_lots", "capital_costs", "share_links", "document_versions",
     "waiting_items", "land_features", "land_expenses", "notes", "parcel_photos",
-    "documents", "work_requests",
+    "documents", "work_requests", "property_photos",
 ]
+
+# Tables keyed by the owner rather than by a `demo-` id.
+OWNER_TABLES = ["wallet_accounts"]
 
 
 def rng_for(record_id: str) -> random.Random:
@@ -247,6 +250,7 @@ def fill(template: str, r: random.Random, ctx: dict) -> str:
         "sro": r.choice(SROS), "who": r.choice(NAMES),
         "pay": f"{r.choice([800, 1000, 1200, 1500]):,}",
         "rent": f"{r.choice([28000, 35000, 42000, 55000]):,}",
+        "rentm": f"{r.choice([12000, 15500, 18000, 24000]):,}",
         "fee": f"{r.choice([5000, 7500, 12000]):,}",
         "esc": f"{r.choice([1900, 2900, 4500]):,}",
         "ord": f"PT-{r.randint(1000, 9999)}",
@@ -294,6 +298,15 @@ def purge(conn, uid: str = "") -> None:
                 cur = conn.execute(f"DELETE FROM {t} WHERE id LIKE %s", (P + "%",))
             removed += cur.rowcount or 0
         except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+            pass
+    for t in OWNER_TABLES:
+        try:
+            if uid:
+                cur = conn.execute(f"DELETE FROM {t} WHERE owner_user_id = %s", (uid,))
+            else:
+                cur = conn.execute(f"DELETE FROM {t}")
+            removed += cur.rowcount or 0
+        except psycopg.errors.UndefinedTable:
             pass
     # Put the base fields back exactly as they were: empty.
     reverted = 0
@@ -553,17 +566,21 @@ def seed(conn, uid: str) -> None:
                 counts["payments"] += 1
 
         # ── photos ───────────────────────────────────────────────────
-        if land and not has_rows(conn, "parcel_photos", "parcel_id", rid):
+        # A flat has photos too — they just live in property_photos.
+        photo_table = "parcel_photos" if land else "property_photos"
+        photo_key = "parcel_id" if land else "property_id"
+        if not has_rows(conn, photo_table, photo_key, rid):
             visits = sorted({f"2026-{r.randint(1,8):02d}-{r.randint(1,28):02d}"
                              for _ in range(r.randint(2, 4))}, reverse=True)
-            cats = ["Boundary", "Crop", "Water", "Structures", "Access"]
+            cats = (["Boundary", "Crop", "Water", "Structures", "Access"] if land
+                    else ["Rooms", "Kitchen", "Bathroom", "Balcony", "Building"])
             lat0, lon0 = (rec["geo"].split(",") + ["0", "0"])[:2]
             n = r.randint(6, 26)
             for i in range(n):
                 visit = visits[min(i // max(1, n // len(visits)), len(visits) - 1)]
                 forwarded = r.random() < 0.12
                 conn.execute(
-                    "INSERT INTO parcel_photos (id, parcel_id, owner_user_id, file_ref,"
+                    f"INSERT INTO {photo_table} (id, {photo_key}, owner_user_id, file_ref,"
                     " category, caption, latitude, longitude, captured_at, captured_by,"
                     " is_cover, created_at, source, sha256, order_ref, verified, feature_id,"
                     " accuracy_m, device_clock_ok, pin_distance_m, media_kind, width, height,"
@@ -741,6 +758,22 @@ def seed(conn, uid: str) -> None:
                  detail.replace("{m}", pick["mandal"] or "the mandal")
                        .replace("{dd}", f"{r.randint(1,28):02d}"),
                  icon, action, kind, pick["id"], i))
+
+    cur = conn.execute("SELECT count(*) FROM wallet_accounts WHERE owner_user_id=%s", (uid,))
+    if (cur.fetchone() or [0])[0] == 0:
+        r = rng_for(uid + "wallet")
+        # Topped up to cover everything already paid out of it, plus what is
+        # left sitting there. Seeding a flat figure left the balance at ₹0 on
+        # any account whose outflows had grown past it.
+        cur = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM people_payments"
+            " WHERE owner_user_id=%s AND state='settled' AND direction='out'", (uid,))
+        spent = float((cur.fetchone() or [0])[0] or 0)
+        remaining = 18_400 if uid == "w360-demo" else r.choice([9_600, 18_400, 24_500, 47_200])
+        conn.execute(
+            "INSERT INTO wallet_accounts (owner_user_id, topped_up, auto_top_up, created_at)"
+            " VALUES (%s,%s,%s,'2026-08-01') ON CONFLICT (owner_user_id) DO NOTHING",
+            (uid, spent + remaining, r.random() < 0.4))
 
     cur = conn.execute("SELECT count(*) FROM share_links WHERE owner_user_id=%s", (uid,))
     if (cur.fetchone() or [0])[0] == 0 and recs:

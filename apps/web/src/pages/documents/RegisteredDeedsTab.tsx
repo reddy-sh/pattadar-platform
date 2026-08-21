@@ -197,7 +197,7 @@ function DeedExpanded({
       {detailQ.isPending ? (
         <CircularProgress size={18} />
       ) : (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2 }}>
           <Box>
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
               Parties

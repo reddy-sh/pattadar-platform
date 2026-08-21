@@ -1,12 +1,19 @@
 /**
- * "Land Portfolio" dashboard — founder-approved layout (26/07/2026 mock,
- * rendered in the stock theme's colors, NOT the mock's green):
- *   greeting header (with Telugu line) · dark hero card (extent-led stats,
+ * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ *
+ * "Land Portfolio" dashboard — founder-approved layout (26/07/2026 mock):
+ *   greeting header (with Telugu line) · hero island (extent-led stats,
  *   estimated-value-so-far with hide toggle, Add land / Upload a deed, an
  *   honest guideline-basis note) · "things need your attention" with action
- *   buttons + green all-clear list · record completeness bar · tools grid ·
+ *   buttons + all-clear list · record completeness bar · tools grid ·
  *   family & heirs bars · your land village-by-village with deed chips ·
  *   AP-IGRS footer note. Value math is unchanged from rhub dashboard.ts.
+ *
+ * Colour: every value resolves through the MUI palette so both schemes stay
+ * correct. The hero was a fixed navy gradient (#14202f → #1b3252) with forced
+ * #eef2f6 ink on every child — a cool island in a warm-amber system that also
+ * ignored the light scheme entirely. It is now a warm paper island separated
+ * by a hairline, and its children inherit text.primary / text.secondary.
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -19,10 +26,13 @@ import Divider from '@mui/material/Divider';
 import LinearProgress from '@mui/material/LinearProgress';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import type { Theme } from '@mui/material/styles';
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
@@ -44,16 +54,24 @@ import {
 import type { DashParcel } from '../data/portfolio';
 import { fetchFileBlob, isStorageRef } from './documents/storage';
 
-/* Dark hero island — light ink for every child, in BOTH color modes. */
+/**
+ * Hero island — the one raised surface on the page. Warm paper a step above
+ * the page ground, held by a hairline rather than a shadow, with a whisper of
+ * the brand amber across the top edge so it reads as "yours" without spending
+ * accent budget (design.md § CTA voice: ≤5% per viewport).
+ * Children inherit the scheme's own ink — no forced colours.
+ */
 const heroSx = {
   mb: 2.5,
   borderRadius: '16px',
   p: { xs: 2.5, sm: 3 },
-  background: 'linear-gradient(150deg, #14202f 0%, #182a40 60%, #1b3252 100%)',
-  color: '#eef2f6',
-  '& .MuiTypography-root': { color: '#eef2f6' },
-  '& .MuiTypography-caption, & .MuiTypography-overline': { color: 'rgba(238, 242, 246, 0.72)' },
-  '& .MuiDivider-root': { borderColor: 'rgba(255, 255, 255, 0.16)' },
+  border: 1,
+  borderColor: 'divider',
+  backgroundImage: (t: Theme) =>
+    `linear-gradient(150deg, ${(t.vars ?? t).palette.background.paper} 0%, ` +
+    `color-mix(in oklch, ${(t.vars ?? t).palette.primary.main} 5%, ${(t.vars ?? t).palette.background.paper}) 100%)`,
+  boxShadow: (t: Theme) =>
+    `inset 0 1px 0 0 color-mix(in oklch, ${(t.vars ?? t).palette.primary.main} 22%, transparent)`,
 } as const;
 
 const sideCardSx = { p: 2.5, mb: 2.5 } as const;
@@ -314,7 +332,8 @@ export function DashboardPage() {
         <>
           {/* ── Hero — the one dark card ───────────────────────────────── */}
           <Box sx={heroSx}>
-            <Typography variant="overline" component="p" sx={{ letterSpacing: 2, mb: 1.5 }}>
+            {/* Mono eyebrow — theme.typography.overline carries JetBrains Mono. */}
+            <Typography variant="overline" component="p" color="text.secondary" sx={{ mb: 1.5 }}>
               Your land &amp; property
             </Typography>
             <Box sx={{ display: 'flex', gap: { xs: 3, md: 6 }, flexWrap: 'wrap' }}>
@@ -349,7 +368,8 @@ export function DashboardPage() {
                     size="small"
                     label={masked ? 'Show' : 'Hide'}
                     onClick={toggleMask}
-                    sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#eef2f6', fontWeight: 600 }}
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
                   />
                 </Box>
                 <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -362,16 +382,16 @@ export function DashboardPage() {
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1.5, mt: 2.5, flexWrap: 'wrap' }}>
-              <Button
-                variant="contained"
-                onClick={() => navigate('/app/parcels')}
-                sx={{ bgcolor: '#fff', color: '#14202f', '&:hover': { bgcolor: '#e3f2fd' } }}
-              >
+              {/* The page's one amber CTA — everything else on the dashboard
+                  is tonal or ghost, so this is unambiguously the next step. */}
+              <Button variant="contained" onClick={() => navigate('/app/parcels')}>
                 + Add land
               </Button>
               <Button
+                variant="outlined"
+                color="inherit"
                 onClick={() => navigate('/app/documents')}
-                sx={{ color: '#eef2f6', bgcolor: 'rgba(255,255,255,0.12)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
+                sx={{ borderColor: 'divider', color: 'text.primary' }}
               >
                 Upload a deed
               </Button>
@@ -398,7 +418,17 @@ export function DashboardPage() {
           </Box>
 
           {/* ── Main grid ──────────────────────────────────────────────── */}
-          <Box sx={{ display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', lg: '5fr 3fr' }, alignItems: 'start' }}>
+          {/* minmax(0, …) not bare fr: an `fr` track floors at min-content, so
+              the attention rows (44px badge + text + non-shrinking button) pushed
+              the column past the viewport and the page scrolled sideways at 375. */}
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2.5,
+              gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(0, 5fr) minmax(0, 3fr)' },
+              alignItems: 'start',
+            }}
+          >
             {/* LEFT column */}
             <Box>
               {/* Attention */}
@@ -426,7 +456,10 @@ export function DashboardPage() {
                         fontWeight: 700,
                         fontSize: 18,
                         color: r.sev === 'red' ? 'error.main' : 'warning.main',
-                        bgcolor: r.sev === 'red' ? 'rgba(211, 47, 47, 0.1)' : 'rgba(237, 108, 2, 0.12)',
+                        bgcolor: (t) =>
+                          `color-mix(in oklch, ${
+                            (t.vars ?? t).palette[r.sev === 'red' ? 'error' : 'warning'].main
+                          } 12%, transparent)`,
                       }}
                       className="tnum"
                     >
@@ -446,10 +479,30 @@ export function DashboardPage() {
                   </Box>
                 ))}
                 {allClear.length > 0 && (
-                  <Box sx={{ borderRadius: 2, bgcolor: 'rgba(46, 125, 50, 0.08)', px: 2, py: 1.5 }}>
+                  <Box
+                    sx={{
+                      borderRadius: 2,
+                      px: 2,
+                      py: 1.5,
+                      bgcolor: (t) =>
+                        `color-mix(in oklch, ${(t.vars ?? t).palette.success.main} 10%, transparent)`,
+                    }}
+                  >
                     {allClear.map((t) => (
-                      <Typography key={t} variant="body2" sx={{ color: 'success.main', fontWeight: 600, py: 0.25 }}>
-                        ✓ {t}
+                      <Typography
+                        key={t}
+                        variant="body2"
+                        sx={{
+                          color: 'success.main',
+                          fontWeight: 600,
+                          py: 0.25,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                        }}
+                      >
+                        <CheckCircleOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                        {t}
                       </Typography>
                     ))}
                   </Box>
@@ -497,12 +550,13 @@ export function DashboardPage() {
                       mt: 2,
                       p: 1.5,
                       borderRadius: 2,
-                      bgcolor: 'rgba(25, 118, 210, 0.05)',
+                      border: 1,
+                      borderColor: 'divider',
                       cursor: 'pointer',
-                      '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.1)' },
+                      '&:hover': { bgcolor: 'action.hover' },
                     }}
                   >
-                    <Box sx={{ fontSize: 22 }}>🏠</Box>
+                    <HomeOutlinedIcon sx={{ fontSize: 22, color: 'text.secondary', flexShrink: 0 }} />
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="body1" sx={{ fontWeight: 700 }}>
                         {p.label || 'Plot'}{p.city ? ` at ${p.city}` : ''}
@@ -564,7 +618,7 @@ export function DashboardPage() {
                 <Typography variant="subtitle1" component="h2" sx={{ fontWeight: 700, mb: 1.5 }}>
                   Tools
                 </Typography>
-                <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: '1fr 1fr' }}>
+                <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
                   {tools.map((t) => (
                     <Button
                       key={t.label}
