@@ -3,8 +3,11 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Only the two web apps deploy from here — apps/ios and apps/mobile
+    # commits must not wake the prod pipeline.
     paths:
-      - "apps/**"
+      - "apps/web/**"
+      - "apps/web-next/**"
       - "packages/**"
 
 permissions:
