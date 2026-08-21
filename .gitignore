@@ -52,6 +52,9 @@ test-results/
 playwright-report/
 tests/e2e-ux/results.json
 
+# Playwright MCP plugin scratch — screenshots, page snapshots, stray downloads
+.playwright-mcp/
+
 # Local dev state — venvs, logs, MinIO bytes, one-off SQL. Never committed.
 .local/
 
