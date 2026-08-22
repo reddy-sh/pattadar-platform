@@ -194,3 +194,80 @@ func ambiguousDatesAreLeftAlone() {
     #expect(humanDate("") == "")
     #expect(humanDate("Book 1, Vol 1488") == "Book 1, Vol 1488")
 }
+
+// MARK: - The geocoder ladder
+
+struct PlaceVector: Decodable {
+    let line: String
+    let candidates: [String]
+}
+
+@Test("The geocoder ladder is climbed in the same order as packages/core")
+func placeCandidatesMatch() throws {
+    let vectors = try loadVectors("places", as: [PlaceVector].self)
+    #expect(!vectors.isEmpty)
+    for v in vectors {
+        let got = placeCandidates(v.line)
+        #expect(
+            got == v.candidates,
+            "\"\(v.line)\" -> \(got), TypeScript says \(v.candidates)"
+        )
+    }
+}
+
+@Test("A village filed under the wrong parent still gets a rung of its own")
+func villageIsTriedAlone() {
+    // OpenStreetMap files Konakanamitla under Markapuram, so the full chain
+    // matches NOTHING. Without a village-alone rung the next try is the whole
+    // district — a 20 km frame for a village that resolves on its own.
+    let tries = placeCandidates("Konakanamitla, Prakasam")
+    let village = tries.firstIndex(of: "Konakanamitla, Andhra Pradesh")
+    let district = tries.firstIndex(of: "Prakasam, Andhra Pradesh")
+    #expect(village != nil, "the village must be tried on its own")
+    #expect(district != nil)
+    #expect(village! < district!, "the village must be tried BEFORE the district")
+}
+
+// MARK: - Where the pin lands on a record that has a shape
+
+struct RingVector: Decodable {
+    let name: String
+    let ring: [LatLng]
+    let centroid: LatLng?
+}
+
+@Test("A boundary's pin lands where packages/core puts it")
+func ringCentroidsMatch() throws {
+    let vectors = try loadVectors("rings", as: [RingVector].self)
+    #expect(!vectors.isEmpty)
+    for v in vectors {
+        let got = ringCentroid(v.ring)
+        switch (got, v.centroid) {
+        case (nil, nil):
+            break
+        case let (g?, c?):
+            #expect(
+                abs(g.latitude - c.latitude) < 1e-6 && abs(g.longitude - c.longitude) < 1e-6,
+                "\(v.name): (\(g.latitude), \(g.longitude)), TypeScript says (\(c.latitude), \(c.longitude))"
+            )
+        default:
+            Issue.record("\(v.name): one side returned nil and the other did not")
+        }
+    }
+}
+
+@Test("An L-shaped field is not pinned outside itself")
+func lShapeIsWeightedByArea() throws {
+    // Averaging the corners drags the pin towards whichever edge the surveyor
+    // marked most often. On this L the plain average sits in the notch — off
+    // the land — which is why the rule is area weighting, not averaging.
+    let ring = [
+        LatLng(latitude: 15.0, longitude: 79.0), LatLng(latitude: 15.0, longitude: 79.3),
+        LatLng(latitude: 15.1, longitude: 79.3), LatLng(latitude: 15.1, longitude: 79.1),
+        LatLng(latitude: 15.3, longitude: 79.1), LatLng(latitude: 15.3, longitude: 79.0),
+    ]
+    let plainLat = ring.map(\.latitude).reduce(0, +) / Double(ring.count)
+    let plainLon = ring.map(\.longitude).reduce(0, +) / Double(ring.count)
+    let got = try #require(ringCentroid(ring))
+    #expect(abs(got.latitude - plainLat) > 1e-6 || abs(got.longitude - plainLon) > 1e-6)
+}

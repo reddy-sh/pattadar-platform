@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Web changed → catch the phone up, in the background, without being asked.
+#
+# This hook decides RELEVANCE and hands off. It must never block the commit and
+# must never write to the working tree: everything real happens detached, in a
+# throwaway worktree, in scripts/ios-parity-sync.sh.
+#
+# Install with `scripts/install-git-hooks.sh` (sets core.hooksPath); remove with
+# `git config --unset core.hooksPath`. To stop it without uninstalling:
+#   touch .parity/OFF
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+# ── guards, cheapest first ──────────────────────────────────────────────
+#
+# Re-entrancy is the one that bites: git hooks are shared across worktrees, so
+# the sweep's OWN commit on parity/ios-<sha> runs this same file. Two fences,
+# because one of them will be forgotten during a refactor.
+[ -n "${PATTADAR_PARITY:-}" ] && exit 0
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+case "$branch" in parity/*) exit 0 ;; esac
+
+[ -f .parity/OFF ] && exit 0
+command -v claude >/dev/null 2>&1 || exit 0
+
+# git passes post-commit no arguments, so an argument can only have come from a
+# person testing the classifier: PARITY_DRY_RUN=1 .githooks/post-commit <sha>.
+sha="$(git rev-parse "${1:-HEAD}")"
+short="$(git rev-parse --short "$sha")"
+
+# ── is this a web change? ───────────────────────────────────────────────
+#
+# Wider than deploy.yml's filter, because services/api is a contract iOS also
+# consumes; narrower in that apps/ios can never trigger a sweep of apps/ios.
+# The full band table lives in scripts/parity-map.json.
+files="$(git show --name-only --format= "$sha")"
+relevant="$(printf '%s\n' "$files" | grep -E '^(packages/(core|tokens)/|services/(api|gateway)/|apps/web/src/|apps/web-next/|design\.md$)' | grep -vE '^(apps/web/src/pages/landing/|apps/web/src/styles/site\.css)' || true)"
+
+if [ -z "$relevant" ]; then
+  exit 0
+fi
+
+if [ -n "${PARITY_DRY_RUN:-}" ]; then
+  echo "parity: $short is relevant"
+  printf '%s\n' "$relevant" | sed 's/^/  /'
+  exit 0
+fi
+
+# ── hand off ────────────────────────────────────────────────────────────
+#
+# A sweep in flight keeps the lock; this one only queues its sha and leaves.
+# The running sweep drains the queue when it finishes, so a burst of commits
+# costs one sweep rather than N overlapping worktrees.
+mkdir -p .parity
+if [ -e .parity/lock ]; then
+  echo "$sha" >> .parity/queue
+  exit 0
+fi
+
+nohup "$ROOT/scripts/ios-parity-sync.sh" "$sha" >> .parity/sync.log 2>&1 &
+disown 2>/dev/null || true
+exit 0

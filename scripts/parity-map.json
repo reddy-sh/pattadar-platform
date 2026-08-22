@@ -1,0 +1,207 @@
+{
+  "$comment": [
+    "The machine-readable twin map. Prose, rationale and the do-not-cross rules",
+    "live in docs/specs/2026-08-22-web-ios-parity-contract.md; this file is only",
+    "the pairing, so scripts/parity-check.ts can read it without a parser.",
+    "",
+    "A module with no twin is not a defect \u2014 it may be genuinely web-only. It is",
+    "a defect when a twin exists and only one side moved."
+  ],
+  "twins": [
+    {
+      "ts": "packages/core/src/land/units.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Units.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/area.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Area.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/geo.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Geo.swift",
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/PlaceQuery.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/boundaryFile.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Boundary.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/landcalc.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Boundary.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/scale.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Boundary.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/villages.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/VillageNames.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/names.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Format/ShareName.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/photos.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/DocumentMatch.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/land/photoScreening.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/DocumentMatch.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/records/completeness.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Land/Readiness.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/records/docFamilies.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Format/DocSpine.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/format/date.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Format/Display.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/format/dob.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Format/Display.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/format/inr.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Format/Display.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/format/docName.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Format/DocumentKind.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/api/operations.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Networking/Queries.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/api/client.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Networking/PattadarAPI.swift"
+      ]
+    },
+    {
+      "ts": "packages/core/src/api/network.ts",
+      "swift": [
+        "apps/ios/PattadarKit/Sources/PattadarKit/Networking/PattadarAPI.swift"
+      ]
+    }
+  ],
+  "$bands": "Which paths mean what. Wider than deploy.yml's web filter, because services/api is a contract iOS also consumes. First match wins, in this order.",
+  "bands": {
+    "ignore": [
+      "infra/",
+      "tests/",
+      ".github/",
+      "docs/parity/",
+      "scripts/seed-",
+      "apps/mobile/",
+      "apps/web/src/pages/landing/",
+      "apps/web/src/styles/site.css",
+      "apps/ios/",
+      "node_modules/"
+    ],
+    "note": [
+      "apps/web/src/w360/",
+      "services/api/src/web360.py",
+      "docs/specs/",
+      "apps/web-next/"
+    ],
+    "adapt": [
+      "packages/core/",
+      "packages/tokens/",
+      "services/api/",
+      "services/gateway/",
+      "apps/web/src/data/hooks.ts",
+      "apps/web/src/styles/tokens.css",
+      "design.md",
+      "apps/web/src/"
+    ]
+  },
+  "$tokens": "Slots both design systems declare, compared against apps/web/src/theme.ts \u2014 which holds the PRE-COMPUTED sRGB hex for both schemes ('hex conversions of tokens.css oklch values'), so nothing here has to re-derive OKLCH. `assert` slots must agree exactly and today all of them do. `derived` slots are reported for information only: apps/ios/design.md says the paper ramp is DERIVED from the same OKLCH source, not copied, and Palette.ground / Palette.caution are deliberate native choices.",
+  "tokens": {
+    "theme": "apps/web/src/theme.ts",
+    "swift": "apps/ios/Pattadar/Sources/DesignSystem.swift",
+    "assert": [
+      {
+        "theme": "primary.main",
+        "swift": "accent"
+      },
+      {
+        "theme": "primary.contrastText",
+        "swift": "accentInk"
+      },
+      {
+        "theme": "error.main",
+        "swift": "danger"
+      },
+      {
+        "theme": "success.main",
+        "swift": "success"
+      },
+      {
+        "theme": "background.paper",
+        "swift": "card"
+      },
+      {
+        "theme": "text.primary",
+        "swift": "ink"
+      },
+      {
+        "theme": "text.secondary",
+        "swift": "inkSoft"
+      },
+      {
+        "theme": "divider",
+        "swift": "rule"
+      }
+    ],
+    "derived": [
+      {
+        "theme": "background.default",
+        "swift": "ground"
+      },
+      {
+        "theme": "warning.main",
+        "swift": "caution"
+      }
+    ]
+  }
+}

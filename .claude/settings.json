@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/parity-session-note.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bun run scripts/parity-check.ts)",
+      "Bash(bun run scripts/parity-check.ts *)",
+      "Bash(bun run scripts/emit-vectors.ts)",
+      "Bash(bun run scripts/emit-vectors.ts *)",
+      "Bash(swift test)",
+      "Bash(swift test *)",
+      "Bash(swift build)",
+      "Bash(swift build *)",
+      "Bash(git worktree *)",
+      "Bash(scripts/install-git-hooks.sh)",
+      "Bash(scripts/install-git-hooks.sh *)"
+    ]
+  }
+}

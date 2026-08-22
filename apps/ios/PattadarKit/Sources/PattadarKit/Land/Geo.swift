@@ -89,3 +89,45 @@ public func checkLocation(
 private extension Int {
     var rounded0: Int { self }
 }
+
+/// The area-weighted centroid of a boundary ring — where the pin goes when a
+/// record has a surveyed shape rather than a single point.
+///
+/// Ported from `ringCentroid` in `packages/core/src/land/geo.ts`, pinned by the
+/// `rings` vectors. Averaging the corners instead would drag the pin towards
+/// whichever edge the surveyor happened to mark most often; on an L-shaped
+/// field the plain average can land outside the land altogether. The ring may
+/// be open or closed.
+public func ringCentroid(_ ring: [LatLng]) -> LatLng? {
+    let pts = ring.filter { $0.latitude.isFinite && $0.longitude.isFinite }
+    if pts.isEmpty { return nil }
+    if pts.count < 3 { return pts[0] }
+
+    let first = pts[0]
+    let last = pts[pts.count - 1]
+    let open = (first.latitude == last.latitude && first.longitude == last.longitude)
+        ? Array(pts.dropLast())
+        : pts
+    if open.count < 3 { return open[0] }
+
+    var twiceArea = 0.0
+    var lat = 0.0
+    var lon = 0.0
+    for i in open.indices {
+        let a = open[i]
+        let b = open[(i + 1) % open.count]
+        let cross = a.longitude * b.latitude - b.longitude * a.latitude
+        twiceArea += cross
+        lat += (a.latitude + b.latitude) * cross
+        lon += (a.longitude + b.longitude) * cross
+    }
+    // A degenerate ring (all corners collinear, or duplicated) has no area to
+    // weight by; the plain average is then the only honest answer.
+    if twiceArea == 0 {
+        return LatLng(
+            latitude: open.reduce(0) { $0 + $1.latitude } / Double(open.count),
+            longitude: open.reduce(0) { $0 + $1.longitude } / Double(open.count)
+        )
+    }
+    return LatLng(latitude: lat / (3 * twiceArea), longitude: lon / (3 * twiceArea))
+}

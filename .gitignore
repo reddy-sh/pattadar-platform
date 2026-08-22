@@ -60,3 +60,7 @@ tests/e2e-ux/results.json
 
 # sdd scratch
 .superpowers/
+
+# Parity sweep state — lock, queue, ledger, logs, the OFF switch. Local only:
+# a sweep that ran on this machine is not a fact about the repo.
+.parity/

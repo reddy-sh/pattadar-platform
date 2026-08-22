@@ -1,0 +1,49 @@
+[
+  {
+    "line": "Konakanamitla, Prakasam",
+    "candidates": [
+      "Konakanamitla, Prakasam, Andhra Pradesh",
+      "Konakanamitla, Andhra Pradesh",
+      "Prakasam, Andhra Pradesh",
+      "Andhra Pradesh"
+    ]
+  },
+  {
+    "line": "Katragunta, Markapuram, Prakasam",
+    "candidates": [
+      "Katragunta, Markapuram, Prakasam, Andhra Pradesh",
+      "Katragunta, Andhra Pradesh",
+      "Markapuram, Andhra Pradesh",
+      "Prakasam, Andhra Pradesh",
+      "Andhra Pradesh"
+    ]
+  },
+  {
+    "line": "Markapuram, Markapuram, Prakasam",
+    "candidates": [
+      "Markapuram, Markapuram, Prakasam, Andhra Pradesh",
+      "Markapuram, Andhra Pradesh",
+      "Prakasam, Andhra Pradesh",
+      "Andhra Pradesh"
+    ]
+  },
+  {
+    "line": "Mangalakunta",
+    "candidates": [
+      "Mangalakunta, Andhra Pradesh",
+      "Andhra Pradesh"
+    ]
+  },
+  {
+    "line": "",
+    "candidates": [
+      "Andhra Pradesh"
+    ]
+  },
+  {
+    "line": "  ,  ",
+    "candidates": [
+      "Andhra Pradesh"
+    ]
+  }
+]

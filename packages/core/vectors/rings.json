@@ -1,0 +1,128 @@
+[
+  {
+    "name": "empty",
+    "ring": [],
+    "centroid": null
+  },
+  {
+    "name": "single corner",
+    "ring": [
+      {
+        "latitude": 15.5,
+        "longitude": 79.2
+      }
+    ],
+    "centroid": {
+      "latitude": 15.5,
+      "longitude": 79.2
+    }
+  },
+  {
+    "name": "square, open",
+    "ring": [
+      {
+        "latitude": 15,
+        "longitude": 79
+      },
+      {
+        "latitude": 15,
+        "longitude": 79.1
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79.1
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79
+      }
+    ],
+    "centroid": {
+      "latitude": 15.05,
+      "longitude": 79.05
+    }
+  },
+  {
+    "name": "square, closed",
+    "ring": [
+      {
+        "latitude": 15,
+        "longitude": 79
+      },
+      {
+        "latitude": 15,
+        "longitude": 79.1
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79.1
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79
+      },
+      {
+        "latitude": 15,
+        "longitude": 79
+      }
+    ],
+    "centroid": {
+      "latitude": 15.05,
+      "longitude": 79.05
+    }
+  },
+  {
+    "name": "L-shape, where the plain average would lie",
+    "ring": [
+      {
+        "latitude": 15,
+        "longitude": 79
+      },
+      {
+        "latitude": 15,
+        "longitude": 79.3
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79.3
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79.1
+      },
+      {
+        "latitude": 15.3,
+        "longitude": 79.1
+      },
+      {
+        "latitude": 15.3,
+        "longitude": 79
+      }
+    ],
+    "centroid": {
+      "latitude": 15.11,
+      "longitude": 79.11
+    }
+  },
+  {
+    "name": "collinear, no area to weight by",
+    "ring": [
+      {
+        "latitude": 15,
+        "longitude": 79
+      },
+      {
+        "latitude": 15.1,
+        "longitude": 79
+      },
+      {
+        "latitude": 15.2,
+        "longitude": 79
+      }
+    ],
+    "centroid": {
+      "latitude": 15.1,
+      "longitude": 79
+    }
+  }
+]
