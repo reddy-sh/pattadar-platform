@@ -10,7 +10,7 @@ Cognito's claims contract:
   configured app client id.
 - The `email` claim is injected into the access token by a
   pre-token-generation Lambda trigger (lowercased). Tokens without it are
-  rejected — email is the identity every DB row and S3 key derives from.
+  rejected; identity itself derives from immutable issuer and subject claims.
 - Cognito issues only JWTs — there is no opaque-token /userinfo fallback.
 
 JWKS keys cached with TTL (default 1 hour), kid-based lookup, automatic
@@ -99,6 +99,8 @@ class JWKSCache:
         self._keys: List[Dict[str, Any]] = []
         self._by_kid: Dict[str, Dict[str, Any]] = {}
         self._fetched_at: float = 0.0
+        self._last_forced_refresh: float = float("-inf")
+        self._forced_refresh_cooldown = 30.0
         self._refresh_lock: Optional["asyncio.Lock"] = None
 
     def _get_lock(self) -> "asyncio.Lock":
@@ -120,7 +122,7 @@ class JWKSCache:
             return self._by_kid[kid]
 
         # Cache is stale or kid not found — refresh (serialized)
-        await self.refresh(http_client=http_client)
+        await self.refresh(http_client=http_client, missing_kid=kid)
 
         if kid in self._by_kid:
             return self._by_kid[kid]
@@ -131,12 +133,12 @@ class JWKSCache:
         self, *, http_client: Optional[httpx.AsyncClient] = None
     ) -> List[Dict[str, Any]]:
         """Get all signing keys. Refreshes cache if stale."""
-        if self.is_stale:
+        if not self._keys or self.is_stale:
             await self.refresh(http_client=http_client)
         return list(self._keys)
 
     async def refresh(
-        self, *, http_client: Optional[httpx.AsyncClient] = None
+        self, *, http_client: Optional[httpx.AsyncClient] = None, missing_kid: Optional[str] = None
     ) -> None:
         """Fetch JWKS from Cognito and update the cache.
 
@@ -150,7 +152,14 @@ class JWKSCache:
             # Re-check staleness after acquiring lock — another request
             # may have already refreshed while we were waiting.
             if not self.is_stale and self._keys:
-                return
+                if not missing_kid or missing_kid in self._by_kid:
+                    return
+                now = time.monotonic()
+                if now - self._last_forced_refresh < self._forced_refresh_cooldown:
+                    return
+                # Count attempts, including failures, to bound hostile random-kid
+                # traffic. The lock coalesces simultaneous key-rotation requests.
+                self._last_forced_refresh = now
 
             try:
                 if http_client:
@@ -235,6 +244,8 @@ async def verify_token(
     # FAIL CLOSED: no configured clients → no token is acceptable.
     if not allowed or str(claims.get("client_id") or "") not in allowed:
         raise JWTError("Token client_id does not match a configured app client")
+    if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
+        raise JWTError("Token is missing the subject claim")
     if not str(claims.get("email") or "").strip():
         # The pre-token-generation trigger injects email (lowercased) into
         # every access token; a token without it cannot be mapped to a user.

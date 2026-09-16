@@ -2,8 +2,7 @@
  * My Drive (gateway storage) client — the same S3-backed store the web app
  * uses, so a file uploaded on either head opens on both.
  *
- * Transport differs from the GraphQL client on purpose: storage is behind the
- * gateway and authenticates with the Cognito ACCESS token (Bearer). The
+ * GraphQL, extraction and storage share refreshed Cognito Bearer tokens. The
  * gateway strips client-supplied identity headers and derives the owner from
  * the token, so there is no x-user-id here by design.
  */
@@ -13,7 +12,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { fetchWithTimeout } from '@pattadar/core';
 
-import { COGNITO_CLIENT_ID, COGNITO_DOMAIN, TOKENS_KEY, type StoredTokens } from '@/auth/cognitoConfig';
+import { accessToken } from '@/auth/accessToken';
 import { selectCacheEvictions } from '@/lib/cacheEviction';
 import { clearLocalCopies } from '@/lib/localFiles';
 import { isAllowedApiUrl } from '@/lib/urlScheme';
@@ -35,70 +34,6 @@ export async function setStorageBase(url: string): Promise<void> {
     throw new Error('Only an https:// server address is allowed here.');
   }
   await SecureStore.setItemAsync(STORAGE_URL_KEY, clean);
-}
-
-/**
- * Cognito access tokens last about an hour.
- *
- * This used to return '' the moment one expired, which meant file storage
- * silently stopped working roughly an hour after every sign-in and stayed
- * broken until someone happened to sign in again. Documents kept being filed
- * with no file behind them because the upload failure was swallowed. The
- * refresh token was already being stored — it just was never used.
- */
-let refreshing: Promise<string> | null = null;
-
-/** Exchange the refresh token for a new access token; '' when it cannot. */
-async function refreshAccessToken(t: StoredTokens): Promise<string> {
-  if (!t.refreshToken) return '';
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    client_id: COGNITO_CLIENT_ID,
-    refresh_token: t.refreshToken,
-  }).toString();
-  const res = await fetchWithTimeout(
-    `${COGNITO_DOMAIN}/oauth2/token`,
-    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body },
-    20_000,
-    'Sign-in refresh',
-  ).catch(() => null);
-  if (!res || !res.ok) return '';
-  const json = (await res.json().catch(() => null)) as
-    | { access_token?: string; id_token?: string; expires_in?: number }
-    | null;
-  if (!json?.access_token) return '';
-  // Cognito does NOT return a new refresh token here — keep the existing one,
-  // or the next refresh has nothing to work with.
-  const next: StoredTokens = {
-    ...t,
-    accessToken: json.access_token,
-    idToken: json.id_token ?? t.idToken,
-    issuedAt: Date.now(),
-    expiresIn: json.expires_in ?? 3600,
-  };
-  await SecureStore.setItemAsync(TOKENS_KEY, JSON.stringify(next)).catch(() => undefined);
-  return json.access_token;
-}
-
-async function accessToken(): Promise<string> {
-  const raw = await SecureStore.getItemAsync(TOKENS_KEY).catch(() => null);
-  if (!raw) return '';
-  let t: StoredTokens;
-  try {
-    t = JSON.parse(raw) as StoredTokens;
-  } catch {
-    return '';
-  }
-  // Refresh a minute early: a token that expires mid-upload is the same as an
-  // expired one, and a large photo takes a while.
-  const expired = !!t.issuedAt && !!t.expiresIn && Date.now() > t.issuedAt + t.expiresIn * 1000 - 60_000;
-  if (!expired) return t.accessToken ?? '';
-  // Several requests can discover expiry at once; they must not each start
-  // their own refresh, because Cognito can rotate the token under them.
-  refreshing = refreshing ?? refreshAccessToken(t).finally(() => {
-    refreshing = null;
-  });
-  return refreshing;
 }
 
 /** True when this build can talk to storage at all (URL + a live token). */

@@ -58,7 +58,8 @@ def test_minted_access_token_passes_real_validation(trust, local_config):
     assert claims["client_id"] == CLIENT_ID
 
 
-def test_full_email_keeps_its_local_part_semantics(trust, local_config):
+def test_full_email_keeps_its_local_part_semantics(trust, local_config, monkeypatch):
+    monkeypatch.setattr(auth, "jwks_cache", trust)
     minted = trust.mint("Sankara.Telukutla@gmail.com", CLIENT_ID)
     claims = verify(minted["access_token"], local_config, trust)
     # Identity derives from the email claim exactly as with a real token.
@@ -95,6 +96,9 @@ def test_real_pool_gateway_rejects_minted_token(trust):
     pool_cache._keys = [pool_jwk]
     pool_cache._by_kid = {"aws-kid-1": pool_jwk}
     pool_cache._fetched_at = time.monotonic()
+    # Rotation refresh is covered separately with an offline HTTP mock. Keep
+    # this trust-boundary test inside the bounded refresh cooldown.
+    pool_cache._last_forced_refresh = time.monotonic()
     with pytest.raises(JWTError):
         verify(minted["access_token"], real_config, pool_cache)
 

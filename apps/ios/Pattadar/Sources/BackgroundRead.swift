@@ -51,6 +51,19 @@ final class BackgroundRead: NSObject {
 
     private var session: URLSession!
     private var received: [Int: Data] = [:]
+    private var activeOwner = ""
+    private var generation = UUID()
+
+    func activate(ownerID: String) {
+        activeOwner = ownerID
+        generation = UUID()
+        onProgress = nil
+        onFinished = nil
+        lastEnqueuedReviewID = nil
+        pollTask?.cancel()
+        pollTask = nil
+        pollConfig = nil
+    }
     /// Where the status poll asks, with what credentials. Held in memory only;
     /// a relaunched app hands a fresh config to `resumeIfRunning`.
     private var pollConfig: PattadarAPI.Config?
@@ -71,6 +84,8 @@ final class BackgroundRead: NSObject {
     // MARK: - The pending read, across launches
 
     struct Pending: Codable {
+        var ownerID: String
+        var readID: String
         var endpointPath: String
         var originalName: String
         var documentPath: String
@@ -80,40 +95,51 @@ final class BackgroundRead: NSObject {
         /// From that moment the transfer is done and the result is fetched by
         /// POLLING — the phone never again waits minutes on an open response.
         var jobID: String?
+        var savedResultJSON: String?
     }
 
-    private static let pendingKey = "pattadar.pendingRead"
-
-    private(set) var pending: Pending? {
+    // Legacy ownerless pendingRead is intentionally retained for recovery,
+    // never adopted by a different account. Background task descriptions bind
+    // callbacks to this durable entry, not to whichever user is on screen.
+    private static let pendingKey = "pattadar.pendingReads.owned.v1"
+    private var allPending: [String: Pending] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: Self.pendingKey) else { return nil }
-            return try? JSONDecoder().decode(Pending.self, from: data)
+            guard let data = UserDefaults.standard.data(forKey: Self.pendingKey) else { return [:] }
+            return (try? JSONDecoder().decode([String: Pending].self, from: data)) ?? [:]
         }
         set {
-            if let newValue, let data = try? JSONEncoder().encode(newValue) {
+            if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: Self.pendingKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: Self.pendingKey)
             }
         }
+    }
+    var pending: Pending? { allPending[activeOwner] }
+    private func store(_ value: Pending) { allPending[value.ownerID] = value }
+    private func matches(_ value: Pending) -> Bool {
+        allPending[value.ownerID]?.readID == value.readID
     }
 
     /// Whether a read is still running somewhere out of process. Asked on launch,
     /// so a relaunched app shows "reading…" rather than an empty card.
     func resumeIfRunning(config: PattadarAPI.Config) async -> Pending? {
-        guard let p = pending else { return nil }
+        guard !activeOwner.isEmpty, let p = pending, config.userID == activeOwner else { return nil }
         pollConfig = config
+        if let saved = p.savedResultJSON,
+           let json = try? JSONSerialization.jsonObject(with: Data(saved.utf8)) as? [String: Any] {
+            finish(status: 200, json: json, rawBody: Data(saved.utf8), pending: p)
+            return nil
+        }
         if let job = p.jobID {
             // The upload already landed; the reading continued on the server
             // while this app was gone. Ask after it again.
-            beginPolling(job: job)
+            beginPolling(job: job, pending: p)
             return p
         }
         let tasks = await session.allTasks
-        guard !tasks.isEmpty else {
+        guard tasks.contains(where: { $0.taskDescription == p.readID }) else {
             // Nothing is running and no result arrived: the transfer died with
             // the process. Say so rather than leaving a spinner forever.
-            pending = nil
+            cleanUp(p)
             return nil
         }
         return p
@@ -123,8 +149,19 @@ final class BackgroundRead: NSObject {
 
     func start(endpoint: PattadarAPI.ExtractionEndpoint, config: PattadarAPI.Config,
                fileURL: URL, name: String) throws {
+        guard !activeOwner.isEmpty, config.userID == activeOwner else {
+            throw PattadarAPI.APIError.http(401, "Sign in before reading a document.")
+        }
+        if pending != nil { cancelAll() }
+        lastEnqueuedReviewID = nil
+        let readID = UUID().uuidString
+        let keptDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BackgroundReads", isDirectory: true)
+        try FileManager.default.createDirectory(at: keptDirectory, withIntermediateDirectories: true)
+        let keptFile = keptDirectory.appendingPathComponent("\(readID)-\(fileURL.lastPathComponent)")
+        try FileManager.default.copyItem(at: fileURL, to: keptFile)
         let boundary = "Boundary-\(UUID().uuidString)"
-        let bodyURL = try Self.writeMultipart(fileURL: fileURL, boundary: boundary)
+        let bodyURL = try Self.writeMultipart(fileURL: keptFile, boundary: boundary)
         pollConfig = config
 
         // A registered document takes minutes to read, and no transport —
@@ -148,10 +185,12 @@ final class BackgroundRead: NSObject {
             request.setValue("Bearer \(config.authorization)", forHTTPHeaderField: "Authorization")
         }
 
-        pending = Pending(endpointPath: endpoint.requestPath, originalName: name,
-                          documentPath: fileURL.path, bodyPath: bodyURL.path,
+        let p = Pending(ownerID: activeOwner, readID: readID, endpointPath: endpoint.requestPath, originalName: name,
+                          documentPath: keptFile.path, bodyPath: bodyURL.path,
                           startedAt: Date())
+        store(p)
         let task = session.uploadTask(with: request, fromFile: bodyURL)
+        task.taskDescription = p.readID
         task.resume()
     }
 
@@ -162,24 +201,29 @@ final class BackgroundRead: NSObject {
         // a singleton that creates its session once — so tapping Stop would have
         // left every later scan failing until the app was restarted, with no
         // sign of why.
-        session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        let readID = pending?.readID
+        session.getAllTasks { tasks in
+            tasks.filter { $0.taskDescription == readID }.forEach { $0.cancel() }
+        }
         pollTask?.cancel()
         pollTask = nil
-        cleanUp()
+        if let p = pending { cleanUp(p) }
     }
 
-    private func cleanUp() {
-        if let p = pending {
-            try? FileManager.default.removeItem(atPath: p.bodyPath)
+    private func cleanUp(_ p: Pending) {
+        guard matches(p) else { return }
+        try? FileManager.default.removeItem(atPath: p.bodyPath)
+        if URL(fileURLWithPath: p.documentPath).deletingLastPathComponent().lastPathComponent == "BackgroundReads" {
+            try? FileManager.default.removeItem(atPath: p.documentPath)
         }
-        pending = nil
+        allPending.removeValue(forKey: p.ownerID)
     }
 
     /// The multipart envelope, streamed to disk so a 14 MB deed is never held in
     /// memory — and so the system can read it after the app is gone.
     private static func writeMultipart(fileURL: URL, boundary: String) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Uploads", isDirectory: true)
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BackgroundReads", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let bodyURL = dir.appendingPathComponent("read-\(UUID().uuidString).tmp")
 
@@ -210,24 +254,36 @@ extension BackgroundRead: URLSessionDataDelegate {
                                 didSendBodyData bytesSent: Int64, totalBytesSent: Int64,
                                 totalBytesExpectedToSend total: Int64) {
         let fraction = total > 0 ? Double(totalBytesSent) / Double(total) : 0
-        Task { @MainActor in self.onProgress?(fraction) }
+        let readID = task.taskDescription
+        Task { @MainActor in
+            guard self.pending?.readID == readID else { return }
+            self.onProgress?(fraction)
+        }
     }
 
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
                                 didReceive data: Data) {
         let id = dataTask.taskIdentifier
-        Task { @MainActor in self.received[id, default: Data()].append(data) }
+        let readID = dataTask.taskDescription
+        Task { @MainActor in
+            guard self.allPending.values.contains(where: { $0.readID == readID }) else { return }
+            self.received[id, default: Data()].append(data)
+        }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
                                 didCompleteWithError error: Error?) {
         let id = task.taskIdentifier
+        let readID = task.taskDescription
         let status = (task.response as? HTTPURLResponse)?.statusCode ?? 0
         Task { @MainActor in
             let body = self.received.removeValue(forKey: id) ?? Data()
+            guard let p = self.allPending.values.first(where: { $0.readID == readID }) else { return }
+            let active = p.ownerID == self.activeOwner
 
             if let error {
-                self.cleanUp()
+                self.cleanUp(p)
+                guard active else { return }
                 // Into the app's vocabulary before it reaches a screen — the
                 // raw NSError is how a tapped "Stop" became a wall of red.
                 let failure = PattadarAPI.APIError.from(error)
@@ -245,30 +301,36 @@ extension BackgroundRead: URLSessionDataDelegate {
             // served its purpose; `pending` stays — it now carries the job id
             // so a relaunched app can pick the poll back up.
             if (200..<300).contains(status), let job = json["job"] as? String, !job.isEmpty {
-                if var p = self.pending {
+                var p = p
+                do {
                     try? FileManager.default.removeItem(atPath: p.bodyPath)
                     p.jobID = job
-                    self.pending = p
+                    self.store(p)
                 }
-                self.beginPolling(job: job)
+                if active { self.beginPolling(job: job, pending: p) }
                 return
             }
-            self.finish(status: status, json: json, rawBody: body)
+            self.finish(status: status, json: json, rawBody: body, pending: p)
         }
     }
 
     /// One terminal handling for both arrival paths — the sync response and
     /// the poll result. Clears the pending read whatever the outcome.
-    private func finish(status: Int, json: [String: Any], rawBody: Data) {
-        defer { cleanUp() }
+    private func finish(status: Int, json: [String: Any], rawBody: Data, pending p: Pending) {
+        guard matches(p) else { return }
+        var removePending = true
+        defer { if removePending { cleanUp(p) } }
+        let active = p.ownerID == activeOwner
 
         if let message = json["error"] as? String {
+            guard active else { return }
             onFinished?(.failure(PattadarAPI.APIError.http(status, message)))
             let n = readFailedNotification(message)
             notify(title: n.title, body: n.body)
             return
         }
         guard (200..<300).contains(status) else {
+            guard active else { return }
             onFinished?(.failure(PattadarAPI.APIError.http(
                 status, String(data: rawBody, encoding: .utf8) ?? "")))
             let n = readFailedNotification("The server answered \(status).")
@@ -277,6 +339,7 @@ extension BackgroundRead: URLSessionDataDelegate {
         }
         let fields = json["fields"] as? [String: Any] ?? [:]
         guard !fields.isEmpty else {
+            guard active else { return }
             onFinished?(.failure(PattadarAPI.APIError.emptyExtraction("document")))
             let n = readFailedNotification(
                 "Nothing could be read from it — try a clearer copy.")
@@ -288,11 +351,21 @@ extension BackgroundRead: URLSessionDataDelegate {
         // purely to receive this and may be closed again a second later; a
         // result held only in memory is the reason a read finished and the
         // property was not there afterwards.
-        if let p = pending {
-            lastEnqueuedReviewID = ReviewQueue.shared.add(
-                fields: fields, documentPath: p.documentPath,
+        let reviewID = ReviewQueue.shared.add(
+                ownerID: p.ownerID, fields: fields, documentPath: p.documentPath,
                 originalName: p.originalName)
+        guard let reviewID else {
+            // Keep the source and extraction for a later save attempt rather
+            // than telling the owner it is ready and dropping the only copy.
+            removePending = false
+            var retained = p
+            retained.savedResultJSON = String(data: (try? JSONSerialization.data(withJSONObject: json)) ?? Data(), encoding: .utf8)
+            store(retained)
+            if active { onFinished?(.failure(PattadarAPI.APIError.http(0, "The reading could not be saved on this phone. Free some storage and reopen Pattadar."))) }
+            return
         }
+        guard active else { return }
+        lastEnqueuedReviewID = reviewID
         onFinished?(.success(fields))
         let n = readReadyNotification(fields)
         notify(title: n.title, body: n.body)
@@ -300,13 +373,14 @@ extension BackgroundRead: URLSessionDataDelegate {
 
     /// Ask after the job every few seconds until it settles. Network blips
     /// are ridden out; only a server verdict (or the deadline) ends the poll.
-    private func beginPolling(job: String) {
+    private func beginPolling(job: String, pending p: Pending) {
         guard let config = pollConfig else {
             finish(status: 0, json: ["error": "The read lost its connection details — send the document again."],
-                   rawBody: Data())
+                   rawBody: Data(), pending: p)
             return
         }
         pollTask?.cancel()
+        let expectedGeneration = generation
         pollTask = Task { [weak self] in
             var request = URLRequest(url: config.baseURL.appendingPathComponent("import-status/\(job)"))
             request.setValue("1", forHTTPHeaderField: "Bypass-Tunnel-Reminder")
@@ -325,18 +399,19 @@ extension BackgroundRead: URLSessionDataDelegate {
                 guard let (data, response) = try? await URLSession.shared.data(for: request) else {
                     continue  // a blip; the job is still running server-side
                 }
+                guard !Task.isCancelled, self?.generation == expectedGeneration else { return }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
                 if status == 200, (json["state"] as? String) == "running" { continue }
                 await MainActor.run { [weak self] in
-                    self?.finish(status: status, json: json, rawBody: data)
+                    self?.finish(status: status, json: json, rawBody: data, pending: p)
                 }
                 return
             }
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.finish(status: 0, json: ["error": "The read took too long and was given up on. Send the document again."],
-                             rawBody: Data())
+                             rawBody: Data(), pending: p)
             }
         }
     }

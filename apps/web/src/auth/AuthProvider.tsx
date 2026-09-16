@@ -24,7 +24,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import type { User } from 'oidc-client-ts';
-import { setAccessTokenProvider } from '../api/client';
+import { apiFetch, setAccessTokenProvider } from '../api/client';
 import {
   getNativeSession,
   hasNativeUser,
@@ -46,6 +46,14 @@ export interface AuthUser {
 export type SocialProvider = 'Google' | 'Facebook' | 'SignInWithApple';
 
 const MOCK_USER: AuthUser = { email: 'dev@pattadar.local' };
+
+/** Who mock mode signs in AS, for the gateway's benefit.
+ *
+ *  Must match the `x-user-id` the Vite proxy injects on the GraphQL path
+ *  (vite.config.ts `devUserId`, itself `DEV_USER_ID` or 'shankarreddy.t'), or
+ *  the screen shows one account's records and the storage behind them belongs
+ *  to another. Overridable for the same reason the proxy's is. */
+const DEV_USER = (import.meta.env.VITE_DEV_USER_ID as string | undefined) || 'shankarreddy.t';
 
 /**
  * Social providers enabled via VITE_SOCIAL_PROVIDERS (comma-separated, e.g.
@@ -92,8 +100,7 @@ function buildUserManager(): UserManager {
 const userManager: UserManager | null = isAuthMocked ? null : buildUserManager();
 
 // Wire the ACCESS token into the API client: native session first (the lib
-// auto-refreshes it), then the oidc (social) user. In mock mode the provider
-// stays the default (null) — local dev talks to the gateway unauthenticated.
+// auto-refreshes it), then the oidc (social) user.
 if (!isAuthMocked) {
   setAccessTokenProvider(async () => {
     const session = await getNativeSession();
@@ -103,6 +110,51 @@ if (!isAuthMocked) {
       if (u && !u.expired) return u.access_token;
     }
     return null;
+  });
+} else if (import.meta.env.DEV) {
+  // ── Mock mode, and only ever inside `vite dev` ───────────────────────
+  //
+  // Mock mode used to talk to the gateway with no Bearer at all, which made
+  // it a half-door: RequireAuth let you into /app and GraphQL answered (the
+  // Vite proxy injects x-user-id), but every storage route 401'd, so papers
+  // and photos rendered as empty shelves. That reads as missing data rather
+  // than as missing auth, which is the worst way for a dev door to fail.
+  //
+  // The gateway already mints a token this seam can use when it is running
+  // on the laptop trust root: POST /local-auth/token. It 404s on the real
+  // pool — indistinguishable from absent — so asking is safe even when the
+  // answer is no, and a `null` here simply restores the old behaviour.
+  //
+  // `import.meta.env.DEV` is a compile-time constant that Vite replaces with
+  // `false` in a production build, so this whole branch is dead code that
+  // tree-shaking removes from anything shipped. That is deliberate: an auth
+  // bypass must be impossible to enable in production, not merely switched
+  // off there.
+  let cached: { token: string; until: number } | null = null;
+  setAccessTokenProvider(async () => {
+    if (cached && Date.now() < cached.until) return cached.token;
+    try {
+      const res = await fetch('/api/gateway/local-auth/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // The identity the Vite proxy already injects on the GraphQL path.
+        // Minting for a different user would give a Bearer whose storage
+        // does not match the records on screen.
+        body: JSON.stringify({ user: DEV_USER }),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { access_token?: string; expires_in?: number };
+      if (!body.access_token) return null;
+      // Re-mint a minute early so a request never carries a token that
+      // expires in flight.
+      const ttl = Math.max((body.expires_in ?? 3600) - 60, 60) * 1000;
+      cached = { token: body.access_token, until: Date.now() + ttl };
+      return cached.token;
+    } catch {
+      // The gateway is not up, or is on the real pool. Mock mode still works
+      // for everything that does not need a Bearer.
+      return null;
+    }
   });
 }
 
@@ -134,7 +186,17 @@ export async function completeSignIn(): Promise<string> {
   if (!userManager) return '/app';
   const user = await userManager.signinRedirectCallback();
   const state = user.state as { returnTo?: string } | undefined;
-  return state?.returnTo ?? '/app';
+  const returnTo = state?.returnTo ?? '/app';
+  // Social sign-up does not visit SignupPage. Offer the same account notice
+  // after the verified session exists, without turning a settings outage
+  // into a failed authentication or losing the intended destination.
+  try {
+    const response = await apiFetch('/api/gateway/account/consent');
+    if (response.ok && !(await response.json()).acceptedAt) {
+      return `/app/account?welcome=1&returnTo=${encodeURIComponent(returnTo)}`;
+    }
+  } catch { /* Account settings remain reachable from the profile. */ }
+  return returnTo;
 }
 
 interface AuthContextValue {

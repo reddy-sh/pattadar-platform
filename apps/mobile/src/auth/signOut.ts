@@ -21,12 +21,12 @@ import * as SecureStore from 'expo-secure-store';
 import { setIdentity } from '@/api/client';
 import { clearCachedFiles, STORAGE_URL_KEY } from '@/api/storage';
 import { COGNITO_CLIENT_ID, COGNITO_DOMAIN, TOKENS_KEY, type StoredTokens } from '@/auth/cognitoConfig';
+import { clearTokens } from '@/auth/accessToken';
 import { clearAvatarFile } from '@/lib/avatar';
 
 /** RFC 7009 token revocation against the Cognito hosted UI's own endpoint —
  * never surfaced to the user, just a background POST. */
-async function revokeRefreshToken(): Promise<void> {
-  const raw = await SecureStore.getItemAsync(TOKENS_KEY).catch(() => null);
+async function revokeRefreshToken(raw: string | null): Promise<void> {
   if (!raw) return;
   let tokens: StoredTokens;
   try {
@@ -47,10 +47,10 @@ async function revokeRefreshToken(): Promise<void> {
 }
 
 export async function signOut(): Promise<void> {
-  // Read + revoke the refresh token before it is deleted below.
-  await revokeRefreshToken();
+  const oldTokens = await SecureStore.getItemAsync(TOKENS_KEY).catch(() => null);
+  await clearTokens();
+  void revokeRefreshToken(oldTokens);
   await Promise.all([
-    SecureStore.deleteItemAsync(TOKENS_KEY).catch(() => undefined),
     setIdentity(''),
     SecureStore.deleteItemAsync(STORAGE_URL_KEY).catch(() => undefined),
     clearAvatarFile(),

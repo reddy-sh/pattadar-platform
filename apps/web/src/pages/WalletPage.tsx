@@ -1,5 +1,5 @@
 /**
- * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ * Pattadar Bloom · Material 3-guided application surface
  *
  * Wallet — design-forward coming-soon view. Hairline balance card with a mono
  * figure and disabled Add money / Send actions, a sample transaction history

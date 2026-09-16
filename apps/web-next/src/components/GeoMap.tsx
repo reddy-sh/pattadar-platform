@@ -15,11 +15,47 @@
  *
  * Import via GeoMapLazy (next/dynamic, ssr:false) so Leaflet stays in its own
  * chunk and never runs during SSR (blob/DOM APIs are browser-only).
+ *
+ * ── Component-kit patch ────────────────────────────────────────────────────
+ * The kit's `MapSurface` owns all map chrome — one toolbar of real MUI
+ * controls, one readout, one container treatment — but it can only own what
+ * the engine is willing to hand over. These six props are that handover, and
+ * nothing more: `scrollWheelZoom` and `showLayerControl`/`layer` let the
+ * surface suppress Leaflet's own chrome instead of layering a second set of
+ * controls on top of it; `onError` gives the three catch blocks and the
+ * zero-result search branch somewhere to speak, since a swallowed failure is
+ * indistinguishable from a map that simply has nothing to show; `accentKey`
+ * exists because Leaflet bakes a RESOLVED colour into marker HTML and SVG
+ * presentation attributes, so a theme switch cannot reach them through CSS
+ * variables the way the rest of the app's colour does; and `onReady` hands
+ * back a stable imperative handle, which is what lets a parent refit or
+ * re-measure the map instead of remounting it with a React `key` and paying
+ * for the view, the Nominatim call and any focus inside it.
+ *
+ * The ~600-line engine underneath is deliberately untouched: same drawing
+ * model, same geo maths, same Nominatim call, same container. Omit the six
+ * props and this file behaves exactly as it did before — with one intended
+ * exception, `scrollWheelZoom`, which now defaults to FALSE so a map embedded
+ * mid-page stops swallowing page scroll.
+ *
+ * Known seams this patch does NOT close, so the next reader does not assume
+ * the map is done: the internal search box is still Leaflet-era markup (the
+ * surface disables it and renders its own), Leaflet's marker and vertex
+ * buttons still carry no accessible name, and `ringAreaSqM`/`ringPerimM`
+ * below still duplicate `packages/core/src/land/landcalc.ts`.
+ *
+ * Contract: docs/specs/2026-09-14-web-component-kit-contract.md
+ * Design authority: docs/specs/2026-07-26-ux-redesign-m3.md
  */
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import type { MapErrorKind, MapLayer } from './kit/types';
+
+/** The kinds this engine can actually raise. `chunk` belongs to the lazy seam
+ *  above it (`GeoMapLazy`), which is the only thing that can fail to load. */
+type GeoMapErrorKind = Exclude<MapErrorKind, 'chunk'>;
 
 export interface GeoMapProps {
   value?: string | null;
@@ -49,6 +85,40 @@ export interface GeoMapProps {
    *  array to try each candidate in order (e.g. village → mandal → district → state)
    *  and stop at the first that resolves. */
   autoLocate?: string | string[];
+  /** Default FALSE: a map in the middle of a page must not eat the page's scroll.
+   *  Read once, at init — Leaflet owns the handler from then on. */
+  scrollWheelZoom?: boolean;
+  /** Leaflet's own layer switcher (default true). `MapSurface` passes false and
+   *  renders an MUI control instead, so the map never shows two of them. */
+  showLayerControl?: boolean;
+  /** Base layer to start on (default 'street'). */
+  layer?: MapLayer;
+  /** Every failure this engine used to swallow: a geometry it could not parse,
+   *  a geocode that threw, and a search that matched nothing. Called, never
+   *  thrown — omitting it restores the old silence exactly. */
+  onError?: (e: { kind: GeoMapErrorKind; message: string }) => void;
+  /** Bump to make the engine re-read `--mui-palette-primary-main` and repaint the
+   *  icons and vector layers that baked the old colour in. `MapSurface` passes the
+   *  active colour-scheme name. Never remounts, never re-runs `autoLocate`. */
+  accentKey?: string;
+  /** Called ONCE, when the map exists, with a handle whose identity never changes —
+   *  so a parent commands the map instead of remounting it with a React `key`. */
+  onReady?: (handle: GeoMapHandle) => void;
+}
+
+/**
+ * The imperative surface a parent needs in order to leave the map mounted:
+ * refit after a save, re-measure after a container resize, return focus, and
+ * drive the two boundary edits that used to exist only as footer buttons.
+ */
+export interface GeoMapHandle {
+  /** Frame a geometry, or the current `value` when called with nothing. */
+  fitTo(geojson?: string): void;
+  /** Recompute size after the container changed shape. */
+  invalidate(): void;
+  focus(): void;
+  undoPoint(): void;
+  clear(): void;
 }
 
 /** Emerald accent from the MUI theme CSS variables (Leaflet SVG layers need a
@@ -61,22 +131,44 @@ function accent(): string {
   return v || '#1976D2';
 }
 
-function pinIcon(): L.DivIcon {
+/* Both icons bake the accent into an HTML string, which is why a theme change
+ * has to hand them a freshly sampled colour rather than rely on inheritance. */
+function pinIcon(color: string = accent()): L.DivIcon {
   return L.divIcon({
     className: 'ui-geo-pin',
-    html: `<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:${accent()};transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,
+    html: `<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`,
     iconSize: [18, 18],
     iconAnchor: [9, 18],
     popupAnchor: [0, -18],
   });
 }
-function vertexIcon(): L.DivIcon {
+function vertexIcon(color: string = accent()): L.DivIcon {
   return L.divIcon({
     className: 'ui-geo-vtx',
-    html: `<div style="width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid ${accent()};box-shadow:0 0 2px rgba(0,0,0,.5)"></div>`,
+    html: `<div style="width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid ${color};box-shadow:0 0 2px rgba(0,0,0,.5)"></div>`,
     iconSize: [12, 12],
     iconAnchor: [6, 6],
   });
+}
+
+/** The [lat,lng] points of a GeoJSON Point or Polygon string. `fitTo` frames a
+ *  geometry it was HANDED, which the drawing path (which only ever frames what
+ *  it just rendered) has no way to do. A malformed string simply has no bounds. */
+function latLngsOf(raw: string): Array<[number, number]> {
+  if (!raw) return [];
+  try {
+    const gj = JSON.parse(raw);
+    if (gj.type === 'Point') {
+      const [lng, lat] = gj.coordinates as [number, number];
+      return [[lat, lng]];
+    }
+    if (gj.type === 'Polygon') {
+      return (gj.coordinates as number[][][])[0].slice(0, -1).map((c) => [c[1], c[0]] as [number, number]);
+    }
+  } catch {
+    /* no bounds */
+  }
+  return [];
 }
 
 // Spherical polygon area (m²) — ring is [[lat,lng],...].
@@ -138,6 +230,12 @@ export default function GeoMap(props: GeoMapProps) {
     features,
     onFeatureClick,
     autoLocate,
+    scrollWheelZoom = false,
+    showLayerControl = true,
+    layer = 'street',
+    onError,
+    accentKey,
+    onReady,
   } = props;
   const interactive = drawMode !== undefined;
   const onFeatureClickRef = useRef(onFeatureClick);
@@ -151,6 +249,15 @@ export default function GeoMap(props: GeoMapProps) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
+  // Held in refs, like onFeatureClick above, so the init effect can keep its
+  // empty deps and still call whatever the parent passed on the LAST render.
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
   const [area, setArea] = useState(0);
   const [perim, setPerim] = useState(0);
   const [q, setQ] = useState('');
@@ -158,6 +265,15 @@ export default function GeoMap(props: GeoMapProps) {
   const footerRef = useRef<HTMLDivElement>(null);
   const [fillH, setFillH] = useState<number | null>(null);
   const isFill = height === 'fill';
+
+  // The accent is sampled once at init and re-sampled whenever `accentKey`
+  // moves; everything that paints reads it from here rather than from a
+  // closed-over const, so a repaint reaches shapes drawn after the switch too.
+  const accentRef = useRef('');
+  const accentPaintedRef = useRef(false);
+  // Read-only geometries/features and the autoLocate halo: not part of the
+  // editing model, but they carry the accent and so must repaint with it.
+  const displayLayersRef = useRef<L.Layer[]>([]);
 
   // Interactive drawing state. drawModeRef lets the (once-attached) click handler
   // read the live arm state without re-binding. currentRenderedRef/lastEmittedRef
@@ -173,6 +289,38 @@ export default function GeoMap(props: GeoMapProps) {
     lastEmittedRef.current = gj;
     onChangeRef.current?.(gj);
   };
+  const report = (kind: GeoMapErrorKind, message: string) => {
+    onErrorRef.current?.({ kind, message });
+  };
+
+  // The handle delegates to whatever these hold at call time, so the object
+  // handed to `onReady` can be built once and never replaced.
+  const undoVertexRef = useRef<() => void>(() => {});
+  const clearShapeRef = useRef<() => void>(() => {});
+  const handleRef = useRef<GeoMapHandle | null>(null);
+  if (handleRef.current === null) {
+    handleRef.current = {
+      fitTo: (geojson?: string) => {
+        const map = mapRef.current;
+        if (!map) return;
+        const pts = latLngsOf(geojson ?? valueRef.current ?? '');
+        if (!pts.length) return;
+        // One point has no extent: fitBounds would slam to max zoom, so mirror
+        // what the mount path does for a Point and keep a sane floor instead.
+        if (pts.length === 1) map.setView(pts[0], Math.max(map.getZoom(), 16));
+        else map.fitBounds(pts, { padding: [24, 24] });
+      },
+      invalidate: () => {
+        mapRef.current?.invalidateSize();
+      },
+      focus: () => {
+        mapRef.current?.getContainer().focus();
+      },
+      undoPoint: () => undoVertexRef.current(),
+      clear: () => clearShapeRef.current(),
+    };
+  }
+  const handle = handleRef.current;
 
   useEffect(() => {
     if (!boxRef.current || mapRef.current) return;
@@ -184,17 +332,22 @@ export default function GeoMap(props: GeoMapProps) {
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       { attribution: 'Tiles &copy; Esri', maxZoom: 19 },
     );
-    const map = L.map(boxRef.current, { layers: [street], scrollWheelZoom: true }).setView(center, zoom);
-    L.control.layers({ Street: street, Satellite: satellite }, {}, { collapsed: false }).addTo(map);
+    const map = L.map(boxRef.current, {
+      layers: [layer === 'satellite' ? satellite : street],
+      scrollWheelZoom,
+    }).setView(center, zoom);
+    if (showLayerControl) {
+      L.control.layers({ Street: street, Satellite: satellite }, {}, { collapsed: false }).addTo(map);
+    }
     mapRef.current = map;
-    const shapeColor = accent();
+    accentRef.current = accent();
 
     const canEdit = interactive || !readOnly;
     const emitPoint = (ll: L.LatLng) => emit(JSON.stringify({ type: 'Point', coordinates: [ll.lng, ll.lat] }));
 
     const setMarker = (ll: L.LatLng, doEmit: boolean) => {
       if (shapeRef.current) map.removeLayer(shapeRef.current);
-      const m = L.marker(ll, { icon: pinIcon(), draggable: canEdit });
+      const m = L.marker(ll, { icon: pinIcon(accentRef.current), draggable: canEdit });
       if (label) m.bindPopup(label);
       m.addTo(map);
       if (canEdit) m.on('dragend', () => emitPoint(m.getLatLng()));
@@ -216,6 +369,7 @@ export default function GeoMap(props: GeoMapProps) {
     const drawPolygon = () => {
       if (shapeRef.current) map.removeLayer(shapeRef.current);
       const pts = vertsRef.current;
+      const shapeColor = accentRef.current;
       shapeRef.current = (pts.length >= 3
         ? L.polygon(pts, { color: shapeColor, weight: 2, fillOpacity: 0.15 })
         : L.polyline(pts, { color: shapeColor, weight: 2 })
@@ -229,7 +383,7 @@ export default function GeoMap(props: GeoMapProps) {
       clearHandles();
       if (readOnly) return;
       vertsRef.current.forEach((p, i) => {
-        const h = L.marker(p, { icon: vertexIcon(), draggable: true }).addTo(map);
+        const h = L.marker(p, { icon: vertexIcon(accentRef.current), draggable: true }).addTo(map);
         h.on('drag', () => {
           const ll = h.getLatLng();
           vertsRef.current[i] = [ll.lat, ll.lng];
@@ -285,7 +439,9 @@ export default function GeoMap(props: GeoMapProps) {
           if (opts?.focus && ring.length) map.fitBounds(ring, { padding: [24, 24] });
         }
       } catch {
-        /* ignore malformed value */
+        // Still ignored for the shape's sake — an unreadable value leaves an
+        // empty map — but no longer silent: the parent gets to say so.
+        report('parse', 'That saved location could not be read.');
       }
       if (interactive) applyDrawMode(drawModeRef.current);
     };
@@ -298,21 +454,22 @@ export default function GeoMap(props: GeoMapProps) {
     const allBounds: Array<[number, number]> = [];
     const addDisplayGeo = (gj: { type?: string; coordinates?: unknown }, opts?: { popup?: string; title?: string; id?: string }) => {
       const isInteractive = !!(opts && (opts.popup || opts.title || opts.id));
-      let layer: L.Layer | null = null;
+      let lyr: L.Layer | null = null;
       if (gj.type === 'Point') {
         const [lng, lat] = gj.coordinates as [number, number];
-        layer = L.marker([lat, lng], { icon: pinIcon(), interactive: isInteractive });
+        lyr = L.marker([lat, lng], { icon: pinIcon(accentRef.current), interactive: isInteractive });
         allBounds.push([lat, lng]);
       } else if (gj.type === 'Polygon') {
         const ring = ((gj.coordinates as number[][][])[0]).slice(0, -1).map((c) => [c[1], c[0]] as [number, number]);
-        layer = L.polygon(ring, { color: shapeColor, weight: 2, fillOpacity: 0.15, interactive: isInteractive });
+        lyr = L.polygon(ring, { color: accentRef.current, weight: 2, fillOpacity: 0.15, interactive: isInteractive });
         ring.forEach((p) => allBounds.push(p));
       }
-      if (!layer) return;
-      if (opts?.title) layer.bindTooltip(opts.title, { sticky: true });
-      if (opts?.id && onFeatureClickRef.current) layer.on('click', () => onFeatureClickRef.current?.(opts.id as string));
-      else if (opts?.popup) layer.bindPopup(opts.popup);
-      layer.addTo(map);
+      if (!lyr) return;
+      if (opts?.title) lyr.bindTooltip(opts.title, { sticky: true });
+      if (opts?.id && onFeatureClickRef.current) lyr.on('click', () => onFeatureClickRef.current?.(opts.id as string));
+      else if (opts?.popup) lyr.bindPopup(opts.popup);
+      lyr.addTo(map);
+      displayLayersRef.current.push(lyr);
     };
     (geometries || []).forEach((gs) => {
       try {
@@ -363,13 +520,21 @@ export default function GeoMap(props: GeoMapProps) {
               }
               // Soft indicator so the tab shows WHERE, not an anonymous map.
               const place = String(hit.display_name || candidates[i]).split(',').slice(0, 2).join(',');
-              L.circleMarker([lat, lng], { radius: 9, color: shapeColor, weight: 2, fillColor: shapeColor, fillOpacity: 0.25 })
-                .addTo(mapRef.current)
-                .bindTooltip(`Approximate — ${place}`, { direction: 'top', offset: [0, -8] });
+              const halo = L.circleMarker([lat, lng], {
+                radius: 9,
+                color: accentRef.current,
+                weight: 2,
+                fillColor: accentRef.current,
+                fillOpacity: 0.25,
+              }).addTo(mapRef.current);
+              halo.bindTooltip(`Approximate — ${place}`, { direction: 'top', offset: [0, -8] });
+              displayLayersRef.current.push(halo);
               return;
             }
           } catch {
-            /* try next candidate */
+            // Still falls through to the next candidate; the parent now hears
+            // about the attempt instead of seeing a map parked on the default view.
+            report('geocode', `Could not look up ${candidates[i]}.`);
           }
         }
       })();
@@ -390,6 +555,10 @@ export default function GeoMap(props: GeoMapProps) {
       });
     }
 
+    // Once, with the object built in a ref: a parent that stores this can
+    // command the map for the rest of its life without ever remounting it.
+    onReadyRef.current?.(handle);
+
     const t = setTimeout(() => map.invalidateSize(), 60);
     return () => {
       clearTimeout(t);
@@ -398,9 +567,37 @@ export default function GeoMap(props: GeoMapProps) {
       shapeRef.current = null;
       handlesRef.current = [];
       vertsRef.current = [];
+      displayLayersRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Follow a colour-scheme change. Leaflet resolved the old accent into marker
+  // HTML and into SVG presentation attributes, neither of which CSS variables
+  // can reach afterwards, so every layer that carries it is repainted by hand.
+  useEffect(() => {
+    const next = accent();
+    accentRef.current = next;
+    if (!accentPaintedRef.current) {
+      // The init effect painted with this very colour; nothing to redo.
+      accentPaintedRef.current = true;
+      return;
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    const repaint = (lyr: L.Layer, asVertex: boolean) => {
+      if (lyr instanceof L.Marker) lyr.setIcon(asVertex ? vertexIcon(next) : pinIcon(next));
+      else if (lyr instanceof L.Path) lyr.setStyle({ color: next, fillColor: next });
+    };
+    if (shapeRef.current) repaint(shapeRef.current, false);
+    handlesRef.current.forEach((h) => repaint(h, true));
+    displayLayersRef.current.forEach((lyr) => repaint(lyr, false));
+    // setIcon re-runs Leaflet's marker interaction setup, which re-enables
+    // dragging on a draggable marker — so re-assert the armed state, or a
+    // repaint would hand back a draggable pin while the map is in view mode.
+    if (interactive) applyDrawModeRef.current?.(drawModeRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accentKey]);
 
   // height="fill": size the map so its bottom sits a standard gutter above the
   // viewport bottom, adapting to any window height (a fixed calc(100vh - Npx)
@@ -473,7 +670,7 @@ export default function GeoMap(props: GeoMapProps) {
         : L.polyline(pts, { color: shapeColor, weight: 2 })
       ).addTo(map);
       pts.forEach((p, i) => {
-        const h = L.marker(p, { icon: vertexIcon(), draggable: true }).addTo(map);
+        const h = L.marker(p, { icon: vertexIcon(shapeColor), draggable: true }).addTo(map);
         h.on('drag', () => {
           const ll = h.getLatLng();
           vertsRef.current[i] = [ll.lat, ll.lng];
@@ -494,6 +691,10 @@ export default function GeoMap(props: GeoMapProps) {
     } else emit('');
   };
 
+  // The handle calls these, so it always reaches this render's copies.
+  undoVertexRef.current = undoVertex;
+  clearShapeRef.current = clearShape;
+
   const geocode = async () => {
     const query = q.trim();
     if (!query || !mapRef.current) return;
@@ -505,8 +706,10 @@ export default function GeoMap(props: GeoMapProps) {
       );
       const data = await res.json();
       if (data && data[0]) mapRef.current.setView([parseFloat(data[0].lat), parseFloat(data[0].lon)], 16);
+      // A search that matched nothing used to look identical to one that worked.
+      else report('search-empty', 'No place matched that search.');
     } catch {
-      /* geocode best-effort */
+      report('geocode', 'Place search is unavailable right now.');
     }
     setSearching(false);
   };

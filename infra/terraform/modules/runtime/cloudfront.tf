@@ -314,8 +314,9 @@ resource "aws_cloudfront_distribution" "web" {
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
-      # See var.cloudfront_origin_read_timeout: default quota caps this at 60;
-      # raise to 180 (extraction ceiling) after the service-quota increase.
+      # See var.cloudfront_origin_read_timeout: default quota caps this at 60.
+      # It bounds large uploads, not extraction — extraction is a durable job
+      # with short polls. Raise to 180 after the service-quota increase.
       origin_read_timeout      = var.cloudfront_origin_read_timeout
       origin_keepalive_timeout = 60
     }

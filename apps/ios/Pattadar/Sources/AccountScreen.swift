@@ -21,7 +21,6 @@ struct AccountScreen: View {
     @State private var confirmSignOut = false
     @State private var replayOnboarding = false
     @State private var confirmClearCache = false
-    @State private var explainDeleteAccount = false
     @State private var justCopied = false
     /// "This isn't me" hides the identity block. Local, reversible only by a
     /// fresh reading — which is exactly what the button promises.
@@ -125,7 +124,7 @@ struct AccountScreen: View {
         }
         .confirmationDialog("Clear cached files?", isPresented: $confirmClearCache, titleVisibility: .visible) {
             Button("Clear the cache", role: .destructive) {
-                ResponseCache.shared.clear()
+                Task { await ResponseCache.shared.clear() }
                 URLCache.shared.removeAllCachedResponses()
             }
             Button("Keep them", role: .cancel) { }
@@ -133,11 +132,6 @@ struct AccountScreen: View {
             // The one thing people fear from "clear": losing unsent work.
             // Filings waiting to go up are a queue, not a cache — untouched.
             Text("Frees space used by downloaded copies. Papers waiting to upload are not touched.")
-        }
-        .alert("Not yet, and honestly so", isPresented: $explainDeleteAccount) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Deleting an account permanently removes your records, and while the app is in development that needs a written request to support@pattadar.com — so a bug cannot destroy a family's papers.")
         }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
@@ -284,7 +278,7 @@ struct AccountScreen: View {
                 HStack {
                     Label {
                         VStack(alignment: .leading, spacing: Space.hair) {
-                            Text("Export your records").foregroundStyle(Color(.label))
+                            Text("Export selected papers").foregroundStyle(Color(.label))
                             Text("Select papers in Papers, then Share — they leave as one zip")
                                 .font(.note).foregroundStyle(Color(.secondaryLabel))
                         }
@@ -309,17 +303,19 @@ struct AccountScreen: View {
                         .foregroundStyle(Color.accentColor)
                 }
             }
-            Button(role: .destructive) { explainDeleteAccount = true } label: {
+            Link(destination: URL(string: "https://pattadar.com/app/account")!) {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {
-                        Text("Delete account")
-                        Text("Permanently removes your records")
+                        Text("Account data & privacy")
+                        Text("Consent choices, full export and account erasure")
                             .font(.note).foregroundStyle(.secondary)
                     }
                 } icon: {
-                    Image(systemName: "person.crop.circle.badge.minus")
+                    Image(systemName: "person.crop.circle.badge.checkmark")
                 }
             }
+            Text("Opens your account controls on the web. Sign in with the same Pattadar account if asked; requests are confirmed there.")
+                .font(.note).foregroundStyle(.secondary)
         } header: {
             Text("Your data")
         }

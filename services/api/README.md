@@ -1,76 +1,63 @@
-# Pattadar API (services/api)
+# Pattadar API (`services/api`)
 
-The existing Pattadar backend, ported **unchanged** from the predecessor platform
-(`api/services/apps/pattadar`): FastAPI + Strawberry GraphQL, ~4200-line `src/main.py`,
-`src/notify.py`, `data/*.csv` reference data, and the service `Dockerfile`.
-
-Ported 25/07/2026 from the predecessor's `api/services/apps/pattadar` (source unchanged except the
-two review fixes below: verify-link path + required-env fail-fast at startup).
+FastAPI + Strawberry GraphQL product service with the legacy/root schema in
+`src/main.py`, W360 schema in `src/web360.py`, notifications, reference data,
+account/consent/erasure, imports, payments, geometry, photos, services, and
+audit. It is behind `services/gateway` except for the secret-guarded cron path.
 
 ## Operational contract
 
-### 1. Auth — trusts the gateway, validates nothing
+### 1. Auth — trusts the gateway, validates no bearer token
 
-The service does **no** token validation. It trusts the `x-user-id` header injected by
-`services/gateway` after Cognito JWT validation.
+The service trusts only the `x-user-id` header injected by `services/gateway`
+after Cognito validation. Never expose this service directly: a caller that can
+reach it could otherwise impersonate an owner by setting that header.
 
-- **Never expose this service directly** — anyone who can reach it can impersonate any user
-  by setting `x-user-id`.
-- User id format: email local-part, lowercased (from the Cognito `email` claim — e.g.
-  `sankara.telukutla`). This format is load-bearing — it is the owner key across all rows in
-  the database.
+The API does **not** derive identity from email. New principals use immutable
+Cognito issuer/subject identity. Existing database/S3 owner keys are reachable
+only through explicit, reviewed `IDENTITY_LEGACY_BINDINGS` applied by the
+gateway. See `docs/runbooks/identity-migration.md`.
 
-### 2. Database — self-bootstrapping schema
+### 2. Database — additive startup bootstrap
 
-`init_db()` runs on startup under `pg_advisory_lock(918273645)` (safe with multiple
-workers/replicas): `CREATE TABLE IF NOT EXISTS` plus additive `ALTER`s, ~28 tables. There is
-no separate migration tool.
+Startup DDL runs under a PostgreSQL advisory lock and uses additive/idempotent
+`CREATE TABLE IF NOT EXISTS` / compatible `ALTER` patterns. Old and new task
+revisions may coexist during rollout; destructive schema/data changes require a
+separately reviewed migration plan.
 
-Migration from the predecessor platform: `pg_dump` the `pattadar` database → restore into RDS → start the
-service. `init_db()` reconciles anything additive.
+### 3. AI readings
 
-### 3. AI extraction — direct Anthropic calls
+The active web uses durable import/read jobs with authenticated polling.
+Interrupted provider work is persisted and is never automatically replayed.
+Legacy direct extraction endpoints remain for older clients and can run up to
+180 seconds; every proxy/load balancer path requires at least 200 seconds and
+no retry for those non-idempotent calls.
 
-Four endpoints call `api.anthropic.com` directly:
+### 4. Cron
 
-- `POST /import-passbook`
-- `POST /extract-aadhaar`
-- `POST /import-registered-document`
-- `POST /extract-property`
+`POST /cron/inactivity-check` runs daily through the one direct ALB-to-API rule.
+It is guarded by `x-cron-secret`; `CRON_SECRET` must always be set except in
+explicit insecure local development.
 
-Model is `claude-sonnet-5`, hardcoded — TODO: thread through the gateway's model catalog.
-httpx timeouts run up to 180s. Any load balancer in front must allow **>= 200s** response
-time and must **never retry** these POSTs (retries duplicate expensive extractions).
+### 5. Public verification
 
-### 4. Cron — inactivity check
-
-`POST /cron/inactivity-check` runs daily (EventBridge on AWS), guarded by the
-`x-cron-secret` header. **`CRON_SECRET` must always be set** — the endpoint is open without
-it.
-
-### 5. Verification links
-
-Beneficiary/member invite links are built as `{APP_PUBLIC_URL}/verify/{token}` with
-`APP_PUBLIC_URL=https://pattadar.com` — note the path fix vs the predecessor's
-`/app/pattadar/verify/...`. The `/verify/:token` route works **without login**.
-
-`APP_PUBLIC_URL` and `CRON_SECRET` are **required at startup** — the service raises
-`RuntimeError` if either is unset, unless `ALLOW_INSECURE_LOCAL=1` (local dev only).
+Beneficiary/member invite links use `{APP_PUBLIC_URL}/verify/{token}` and work
+without login through the gateway's narrowly parsed public operation. Other API
+operations require validated gateway identity.
 
 ### 6. Notifications
 
-`notify.py` is the email/SMS/WhatsApp provider seam. Stub providers by default (records to
-`notification_log` only); real providers are env-gated: Resend (email), MSG91 (SMS),
-Meta (WhatsApp). See `.env.example`.
+`notify.py` provides email/SMS/WhatsApp seams. Stub providers are the default;
+real providers are credential/config gated. Provider activation requires its
+security/vendor/rollback checklist rather than an environment variable alone.
 
-## Endpoints
+## Main endpoints
 
-- `POST /graphql` — the application API
+- `POST /graphql` — product API (gateway proxied)
 - `GET /health`
-- `POST /import-passbook`, `POST /extract-aadhaar`, `POST /import-registered-document`,
-  `POST /extract-property` — AI extraction (see above)
-- `POST /cron/inactivity-check` — cron only, `x-cron-secret` guarded
+- legacy import/extract POST routes — compatibility only, long timeout/no retry
+- `POST /cron/inactivity-check` — exact direct route, `CRON_SECRET` guarded
 
-## Configuration
-
-See `.env.example` for the full variable list.
+See `.env.example`, service tests, and the backend-contract skill for change
+tracing. Implemented code is not evidence that provider/migration/deployment
+steps have been completed.

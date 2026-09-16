@@ -8,7 +8,7 @@
  * "Sy 777", and its afterAll deletes any that a mid-run failure left behind,
  * so a red test here can never cascade into screens.spec.ts.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './harness';
 import type { APIRequestContext } from '@playwright/test';
 import * as fs from 'node:fs';
 
@@ -49,6 +49,12 @@ test.describe.serial('W02 · the list acts', () => {
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     const drawer = page.locator('.drawer');
     await expect(drawer.getByRole('heading', { name: 'Add a record' })).toBeVisible();
+
+    // The drawer opens on the document, not on the form: the deed is in the
+    // person's hand and the reader can do the typing. Hand entry is the
+    // fallback, one link down.
+    await expect(drawer.locator('#rd-title')).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
 
     await drawer.locator('#rd-title').fill('Sy 777/1');
     await drawer.locator('#rd-owner').fill('E2E Owner');
@@ -98,19 +104,33 @@ test.describe.serial('W02 · the list acts', () => {
     await expect(page.getByText('9 of 9 shown')).toBeVisible();
     await expect(page.locator('.rec', { hasText: 'Sy 777/1A' })).toHaveCount(0);
 
-    // …present in the rail's new facet.
-    const facet = page.locator('.filters label', { hasText: 'Archived' });
+    // …present in the filter's new Archived facet, with its own count.
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    const facet = page.getByRole('group', { name: 'Narrow the list' })
+      .getByRole('button', { name: /^Archived/ });
     await expect(facet).toContainText('1');
     await facet.click();
+    // The popover stays up after a tick, because narrowing is usually more
+    // than one tick. Escape puts it away — and what was ticked is readable in
+    // the row without opening it again.
+    await page.keyboard.press('Escape');
     await expect(page.getByText('1 of 10 shown')).toBeVisible();
+    await expect(page.locator('.fchip', { hasText: 'Archived' })).toBeVisible();
     const card = page.locator('.rec', { hasText: 'Sy 777/1A' });
     await expect(card).toContainText('Archived');
 
-    // Unarchive from the same kebab, then clear the facet.
+    // Unarchive from the same kebab, then take the facet off.
     await page.getByRole('button', { name: 'Actions for Sy 777/1A' }).click();
     await page.getByRole('menuitem', { name: 'Unarchive' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Unarchive' }).click();
-    await page.getByRole('button', { name: 'Clear filters' }).click();
+    // The chip has to survive its own facet disappearing. Unarchiving the only
+    // archived record stops the server sending an Archived option at all —
+    // while `?status=archived` is still in the URL and still filtering, now to
+    // nothing. A chip read off the options would vanish here and strand the
+    // owner on an empty list with no control that clears it, so the chips are
+    // built from the URL and only take their wording from the options.
+    await expect(page.locator('.fchip', { hasText: 'Archived' })).toBeVisible();
+    await page.getByRole('button', { name: 'Clear all' }).click();
     await expect(page.getByText('10 of 10 shown')).toBeVisible();
   });
 
@@ -143,7 +163,9 @@ test.describe.serial('W02 · the list acts', () => {
     await dialog.getByRole('button', { name: 'Apply tag' }).click();
 
     await expect(card.locator('.tag', { hasText: 'e2e sweep' })).toBeVisible();
-    await expect(page.locator('.filters').getByText('e2e sweep')).toBeVisible();
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await expect(page.getByRole('group', { name: 'Narrow the list' })
+      .getByText('e2e sweep')).toBeVisible();
   });
 
   test('Delete takes the record and everything filed under it', async ({ page }) => {
@@ -163,7 +185,9 @@ test.describe.serial('W02 · the list acts', () => {
     await page.goto('/app/services');
     await expect(page.locator('.rows > *', { hasText: 'Sy 777' })).toHaveCount(0);
     await page.goto('/app/properties');
-    await expect(page.locator('.filters').getByText('e2e sweep')).toHaveCount(0);
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await expect(page.getByRole('group', { name: 'Narrow the list' })
+      .getByText('e2e sweep')).toHaveCount(0);
   });
 });
 
@@ -180,9 +204,13 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
     // DOM, so Tab alone would never reach it.
     await expect(page.getByRole('menuitem', { name: 'Edit…' })).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(page.getByRole('menuitem', { name: 'Archive' })).toBeFocused();
+    await expect(page.getByRole('menuitem', { name: 'Order a service…' })).toBeFocused();
     await page.keyboard.press('ArrowUp');
     await expect(page.getByRole('menuitem', { name: 'Edit…' })).toBeFocused();
+
+    // The menu names the record it will act on. Six verbs with no subject is
+    // not a menu whose last item can safely be Delete.
+    await expect(page.locator('.menu-list .menuhead')).toHaveText('Sy 214/2');
 
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toHaveCount(0);
@@ -194,6 +222,26 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
     await expect(page.locator('.drawer').getByRole('heading', { name: 'Edit Sy 214/2' }))
       .toBeVisible();
     await page.keyboard.press('Escape');
+  });
+
+  test('a selection survives being looked at another way', async ({ page }) => {
+    await page.goto('/app/properties');
+    await page.locator('.rec .sel input').first().check();
+    await expect(page.locator('.bulkbar')).toContainText('1 record selected');
+
+    // The view is in the URL alongside the filter, and the reset used to key on
+    // the whole query string — so Grid → List threw the selection away. The
+    // three views draw the same records; there is nothing to protect against.
+    await page.getByRole('button', { name: 'List' }).click();
+    await expect(page.locator('.rectable')).toBeVisible();
+    await expect(page.locator('.bulkbar')).toContainText('1 record selected');
+
+    // A filter change is the case it is actually there for: those records may
+    // not be on screen any more, and Archive must not reach them.
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await page.getByRole('group', { name: 'Narrow the list' })
+      .getByRole('button', { name: /^Disputed/ }).click();
+    await expect(page.locator('.bulkbar')).toHaveCount(0);
   });
 
   test('a sort click keeps focus on the heading it was made from', async ({ page }) => {
@@ -257,19 +305,23 @@ test.describe.serial('W02 · what archiving and deleting must not touch', () => 
     await expect(page.getByText('Mutation for Sy 214/2 needs your signature')).toBeVisible();
   });
 
-  test('a tag whose only record is archived leaves the rail', async ({ page, request }) => {
+  test('a tag whose only record is archived leaves the filter', async ({ page, request }) => {
     const id = (await gql(request, `mutation { web { saveRecord(input:{
       kind:"parcel", title:"Sy 777/9", khataNo:"777", village:"E2E Palem",
       extent:1, marketValue:100000 }) } }`)).saveRecord;
     await gql(request, `mutation { web { tagRecords(ids:["${id}"], tag:"e2e lonely") } }`);
 
+    const pop = page.getByRole('group', { name: 'Narrow the list' });
+
     await page.goto('/app/properties');
-    await expect(page.locator('.filters').getByText('e2e lonely')).toBeVisible();
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await expect(pop.getByText('e2e lonely')).toBeVisible();
 
     await gql(request, `mutation { web { archiveRecords(ids:["${id}"], archived:true) } }`);
     await page.reload();
-    // The rail must not offer a facet that filters to an empty grid.
-    await expect(page.locator('.filters').getByText('e2e lonely')).toHaveCount(0);
+    // The filter must not offer a facet that narrows to an empty grid.
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await expect(pop.getByText('e2e lonely')).toHaveCount(0);
   });
 
   test('reclassifying a property does not re-measure it', async ({ page, request }) => {

@@ -76,6 +76,8 @@ variable "spa_callback_urls" {
     "https://pattadar.com/auth/callback",
     "http://localhost:5173/auth/callback",
     "http://127.0.0.1:5173/auth/callback",
+    "http://localhost:5180/auth/callback",
+    "http://127.0.0.1:5180/auth/callback",
   ]
 }
 
@@ -86,6 +88,8 @@ variable "spa_logout_urls" {
     "https://pattadar.com/",
     "http://localhost:5173/",
     "http://127.0.0.1:5173/",
+    "http://localhost:5180/",
+    "http://127.0.0.1:5180/",
   ]
 }
 

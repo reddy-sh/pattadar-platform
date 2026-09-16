@@ -2,13 +2,8 @@ import PattadarKit
 import SwiftUI
 import PhotosUI
 
-/// Who the app thinks you are, and how to change it.
-///
-/// This is NOT authentication. The API still trusts an `x-user-id` header, so
-/// signing in here is choosing an identity, not proving one. It is written
-/// that way on the screen rather than dressed up as a login, because a fake
-/// padlock is worse than an honest one — it invites you to treat the app as
-/// secure before it is.
+/// The current local account scope and avatar. Production identity comes from
+/// Cognito's immutable principal; choosing a header user is development only.
 enum Identity {
     private static let key = "pattadar.user"
     private static let avatarName = "avatar.jpg"
@@ -114,8 +109,8 @@ struct SignInScreen: View {
         problem = ""
         defer { checking = false }
         do {
-            let email = try await CognitoAuth.shared.signIn()
-            let id = CognitoAuth.userID(fromEmail: email)
+            _ = try await CognitoAuth.shared.signIn()
+            guard let id = CognitoAuth.shared.accountID else { throw CognitoAuth.AuthError.failed("The account has no stable identity.") }
             // Verify the identity reaches the server before adopting it, so a
             // dead tunnel shows here rather than as an empty app.
             app.setUser(id)
@@ -143,8 +138,8 @@ struct SignInScreen: View {
         // path — and it works with no internet at all. Anywhere else the
         // route does not exist and the old header identity is the fallback.
         if let root = localGatewayRoot(),
-           let email = try? await CognitoAuth.shared.signInLocal(gatewayRoot: root, user: clean) {
-            let id = CognitoAuth.userID(fromEmail: email)
+           let _ = try? await CognitoAuth.shared.signInLocal(gatewayRoot: root, user: clean),
+           let id = CognitoAuth.shared.accountID {
             app.setUser(id)
             if await app.load(Queries.dashboard, as: DashboardResponse.self) == nil {
                 problem = app.lastFailure ?? "Signed in locally, but the server could not be reached."

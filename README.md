@@ -2,13 +2,16 @@
 
 Standalone AWS platform for **Pattadar** — the Andhra Pradesh land-records application (parcels, passbooks, registered deeds, non-agricultural property, family groups, beneficiary verification, AI document extraction).
 
-This repository is both the product and the **template**: the layout, Terraform module, and gateway are designed so future apps can be stamped out the same way (new repo → instantiate the `app-stack` Terraform module → new `services/<app>` + UI heads over the same patterns).
+This repository is both the product and a reusable platform pattern: future
+applications can follow the same persistent/runtime Terraform split, gateway
+trust boundary, service layout, and client/shared-package conventions. There is
+no current `app-stack` module; reuse is architectural, not a one-command stamp.
 
 Extracted from the predecessor platform (local Kind/k8s) per the design in [docs/specs/2026-07-25-standalone-platform-design.md](docs/specs/2026-07-25-standalone-platform-design.md).
 
 ## Architecture
 
-**One core, two heads.** Web and mobile do not compromise each other: the web app is best-in-class MUI, the mobile app is true native (Expo/React Native). Everything that is not markup — GraphQL operations and types, domain logic, validation, formatting — lives once in `packages/core`.
+The active web application is `apps/web` (React/W360), and the native iOS application is `apps/ios` (SwiftUI). `apps/mobile` remains the Expo/Android compatibility client; `apps/web-next` is staged for an explicit future cutover. TypeScript clients share `packages/core`; Swift counterparts are checked against the same generated vectors and the parity contract.
 
 ```
                     ┌───────────────────────────────┐
@@ -37,7 +40,7 @@ Extracted from the predecessor platform (local Kind/k8s) per the design in [docs
          GuardDuty malware)
 ```
 
-Region: **ap-south-1 (Mumbai)**. Auth: **Amazon Cognito** (ap-south-1, Essentials tier — user identity format is preserved exactly). AI extraction: direct Anthropic API (Bedrock ap-south-1 documented as a future data-residency option).
+Region: **ap-south-1 (Mumbai)**. Auth: **Amazon Cognito** (ap-south-1, Essentials tier — immutable subjects with reviewed aliases for existing owner keys). AI extraction: direct Anthropic API (Bedrock ap-south-1 documented as a future data-residency option).
 
 ### Hosts (domain: pattadar.com)
 
@@ -54,28 +57,30 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 
 | Path | What it is |
 |---|---|
-| `packages/core` | Shared TypeScript: GraphQL client/types, domain logic (land calc, dashboard math, document types), DD/MM/YYYY formatting. See its README for the predecessor port map. |
-| `packages/tokens` | Design tokens (palette, type, spacing) feeding the MUI theme **and** the React Native Paper theme. |
-| `apps/web` | React + MUI web app — shell-lite chrome (header, drawer, content, footer, assistant slot) + all views. Buildable skeleton. |
-| `apps/mobile` | Expo / React Native companion app (native feel, ML Kit document scanning, push). Docs-only until Phase 4. |
-| `services/api` | The existing pattadar backend, ported unchanged (FastAPI + Strawberry GraphQL + AI extraction + notifications + inactivity cron). |
-| `services/gateway` | New slim gateway: Cognito access-token validation → `x-user-id`, document storage over S3, reverse proxy, super-admin AI/model admin. |
-| `services/assistant` | In-app assistant service (Phase 3), runs without MCP in v1. |
-| `infra/terraform` | Persistent/runtime module split + env roots `envs/{dev,prod}/{persistent,runtime}` for one-click up/down. SOC 2 / DPDP-conscious defaults (KMS, versioning, 365-day logs). |
-| `scripts` | One-click `platform-up.sh <env>` / `platform-down.sh <env>` (being added in parallel). |
-| `docs/architecture.md` | Rendered architecture diagrams (platform, layers, auth flow). |
-| `docs/specs` | Design documents. |
-| `governance/custodian` | Cloud Custodian report-only policy sweeps (daily via GitHub Actions). |
-| `docs/runbooks` | Operational runbooks — DNS cutover, up/down procedures (being added in parallel). |
-| `docs/compliance` | SOC 2 control matrix, GDPR + DPDP privacy docs, engineering checklist. |
+| `packages/core` | Shared TypeScript GraphQL/network/domain/format/export logic used by web and Expo; Swift parity is checked through vectors/contracts. |
+| `packages/tokens` | Design tokens used by the MUI web themes and imported by Expo screens/theme code. |
+| `apps/web` | Active React + MUI/Vite client: public/auth/legal pages, W360 app, public capability portals, assistant, and retained `/legacy` routes. |
+| `apps/ios` | Active native SwiftUI client with `PattadarKit`, vector/parity gates, and its own locked design authority. |
+| `apps/mobile` | Implemented Expo / React Native compatibility client with auth, records, family, maps/location, storage/capture, notifications, and offline behavior. Generated `ios/` and `android/` trees are not source. |
+| `apps/web-next` | Staged Next.js client. It builds, but production deployment refuses it until repaired-feature parity and explicit cutover review. |
+| `services/api` | FastAPI + Strawberry product service: root/cross-client schema, W360 domains, durable imports, account/privacy, payments, reference/geospatial data, notifications and cron. |
+| `services/gateway` | Internet-facing Cognito trust boundary, document storage, scoped capabilities/account/admin routes, buffered API proxy, and streaming assistant proxy. |
+| `services/assistant` | Deployed in-app assistant: durable PostgreSQL runs/messages, bounded UI/read-only public-record tools, SSE, and owner-scoped attachments. No external/public MCP service. |
+| `infra/terraform` | Persistent/runtime module split with `envs/{dev,prod}/{persistent,runtime}` roots and controlled platform up/down. |
+| `scripts` | Operational lifecycle/release/migration/parity/reference-data scripts plus discovered rule guards and Agent Skills validation. |
+| `docs/architecture.md` | Declared architecture diagrams and trust/data/deployment flows; not proof of applied cloud state. |
+| `docs/specs` | Active and historical design/contract documents; status must be checked against executable source. |
+| `governance/custodian` | Daily report-only Cloud Custodian security/cost/tagging sweeps. |
+| `docs/runbooks` | Operational release, migration, identity, account-data, lifecycle, thaw, restore, provider and access procedures. |
+| `docs/compliance` | SOC 2, GDPR/DPDP, privacy/security engineering, and evidence mappings. |
 
-## Stack (live-verified latest stable, July 2026)
+## Repository stack
 
 | Layer | Choice |
 |---|---|
 | Package manager | Bun 1.3.14 (workspaces) |
 | Web | React 19.2, MUI 9.2, Vite 8.1, TypeScript 7.0, React Router 8.3, TanStack Query 5 |
-| Mobile | Expo (latest SDK, Phase 4), React Native Paper (MD3), Cognito hosted-UI auth (Phase 4), EAS |
+| Mobile | SwiftUI + PattadarKit on iOS; Expo/React Native compatibility client for Android |
 | Backend | Python FastAPI + Strawberry GraphQL (ported), PostgreSQL 17 |
 | Infra | Terraform ≥1.10, AWS provider 6.x, ECS Fargate, RDS, S3+KMS, CloudFront+WAF |
 | Auth | Amazon Cognito (ap-south-1, Essentials tier; hosted UI) |
@@ -108,8 +113,14 @@ Infra: see [infra/terraform/README.md](infra/terraform/README.md). Compliance po
 ## Key invariants (do not break)
 
 1. **`services/api` trusts the `x-user-id` header** — it must never be reachable except through the gateway.
-2. **User id format** = email local-part, lowercased (from the Cognito `email` claim — e.g. `sankara.telukutla`). Every DB row and S3 object key depends on it.
-3. **AI extraction routes** (`/import-*`, `/extract-*`) run up to 180 s — every hop in front needs ≥200 s timeout and must never retry.
+2. **Identity** uses the immutable issuer and subject, never the email local part. Existing DB/S3 owner keys remain reachable only through the reviewed `IDENTITY_LEGACY_BINDINGS` mapping. Complete [identity migration](docs/runbooks/identity-migration.md) before rollout.
+3. **AI readings** use durable asynchronous jobs and authenticated status polls on web. An interrupted provider call is never automatically repeated. Direct extraction endpoints remain for older clients; their callers need the longer operation budget.
 4. **`CRON_SECRET` is always set** — the inactivity-check endpoint is open without it.
 5. **Storage object keys** `{owner}/{node}/{version}` are migrated verbatim; metadata rows never change.
 6. Dates render **DD/MM/YYYY** (India) everywhere.
+
+## Repairs and release preparation
+
+The September review repairs cover account isolation, verification, native queues/widgets, durable document readings and attachments, scoped sharing/worker access, transaction-safe accounting, optional Razorpay checkout, and account-data controls. See the [repair evidence](docs/parity/project-repair-2026-09-12.md) and [tested release procedure](docs/runbooks/tested-release.md) for remaining external setup, migration evidence, and production go/no-go gates.
+
+CI runs TypeScript, Python, browser, native and Terraform checks before promoting the matching source revision. Production activation still requires reviewed identity and attachment migration evidence, configured providers, and a recorded restore/alert exercise. Local test success does not establish that these production steps have happened.

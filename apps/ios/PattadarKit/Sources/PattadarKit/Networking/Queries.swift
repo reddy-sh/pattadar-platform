@@ -53,7 +53,7 @@ public enum Queries {
     public static let dashboard = """
     query {
       dashboardStats { totalPassbooks totalParcels totalDocuments totalBeneficiaries pendingInvitations estimatedValue totalExtent totalGroups }
-      me { name email }
+      me { id name email }
       recentAuditEvents { id actor action target details timestamp }
     }
     """
@@ -342,4 +342,24 @@ public struct AnyMutationResult: Decodable, Sendable {
     // GraphQL wraps the result under the mutation name; callers that only need
     // "did it work" decode this and ignore the shape.
     public init(from decoder: Decoder) throws { _ = decoder }
+}
+
+// The existing Services screen uses the canonical service namespace by the
+// founder's explicit repair request; this does not migrate other native tabs.
+extension Queries {
+    public static let nativeServices = """
+    query { web {
+      servicesOffered { key label price group blurb days
+        fields { name label kind required options help } }
+      properties { cards { id title subtitle } }
+      orders { id title detail assignee cost statusLabel dueDate recordTitle ref }
+    } }
+    """
+}
+extension Mutations {
+    public static let nativeOrderService = """
+    mutation($recordIds:[String!]!,$kind:String!,$params:String!,$idempotencyKey:String!) {
+      web { orderService(recordIds:$recordIds,kind:$kind,params:$params,idempotencyKey:$idempotencyKey) }
+    }
+    """
 }

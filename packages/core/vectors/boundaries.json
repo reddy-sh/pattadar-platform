@@ -1,0 +1,98 @@
+[
+  {
+    "text": "{\"type\":\"MultiPolygon\",\"coordinates\":[[[[79,15],[79.001,15],[79.001,15.001],[79.0005,15.001],[79,15.001],[79,15]]],[[[79,15],[79.02,15],[79.02,15.02],[79,15.02],[79,15]]]]}",
+    "fileName": "parcel.geojson",
+    "ring": [
+      [
+        15,
+        79
+      ],
+      [
+        15,
+        79.02
+      ],
+      [
+        15.02,
+        79.02
+      ],
+      [
+        15.02,
+        79
+      ]
+    ],
+    "format": "geojson",
+    "name": ""
+  },
+  {
+    "text": "{\"type\":\"MultiPolygon\",\"coordinates\":[[[[79,15],[79,15.02],[79.02,15.02],[79.02,15],[79,15]]],[[[79,15],[79.001,15],[79.001,15.001],[79.0005,15.001],[79,15.001],[79,15]]]]}",
+    "fileName": "clockwise.geojson",
+    "ring": [
+      [
+        15,
+        79
+      ],
+      [
+        15.02,
+        79
+      ],
+      [
+        15.02,
+        79.02
+      ],
+      [
+        15,
+        79.02
+      ]
+    ],
+    "format": "geojson",
+    "name": ""
+  },
+  {
+    "text": "{\"type\":\"Feature\",\"properties\":{\"name\":\"Field 1\"},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[79,15],[79.02,15],[79.02,15.02],[79,15.02],[79,15]]]}}",
+    "fileName": "field.geojson",
+    "ring": [
+      [
+        15,
+        79
+      ],
+      [
+        15,
+        79.02
+      ],
+      [
+        15.02,
+        79.02
+      ],
+      [
+        15.02,
+        79
+      ]
+    ],
+    "format": "geojson",
+    "name": "Field 1"
+  },
+  {
+    "text": "<kml><Placemark><name>Survey</name><Polygon><outerBoundaryIs><LinearRing><coordinates>79,15 79.02,15 79.02,15.02 79,15.02 79,15</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></kml>",
+    "fileName": "survey.kml",
+    "ring": [
+      [
+        15,
+        79
+      ],
+      [
+        15,
+        79.02
+      ],
+      [
+        15.02,
+        79.02
+      ],
+      [
+        15.02,
+        79
+      ]
+    ],
+    "format": "kml",
+    "name": "Survey"
+  }
+]

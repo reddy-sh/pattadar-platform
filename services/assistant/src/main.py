@@ -1,134 +1,68 @@
-"""Pattadar Assistant — FastAPI service with SSE streaming chat.
+"""Pattadar Assistant FastAPI service with PostgreSQL history and SDK SSE."""
+from __future__ import annotations
 
-Ported from the predecessor's api/assistant/main.py. Differences:
-- Identity: trusts the gateway-injected `x-user-id` header (this service is
-  NEVER internet-exposed directly; the gateway strips any spoofed header and
-  injects the validated one — same invariant as the api service).
-- No Jira auto-attach / Builder paths — predecessor-only, deleted.
-- Creates its own tables (r_conversations / r_attachments) if absent so a
-  fresh database works without a separate schema step.
-"""
-
+import asyncio
 import json
 import logging
-import re
-from contextlib import asynccontextmanager
+import time
+from contextlib import asynccontextmanager, suppress
 from typing import AsyncGenerator
-from uuid import UUID
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+from urllib.parse import quote
+from uuid import UUID, uuid4
 
 import psycopg
+import anyio
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from langchain_core.messages import AIMessageChunk, HumanMessage, ToolMessage
+from fastapi.responses import Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from psycopg.rows import dict_row
 
+from . import telemetry as _metrics
 from .agent import AssistantAgent
-from .attachments import build_attachment_blocks, get_attachment, save_attachment
+from .attachments import (
+    AttachmentUnavailable,
+    build_attachment_blocks,
+    get_attachment,
+    read_attachment_bytes,
+    save_attachment,
+)
 from .config import AssistantConfig
 from .conversations import (
+    append_message,
+    attachments_belong_to_conversation,
     auto_title,
+    claim_run,
     create_conversation,
     delete_conversation,
+    fail_run,
+    finish_run,
     get_conversation,
-    increment_message_count,
+    get_run_assistant_message,
+    has_prior_accepted_turn,
     list_conversations,
+    list_messages,
+    load_bounded_transcript,
     restore_conversation,
+    set_effective_model,
     update_application_context,
     update_conversation,
+    update_sdk_session,
 )
-from .models import (
-    ChatRequest,
-    ConversationCreate,
-    ConversationUpdate,
-)
+from .domain_policy import SCOPE_DENIAL_TEXT, evaluate_scope
+from .models import ChatRequest, ConversationCreate, ConversationUpdate
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 _log = logging.getLogger("pattadar.assistant.main")
-
-
-# Matches all tool/function XML blocks the model may embed in text
-_XML_BLOCK_RE = re.compile(
-    r"<(?:tool_call|tool_response|function_calls?|function_results?|function_response|invoke)\b[^>]*>.*?"
-    r"</\s*(?:tool_call|tool_response|function_calls?|function_results?|function_response|invoke)>",
-    re.DOTALL,
-)
-
-
-def _strip_xml_blocks(text: str) -> str:
-    """Remove <tool_call> and <function_calls> XML blocks from text."""
-    return _XML_BLOCK_RE.sub("", text).strip()
-
-
-def _extract_text(content) -> str:
-    """Extract plain text from LangChain message content (handles Anthropic list format).
-
-    Strips raw <tool_call> and <function_calls> blocks that models emit as text.
-    """
-    if isinstance(content, str):
-        return _strip_xml_blocks(content)
-    if isinstance(content, list):
-        text = "".join(
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
-        return _strip_xml_blocks(text)
-    return _strip_xml_blocks(str(content))
-
-
-def _extract_office_text(path: str, mime: str, fname: str) -> str | None:
-    """Best-effort text extraction for office docs Claude can't read natively
-    (docx/xlsx). Returns text, or None if unsupported / extraction failed."""
-    low = fname.lower()
-    try:
-        if low.endswith(".docx") or "wordprocessingml" in mime:
-            import docx  # python-docx
-
-            d = docx.Document(path)
-            parts = [p.text for p in d.paragraphs if p.text.strip()]
-            for table in d.tables:
-                for row in table.rows:
-                    cells = [c.text.strip() for c in row.cells]
-                    if any(cells):
-                        parts.append(" | ".join(cells))
-            return "\n".join(parts).strip() or None
-        if low.endswith(".xlsx") or "spreadsheetml" in mime:
-            import openpyxl
-
-            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-            out: list[str] = []
-            for ws in wb.worksheets:
-                out.append(f"# Sheet: {ws.title}")
-                for row in ws.iter_rows(values_only=True):
-                    vals = [str(c) for c in row if c is not None]
-                    if vals:
-                        out.append(" | ".join(vals))
-            return "\n".join(out).strip() or None
-    except Exception as e:  # noqa: BLE001
-        _log.warning("Office-doc extract failed for %s: %s", fname, e)
-    return None
-
 
 config = AssistantConfig.from_env()
 agent_manager = AssistantAgent(config)
 
 
 async def _get_conn() -> psycopg.AsyncConnection:
-    """Get an async database connection."""
-    conn = await psycopg.AsyncConnection.connect(
-        config.db_uri, autocommit=True, row_factory=dict_row,
-    )
-    return conn
+    return await psycopg.AsyncConnection.connect(config.db_uri, autocommit=True, row_factory=dict_row)
 
 
-# Idempotent DDL — lets the service boot against a fresh database. The
-# LangGraph checkpoint tables are managed by AsyncPostgresSaver.setup().
 _DDL = """
 CREATE TABLE IF NOT EXISTS r_conversations (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -138,10 +72,44 @@ CREATE TABLE IF NOT EXISTS r_conversations (
     status          TEXT DEFAULT 'active' CHECK (status IN ('active','archived','deleted')),
     app_context     JSONB DEFAULT '{}',
     message_count   INT DEFAULT 0,
+    sdk_session_id  TEXT,
+    last_run_id     UUID,
     created_at      TIMESTAMPTZ DEFAULT now(),
     updated_at      TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE r_conversations ADD COLUMN IF NOT EXISTS sdk_session_id TEXT;
+ALTER TABLE r_conversations ADD COLUMN IF NOT EXISTS last_run_id UUID;
 CREATE INDEX IF NOT EXISTS idx_rconv_user ON r_conversations(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS r_conversation_messages (
+    id              BIGSERIAL PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES r_conversations(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL,
+    role            TEXT NOT NULL CHECK (role IN ('user','assistant')),
+    content         TEXT NOT NULL,
+    run_id          UUID NOT NULL,
+    metadata        JSONB NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (conversation_id, run_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_rmsg_conversation
+    ON r_conversation_messages(conversation_id, id);
+CREATE INDEX IF NOT EXISTS idx_rmsg_user
+    ON r_conversation_messages(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS r_conversation_runs (
+    run_id          UUID PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES r_conversations(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL,
+    status          TEXT NOT NULL CHECK (status IN ('running','completed','failed')),
+    error_code      TEXT,
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rrun_one_active_conversation
+    ON r_conversation_runs(conversation_id) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS idx_rrun_user
+    ON r_conversation_runs(user_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS r_attachments (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,6 +124,7 @@ CREATE TABLE IF NOT EXISTS r_attachments (
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_rattach_conv ON r_attachments(conversation_id);
+ALTER TABLE r_attachments ADD COLUMN IF NOT EXISTS content BYTEA;
 """
 
 
@@ -171,10 +140,8 @@ async def _ensure_tables() -> None:
 async def lifespan(app: FastAPI):
     _log.info("Assistant service starting on port %d", config.port)
     await _ensure_tables()
-    # Live model registry — reads the platform_models catalog from PG with
-    # a 30s refresh; falls back to a direct Anthropic fetch, then a small
-    # hardcoded list.
     from . import model_registry
+
     registry = model_registry.init_registry(config.anthropic_api_key)
     await registry.start()
     await agent_manager.initialize()
@@ -184,20 +151,8 @@ async def lifespan(app: FastAPI):
     _log.info("Assistant service shut down")
 
 
-app = FastAPI(
-    title="Pattadar Assistant",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-from . import telemetry as _metrics
+app = FastAPI(title="Pattadar Assistant", version="2.0.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 def _user_id(x_user_id: str = Header(default="", alias="x-user-id")) -> str:
@@ -207,36 +162,101 @@ def _user_id(x_user_id: str = Header(default="", alias="x-user-id")) -> str:
     return uid
 
 
-# ── Health ─────────────────────────────────────────────────────────────────────
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _stream_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _fixed_stream(event: dict) -> StreamingResponse:
+    async def generate() -> AsyncGenerator[str, None]:
+        yield ": keepalive\n\n"
+        yield _sse(event)
+        yield "data: [DONE]\n\n"
+
+    return _stream_response(generate())
+
+
+async def _mark_run_failed(
+    conversation_id: UUID,
+    user_id: str,
+    run_id: UUID,
+    error_code: str,
+) -> None:
+    try:
+        conn = await _get_conn()
+        try:
+            await fail_run(conn, conversation_id, user_id, run_id, error_code)
+        finally:
+            await conn.close()
+    except Exception:
+        _log.exception("Failed to persist failed run %s", run_id)
+
+
+def _extract_office_text(path: str, mime: str, fname: str) -> str | None:
+    low = fname.lower()
+    try:
+        if low.endswith(".docx") or "wordprocessingml" in mime:
+            import docx
+
+            document = docx.Document(path)
+            parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
+            for table in document.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    if any(cells):
+                        parts.append(" | ".join(cells))
+            return "\n".join(parts).strip() or None
+        if low.endswith(".xlsx") or "spreadsheetml" in mime:
+            import openpyxl
+
+            workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+            output: list[str] = []
+            for sheet in workbook.worksheets:
+                output.append(f"# Sheet: {sheet.title}")
+                for row in sheet.iter_rows(values_only=True):
+                    values = [str(cell) for cell in row if cell is not None]
+                    if values:
+                        output.append(" | ".join(values))
+            return "\n".join(output).strip() or None
+    except Exception as exc:
+        _log.warning("Office document extraction failed for %s: %s", fname, exc)
+    return None
+
 
 @app.get("/health")
 async def health():
-    errors = []
-
-    # 1. Check database connectivity
+    errors: list[str] = []
     try:
         conn = await _get_conn()
         try:
             await conn.execute("SELECT 1")
+            row = await (
+                await conn.execute("SELECT to_regclass('r_conversation_messages') AS name")
+            ).fetchone()
+            if not row or not row["name"]:
+                errors.append("messages: table missing")
         finally:
             await conn.close()
-    except Exception as e:
-        errors.append(f"db: {e}")
+    except Exception as exc:
+        errors.append(f"db: {exc}")
 
-    # 2. Check checkpointer is initialized and its tables exist
-    if agent_manager._checkpointer is None:
-        errors.append("checkpointer: not initialized")
-    else:
-        try:
-            async with agent_manager._checkpointer._cursor() as cur:
-                await cur.execute(
-                    "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'checkpoints')"
-                )
-                row = await cur.fetchone()
-                if not row or not list(row.values())[0]:
-                    errors.append("checkpointer: 'checkpoints' table missing — run setup()")
-        except Exception as e:
-            errors.append(f"checkpointer: {e}")
+    try:
+        from . import model_registry
+
+        model_registry.get_registry().default_model()
+    except Exception as exc:
+        errors.append(f"model_policy: {exc}")
 
     if errors:
         return {"status": "unhealthy", "service": "assistant", "errors": errors}
@@ -248,69 +268,26 @@ async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/api/mcp-servers")
-async def list_mcp_servers():
-    """Return available MCP servers derived from loaded tools, plus system
-    status metadata (model, available models, MCP connectivity).
-
-    With MCP_URL unset (the v1 default) the groups list is empty and the
-    status still reports the model catalog — the frontend can use this for
-    a model picker later.
-    """
-    await agent_manager._ensure_mcp_tools()
-
-    # Derive namespaces from actual loaded tools
-    namespaces: set[str] = set()
-    for tool in agent_manager._mcp_tools:
-        parts = tool.name.split("_", 1)
-        if len(parts) == 2:
-            namespaces.add(parts[0])
-
-    total_tools = 0
-    servers = []
-    for ns in sorted(namespaces):
-        tool_count = sum(1 for t in agent_manager._mcp_tools if t.name.startswith(f"{ns}_"))
-        total_tools += tool_count
-        servers.append(
-            {"id": ns, "name": ns.replace("_", " ").title(), "description": f"{ns} MCP server", "tools": tool_count}
-        )
-    groups = [{"label": "Tools", "servers": servers}] if servers else []
-
-    # System status metadata
-    from . import model_registry
-    available_models = [
-        {"id": m.id, "name": m.name, "tier": m.tier, "family": m.family, "full_name": m.full_name}
-        for m in model_registry.get_registry().list_models()
-    ]
-    status = {
-        "model": agent_manager.config.model,
-        "available_models": available_models,
-        "mcp": {
-            "connected": len(agent_manager._mcp_tools) > 0,
-            "server_count": len(namespaces),
-            "tool_count": total_tools,
-            "url": agent_manager.config.mcp_url or "",
-        },
-    }
-
-    return {"groups": groups, "status": status}
+@app.get("/api/capabilities")
+async def capabilities():
+    """Return redacted optional-capability readiness without affecting chat health."""
+    return {"public_records": await agent_manager.public_record_capabilities()}
 
 
 @app.get("/docs-info")
 async def docs_info():
     return {
         "name": "Pattadar Assistant",
-        "version": "1.0.0",
-        "description": "In-app AI assistant for Pattadar — land and property records in plain language",
+        "version": "2.0.0",
+        "description": "Pattadar land and property record assistant",
         "endpoints": {
             "chat": "POST /api/chat/stream",
             "conversations": "GET /api/conversations",
+            "capabilities": "GET /api/capabilities",
             "health": "GET /health",
         },
     }
 
-
-# ── Conversations CRUD ────────────────────────────────────────────────────────
 
 @app.get("/api/conversations")
 async def list_conversations_endpoint(
@@ -322,8 +299,7 @@ async def list_conversations_endpoint(
     user_id = _user_id(x_user_id)
     conn = await _get_conn()
     try:
-        rows = await list_conversations(conn, user_id, status, limit, offset)
-        return {"conversations": rows}
+        return {"conversations": await list_conversations(conn, user_id, status, limit, offset)}
     finally:
         await conn.close()
 
@@ -334,11 +310,15 @@ async def create_conversation_endpoint(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
+    from . import model_registry
+
+    try:
+        model = model_registry.get_registry().default_model()
+    except RuntimeError as exc:
+        raise HTTPException(503, "No assistant model is currently enabled") from exc
     conn = await _get_conn()
     try:
-        row = await create_conversation(
-            conn, user_id, body.title, body.model, body.application_context,
-        )
+        row = await create_conversation(conn, user_id, body.title, model, body.application_context)
         _metrics.conversations_total.inc()
         return row
     finally:
@@ -354,39 +334,23 @@ async def get_conversation_endpoint(
     user_id = _user_id(x_user_id)
     conn = await _get_conn()
     try:
-        conv = await get_conversation(conn, conversation_id, user_id)
-        if not conv:
+        conversation = await get_conversation(conn, conversation_id, user_id)
+        if not conversation:
             raise HTTPException(404, "Conversation not found")
-
-        result = {**conv}
-
+        result = {**conversation}
+        # SDK session identifiers are internal implementation details.
+        result.pop("sdk_session_id", None)
+        result.pop("last_run_id", None)
         if include_messages:
-            try:
-                thread_cfg = {"configurable": {"thread_id": str(conversation_id)}}
-                await _repair_orphaned_tool_calls(agent_manager.agent, thread_cfg)
-                state = await agent_manager.agent.aget_state(thread_cfg)
-                messages = []
-                for msg in (state.values.get("messages") or []):
-                    role = getattr(msg, "type", "unknown")
-                    # Skip tool result messages — internal plumbing
-                    if role == "tool":
-                        continue
-                    text = _extract_text(msg.content)
-                    # Skip AI messages that only contained tool calls (no user-facing text)
-                    if role == "ai" and not text and hasattr(msg, "tool_calls") and msg.tool_calls:
-                        continue
-                    m = {"role": role, "content": text}
-                    if hasattr(msg, "tool_calls") and msg.tool_calls:
-                        m["tool_calls"] = [
-                            {"name": tc.get("name", ""), "args": tc.get("args", {})}
-                            for tc in msg.tool_calls
-                        ]
-                    messages.append(m)
-                result["messages"] = messages
-            except Exception as e:
-                _log.warning("Failed to load messages for %s: %s", conversation_id, e)
-                result["messages"] = []
-
+            rows = await list_messages(conn, conversation_id, user_id)
+            result["messages"] = [
+                {
+                    "role": "human" if row["role"] == "user" else "ai",
+                    "content": row["content"],
+                    "timestamp": row["created_at"],
+                }
+                for row in rows
+            ]
         return result
     finally:
         await conn.close()
@@ -401,9 +365,7 @@ async def update_conversation_endpoint(
     user_id = _user_id(x_user_id)
     conn = await _get_conn()
     try:
-        row = await update_conversation(
-            conn, conversation_id, user_id, body.title, body.status,
-        )
+        row = await update_conversation(conn, conversation_id, user_id, body.title, body.status)
         if not row:
             raise HTTPException(404, "Conversation not found")
         return row
@@ -419,8 +381,7 @@ async def delete_conversation_endpoint(
     user_id = _user_id(x_user_id)
     conn = await _get_conn()
     try:
-        ok = await delete_conversation(conn, conversation_id, user_id)
-        if not ok:
+        if not await delete_conversation(conn, conversation_id, user_id):
             raise HTTPException(404, "Conversation not found")
         return {"ok": True}
     finally:
@@ -443,325 +404,256 @@ async def restore_conversation_endpoint(
         await conn.close()
 
 
-# ── Chat Stream (SSE) ─────────────────────────────────────────────────────────
-
-async def _repair_orphaned_tool_calls(agent, thread_config) -> int:
-    """Fix corrupted checkpoint where AIMessage has tool_calls but no ToolMessages.
-
-    LangGraph checkpoints after each node. If the tool node fails before
-    completing (tool timeout, API error, client disconnect), the checkpoint
-    has an AIMessage with tool_calls but no subsequent ToolMessages.
-    This makes the conversation permanently stuck. Fix by injecting
-    synthetic error ToolMessages so the conversation can continue.
-
-    Returns the number of repaired tool calls.
-    """
-    try:
-        state = await agent.aget_state(thread_config)
-        messages = state.values.get("messages") or []
-        if not messages:
-            return 0
-
-        # Find orphaned tool_calls: AI messages with tool_calls that aren't
-        # followed by matching ToolMessages
-        tool_call_ids_seen = set()
-        orphaned_tool_calls = []
-
-        for msg in messages:
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    tc_id = tc.get("id", "")
-                    if tc_id:
-                        tool_call_ids_seen.add(tc_id)
-                        orphaned_tool_calls.append(tc)
-            if getattr(msg, "type", "") == "tool":
-                tc_id = getattr(msg, "tool_call_id", "")
-                if tc_id:
-                    tool_call_ids_seen.discard(tc_id)
-                    orphaned_tool_calls = [
-                        tc for tc in orphaned_tool_calls if tc.get("id") != tc_id
-                    ]
-
-        if not orphaned_tool_calls:
-            return 0
-
-        repair_messages = [
-            ToolMessage(
-                content=f"Error: Tool '{tc.get('name', 'unknown')}' failed to execute. The operation did not complete. Please retry if needed.",
-                tool_call_id=tc.get("id", ""),
-                name=tc.get("name", ""),
-            )
-            for tc in orphaned_tool_calls
-        ]
-        await agent.aupdate_state(thread_config, {"messages": repair_messages})
-        _log.warning(
-            "Repaired %d orphaned tool_call(s) in thread %s: %s",
-            len(repair_messages),
-            thread_config["configurable"]["thread_id"],
-            [tc.get("name") for tc in orphaned_tool_calls],
-        )
-        return len(repair_messages)
-    except Exception as e:
-        _log.warning(
-            "Failed to repair state for %s: %s",
-            thread_config["configurable"]["thread_id"], e,
-        )
-        return 0
-
-
 @app.post("/api/chat/stream")
 async def chat_stream(
     body: ChatRequest,
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
+    run_id = body.run_id or uuid4()
 
-    # Verify conversation ownership
     try:
         conn = await _get_conn()
-    except Exception as e:
-        _log.exception("DB connection failed for chat_stream")
-        raise HTTPException(503, f"Database unavailable: {e}")
+    except Exception as exc:
+        _log.exception("Database connection failed for chat stream")
+        raise HTTPException(503, "Assistant storage is temporarily unavailable") from exc
+
     try:
-        conv = await get_conversation(conn, body.conversation_id, user_id)
-        if not conv:
+        conversation = await get_conversation(conn, body.conversation_id, user_id)
+        if not conversation or conversation.get("status") == "deleted":
             raise HTTPException(404, "Conversation not found")
 
-        # Auto-title from first message
-        await auto_title(conn, body.conversation_id, user_id, body.message)
-        await increment_message_count(conn, body.conversation_id)
+        prior_result = await get_run_assistant_message(conn, body.conversation_id, user_id, run_id)
+        if prior_result:
+            return _fixed_stream({"type": "token", "text": prior_result["content"]})
 
-        # Persist latest application context snapshot on the conversation
-        if body.application_context and (
-            body.application_context.get("app") or body.application_context.get("insights")
-            or body.application_context.get("components") or body.application_context.get("navigation")
-        ):
-            await update_application_context(
-                conn, str(body.conversation_id), user_id, body.application_context
+        prior_accepted = await has_prior_accepted_turn(conn, body.conversation_id, user_id)
+        authorized_attachment = await attachments_belong_to_conversation(
+            conn, body.conversation_id, user_id, body.attachment_ids
+        )
+        if body.attachment_ids and not authorized_attachment:
+            raise HTTPException(404, "Attachment not found")
+
+        decision = evaluate_scope(
+            body.message,
+            body.application_context,
+            has_authorized_attachment=authorized_attachment,
+            has_prior_accepted_turn=prior_accepted,
+        )
+
+        if not decision.allowed:
+            inserted = await append_message(
+                conn, body.conversation_id, user_id, "user", body.message, run_id,
+                {
+                    "scope_allowed": False,
+                    "scope_reason": decision.reason,
+                    "policy_version": decision.policy_version,
+                    "attachment_ids": [str(item) for item in body.attachment_ids],
+                },
             )
-    except HTTPException:
-        raise
-    except Exception as e:
-        _log.exception("Conversation setup error for %s", body.conversation_id)
-        raise HTTPException(500, f"Failed to prepare conversation: {e}")
+            if inserted:
+                await auto_title(conn, body.conversation_id, user_id, body.message)
+            await append_message(
+                conn, body.conversation_id, user_id, "assistant", SCOPE_DENIAL_TEXT, run_id,
+                {"scope_denial": True, "policy_version": decision.policy_version},
+            )
+            return _fixed_stream({"type": "token", "text": SCOPE_DENIAL_TEXT})
+
+        from . import model_registry
+
+        try:
+            effective_model = model_registry.get_registry().default_model()
+        except RuntimeError as exc:
+            raise HTTPException(503, "No assistant model is currently enabled") from exc
+
+        run_state = await claim_run(conn, body.conversation_id, user_id, run_id)
+        if run_state == "completed":
+            completed = await get_run_assistant_message(
+                conn, body.conversation_id, user_id, run_id
+            )
+            if completed:
+                return _fixed_stream({"type": "token", "text": completed["content"]})
+            return _fixed_stream({"type": "error", "text": "This completed response is temporarily unavailable."})
+        if run_state in {"running", "busy"}:
+            return _fixed_stream({"type": "error", "text": "Another request is already being processed for this conversation."})
+
+        transcript = await load_bounded_transcript(
+            conn, body.conversation_id, user_id, exclude_run_id=run_id
+        )
     finally:
         await conn.close()
 
-    # Build message content — plain text or multimodal with attachments
+    # Attachment bytes are read only after deterministic scope and ownership checks.
     content: str | list[dict] = body.message
     if body.attachment_ids:
-        att_conn = await _get_conn()
+        attachment_conn = await _get_conn()
         try:
-            content_blocks, _image_attachments = await build_attachment_blocks(
-                att_conn, body.attachment_ids, user_id, _extract_office_text
+            blocks, _ = await build_attachment_blocks(
+                attachment_conn, body.attachment_ids, user_id, _extract_office_text
             )
-            if content_blocks:
-                content_blocks.append({"type": "text", "text": body.message})
-                content = content_blocks
+            if blocks:
+                blocks.append({"type": "text", "text": body.message})
+                content = blocks
+        except PermissionError as exc:
+            await _mark_run_failed(body.conversation_id, user_id, run_id, "attachment_forbidden")
+            raise HTTPException(404, "Attachment not found") from exc
+        except AttachmentUnavailable as exc:
+            await _mark_run_failed(body.conversation_id, user_id, run_id, "attachment_unavailable")
+            raise HTTPException(503, "A selected attachment is temporarily unavailable") from exc
         finally:
-            await att_conn.close()
+            await attachment_conn.close()
 
-    # Hot-reload prompt from DB before building the agent
-    await agent_manager.refresh_prompt()
+    try:
+        await agent_manager.refresh_prompt()
+    except Exception as exc:
+        await _mark_run_failed(body.conversation_id, user_id, run_id, "prompt_unavailable")
+        raise HTTPException(503, "Assistant instructions are temporarily unavailable") from exc
+    trusted_context = body.application_context if decision.trusted_context else {}
+    _, prompt_context = agent_manager._split_contextual_prompt(trusted_context)
+    navigation = trusted_context.get("navigation", []) if trusted_context else []
 
-    # Build contextual prompt with live application context
-    contextual_prompt = agent_manager._build_contextual_prompt(body.application_context)
-    _log.info(
-        "chat_stream context: app=%s, insights=%d, nav=%d, prompt_len=%d",
-        (body.application_context.get("app") or {}).get("name", "none"),
-        len(body.application_context.get("insights") or body.application_context.get("components", [])),
-        len(body.application_context.get("navigation", [])),
-        len(contextual_prompt),
-    )
+    persist_conn = await _get_conn()
+    try:
+        inserted = await append_message(
+            persist_conn, body.conversation_id, user_id, "user", body.message, run_id,
+            {
+                "scope_allowed": True,
+                "scope_reason": decision.reason,
+                "policy_version": decision.policy_version,
+                "attachment_ids": [str(item) for item in body.attachment_ids],
+            },
+        )
+        if not inserted:
+            existing_user = await (
+                await persist_conn.execute(
+                    """SELECT content FROM r_conversation_messages
+                         WHERE conversation_id=%s AND user_id=%s AND run_id=%s AND role='user'""",
+                    (str(body.conversation_id), user_id, str(run_id)),
+                )
+            ).fetchone()
+            if not existing_user or existing_user["content"] != body.message:
+                await fail_run(
+                    persist_conn, body.conversation_id, user_id, run_id, "run_id_payload_mismatch"
+                )
+                raise HTTPException(409, "This request identifier was already used for different content")
+        await auto_title(persist_conn, body.conversation_id, user_id, body.message)
+        await set_effective_model(persist_conn, body.conversation_id, user_id, effective_model)
+        if trusted_context:
+            await update_application_context(
+                persist_conn, str(body.conversation_id), user_id, trusted_context
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await _mark_run_failed(body.conversation_id, user_id, run_id, "turn_persistence_failed")
+        raise HTTPException(503, "The conversation could not be saved") from exc
+    finally:
+        await persist_conn.close()
 
-    model = body.model or conv.get("model") or None
-    navigation = body.application_context.get("navigation", []) if body.application_context else []
-    await agent_manager._ensure_mcp_tools()
-    agent = agent_manager.get_agent_with_servers(model, body.enabled_servers, navigation=navigation or None)
-
-    # Pass contextual prompt via config so the dynamic prompt function picks it up
-    thread_config = {
-        "configurable": {
-            "thread_id": str(body.conversation_id),
-            "system_prompt": contextual_prompt,
-        },
-    }
-
-    # Repair any corrupted checkpoint state before streaming
-    await _repair_orphaned_tool_calls(agent, thread_config)
-
-    # Record chat metrics
-    _used_model = model or "default"
-    _metrics.chat_total.labels(model=_used_model).inc()
-    import time as _time
-    _chat_t0 = _time.perf_counter()
+    _metrics.chat_total.labels(model=effective_model).inc()
+    started_at = time.perf_counter()
 
     async def generate() -> AsyncGenerator[str, None]:
         yield ": keepalive\n\n"
+        final_text = ""
+        final_session = str(run_id)
+        final_usage: dict = {}
+        emit_done = True
+        stream_finished = object()
+        event_queue: asyncio.Queue[dict | Exception | object] = asyncio.Queue()
 
-        # Stateful filter: suppress XML tool blocks the model emits as text
-        # when tools aren't bound (<function_calls>, <function_response>,
-        # <tool_call>, <invoke>, etc.).
-        _xml_buf = ""
-        _suppressing = False
-        _end_tag = ""
-        _OPEN_RE = re.compile(r"<(function_calls?|function_results?|function_response|tool_call|tool_response|invoke)\b")
-        # Pre-compute all possible prefixes of suppressible tags for partial matching.
-        _TAG_STRS = [
-            "<function_calls>", "<function_call>", "<function_results>",
-            "<function_result>", "<function_response>",
-            "<tool_call>", "<tool_response>", "<invoke ",
-        ]
-        _PREFIXES: set[str] = set()
-        for _t in _TAG_STRS:
-            for _i in range(1, len(_t) + 1):
-                _PREFIXES.add(_t[:_i])
-        _MAX_PREFIX = max(len(p) for p in _PREFIXES)
+        async def produce_events() -> None:
+            try:
+                with anyio.fail_after(config.chat_timeout_seconds):
+                    async for event in agent_manager.stream(
+                        content=content,
+                        transcript=transcript,
+                        model=effective_model,
+                        prompt_context=prompt_context,
+                        navigation=navigation if isinstance(navigation, list) else [],
+                        session_id=str(run_id),
+                    ):
+                        await event_queue.put(event)
+            except Exception as producer_error:
+                await event_queue.put(producer_error)
+            finally:
+                await event_queue.put(stream_finished)
 
-        def _filter_text(text: str) -> str:
-            """Feed text through the XML block filter. Returns safe text to emit."""
-            nonlocal _xml_buf, _suppressing, _end_tag
-
-            _xml_buf += text
-            parts: list[str] = []
-
-            while _xml_buf:
-                if _suppressing:
-                    end_idx = _xml_buf.find(_end_tag)
-                    if end_idx >= 0:
-                        _suppressing = False
-                        _xml_buf = _xml_buf[end_idx + len(_end_tag):]
-                        continue
-                    # Check if tail could be partial end tag
-                    for i in range(min(len(_end_tag) - 1, len(_xml_buf)), 0, -1):
-                        if _xml_buf.endswith(_end_tag[:i]):
-                            _xml_buf = _xml_buf[-i:]
-                            return "".join(parts)
-                    _xml_buf = ""
-                    return "".join(parts)
-
-                # Not suppressing — look for opening tag
-                m = _OPEN_RE.search(_xml_buf)
-                if m:
-                    parts.append(_xml_buf[:m.start()])
-                    tag_name = m.group(1)
-                    _end_tag = f"</{tag_name}>"
-                    _suppressing = True
-                    # Skip past the closing ">" of the opening tag
-                    rest = _xml_buf[m.end():]
-                    gt = rest.find(">")
-                    _xml_buf = rest[gt + 1:] if gt >= 0 else ""
-                    continue
-
-                # No full match — check if tail is a partial prefix of a tag
-                found_partial = False
-                for i in range(min(_MAX_PREFIX, len(_xml_buf)), 0, -1):
-                    if _xml_buf[-i:] in _PREFIXES:
-                        parts.append(_xml_buf[:-i])
-                        _xml_buf = _xml_buf[-i:]
-                        found_partial = True
-                        break
-
-                if not found_partial:
-                    parts.append(_xml_buf)
-                    _xml_buf = ""
-                break  # exit loop after non-suppressing path
-
-            return "".join(parts)
-
+        producer_task = asyncio.create_task(produce_events())
         try:
-            # Use astream_events (not astream) to get raw model-level token
-            # events. LangGraph's astream(stream_mode="messages") buffers
-            # thinking blocks into one large chunk; astream_events gives us
-            # each thinking_delta individually for progressive streaming.
-            async for event in agent.astream_events(
-                {"messages": [HumanMessage(content=content)]},
-                thread_config,
-                version="v2",
-            ):
-                kind = event["event"]
+            while True:
+                try:
+                    queued = await asyncio.wait_for(event_queue.get(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if queued is stream_finished:
+                    break
+                if isinstance(queued, Exception):
+                    raise queued
+                event = queued
+                if event.get("type") == "_result":
+                    final_text = str(event.get("text") or "")
+                    final_session = str(event.get("session_id") or run_id)
+                    final_usage = event.get("usage") or {}
+                    continue
+                if event.get("type") == "tool_end":
+                    qualified = str(event.get("name") or "tool")
+                    parts = qualified.split("__")
+                    server = parts[1] if len(parts) > 2 else "unknown"
+                    tool_name = parts[-1]
+                    _metrics.tool_calls_total.labels(server=server, tool=tool_name).inc()
+                yield _sse(event)
 
-                # Raw model token — each AIMessageChunk has one thinking
-                # delta OR one text delta, giving true progressive streaming
-                if kind == "on_chat_model_stream":
-                    chunk = event["data"]["chunk"]
-                    if isinstance(chunk, AIMessageChunk) and chunk.content:
-                        if isinstance(chunk.content, str):
-                            safe = _filter_text(chunk.content)
-                            if safe:
-                                yield f"data: {json.dumps({'type': 'token', 'text': safe})}\n\n"
-                        elif isinstance(chunk.content, list):
-                            for block in chunk.content:
-                                if not isinstance(block, dict):
-                                    continue
-                                if block.get("type") == "thinking" and block.get("thinking"):
-                                    yield f"data: {json.dumps({'type': 'thinking', 'text': block['thinking']})}\n\n"
-                                elif block.get("type") == "text" and block.get("text"):
-                                    safe = _filter_text(block["text"])
-                                    if safe:
-                                        yield f"data: {json.dumps({'type': 'token', 'text': safe})}\n\n"
+            await producer_task
+            if not final_text:
+                raise RuntimeError("SDK returned no assistant text")
 
-                    # Tool call chunks from model (structured tool_use)
-                    if isinstance(chunk, AIMessageChunk) and chunk.tool_call_chunks:
-                        for tc in chunk.tool_call_chunks:
-                            if tc.get("name"):
-                                yield f"data: {json.dumps({'type': 'tool_start', 'name': tc['name'], 'id': tc.get('id', '')})}\n\n"
+            save_conn = await _get_conn()
+            try:
+                async with save_conn.transaction():
+                    await append_message(
+                        save_conn, body.conversation_id, user_id, "assistant", final_text, run_id,
+                        {"model": effective_model, "usage": final_usage, "sdk_session_id": final_session},
+                    )
+                    await update_sdk_session(
+                        save_conn, body.conversation_id, user_id, run_id, final_session
+                    )
+                    await finish_run(save_conn, body.conversation_id, user_id, run_id)
+            finally:
+                await save_conn.close()
 
-                # Tool finished executing
-                elif kind == "on_tool_end":
-                    tool_output = event["data"].get("output", "")
-                    tool_name = event.get("name", "")
-                    # Record tool call metric — MCP tools are "{namespace}_{tool}";
-                    # built-in tools (navigate_user etc.) land under their first segment.
-                    _idx = tool_name.find("_")
-                    _srv = tool_name[:_idx] if _idx > 0 else "unknown"
-                    _tl = tool_name[_idx + 1:] if _idx > 0 else tool_name
-                    _metrics.tool_calls_total.labels(server=_srv, tool=_tl).inc()
-                    yield f"data: {json.dumps({'type': 'tool_end', 'name': tool_name, 'content': str(tool_output)[:500]})}\n\n"
+            _metrics.chat_seconds.labels(model=effective_model).observe(time.perf_counter() - started_at)
+            _log.info(
+                "chat complete conversation=%s model=%s cache_create=%s cache_read=%s",
+                body.conversation_id,
+                effective_model,
+                final_usage.get("cache_creation_input_tokens", 0),
+                final_usage.get("cache_read_input_tokens", 0),
+            )
+        except asyncio.CancelledError:
+            emit_done = False
+            await asyncio.shield(
+                _mark_run_failed(body.conversation_id, user_id, run_id, "client_disconnected")
+            )
+            raise
+        except Exception as exc:
+            await _mark_run_failed(
+                body.conversation_id, user_id, run_id, type(exc).__name__
+            )
+            _log.exception("Assistant stream failed for conversation %s", body.conversation_id)
+            _metrics.chat_errors_total.labels(error_type=type(exc).__name__).inc()
+            yield _sse({"type": "error", "text": "I couldn't complete that request. Please try again."})
+        finally:
+            if not producer_task.done():
+                producer_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await producer_task
+            if emit_done:
+                yield "data: [DONE]\n\n"
 
-                    # Emit an action event for any tool that returns an
-                    # {"action", ...} envelope (navigate_user + the page-action
-                    # tools set_filter / open_record / fill_field / submit_form).
-                    # The browser forwards these to the open app.
-                    try:
-                        action_result = tool_output if isinstance(tool_output, dict) else {}
-                        if not action_result:
-                            raw = getattr(tool_output, "content", str(tool_output))
-                            if isinstance(raw, str) and "{" in raw:
-                                action_result = json.loads(raw)
-                        if isinstance(action_result, dict) and action_result.get("action"):
-                            action_name = action_result["action"]
-                            if action_name == "navigate":
-                                # navigate carries `path` at top level.
-                                if action_result.get("path"):
-                                    _log.info("Emitting navigate action SSE: path=%s", action_result["path"])
-                                    yield f"data: {json.dumps({'type': 'action', 'action': 'navigate', 'path': action_result['path']})}\n\n"
-                            else:
-                                _log.info("Emitting page action SSE: action=%s", action_name)
-                                yield f"data: {json.dumps({'type': 'action', 'action': action_name, 'args': action_result.get('args', {})})}\n\n"
-                    except Exception as exc:
-                        _log.warning("action parse error for %s: %s", tool_name, exc)
+    return _stream_response(generate())
 
-            _metrics.chat_seconds.labels(model=_used_model).observe(_time.perf_counter() - _chat_t0)
-            yield "data: [DONE]\n\n"
-        except Exception as e:
-            _log.exception("Stream error for conversation %s", body.conversation_id)
-            _metrics.chat_errors_total.labels(error_type=type(e).__name__).inc()
-            yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
-            yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-# ── Attachments ────────────────────────────────────────────────────────────────
 
 @app.post("/api/attachments", status_code=201)
 async def upload_attachment(
@@ -771,24 +663,25 @@ async def upload_attachment(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
-    file_bytes = await file.read()
-
+    file_bytes = await file.read(config.max_upload_bytes + 1)
     if len(file_bytes) > config.max_upload_bytes:
         raise HTTPException(413, f"File too large (max {config.max_upload_bytes // 1024 // 1024} MB)")
 
     conn = await _get_conn()
     try:
-        conv = await get_conversation(conn, UUID(conversation_id), user_id)
-        if not conv:
+        conversation = await get_conversation(conn, UUID(conversation_id), user_id)
+        if not conversation:
             raise HTTPException(404, "Conversation not found")
-
-        row = await save_attachment(
-            conn, conversation_id, user_id,
+        return await save_attachment(
+            conn,
+            conversation_id,
+            user_id,
             file.filename or "upload",
-            file_bytes, file.content_type, attachment_type,
+            file_bytes,
+            file.content_type,
+            attachment_type,
             config.upload_dir,
         )
-        return row
     finally:
         await conn.close()
 
@@ -804,10 +697,23 @@ async def download_attachment(
         row = await get_attachment(conn, str(attachment_id), user_id)
         if not row:
             raise HTTPException(404, "Attachment not found")
-        return FileResponse(
-            row["storage_path"],
-            filename=row["file_name"],
-            media_type=row.get("mime_type", "application/octet-stream"),
+        try:
+            content = await read_attachment_bytes(row)
+        except Exception as exc:
+            raise HTTPException(503, "This attachment is temporarily unavailable") from exc
+        return Response(
+            content,
+            media_type=row.get("mime_type") or "application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(row["file_name"], safe=""),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
     finally:
         await conn.close()
+
+
+from .account_data import router as account_data_router
+
+app.include_router(account_data_router)

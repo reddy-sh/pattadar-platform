@@ -5,10 +5,10 @@ gateway's admin/models endpoints. This module is a thin read-cache over
 that table. Refreshes every 30s in the background so admin enable/disable
 changes propagate quickly without polling.
 
-Fallback chain (each step kicks in only if the prior fails):
-  1. PG `platform_models` rows where enabled=true and use_cases @> ['assistant']
-  2. Direct Anthropic /v1/models call
-  3. Hardcoded list (cold-start safety net for offline dev / fresh DB)
+The PostgreSQL catalog is authoritative, including a successful empty result.
+Direct Anthropic and hardcoded models are cold-start fallbacks only when the
+catalog is unavailable; they must never bypass an administrator disabling all
+assistant models.
 """
 from __future__ import annotations
 
@@ -88,6 +88,9 @@ class ModelRegistry:
         self._lock = asyncio.Lock()
         self._refresh_task: Optional[asyncio.Task] = None
         self._loaded_event = asyncio.Event()
+        # unavailable | fallback | available | empty. A successful empty
+        # catalog is an explicit admin policy and must remain empty.
+        self._catalog_state = "unavailable"
 
     # --------------------------------------------------------------------
     # Lifecycle
@@ -144,6 +147,7 @@ class ModelRegistry:
                 SELECT model_id, display_name, family, tier, released_at
                   FROM platform_models
                  WHERE enabled = true
+                   AND provider_id = 'anthropic'
                    AND provider_status = 'active'
                    AND (use_cases = '[]'::jsonb OR use_cases @> '["assistant"]'::jsonb)
                  ORDER BY released_at DESC NULLS LAST
@@ -152,59 +156,54 @@ class ModelRegistry:
             return [_row_to_info(r) for r in cur.fetchall()]
 
     async def _refresh(self) -> None:
-        # 1. Try PG (the catalog)
+        # A successful query is authoritative even when it returns no rows.
         try:
             models = await asyncio.to_thread(self._query_pg_sync)
         except Exception as e:
-            _log.warning("model_registry.pg_query_failed: %s — falling back", e)
-            models = []
+            _log.warning("model_registry.pg_query_failed: %s", e)
+            # Do not broaden access after a previously successful catalog read.
+            if self._catalog_state in {"available", "empty"}:
+                _log.warning("model_registry.retaining_last_admin_policy state=%s", self._catalog_state)
+                return
 
-        # 2. PG empty? Fall back to a direct Anthropic fetch so the assistant
-        # still works in environments where the catalog hasn't been seeded.
-        if not models and self._anthropic_api_key:
-            try:
-                models = await asyncio.wait_for(
-                    self._fetch_anthropic_direct(), timeout=5.0
-                )
-                _log.info("model_registry.anthropic_direct_fallback fetched=%d", len(models))
-            except Exception as e:
-                _log.warning("model_registry.anthropic_direct_failed: %s", e)
-                models = []
-
-        # 3. Still nothing? Use the hardcoded list.
-        if not models:
-            self._apply_fallback()
+            fallback: List[ModelInfo] = []
+            if self._anthropic_api_key:
+                try:
+                    fallback = await asyncio.wait_for(self._fetch_anthropic_direct(), timeout=5.0)
+                    _log.info("model_registry.anthropic_direct_fallback fetched=%d", len(fallback))
+                except Exception as direct_error:
+                    _log.warning("model_registry.anthropic_direct_failed: %s", direct_error)
+            if not fallback:
+                self._apply_fallback()
+                return
+            await self._set_models(fallback, source="anthropic-fallback", state="fallback")
             return
 
-        # Show EVERY enabled model in the dropdown — admin opt-in is the
-        # signal of intent.
-        #
-        # Order: known tier order first (Fast → Balanced → Advanced),
-        # unknown tiers alphabetical, then within each tier newest first
-        # by family canonical order (haiku → sonnet → opus) so multi-version
-        # tiers stay logically grouped. Models without a release date sort
-        # last within their tier.
-        TIER_ORDER = {"Fast": 0, "Balanced": 1, "Advanced": 2}
-        FAMILY_ORDER = {"haiku": 0, "sonnet": 1, "opus": 2}
+        state = "available" if models else "empty"
+        await self._set_models(models, source="pg", state=state)
 
-        def _sort_key(m: ModelInfo) -> tuple:
-            tier_rank = TIER_ORDER.get(m.tier, 9)
-            family_rank = FAMILY_ORDER.get(m.family, 9)
-            # ModelInfo from PG row doesn't carry released_at — approximate
-            # "newer" via the version segments of the model_id:
-            # claude-opus-4-7 → (4,7); claude-opus-4-6 → (4,6).
-            parts = [int(p) for p in m.id.split("-") if p.isdigit() and len(p) != 8]
-            return (tier_rank, family_rank, [-x for x in parts], m.id)
+    async def _set_models(self, models: List[ModelInfo], *, source: str, state: str) -> None:
+        """Atomically apply a model set, preserving deterministic admin ordering."""
+        tier_order = {"Fast": 0, "Balanced": 1, "Advanced": 2}
+        family_order = {"haiku": 0, "sonnet": 1, "opus": 2}
 
-        sorted_models = sorted(models, key=_sort_key)
+        def sort_key(model: ModelInfo) -> tuple:
+            parts = [int(part) for part in model.id.split("-") if part.isdigit() and len(part) != 8]
+            return (
+                tier_order.get(model.tier, 9),
+                family_order.get(model.family, 9),
+                [-value for value in parts],
+                model.id,
+            )
 
+        sorted_models = sorted(models, key=sort_key)
         async with self._lock:
-            self._all = {m.id: m for m in models}
-            self._latest_per_tier = sorted_models  # field name kept for back-compat
-
+            self._all = {model.id: model for model in models}
+            self._latest_per_tier = sorted_models
+            self._catalog_state = state
         _log.info(
-            "model_registry.refreshed source=pg total=%d dropdown=%s",
-            len(models), [m.id for m in sorted_models],
+            "model_registry.refreshed source=%s state=%s total=%d models=%s",
+            source, state, len(models), [model.id for model in sorted_models],
         )
 
     async def _fetch_anthropic_direct(self) -> List[ModelInfo]:
@@ -233,10 +232,11 @@ class ModelRegistry:
         return out
 
     def _apply_fallback(self) -> None:
-        if self._all:
+        if self._all and self._catalog_state == "fallback":
             return
         self._all = {m.id: m for m in _HARDCODED_FALLBACK}
         self._latest_per_tier = list(_HARDCODED_FALLBACK)
+        self._catalog_state = "fallback"
         _log.warning("model_registry.using_hardcoded_fallback")
 
     # --------------------------------------------------------------------
@@ -259,6 +259,8 @@ class ModelRegistry:
         return model_id in self._all
 
     def default_model(self) -> str:
+        if self._catalog_state == "empty":
+            raise RuntimeError("No Anthropic assistant model is enabled by the platform administrator")
         env_default = os.getenv("ASSISTANT_MODEL", "").strip()
         if env_default and env_default in self._all:
             return env_default
@@ -267,7 +269,7 @@ class ModelRegistry:
                 return m.id
         if self._latest_per_tier:
             return self._latest_per_tier[0].id
-        return "claude-sonnet-4-6"
+        raise RuntimeError("Assistant model catalog is unavailable")
 
 
 # Module-level singleton

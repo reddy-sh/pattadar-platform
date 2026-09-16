@@ -8,21 +8,29 @@
  *  Capital work is listed beside the purchase, never inside it, so cost per
  *  acre stays honest and a future capital-gains sum has the right base. */
 import { Link } from 'react-router';
-import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import AddOutlined from '@mui/icons-material/AddOutlined';
+import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
-import MoreVertOutlined from '@mui/icons-material/MoreVertOutlined';
 
 import { useMoney } from '../api';
-import { Card, Loading, inr, num } from '../ui';
-import { RecordCrumbs, RecordTabs, useRecordCtx } from './Record';
-import { useState } from 'react';
+import { Card, Empty, Failed, Loading, csvCell, inr, num } from '../ui';
+import { useToast } from '../Toast';
+import { useRecordCtx } from './Record';
+import { SectionHead } from './RecordHead';
+import { ExpenseDrawerFor } from './RecordExpenses';
+import { useRef, useState } from 'react';
 
 const RATES = [6, 10, 14];
+/** The server compounds whatever rate it is given over every year since the
+ *  purchase and validates none of it (web360.py, `rate_pct`), so −30 or 500
+ *  would draw a curve into the billions and call it a market estimate. */
+const RATE_MAX = 50;
 
 /** Three series over the years since purchase. Drawn as a plain SVG polyline —
  *  a chart library for three lines would be more code, not less. */
 function ValueChart({ series }: { series: { year: string; market: number; government: number; paid: number }[] }) {
+  // Kept as a guard, but the caller no longer relies on it: a null here left a
+  // titled card with a legend and nothing under it. See the call site.
   if (series.length < 2) return null;
   const W = 100, H = 34;
   const max = Math.max(...series.flatMap((p) => [p.market, p.government, p.paid])) || 1;
@@ -51,49 +59,217 @@ function ValueChart({ series }: { series: { year: string; market: number; govern
 
 export function RecordMoney() {
   const rec = useRecordCtx();
+  const toast = useToast();
   const [rate, setRate] = useState<number>(10);
-  const { data, isLoading } = useMoney(rec.id, rate);
+  // The custom rate is typed into a box of its own and committed on blur or
+  // Enter. `draft` is deliberately separate from `rate`: the rate is part of
+  // the money query's key, so binding the box straight to it would send a
+  // round trip per keystroke — 1%, then 12%, on the way to 12.5%.
+  const [custom, setCustom] = useState(false);
+  const [draft, setDraft] = useState('10');
+  const customChip = useRef<HTMLButtonElement>(null);
+  const cancelCustom = useRef(false);
+  const [adding, setAdding] = useState(false);
+  const addTrigger = useRef<HTMLButtonElement>(null);
 
-  if (isLoading || !data) return <main><Loading h="70vh" /></main>;
+  const money = useMoney(rec.id, rate);
+  const lastGood = useRef<NonNullable<typeof money.data> | undefined>(undefined);
+  if (money.data) lastGood.current = money.data;
+  const data = money.data ?? lastGood.current;
+  const isPending = money.isPending;
+  const error = money.error;
+  /** Showing a previous rate's numbers while the chosen one loads. Not the
+   *  same as "fetching": an ordinary background revalidation of the SAME rate
+   *  must not dim anything, because the reader did nothing. */
+  const stale = money.isPlaceholderData || (!money.data && !!lastGood.current);
+
+  if (!data) {
+    return isPending
+      ? <main><Loading h="70vh" /></main>
+      : <main><Failed what="What this record is worth" error={error} boxed h="26rem" /></main>;
+  }
 
   const unit = data.extentUnit === 'ac' ? 'acre' : data.extentUnit;
   // "bought in two lots" only when there were two; one registration is one.
-  const size = `${num(data.extent, data.extentUnit === 'ac' ? 2 : 0)} ${
-    data.extentUnit === 'ac' ? 'acres' : data.extentUnit}`;
   const word = ['', 'one', 'two', 'three', 'four', 'five'][data.lots.length] ?? String(data.lots.length);
-  const eyebrow = data.lots.length > 1
-    ? `${size} · bought in ${word} lots, ${data.lots[0].boughtOn.slice(-4)}`
-    : data.lots.length === 1
-      ? `${size} · bought ${data.lots[0].boughtOn}`
-      : size;
+
+  /** The gain, and whether there is one to show.
+   *
+   *  Nothing recorded as paid means there is no cost to measure against. The
+   *  resolver used to hand back the whole market value with `marketGainPct: 0`
+   *  as a zero-denominator fallback, which printed as "+₹1.40 Cr over what you
+   *  paid · +0%" — two halves of one sentence contradicting each other, both
+   *  meaningless. It now returns null for both.
+   *
+   *  The resolver returns null for both gain fields when nothing is on file as
+   *  paid — it used to return the whole market value at +0%, which read as a
+   *  parcel that had appreciated infinitely. Narrowing on the values
+   *  themselves rather than on `paidTotal > 0` means the screen cannot print a
+   *  gain the server declined to compute, even if the two ever disagree. */
+  const gain = data.marketGain;
+  const gainPct = data.marketGainPct;
+  const paidKnown = data.paidTotal > 0 && gain !== null && gainPct !== null;
+
+  /** What the page is showing, as a file: the three headline figures, the lots
+   *  behind them and the capital work beside them.
+   *
+   *  Printing was the other candidate for this button and is not one yet —
+   *  w360.css's print block forces black text only on `.pagehead` and the
+   *  fence sheet, so this page would come out pale grey on white, and the
+   *  wide purchase table sits inside a `.scroll-x` that paper cannot scroll.
+   *  Built the way Properties' export is, down to the injection guard. */
+  const costSheet = () => {
+    const rows: unknown[][] = [
+      ['Record', rec.title],
+      ['Extent', num(data.extent, data.extentUnit === 'ac' ? 2 : 0), data.extentUnit],
+      [],
+      ['What you actually paid', paidKnown ? Math.round(data.paidTotal) : ''],
+      [`Paid per ${unit}`, paidKnown ? Math.round(data.paidPerUnit) : ''],
+      ['Of that, duty and capital work', Math.round(data.extrasTotal)],
+      ['Government value today', Math.round(data.govtTotal)],
+      [`Government per ${unit}`, Math.round(data.govtPerUnit)],
+      ['Market estimate', Math.round(data.marketTotal)],
+      ['Appreciation assumed, % a year', data.appreciationPct],
+      // A gain with nothing paid is not a gain, so it is left out of the file
+      // rather than exported as a zero somebody's spreadsheet would sum.
+      ...(paidKnown ? [
+        ['Over what you paid', Math.round(gain ?? 0)],
+        ['Over what you paid, %', Math.round(gainPct ?? 0)],
+      ] : []),
+    ];
+    if (data.lots.length) {
+      rows.push([], ['How you bought it'],
+        ['Date', 'Extent', 'Unit', `Rate per ${unit}`, 'Paid', 'Govt then', 'Seller', 'Deed', 'SRO']);
+      for (const l of data.lots) {
+        rows.push([l.boughtOn, l.extent, l.extentUnit, Math.round(l.rate), Math.round(l.paid),
+          Math.round(l.govtValue), l.seller, l.deedNo, l.sro]);
+      }
+    }
+    if (data.extras.length) {
+      rows.push([], ['Everything else you put in']);
+      for (const e of data.extras) rows.push([e.label, Math.round(e.amount)]);
+    }
+    try {
+      // The BOM makes Excel read the file as UTF-8 rather than mojibake.
+      const blob = new Blob(['\uFEFF' + rows.map((r) => r.map(csvCell).join(',')).join('\n')],
+        { type: 'text/csv;charset=utf-8' });
+      // In the document, then revoked a beat later. The anchor used to be
+      // detached and the object URL released on the very next statement:
+      // starting a download is a queued task, so releasing it in the same tick
+      // can cancel the file before it is written and the Cost sheet button
+      // looks dead — on some browsers every single time, and the toast below
+      // then cheerfully said it had saved. Properties' export and the record's
+      // own GeoJSON export settled on this shape after hitting exactly that.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cost-sheet-${rec.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+        }-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      // Nothing on the page moves, and a browser that files the download away
+      // silently leaves the button looking dead.
+      toast.ok('Cost sheet saved as a CSV file.');
+    } catch (e) {
+      toast.bad('The cost sheet could not be saved.', e);
+    }
+  };
+
+  /** Take the typed rate, or put the box back to the rate in force. */
+  const commitCustom = () => {
+    if (cancelCustom.current) {
+      cancelCustom.current = false;
+      setDraft(String(rate));
+      return;
+    }
+    const n = Number(draft);
+    if (!draft.trim() || !Number.isFinite(n)) { setDraft(String(rate)); return; }
+    const clamped = Math.min(RATE_MAX, Math.max(0, Math.round(n * 10) / 10));
+    setDraft(String(clamped));
+    setRate(clamped);
+  };
+
+  /** Only the chart moves with the appreciation rate: `market_value`, the
+   *  government figure and the per-unit rates are read straight off the record
+   *  (web360.py `money`), so dimming those cards would claim a recalculation
+   *  that is not happening. */
+  const dim = {
+    opacity: stale ? 0.55 : undefined,
+    transition: 'opacity var(--dur-fast) var(--ease-out)',
+  };
 
   return (
-    <main>
-      <RecordCrumbs rec={rec} here="Money" />
-      <p className="eyebrow">{eyebrow}</p>
-
-      <header className="pagehead">
-        <div className="grow"><h1>What it cost, what it&rsquo;s worth</h1></div>
-        <div className="actions">
-          <button type="button" className="btn">
+    <>
+      <SectionHead
+        title="What it cost and what it is worth"
+        /* The two numbers the whole hanger is about, said once at the top. Both
+           halves refuse to round an unknown to zero: a record with no purchase
+           on file has not been bought for nothing. */
+        sub={[
+          paidKnown
+            ? `Bought ${rec.boughtYear || 'at some point'} for ${inr(data.paidTotal)}`
+            : 'Nothing recorded as paid',
+          data.marketTotal > 0
+            ? `worth about ${inr(data.marketTotal)} today`
+            : 'no valuation on file',
+          // How many registrations the cost is spread over. The extent half of
+          // this line moved to the header chip; the lots did not, because they
+          // are the reason the table below has more than one block.
+          data.lots.length > 1 ? `bought in ${word} lots` : '',
+        ].filter(Boolean).join(' · ')}
+        actions={(
+          <>
+          <button type="button" className="btn" onClick={costSheet}>
             <FileDownloadOutlined sx={{ fontSize: 16 }} /> Cost sheet
           </button>
-          <button type="button" className="btn primary">
-            <AddOutlined sx={{ fontSize: 17 }} /> Add a purchase
+          {/* This hanger was the only one of the nine with nothing to add.
+              "Add a purchase" used to stand here as an enabled primary with no
+              onClick, and it was removed rather than disabled, for a reason that
+              still holds: purchase lots are read-only everywhere — no resolver
+              for purchase_lots in web360.py, no mutation in api.ts — so there is
+              nothing for a purchase drawer to send.
+
+              A cost is different. `saveExpense` exists, and what this land has
+              cost to hold is half of what this hanger is about — the page already
+              ends with a link to that ledger. So the add here files a real row,
+              through the same drawer the ledger itself opens. A purchase still
+              needs the mutation, the resolver and the INSERT first. */}
+          <button ref={addTrigger} type="button" className="btn primary"
+                  aria-haspopup="dialog" aria-expanded={adding}
+                  onClick={() => setAdding(true)}>
+            <AddOutlined sx={{ fontSize: 16 }} /> Record a cost
           </button>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
-      <RecordTabs rec={rec} />
+      {adding && (
+        <ExpenseDrawerFor
+          recordId={rec.id}
+          recordTitle={rec.title}
+          mode="expense"
+          onClose={() => setAdding(false)}
+        />
+      )}
 
-      <div className="grid3" style={{ margin: 'var(--space-md) 0 var(--space-lg)' }}>
+      <div className="grid3" style={{ margin: '0 0 var(--space-lg)' }}>
         <div className="card">
           <span className="eyebrow">What you actually paid</span>
-          <p className="num" style={{ fontSize: '2rem', margin: '0.25rem 0 0.5rem' }}>{inr(data.paidTotal)}</p>
-          <hr className="hr" style={{ margin: '0 0 0.5rem' }} />
-          <p className="note mono">
-            {inr(data.paidPerUnit)} / {unit} · incl. {inr(data.extrasTotal)} duty &amp; work
+          {/* A record with no purchase on file has not been bought for nothing;
+              it has nothing recorded. ₹0 is a claim, "—" is the truth. */}
+          <p className="num" style={{ fontSize: '2rem', margin: '0.25rem 0 0.5rem' }}>
+            {paidKnown ? inr(data.paidTotal) : '—'}
           </p>
+          <hr className="hr" style={{ margin: '0 0 0.5rem' }} />
+          {paidKnown ? (
+            <p className="note mono">
+              {inr(data.paidPerUnit)} / {unit} · incl. {inr(data.extrasTotal)} duty &amp; work
+            </p>
+          ) : (
+            <p className="note">No purchase is recorded against this record.</p>
+          )}
         </div>
         <div className="card">
           <span className="eyebrow">Government value today</span>
@@ -111,33 +287,40 @@ export function RecordMoney() {
             {inr(data.marketTotal)}
           </p>
           <hr className="hr" style={{ margin: '0 0 0.5rem' }} />
-          <p className="note mono">
-            <span className={data.marketGain >= 0 ? 'up' : 'down'}>
-              {inr(data.marketGain, true)} over what you paid · {data.marketGain >= 0 ? '+' : ''}
-              {Math.round(data.marketGainPct)}%
-            </span>
-          </p>
+          {paidKnown ? (
+            <p className="note mono">
+              <span className={(gain ?? 0) >= 0 ? 'up' : 'down'}>
+                {inr(gain ?? 0, true)} over what you paid · {(gain ?? 0) >= 0 ? '+' : ''}
+                {Math.round(gainPct ?? 0)}%
+              </span>
+            </p>
+          ) : (
+            <p className="note">Nothing is recorded as paid, so there is no gain to show.</p>
+          )}
         </div>
       </div>
 
       <div className="split">
         <div className="stack lg">
-          {data.lots.length > 0 && (
-            <Card title="How you bought it"
-                  aside={<span className="note">
-                    {data.lots.length > 1
-                      ? `${data.lots.length} lots, one registration summary`
-                      : 'One registration'}
-                  </span>}>
-              {/* Seven columns of registration detail: it scrolls inside the
-                  card rather than taking the page sideways on a phone. */}
+          {/* The card stays whether or not there are lots. Dropping it left a
+              record with no purchase looking at a page that simply ended, with
+              no word anywhere about the thing that was missing. */}
+          <Card title="How you bought it"
+                aside={data.lots.length > 0 ? <span className="note">
+                  {data.lots.length > 1
+                    ? `${data.lots.length} lots, one registration summary`
+                    : 'One registration'}
+                </span> : undefined}>
+            {data.lots.length > 0 ? (
+              /* Six columns of registration detail: it scrolls inside the
+                 card rather than taking the page sideways on a phone. */
               <div className="scroll-x">
-              <table style={{ minWidth: '46rem' }}>
+              <table style={{ minWidth: '40rem' }}>
                 <thead>
                   <tr>
                     <th>Date</th><th className="right">Extent</th>
                     <th className="right">₹ / {unit}</th>
-                    <th className="right">Paid</th><th className="right">Govt then</th><th>Seller &amp; deed</th><th />
+                    <th className="right">Paid</th><th className="right">Govt then</th><th>Seller &amp; deed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -154,7 +337,12 @@ export function RecordMoney() {
                         {l.seller}
                         <span className="note" style={{ display: 'block' }}>{l.deedNo} · {l.sro}</span>
                       </td>
-                      <td className="muted" aria-hidden><MoreVertOutlined sx={{ fontSize: 16 }} /></td>
+                      {/* A seventh cell held a ⋮ glyph that could not be
+                          clicked or focused — a menu that was only a picture,
+                          the same defect RecordBoundary already records as
+                          fixed. There is nothing to put in a real menu: a lot
+                          cannot be edited or deleted, and `deedNo`/`sro` are
+                          display strings with no paper to open. */}
                     </tr>
                   ))}
                   {data.lots.length > 1 && (
@@ -166,7 +354,9 @@ export function RecordMoney() {
                       <td className="right num">{inr(data.blendedRate)}</td>
                       <td className="right num">{inr(data.blendedPaid)}</td>
                       <td className="right num" style={{ color: 'var(--w-info)' }}>{inr(data.blendedGovt)}</td>
-                      <td colSpan={2} className="note">
+                      {/* One cell, not two: the kebab column it used to span
+                          with the seller column is gone. */}
+                      <td className="note">
                         Blended rate. The registration summary only ever showed the{' '}
                         {inr(data.blendedGovt)} government figure.
                       </td>
@@ -175,8 +365,20 @@ export function RecordMoney() {
                 </tbody>
               </table>
               </div>
-            </Card>
-          )}
+            ) : (
+              <Empty title={paidKnown
+                ? 'The price is on the record, not broken into lots'
+                : 'No purchase recorded for this record'}
+                     action={<Link className="btn sm" to={`/app/records/${rec.id}`}>Papers ›</Link>}>
+                {paidKnown
+                  ? <>The record says you paid {inr(data.paidTotal)}, but no separate
+                      registration lots are filed. The deed behind that price belongs under Papers.</>
+                  : <>Entering one here is not something the app can do yet. The price typed when
+                      a record is added is kept with the record, and the deed it came from belongs
+                      under Papers.</>}
+              </Empty>
+            )}
+          </Card>
 
           {data.extras.length > 0 && (
             <Card title="Everything else you put in"
@@ -196,18 +398,32 @@ export function RecordMoney() {
             </Card>
           )}
 
-          <Card
-            title="Value over time"
-            aside={
-              <span className="row tight note" style={{ fontSize: '0.75rem' }}>
-                <span style={{ color: 'var(--w-accent)' }}>— Market estimate</span>
-                <span style={{ color: 'var(--w-info)' }}>— Government</span>
-                <span className="muted">— What you paid</span>
-              </span>
-            }
-          >
-            <ValueChart series={data.series} />
-          </Card>
+          {/* Three states, not one. The card used to be drawn whatever the
+              data said, so a record with no purchase — and any record bought
+              this calendar year — ended the column in a bordered box with a
+              three-colour legend and nothing under it, which reads as a chart
+              that failed to load. The legend is the Card's `aside`, so only
+              the parent can drop it. */}
+          {data.series.length >= 2 ? (
+            <div aria-busy={stale || undefined} style={dim}>
+              <Card
+                title="Value over time"
+                aside={
+                  <span className="row tight note" style={{ fontSize: '0.75rem' }}>
+                    <span style={{ color: 'var(--w-accent)' }}>— Market estimate</span>
+                    <span style={{ color: 'var(--w-info)' }}>— Government</span>
+                    <span className="muted">— What you paid</span>
+                  </span>
+                }
+              >
+                <ValueChart series={data.series} />
+              </Card>
+            </div>
+          ) : data.lots.length > 0 ? (
+            <Card title="Value over time">
+              <Empty>One year of history so far — the line starts once this land has a second year.</Empty>
+            </Card>
+          ) : null}
 
           <Link to={`/app/records/${rec.id}/expenses`} className="btn">
             What this land costs to hold ›
@@ -215,18 +431,66 @@ export function RecordMoney() {
         </div>
 
         <aside className="stack">
-          <Card title={<span className="eyebrow" style={{ margin: 0 }}>Appreciation used</span>}>
+          <Card title="Appreciation used" className="railcard">
             <p style={{ margin: 0 }}>
-              <span className="num accent" style={{ fontSize: '1.75rem' }}>{data.appreciationPct}%</span>{' '}
+              {/* While the newly chosen rate is still loading the payload on
+                  screen is the old one, and printing its `appreciationPct`
+                  here would have the headline saying 10% with the 6% chip
+                  already pressed — a control appearing to do nothing. */}
+              <span className="num accent" style={{ fontSize: '1.75rem' }}>
+                {stale ? rate : data.appreciationPct}%
+              </span>{' '}
               <span className="note">a year, compounding</span>
             </p>
             <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
               {RATES.map((r) => (
                 <button key={r} type="button" className="chip" aria-pressed={rate === r}
-                        onClick={() => setRate(r)}>{r}%</button>
+                        onClick={() => { setCustom(false); setRate(r); }}>{r}%</button>
               ))}
-              <span className="chip static">Custom</span>
+              {/* This was a `chip static` span: it hovered like the three
+                  beside it, took no click and no focus, and there was no other
+                  way to price this land at anything but 6, 10 or 14. */}
+              <button ref={customChip} type="button" className="chip"
+                      aria-expanded={custom} aria-controls="mn-rate-field"
+                      onClick={() => {
+                        cancelCustom.current = false;
+                        setDraft(String(rate));
+                        setCustom(true);
+                      }}>
+                Custom
+              </button>
             </div>
+            {custom && (
+              <div id="mn-rate-field" className="field" style={{ marginTop: 'var(--space-sm)' }}>
+                <label htmlFor="mn-rate">Your own rate, per cent a year</label>
+                <input id="mn-rate" type="number" min="0" max={RATE_MAX} step="0.5"
+                       inputMode="decimal" value={draft} autoFocus
+                       onChange={(e) => setDraft(e.target.value)}
+                       onBlur={commitCustom}
+                       onKeyDown={(e) => {
+                         if (e.key === 'Enter') { e.preventDefault(); commitCustom(); }
+                         if (e.key === 'Escape') {
+                           e.preventDefault();
+                           cancelCustom.current = true;
+                           setCustom(false);
+                           requestAnimationFrame(() => customChip.current?.focus());
+                         }
+                       }} />
+                <p className="note" style={{ margin: 0 }}>
+                  0 to {RATE_MAX}, taken when you leave the box. The rate is yours for this
+                  visit — it is not saved with the record.
+                </p>
+              </div>
+            )}
+            {/* A rate that would not load leaves the previous one on screen.
+                Saying so beats the page blanking into an error, and beats the
+                chips quietly disagreeing with the numbers. */}
+            {error && lastGood.current && (
+              <p className="note" style={{ color: 'var(--w-danger)', marginTop: 'var(--space-sm)' }}>
+                The {rate}% figures did not load. What is on screen is still
+                {' '}{data.appreciationPct}% — choose another rate or try this one again.
+              </p>
+            )}
             <hr className="hr" />
             <p className="note row tight">
               <InfoOutlined sx={{ fontSize: 14 }} aria-hidden /> An assumption you chose, not a valuation.
@@ -234,7 +498,7 @@ export function RecordMoney() {
           </Card>
 
           {data.rates.length > 0 && (
-            <Card title="Rates this land is priced in">
+            <Card title="Rates this land is priced in" className="railcard">
               <div className="grid4" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
                 {data.rates.map((r) => (
                   <div key={r.label} className="row between" style={{ flexWrap: 'nowrap' }}>
@@ -247,7 +511,7 @@ export function RecordMoney() {
           )}
 
           {data.isBuilt && (
-            <Card title="A built property splits in two">
+            <Card title="A built property splits in two" className="railcard">
               <div className="rows">
                 <div>
                   <span className="grow">
@@ -284,6 +548,6 @@ export function RecordMoney() {
           )}
         </aside>
       </div>
-    </main>
+    </>
   );
 }

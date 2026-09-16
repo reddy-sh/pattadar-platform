@@ -1,98 +1,66 @@
-"""extract_user_id parity — the owner key for every DB row and S3 object.
-
-Two layers:
-1. Hardcoded expectations that pin the exact rhub normalization behavior
-   (email local-part, lowercased; opaque subjects passed through untouched;
-   plus-addressing kept as part of the local-part).
-2. A direct byte-parity test against the REAL rhub function, loaded from
-   the rhub checkout when it is present on this machine (skipped otherwise).
-"""
-import importlib.util
-import sys
+"""Immutable identity plus explicit, reviewed preservation of legacy owner keys."""
+import json
 import types
-from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
-from app.auth import _normalize_user_id, user_id_from_claims
+from app import auth
 
-RHUB_API = Path("/Users/reddy.sh/reddy.sh/projects/rhub/api")
-
-# (input value, expected normalized id) — expected values are exactly what
-# rhub api/gateway/auth.py::_normalize_user_id produces.
-NORMALIZE_SAMPLES = [
-    ("sankara.telukutla@gmail.com", "sankara.telukutla"),
-    ("Sankara.Telukutla@Gmail.COM", "sankara.telukutla"),          # mixed case
-    ("USER+Tag@Example.com", "user+tag"),                          # plus-addressing kept, lowercased
-    ("  spaced.user@x.y  ", "spaced.user"),                        # surrounding whitespace
-    ("a@b@c", "a"),                                                # split at FIRST @
-    ("plainuser", "plainuser"),                                    # no @ → lowercased as-is
-    ("PLAINUSER", "plainuser"),
-    ("auth0|ABC123", "auth0|ABC123"),                              # opaque subject → untouched (case kept)
-    ("google-oauth2|10769150350006150715113082367", "google-oauth2|10769150350006150715113082367"),
-    ("00u1abcdEFGH", "00u1abcdEFGH"),                              # legacy Okta subject → untouched
-    ("", ""),
-    ("   ", ""),
-    ("@domain.com", ""),                                           # empty local-part
-]
-
-CLAIMS_SAMPLES = [
-    # email is the Cognito path (pre-token trigger injects it)
-    ({"email": "Sankara.Telukutla@gmail.com", "sub": "1111-2222"}, "sankara.telukutla"),
-    ({"email": "user+land@pattadar.com"}, "user+land"),
-    # preferred_username wins over email (rhub priority order)
-    ({"preferred_username": "Pref.User@x.com", "email": "other@y.com"}, "pref.user"),
-    # opaque preferred_username is skipped → falls through to email
-    ({"preferred_username": "auth0|xyz", "email": "real.user@x.com"}, "real.user"),
-    # no readable claim → sub is normalized (Cognito sub is a UUID)
-    ({"sub": "E4A8B0C0-1234-5678-9abc-def012345678"}, "e4a8b0c0-1234-5678-9abc-def012345678"),
-    # nothing usable → "local"
-    ({}, "local"),
-    (None, "local"),
-]
+ISSUER = "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_POOL"
 
 
-@pytest.mark.parametrize("raw,expected", NORMALIZE_SAMPLES)
-def test_normalize_user_id(raw, expected):
-    assert _normalize_user_id(raw) == expected
+def claims(subject="alice-sub", email="alice@example.com", issuer=ISSUER):
+    return {"iss": issuer, "sub": subject, "email": email}
 
 
-@pytest.mark.parametrize("claims,expected", CLAIMS_SAMPLES)
-def test_user_id_from_claims(claims, expected):
-    assert user_id_from_claims(claims) == expected
+def test_domains_cannot_collide():
+    assert auth.user_id_from_claims(claims()) != auth.user_id_from_claims(claims("attacker", "alice@evil.com"))
 
 
-# ---------------------------------------------------------------------------
-# Direct parity against the real rhub source (skipped when rhub is absent)
-# ---------------------------------------------------------------------------
-
-def _load_rhub_auth():
-    sys.path.insert(0, str(RHUB_API))  # for `common.auth0_jwt`
-    spec = importlib.util.spec_from_file_location(
-        "rhub_gateway_auth", RHUB_API / "gateway" / "auth.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def test_subject_survives_email_and_username_changes():
+    before = claims()
+    after = {**before, "email": "new@other.com", "preferred_username": "admin"}
+    assert auth.user_id_from_claims(before) == auth.user_id_from_claims(after)
 
 
-def _fake_request(claims):
-    return types.SimpleNamespace(
-        state=types.SimpleNamespace(token_claims=claims), headers={}
-    )
+def test_same_email_never_automatically_links_distinct_subjects():
+    assert auth.user_id_from_claims(claims()) != auth.user_id_from_claims(claims("other-sub"))
 
 
-@pytest.mark.skipif(not RHUB_API.exists(), reason="rhub checkout not present")
-def test_byte_parity_with_rhub_extract_user_id():
-    rhub_auth = _load_rhub_auth()
-    for claims, _ in CLAIMS_SAMPLES:
-        ours = user_id_from_claims(claims)
-        theirs = rhub_auth.extract_user_id(_fake_request(claims))
-        assert ours == theirs, f"claims={claims!r}: ours={ours!r} rhub={theirs!r}"
-    # sweep the raw normalization samples through single-claim dicts too
-    for raw, _ in NORMALIZE_SAMPLES:
-        for key in ("preferred_username", "email", "login", "sub"):
-            claims = {key: raw}
-            ours = user_id_from_claims(claims)
-            theirs = rhub_auth.extract_user_id(_fake_request(claims))
-            assert ours == theirs, f"{key}={raw!r}: ours={ours!r} rhub={theirs!r}"
+def test_issuer_is_part_of_identity():
+    assert auth.user_id_from_claims(claims()) != auth.user_id_from_claims(claims(issuer="another-issuer"))
+
+
+@pytest.mark.parametrize("value", [None, {}, {"email": "alice@example.com"}, {"sub": "alice"}, {"iss": ISSUER, "sub": ""}])
+def test_missing_subject_never_becomes_local_or_email(value):
+    with pytest.raises(HTTPException):
+        auth.user_id_from_claims(value)
+
+
+def test_reviewed_binding_preserves_all_legacy_owner_paths(monkeypatch):
+    subject = auth.principal_id_from_claims(claims())
+    monkeypatch.setenv("IDENTITY_LEGACY_BINDINGS", json.dumps({subject: "alice"}))
+    assert auth.user_id_from_claims(claims()) == "alice"
+    assert auth.user_id_from_claims(claims("attacker", "alice@evil.com")) != "alice"
+    assert auth.user_id_from_claims(claims("new-sub")) != "alice"
+
+
+@pytest.mark.parametrize("mapping", ['[]', '{"alice@example.com":"alice"}', '{"broken": "alice"}', 'bad-json'])
+def test_unsafe_binding_config_fails_closed(monkeypatch, mapping):
+    monkeypatch.setenv("IDENTITY_LEGACY_BINDINGS", mapping)
+    with pytest.raises(RuntimeError):
+        auth.user_id_from_claims(claims())
+
+
+def test_production_startup_requires_migration_config(monkeypatch):
+    monkeypatch.delenv("IDENTITY_LEGACY_BINDINGS", raising=False)
+    monkeypatch.setattr(auth, "jwks_cache", None)
+    with pytest.raises(RuntimeError, match="preflight"):
+        auth.validate_identity_configuration()
+
+
+def test_local_issuer_name_without_active_local_trust_has_no_legacy_access(monkeypatch):
+    monkeypatch.setattr(auth, "jwks_cache", None)
+    result = auth.user_id_from_claims(claims(issuer="pattadar-local-auth"))
+    assert result.startswith("subject_")

@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from typing import Optional
+from urllib.parse import unquote
 
 import httpx
 from fastapi import APIRouter, Request
@@ -21,6 +22,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from . import auth
+from .public_graphql import is_public_verification
 
 _log = logging.getLogger("pattadar.gateway.proxy")
 
@@ -77,27 +79,28 @@ def _response_headers(upstream: httpx.Response) -> dict:
 
 
 def is_public_verify(path: str, method: str, body: bytes) -> bool:
-    """PUBLIC CARVE-OUT (the only unauthenticated path under /pattadar/*):
+    """Only the parsed beneficiary verification mutation is anonymous."""
+    return (method.upper() == "POST" and path.strip("/") == "graphql"
+            and is_public_verification(body))
 
-    The beneficiary verification landing page (verify/:token) posts the
-    ``verifyBeneficiary`` GraphQL mutation before the visitor has any
-    session — the emailed/WhatsApped token IS the credential. Matches the
-    predecessor's behavior for the same flow. Only an unauthenticated POST to
-    ``graphql`` whose GraphQL ``query`` string contains "verifyBeneficiary"
-    passes; every other request requires a valid Cognito access token.
-    """
-    if method.upper() != "POST" or path.strip("/") != "graphql":
-        return False
-    try:
-        payload = json.loads(body or b"{}")
-        query = str(payload.get("query") or "")
-    except Exception:
-        return False
-    return "verifyBeneficiary" in query
+
+def _private_path(path):
+    # Normalize encoded segments too: a double-encoded internal path must not
+    # become reachable when the upstream server decodes the proxy URL again.
+    normalized = path
+    for _ in range(4):
+        decoded = unquote(normalized)
+        if decoded == normalized:
+            break
+        normalized = decoded
+    segments = normalized.replace("\\", "/").strip("/").split("/")
+    return "internal" in segments or ".." in segments or "%" in normalized
 
 
 @router.api_route("/api/gateway/pattadar/{path:path}", methods=_METHODS)
 async def proxy_pattadar(request: Request, path: str):
+    if _private_path(path):
+        return JSONResponse(status_code=403, content={"error": "Forbidden"})
     base = _api_base_url()
     if not base:
         return JSONResponse(status_code=503, content={"error": "API_BASE_URL not configured"})
@@ -107,7 +110,8 @@ async def proxy_pattadar(request: Request, path: str):
     # strict=False → None only when NO token was presented; a presented-but-
     # invalid token still raises 401 inside validate_bearer.
     claims = await auth.validate_bearer(request, strict=False)
-    if claims is None and not is_public_verify(path, request.method, body):
+    public_webhook = path == "payments/webhook" and request.method.upper() == "POST"
+    if claims is None and not (is_public_verify(path, request.method, body) or public_webhook):
         await auth.validate_bearer(request, strict=True)  # raises the 401
     user_id = auth.extract_user_id(request) if claims is not None else None
 
@@ -154,6 +158,8 @@ async def proxy_pattadar(request: Request, path: str):
 @router.api_route("/api/gateway/assistant/{path:path}", methods=_METHODS)
 async def proxy_assistant(request: Request, path: str):
     """Streaming passthrough so SSE chat works. Auth always required."""
+    if _private_path(path):
+        return JSONResponse(status_code=403, content={"error": "Forbidden"})
     base = _assistant_base_url()
     if not base:
         return JSONResponse(status_code=503, content={"error": "ASSISTANT_BASE_URL not configured"})

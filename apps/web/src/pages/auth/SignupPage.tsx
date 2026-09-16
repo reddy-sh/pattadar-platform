@@ -50,7 +50,7 @@ export function SignupPage() {
   );
   const [submitting, setSubmitting] = useState(false);
 
-  if (isAuthenticated) return <Navigate to="/app" replace />;
+  if (isAuthenticated) return <Navigate to="/app/account?welcome=1" replace />;
 
   const onSignUp = async (e: FormEvent) => {
     e.preventDefault();
@@ -104,7 +104,7 @@ export function SignupPage() {
         // Fresh sign-up: we still have the password — sign in right away.
         try {
           await signInWithPassword(email.trim(), password);
-          navigate('/app', { replace: true });
+          navigate('/app/account?welcome=1', { replace: true });
           return;
         } catch {
           // Fall through to the sign-in page.

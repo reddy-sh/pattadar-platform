@@ -3,7 +3,7 @@
 The locked design system for the native app. `DesignSystem.swift` is the
 executable copy of this file; this file is why.
 
-Stamp: `Hallmark · genre: modern-minimal (native) · surface: platform-grouped + brand record heroes · theme: Bloom-derived (see /design.md) · scope: apps/ios`
+Authority: native platform conventions plus Google Material accessibility and interaction principles, expressed through Pattadar's Bloom identity.
 
 ## Relationship to the root `design.md`
 

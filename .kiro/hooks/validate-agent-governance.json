@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Validate agent governance files",
+      "trigger": "PostFileSave",
+      "description": "Run the canonical local/static Agent Skills governance validator after Kiro edits skills, evals, steering, hooks, catalog/provenance, adapters, or governance validators.",
+      "matcher": "(^|/)(\\.kiro/(skills|steering|hooks|skill-evals)/|\\.claude/skills/|docs/agent-skills/|scripts/validate-(agent-skills|skill-evals|agent-governance)\\.py$)",
+      "action": {
+        "type": "command",
+        "command": "python3 scripts/validate-agent-governance.py",
+        "timeout": 60
+      }
+    }
+  ]
+}

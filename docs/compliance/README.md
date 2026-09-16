@@ -1,6 +1,6 @@
 # Compliance Posture
 
-Pattadar processes Indian land records and identity documents for users in Andhra Pradesh. Compliance is designed in from day one, not retrofitted.
+Pattadar processes land records and identity documents. These documents track implementation and organizational work; they do not certify legal compliance. Production configuration and operational evidence must be reviewed separately.
 
 ## Regimes in scope
 
@@ -26,10 +26,10 @@ SOC 2 is an audit outcome, not a checkbox. This repository bakes in the **techni
 | CloudTrail, CloudWatch logs (365d), ALB/S3 access logs | Terraform scaffold | Alarm tuning (Phase 2) |
 | CI checks + secret scanning + main-branch protection | CI scaffold | — |
 | Aadhaar masking, beneficiary verification tokens, CRON_SECRET | Ported code | — |
-| Application audit trail | — | TODO(Phase 1) port from the predecessor platform |
-| DSR export + erasure cascade | — | TODO(Phase 2) |
+| Application audit trail | API audit writer | Review retention and evidence in production |
+| Account export + erasure cascade | Gateway export, durable deletion receipts and operator executor | Production drill, retention approval and provider reconciliation |
 | GuardDuty malware scan gate on uploaded documents | Terraform scaffold (bucket protection) | Availability gate in gateway (Phase 2) |
-| DPDP consent capture (incl. verifiable parental consent) | — | TODO(Phase 2) |
+| Consent controls | Versioned web choices and withdrawal enforcement | Native/social onboarding, parental workflow and policy review |
 | Multi-AZ RDS, cross-region backup copy | Documented upgrade path | TODO(Phase 5) |
 | Policies, access reviews, vendor DPAs, auditor engagement | — | Organizational, pre-audit |
 

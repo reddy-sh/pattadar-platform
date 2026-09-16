@@ -11,13 +11,15 @@ with Expo Go, or press `i` for the iOS simulator.
   navigation (`src/app/`).
 - **React Native Paper** (Material 3), themed from `@pattadar/tokens` in
   `src/theme/paper.ts` — one Material brand language shared with the MUI web app.
-- **Amazon Cognito** (same user pool as web) via hosted UI + PKCE — same tokens flow
-  through the gateway and produce the same `x-user-id`. Zero backend changes for
-  mobile. TODO(Phase 4): needs a **native app client** in the Cognito pool
-  (custom-scheme redirect `pattadar://`) — an infra change, not yet created.
+- **Amazon Cognito** (same user pool as web) via hosted UI + PKCE. The native app
+  client exists (`44gv48ihjlgub7h0lnvjbdmj89`, custom-scheme redirect
+  `pattadar://`) and is the default in `src/auth/cognitoConfig.ts`. The gateway
+  authorizes the immutable issuer+subject principal, not a header — see
+  `docs/runbooks/identity-migration.md`.
 - **@tanstack/react-query** + the shared GraphQL client from `@pattadar/core` — all
   queries, mutations, types, and domain logic live in core, not in this app.
-  TODO(Phase 4): wire the client to the gateway.
+  `src/api/client.ts` is wired to the gateway and sends a refreshed Cognito
+  Bearer (`src/auth/accessToken.ts`, single-flight).
 - **expo-secure-store** — token storage (Keychain / Keystore). Installed, config
   plugin registered.
 - **expo-notifications** — push: verification invites, inactivity reminders.
@@ -70,6 +72,22 @@ Because logic lives in `@pattadar/core`, graduating a view from web to mobile is
   run `EXPO_PUBLIC_DEV_USER=u01 ./scripts/start-mobile.sh ios` to see data.
 - `app.json` — bundle ids `com.pattadar.app`, scheme `pattadar`, Android
   App Link intent filter for `https://pattadar.com/verify/*`.
-- Not yet: Cognito native client (blocks real sign-in), documents/storage
-  screens (need Cognito Bearer for the gateway), push, ML Kit scanner (needs
-  an EAS dev build), EAS project id.
+- Shipping now: real hosted-UI sign-in (`src/app/sign-in.tsx`,
+  `src/auth/useCognitoAuth.ts`, incl. Google federation) and the
+  documents/storage screens (`src/app/documents.tsx`, `src/app/viewer.tsx`,
+  `src/api/storage.ts`) on refreshed Bearer auth.
+- Not yet: ML Kit scanner (needs an EAS dev build), EAS project id and
+  `eas.json`. `expo-notifications` is installed and `src/lib/notify.ts` exists,
+  but delivery still needs FCM/APNs credentials.
+
+## Supported-client status (September 2026)
+
+`apps/ios` is the maintained native iOS app, and `apps/web` is the active web
+client. This Expo app remains available for Android and compatibility work;
+its existing capabilities have not been removed. Android release ownership
+and device validation still need an explicit maintained release plan.
+
+GraphQL, extraction uploads and storage all use the same Cognito access-token
+refresh implementation. `x-user-id` is restricted to explicit development
+builds with no signed-in token; release builds require Bearer authentication.
+Local identity uses issuer and immutable subject, never an email local part.

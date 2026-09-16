@@ -1,2 +1,66 @@
 {
+  // The repo is ~18 GB / 277k files on disk, but git tracks only ~1,295.
+  // Everything below is build output, dependencies, or local scratch that the
+  // editor should neither watch nor search. Keeping the file watcher off these
+  // is the difference between watching 1.3k files and watching 277k.
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/.turbo/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.build/**": true,
+    "**/build-sim/**": true,
+    "**/build-device/**": true,
+    "**/DerivedData/**": true,
+    "**/*.noindex/**": true,
+    "**/.terraform/**": true,
+    "**/__pycache__/**": true,
+    "**/.venv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/coverage/**": true,
+    // Expo-generated native projects — regenerated, never hand-edited.
+    "apps/mobile/ios/**": true,
+    "apps/mobile/android/**": true,
+    // Local dev state: venvs, logs, MinIO bytes, one-off SQL.
+    ".local/**": true,
+    // Agent/test scratch.
+    ".parity/**": true,
+    ".playwright-mcp/**": true,
+    ".superpowers/**": true,
+    // Trailing glob matters: Playwright writes port-suffixed report dirs
+    // (playwright-report-5175, -15185) holding ~100 MB of trace zips.
+    "**/test-results*/**": true,
+    "**/playwright-report*/**": true
+  },
+
+  // search.exclude already inherits .gitignore via search.useIgnoreFiles, but
+  // being explicit keeps quick-open and find-in-files off the heavy trees even
+  // when a search is run with ignore files disabled.
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.turbo": true,
+    "**/dist": true,
+    "**/build": true,
+    "**/.build": true,
+    "**/build-sim": true,
+    "**/build-device": true,
+    "**/DerivedData": true,
+    "**/*.noindex": true,
+    "**/.terraform": true,
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/.pytest_cache": true,
+    "**/coverage": true,
+    "**/bun.lock": true,
+    "apps/mobile/ios": true,
+    "apps/mobile/android": true,
+    ".local": true,
+    ".parity": true,
+    ".playwright-mcp": true,
+    ".superpowers": true,
+    "**/test-results*": true,
+    "**/playwright-report*": true
+  }
 }

@@ -63,7 +63,7 @@ public actor WriteQueue {
         public let id: UUID
         /// Whose filing this is. Entries drain only under the identity that
         /// made them — u01's scan must never file under another signed-in user.
-        public let user: String
+        public fileprivate(set) var user: String
         public let fieldsJSON: String
         /// Filename inside the outbox directory — relative, never absolute:
         /// the container path changes between launches and an absolute path
@@ -181,6 +181,19 @@ public actor WriteQueue {
     public func pending(for user: String) -> [Entry] {
         loadIfNeeded()
         return entries.filter { $0.user == user }
+    }
+
+    /// Move only an explicitly verified server ownership alias to the new
+    /// immutable local principal. The caller obtains the alias from live me.id
+    /// under that principal's Bearer token, never from the email local part.
+    public func migrateVerifiedOwner(from oldOwner: String, to principal: String) throws {
+        guard !oldOwner.isEmpty, !principal.isEmpty, oldOwner != principal else { return }
+        loadIfNeeded()
+        let previous = entries
+        for i in entries.indices where entries[i].user == oldOwner { entries[i].user = principal }
+        do { try persist() }
+        catch { entries = previous; throw error }
+        onChange?()
     }
 
     /// Absolute location of an entry's bytes, for preview before sync.

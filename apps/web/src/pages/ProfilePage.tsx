@@ -6,6 +6,7 @@
  * never stored). Saves via the updateProfile mutation.
  */
 import { useEffect, useState } from 'react';
+import { Link as RouterLink } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Avatar from '@mui/material/Avatar';
@@ -124,6 +125,7 @@ export function ProfilePage() {
         subtitle="Your identity, preferences and consent — used across passbooks, families and notifications."
         sample={isSample}
       />
+      <Button component={RouterLink} to="/app/account" sx={{ mb: 2 }}>Privacy, export and account deletion</Button>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 2fr)' }, gap: 2 }}>
         {/* ── Identity ─────────────────────────────────────────────── */}
         <Card>

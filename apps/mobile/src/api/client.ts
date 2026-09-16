@@ -1,27 +1,12 @@
-/**
- * Mobile GraphQL client instance.
- *
- * Local dev (start-mobile.sh): EXPO_PUBLIC_API_URL points at the pattadar API
- * (http://127.0.0.1:8080 for the simulator) and EXPO_PUBLIC_DEV_USER rides the
- * x-user-id header — the exact trust model the web Vite proxy uses locally.
- *
- * The x-user-id header is sent from EVERY bundle, release included. This file
- * used to claim otherwise; the code never gated it, and gating it now would
- * lock the phone out, because the on-device build is a Release build and the
- * API has no Cognito path yet. Remove the header in the same change that adds
- * the Bearer token below — not before.
- *
- * Production (TODO Phase 4): EXPO_PUBLIC_API_URL becomes
- * https://pattadar.com/api/gateway/pattadar and the headers provider returns
- * the Cognito Bearer token from expo-secure-store once the native app client
- * exists in the pool.
- */
+/** Mobile gateway transport. Production uses refreshed Cognito Bearer tokens;
+ * the explicit development identity remains available in development builds. */
 import { File as FSFile, UploadType } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 
 import { createGraphQLClient, fetchWithTimeout, type Classification } from '@pattadar/core';
 
 import { isAllowedApiUrl } from '@/lib/urlScheme';
+import { accessToken } from '@/auth/accessToken';
 
 const base = process.env.EXPO_PUBLIC_API_URL ?? '';
 const devUser = process.env.EXPO_PUBLIC_DEV_USER ?? '';
@@ -31,15 +16,15 @@ const devUser = process.env.EXPO_PUBLIC_DEV_USER ?? '';
 let runtimeUser: string | null | undefined;
 export async function getIdentity(): Promise<string> {
   if (runtimeUser === undefined) {
-    runtimeUser = (await SecureStore.getItemAsync('pattadar_identity').catch(() => null)) || null;
+    runtimeUser = await SecureStore.getItemAsync('pattadar_identity').catch(() => null);
   }
-  return runtimeUser || devUser;
+  return runtimeUser ?? (__DEV__ ? devUser : '');
 }
 export async function setIdentity(uid: string): Promise<void> {
   const clean = uid.trim().toLowerCase();
-  runtimeUser = clean || null;
+  runtimeUser = clean;
   if (clean) await SecureStore.setItemAsync('pattadar_identity', clean).catch(() => undefined);
-  else await SecureStore.deleteItemAsync('pattadar_identity').catch(() => undefined);
+  else await SecureStore.setItemAsync('pattadar_identity', '').catch(() => undefined);
 }
 
 // Runtime server override (Account → Dev connection) — survives restarts and
@@ -105,14 +90,25 @@ export async function healApiBase(): Promise<string> {
 /** True when a backend URL was provided at bundle time. */
 export const hasApi = base.length > 0;
 
+/** One transport policy for GraphQL and native streamed uploads. */
+async function apiHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Bypass-Tunnel-Reminder': '1', 'ngrok-skip-browser-warning': '1',
+  };
+  const token = await accessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else if (__DEV__) {
+    const uid = await getIdentity();
+    if (uid) headers['x-user-id'] = uid;
+  } else {
+    throw new Error('Sign in again to access your records.');
+  }
+  return headers;
+}
+
 export const api = createGraphQLClient({
   url: async () => `${await apiBase()}/graphql`,
-  headers: async () => {
-    const h: Record<string, string> = { 'Bypass-Tunnel-Reminder': '1', 'ngrok-skip-browser-warning': '1' };
-    const uid = await getIdentity();
-    if (uid) h['x-user-id'] = uid;
-    return h;
-  },
+  headers: apiHeaders,
 });
 
 /** Parcel row extracted from a passbook photo (snake_case wire → camel). */
@@ -194,12 +190,7 @@ async function uploadDocument(
   timeoutMs: number,
   onProgress?: (p: UploadProgress) => void,
 ): Promise<{ status: number; body: string }> {
-  const headers: Record<string, string> = {
-    'Bypass-Tunnel-Reminder': '1',
-    'ngrok-skip-browser-warning': '1',
-  };
-  const uid = await getIdentity();
-  if (uid) headers['x-user-id'] = uid;
+  const headers = await apiHeaders();
   const base = await apiBase();
   const url = `${base}${path}`;
   const host = (() => {

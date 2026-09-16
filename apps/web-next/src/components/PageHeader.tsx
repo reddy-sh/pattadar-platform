@@ -1,15 +1,18 @@
 import type { ElementType, ReactNode } from 'react';
-import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
-import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
+
+import { PageHeader as KitPageHeader } from './kit/PageHeader';
 
 interface PageHeaderProps {
   title: string;
   /** Overline eyebrow above the title (M3 label style). */
   eyebrow?: string;
   subtitle?: string;
-  /** Shown when the view is rendering the bundled sample dataset. */
+  /**
+   * Shown when the view is rendering the bundled sample dataset.
+   *
+   * The name always lied: the chip it renders says "Service unreachable". It
+   * is forwarded to the kit's honest `dataState="unreachable"`.
+   */
   sample?: boolean;
   /** Small chips inline with the title (counts etc.). */
   titleChips?: ReactNode;
@@ -25,9 +28,18 @@ interface PageHeaderProps {
 }
 
 /**
- * The one page-scaffold header: eyebrow (overline) + headline + subtitle on
- * the left, actions right — adopted by every view so titles, spacing and
- * action placement read identically across the app.
+ * @deprecated Use `PageHeader` from `src/components/kit` instead.
+ *
+ * This is a compatibility shim, not a component: it forwards to the kit's
+ * `PageHeader`, mapping `variant: 'h2' | 'h3'` onto `level: 'page' | 'section'`
+ * and `sample: true` onto `dataState: 'unreachable'`. Twelve call sites keep
+ * compiling and rendering as they did while screens migrate one at a time; the
+ * file is deleted in the final cleanup step, not the first.
+ *
+ * Nothing new should import it. The kit component carries the props this one
+ * cannot express — a `ReactNode` subtitle, `back`, `breadcrumbs`, `media`,
+ * `status` and the `below` slot that owns the header → controls → content
+ * rhythm.
  */
 export function PageHeader({
   title,
@@ -40,41 +52,15 @@ export function PageHeader({
   variant = 'h2',
 }: PageHeaderProps) {
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        flexWrap: 'wrap',
-        gap: 1.5,
-        mb: 3,
-      }}
-    >
-      <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-        {eyebrow && (
-          <Typography variant="overline" color="text.secondary" component="div" sx={{ mb: 0.25 }}>
-            {eyebrow}
-          </Typography>
-        )}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
-          <Typography variant={variant === 'h2' ? 'h4' : 'h6'} component={component}>
-            {title}
-          </Typography>
-          {titleChips}
-          {sample && (
-            <Tooltip title="The live service is not reachable — nothing is shown until it responds.">
-              <Chip size="small" variant="outlined" color="error" label="Service unreachable" />
-            </Tooltip>
-          )}
-        </Box>
-        {subtitle && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 720 }}>
-            {subtitle}
-          </Typography>
-        )}
-      </Box>
-      {actions && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>{actions}</Box>
-      )}
-    </Box>
+    <KitPageHeader
+      title={title}
+      eyebrow={eyebrow}
+      subtitle={subtitle}
+      dataState={sample ? 'unreachable' : undefined}
+      titleChips={titleChips}
+      actions={actions}
+      component={component}
+      level={variant === 'h2' ? 'page' : 'section'}
+    />
   );
 }

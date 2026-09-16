@@ -1,0 +1,35 @@
+name: Nightly
+
+# Scheduled overnight run. Kiro IDE hooks cannot run on a schedule or while the
+# IDE is closed, so unattended checks live here in CI instead.
+on:
+  schedule:
+    - cron: '0 20 * * *' # 20:00 UTC ≈ 01:30 IST
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Typecheck, unit tests and guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Agent Skills
+        run: python3 scripts/validate-agent-governance.py
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test packages/core apps/web/src/api apps/web/src/lib apps/web/src/w360 apps/mobile/tests
+      - name: Offline rule and guard assertions
+        run: |
+          set -euo pipefail
+          for script in scripts/*-tests.ts; do
+            echo "── $script"
+            bun run "$script"
+          done
+          bun run scripts/icon-guard.ts
+          bun run scripts/ux-guards.ts

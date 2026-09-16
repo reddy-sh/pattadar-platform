@@ -1,7 +1,15 @@
 # Pattadar — native iOS
 
-Swift/SwiftUI client against the **same backend** as the React Native app and
-both web heads. Nothing server-side changes for it.
+The maintained iOS client is native Swift/SwiftUI in this directory. The active
+web client is `apps/web`. `apps/mobile` remains the Expo client for Android
+and compatibility work; its features are retained, with production Bearer
+transport. An Android release owner and release cadence still need assignment.
+`apps/web-next` is an older parallel implementation, not the active web entry.
+
+Most native screens use the root GraphQL schema. The existing Services screen
+also reads the canonical `web` catalogue/order namespace, as authorized by the
+September 2026 repair request; other W360 screen migrations remain governed by
+`docs/specs/2026-08-22-web-ios-parity-contract.md`.
 
 ## Layout
 
@@ -22,20 +30,24 @@ open Pattadar.xcodeproj
 Without XcodeGen: create an iOS App target in Xcode, add `PattadarKit` as a
 local package dependency, and point it at `Pattadar/Sources`.
 
-The app reads `PATTADAR_API_URL` and `PATTADAR_USER` from the environment,
-defaulting to `http://127.0.0.1:8080` and `u01` — the simulator reaches the
-Mac directly; a device needs the ngrok tunnel.
+Environment variables `PATTADAR_API_URL` and `PATTADAR_USER` override bundled
+settings for development. The bundle targets the production gateway; local
+schemes may target `http://127.0.0.1:8080`. Production signs in with Cognito.
+Local data is scoped by token issuer and immutable subject; the gateway alone
+resolves an approved legacy owner mapping.
 
-## Before you say it works
+## Safe local verification
 
 ```sh
-./verify.sh
+swift test --package-path apps/ios/PattadarKit
+xcodebuild -project apps/ios/Pattadar.xcodeproj -scheme Pattadar \
+  -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/pattadar-build CODE_SIGNING_ALLOWED=NO build
 ```
 
-Builds the iPhone simulator, the iPad simulator AND the physical phone, and
-runs the package tests. A green simulator says nothing about whether the app
-can be SIGNED for a device — that was reported as ready twice while the device
-build failed on six signing errors.
+Run these from the repository root after generating the Xcode project. They do
+not install onto a device or boot a simulator. `verify.sh` is founder-driven:
+it also performs signed builds and installs onto a physical iPhone.
 
 ## Widgets — one Xcode sign-in away
 
@@ -70,8 +82,11 @@ stop shipping; nothing else changes.
 cd apps/ios/PattadarKit && swift test
 ```
 
-Live-API tests skip themselves when nothing answers on :8080, so the suite stays
-green without a backend running.
+Default tests do not call a live API. Set `PATTADAR_LIVE_API_TESTS=1` only with
+a disposable local database for live schema/CRUD tests. The separate real-deed
+upload test additionally requires `PATTADAR_LIVE_UPLOAD_TESTS=1`; it reads a
+local fixture and may call a paid extraction provider. Pure tests and shared
+vectors remain the default gate.
 
 ## The rule that matters: land arithmetic may not drift
 
@@ -103,8 +118,23 @@ label "Acres-Guntas" resolved to gunta, TypeScript says acre
 That is the whole point. Do not "fix" a failure by editing the vectors — decide
 which implementation is right, change that, and regenerate.
 
-## What is NOT here yet
+## Implemented capabilities and remaining decisions
 
-Everything except the holdings list: documents and the AI summary screen, the
-map/location picker, family and estate allocation, sign-in, the passbook and
-deed scanning flows. The RN app remains the shipping client.
+The app includes holdings, papers and scanning, maps and boundaries, family
+and groups, Cognito sign-in, service requests, a live service catalogue and
+server-confirmed orders, offline filing, and widgets. The native Services
+screen supports ordering an EC and survey together, keeps each confirmed
+result when another fails, and uses stable idempotency keys for retries.
+
+Real payment collection, worker-operated fulfillment, broader W360 screen
+parity and the Android shipping plan still require the corresponding product
+and integration work; the native screen does not report those as completed.
+
+Pending reads and review entries are isolated by account. Signing out clears
+widgets and on-screen records, invalidates delayed responses, and preserves
+owned queued work for its original principal. Old offline filings with an
+explicit owner migrate only after a live authenticated `me.id` establishes the
+server-approved ownership mapping. Old **ownerless** `pending-reviews.json` and
+`pattadar.pendingRead` data are preserved but quarantined: a mutable last-user
+setting cannot establish their original owner. Recovery must establish that
+owner explicitly; signing in as somebody else never adopts those scans.

@@ -1,240 +1,103 @@
 name: Deploy
-
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    # Only the two web apps deploy from here — apps/ios and apps/mobile
-    # commits must not wake the prod pipeline.
-    paths:
-      - "apps/web/**"
-      - "apps/web-next/**"
-      - "packages/**"
-
 permissions:
   id-token: write
   contents: read
-
-concurrency: deploy-web
-
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 jobs:
-  # Rollback path (D3): the S3/CloudFront SPA deploy stays intact and keeps
-  # running as long as the repo variable WEB_ORIGIN (repo Settings -> Actions
-  # -> Variables — separate from Terraform's own `web_origin` var) is
-  # anything OTHER than "ecs". This is a fail-SAFE guard: GitHub Actions vars
-  # default to "" for an undefined var, and "" != 'ecs' is true, so the SPA
-  # deploy keeps running unconditionally until someone deliberately flips
-  # WEB_ORIGIN to "ecs" at the D4 cutover — an unset/missing variable can
-  # never silently stop this job the way `== 'spa'` would.
-  web:
-    name: Build & deploy SPA (prod)
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
-    if: vars.WEB_ORIGIN != 'ecs'
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      WEB_ORIGIN: ${{ vars.WEB_ORIGIN || 'spa' }}
+      IDENTITY_LEGACY_BINDINGS: ${{ vars.IDENTITY_LEGACY_BINDINGS }}
+      ADMIN_SUBJECT_IDS: ${{ vars.ADMIN_SUBJECT_IDS }}
+      RELEASE_PREFLIGHT_S3_URI: ${{ vars.RELEASE_PREFLIGHT_S3_URI }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - name: Reject obsolete release
+        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA"
+      # WEB_ORIGIN=spa ships apps/web, which carries the repaired identity,
+      # sharing, consent and async-extraction work. Any other value ships the
+      # apps/web-next container, which carries none of it — a config flip would
+      # silently reinstate the defects this release exists to fix.
+      - name: Refuse to ship the unrepaired web client
+        if: env.WEB_ORIGIN != 'spa'
+        run: |
+          echo "::error::WEB_ORIGIN=$WEB_ORIGIN builds apps/web-next, which lacks scoped recipient access, the account data/consent screens and durable extraction. Ship apps/web (WEB_ORIGIN=spa) until web-next has been brought to parity and re-reviewed."
+          exit 1
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-south-1
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
-
-      # Track B guard: until the prod state backend + runtime layer exist,
-      # skip gracefully instead of failing the push.
-      - name: Resolve terraform outputs (or skip)
-        id: tf
-        run: |
-          set -euo pipefail
-          RUNTIME=infra/terraform/envs/prod/runtime
-          PERSISTENT=infra/terraform/envs/prod/persistent
-          if ! terraform -chdir="$RUNTIME" init -input=false >/dev/null 2>&1 \
-            || ! spa_bucket="$(terraform -chdir="$RUNTIME" output -raw spa_bucket_name 2>/dev/null)" \
-            || [ -z "$spa_bucket" ]; then
-            echo "::notice::prod runtime state / SPA bucket not available (Track B not done) — skipping web deploy."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          dist_id="$(terraform -chdir="$RUNTIME" output -raw cloudfront_distribution_id)"
-          terraform -chdir="$PERSISTENT" init -input=false >/dev/null
-          {
-            echo "skip=false"
-            echo "spa_bucket=$spa_bucket"
-            echo "dist_id=$dist_id"
-            echo "cognito_authority=$(terraform -chdir="$PERSISTENT" output -raw cognito_issuer)"
-            echo "cognito_client_id=$(terraform -chdir="$PERSISTENT" output -raw cognito_spa_client_id)"
-            echo "cognito_domain=$(terraform -chdir="$PERSISTENT" output -raw cognito_hosted_ui_domain)"
-          } >> "$GITHUB_OUTPUT"
-
       - uses: oven-sh/setup-bun@v2
-        if: steps.tf.outputs.skip == 'false'
         with:
           bun-version: 1.3.14
-
-      - name: Install dependencies
-        if: steps.tf.outputs.skip == 'false'
-        run: bun install --frozen-lockfile
-
-      - name: Build web
-        if: steps.tf.outputs.skip == 'false'
-        env:
-          VITE_COGNITO_AUTHORITY: ${{ steps.tf.outputs.cognito_authority }}
-          VITE_COGNITO_CLIENT_ID: ${{ steps.tf.outputs.cognito_client_id }}
-          VITE_COGNITO_DOMAIN: ${{ steps.tf.outputs.cognito_domain }}
-          VITE_COGNITO_REDIRECT_URI: https://pattadar.com/auth/callback
-        run: bun run --filter @pattadar/web build
-
-      - name: Sync SPA to S3
-        if: steps.tf.outputs.skip == 'false'
-        run: aws s3 sync apps/web/dist "s3://${{ steps.tf.outputs.spa_bucket }}" --delete
-
-      - name: Invalidate CloudFront
-        if: steps.tf.outputs.skip == 'false'
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ steps.tf.outputs.dist_id }}" \
-            --paths "/index.html" "/*"
-
-  # web-ecs (D3): builds the pattadar/web Next.js image and rolls the ECS
-  # `web` service. Runs unconditionally (not gated on WEB_ORIGIN) — the web
-  # ECS service exists in both spa and ecs modes (D2), and nothing serves
-  # traffic from it until CloudFront's default origin is switched, so keeping
-  # the image warm is harmless while WEB_ORIGIN=spa. Guarded only by the same
-  # Track B graceful-skip as the job above.
-  web-ecs:
-    name: Build & deploy web (Next.js on ECS)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ap-south-1
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_wrapper: false
-
-      # Track B guard: same idea as the SPA job's spa_bucket_name check, but
-      # keyed off the WEB-SPECIFIC resources instead of the runtime ECS
-      # cluster — the pattadar-prod cluster already exists today (it predates
-      # the web service), so cluster presence alone can't detect whether D2
-      # has been applied. The persistent layer's ecr_repository_urls.web is
-      # null until D2 lands, so that's the signal that actually gates this
-      # job.
-      - name: Resolve terraform outputs (or skip)
-        id: tf
+      - name: Resolve release configuration
         run: |
           set -euo pipefail
-          RUNTIME=infra/terraform/envs/prod/runtime
-          PERSISTENT=infra/terraform/envs/prod/persistent
-          if ! terraform -chdir="$RUNTIME" init -input=false >/dev/null 2>&1 \
-            || ! cluster="$(terraform -chdir="$RUNTIME" output -raw ecs_cluster_name 2>/dev/null)" \
-            || [ -z "$cluster" ]; then
-            echo "::notice::prod runtime state / ECS cluster not available (Track B not done) — skipping web image build/deploy."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if ! terraform -chdir="$PERSISTENT" init -input=false >/dev/null 2>&1 \
-            || ! ecr_repo="$(terraform -chdir="$PERSISTENT" output -json ecr_repository_urls 2>/dev/null | jq -r '.web // empty')" \
-            || [ -z "$ecr_repo" ] || [ "$ecr_repo" = "null" ]; then
-            echo "::notice::prod persistent state / web ECR repository not available yet (D2 not applied to prod) — skipping web image build/deploy."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          terraform -chdir=infra/terraform/envs/prod/runtime init -input=false
+          terraform -chdir=infra/terraform/envs/prod/persistent init -input=false
+          terraform -chdir=infra/terraform/envs/prod/persistent output -json ecr_repository_urls > /tmp/release-repositories.json
           {
-            echo "skip=false"
-            echo "cluster=$cluster"
-            echo "ecr_repo=$ecr_repo"
-            echo "cognito_authority=$(terraform -chdir="$PERSISTENT" output -raw cognito_issuer)"
-            echo "cognito_client_id=$(terraform -chdir="$PERSISTENT" output -raw cognito_spa_client_id)"
-            echo "cognito_domain=$(terraform -chdir="$PERSISTENT" output -raw cognito_hosted_ui_domain)"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU (arm64 emulation for the Fargate ARM64 task)
-        if: steps.tf.outputs.skip == 'false'
-        uses: docker/setup-qemu-action@v3
+            echo "CLUSTER=$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw ecs_cluster_name)"
+            echo "SPA_BUCKET=$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw spa_bucket_name)"
+            echo "DISTRIBUTION_ID=$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw cloudfront_distribution_id)"
+            echo "VITE_COGNITO_AUTHORITY=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_issuer)"
+            echo "VITE_COGNITO_CLIENT_ID=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_spa_client_id)"
+            echo "VITE_COGNITO_DOMAIN=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_hosted_ui_domain)"
+            echo "VITE_COGNITO_REDIRECT_URI=https://pattadar.com/auth/callback"
+          } >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - name: Load reviewed migration evidence
+        run: |
+          test -n "$RELEASE_PREFLIGHT_S3_URI"
+          aws s3 cp "$RELEASE_PREFLIGHT_S3_URI" /tmp/release-preflight.json --only-show-errors
+      - run: bun run --filter @pattadar/web build
+      - name: Stamp the built frontend revision
+        run: printf '%s\n' "$RELEASE_SHA" > apps/web/dist/.release-sha
+      - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-
-      - name: Set up Docker Buildx
-        if: steps.tf.outputs.skip == 'false'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to ECR
-        if: steps.tf.outputs.skip == 'false'
-        env:
-          ECR_REPO: ${{ steps.tf.outputs.ecr_repo }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Build every image before changing a running service
         run: |
-          aws ecr get-login-password --region ap-south-1 \
-            | docker login --username AWS --password-stdin "${ECR_REPO%%/*}"
-
-      # Build context is the REPO ROOT (workspace:* deps make an app-dir
-      # context unresolvable — see apps/web-next/Dockerfile, D1) with
-      # --provenance=false, matching D1 exactly. Tag with the git SHA
-      # (traceable, rollback-able in ECR) AND the moving "latest" tag — the
-      # web ECS task definition's web_image_tag defaults to "latest" (same
-      # moving-tag convention as gateway/api); --force-new-deployment only
-      # forces ECS to re-pull the tag the task def already references, it
-      # does not change which tag that is.
-      - name: Build & push web image
-        if: steps.tf.outputs.skip == 'false'
-        env:
-          ECR_REPO: ${{ steps.tf.outputs.ecr_repo }}
-          NEXT_PUBLIC_COGNITO_AUTHORITY: ${{ steps.tf.outputs.cognito_authority }}
-          NEXT_PUBLIC_COGNITO_CLIENT_ID: ${{ steps.tf.outputs.cognito_client_id }}
-          NEXT_PUBLIC_COGNITO_DOMAIN: ${{ steps.tf.outputs.cognito_domain }}
-        run: |
-          docker buildx build \
-            --platform linux/arm64 \
-            --provenance=false \
-            -f apps/web-next/Dockerfile \
-            --build-arg NEXT_PUBLIC_COGNITO_AUTHORITY="$NEXT_PUBLIC_COGNITO_AUTHORITY" \
-            --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID="$NEXT_PUBLIC_COGNITO_CLIENT_ID" \
-            --build-arg NEXT_PUBLIC_COGNITO_DOMAIN="$NEXT_PUBLIC_COGNITO_DOMAIN" \
-            --build-arg NEXT_PUBLIC_COGNITO_REDIRECT_URI=https://pattadar.com/auth/callback \
-            --tag "$ECR_REPO:${{ github.sha }}" \
-            --tag "$ECR_REPO:latest" \
-            --push \
-            .
-
-      - name: Roll the web ECS service
-        if: steps.tf.outputs.skip == 'false'
-        env:
-          CLUSTER: ${{ steps.tf.outputs.cluster }}
-        run: |
-          # Until D2 creates the web service, there is nothing to roll — the
-          # image push above still matters (it is what unblocks the runtime
-          # apply), but a roll that cannot land is a skip, not a failure.
-          status="$(aws ecs describe-services --cluster "$CLUSTER" --services web \
-            --query 'services[0].status' --output text 2>/dev/null || true)"
-          if [ "$status" != "ACTIVE" ]; then
-            echo "::notice::web ECS service not present (status: ${status:-none}) — image pushed, roll skipped until D2 creates the service."
-            exit 0
-          fi
-          aws ecs update-service --cluster "$CLUSTER" --service web --force-new-deployment
-
-  # TODO(Phase 1): service image builds — one job per service (gateway, api,
-  # later assistant): docker build from services/<name>, tag with the git SHA,
-  # push to the ECR repo from `terraform output ecr_repository_urls`, then
-  # `aws ecs update-service --force-new-deployment`. Blocked until the services
-  # are ported from the predecessor platform (services/*/README.md).
-  #
-  # services:
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     matrix:
-  #       service: [gateway, api]
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: aws-actions/configure-aws-credentials@v4
-  #       with:
-  #         role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-  #         aws-region: ap-south-1
-  #     - run: aws ecr get-login-password | docker login --username AWS --password-stdin <account>.dkr.ecr.ap-south-1.amazonaws.com
-  #     - run: docker build -t <repo>:${{ github.sha }} services/${{ matrix.service }}
-  #     - run: docker push <repo>:${{ github.sha }}
+          set -euo pipefail
+          for service in gateway api assistant web; do
+            repo="$(jq -r --arg service "$service" '.[$service] // empty' /tmp/release-repositories.json)"
+            if [ -z "$repo" ]; then
+              if [ "$service" = web ] && [ "$WEB_ORIGIN" = spa ]; then continue; fi
+              echo "::error::Missing ECR repository for $service"; exit 1
+            fi
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin "${repo%%/*}"
+            if [ "$service" = web ]; then
+              docker buildx build --platform linux/arm64 --provenance=false -f apps/web-next/Dockerfile \
+                --build-arg NEXT_PUBLIC_COGNITO_AUTHORITY="$VITE_COGNITO_AUTHORITY" \
+                --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID="$VITE_COGNITO_CLIENT_ID" \
+                --build-arg NEXT_PUBLIC_COGNITO_DOMAIN="$VITE_COGNITO_DOMAIN" \
+                --build-arg NEXT_PUBLIC_COGNITO_REDIRECT_URI="$VITE_COGNITO_REDIRECT_URI" \
+                --tag "$repo:$RELEASE_SHA" --push .
+            else
+              docker buildx build --platform linux/arm64 --provenance=false --tag "$repo:$RELEASE_SHA" --push "services/$service"
+            fi
+          done
+      - name: Deploy matching backend and web revisions
+        run: python3 scripts/deploy-release.py --cluster "$CLUSTER" --repositories /tmp/release-repositories.json --sha "$RELEASE_SHA" --preflight /tmp/release-preflight.json --web-origin "$WEB_ORIGIN" --spa-bucket "$SPA_BUCKET" --distribution "$DISTRIBUTION_ID" --execute
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ github.event.workflow_run.head_sha }}
+          path: release-receipt.json

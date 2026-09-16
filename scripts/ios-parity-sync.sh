@@ -11,6 +11,21 @@
 # its file state.
 set -uo pipefail
 
+# git exports its own environment into hook processes — GIT_INDEX_FILE and
+# GIT_DIR as RELATIVE paths, valid only in the repo that invoked the hook. We
+# inherit them, and then `git worktree add` tries to open .git/index inside a
+# directory that is not the one those paths were written for:
+#
+#   fatal: .git/index: index file open failed: Not a directory
+#
+# Every git command below has to run as if from a clean shell, so scrub them
+# here rather than at each call site. Running this script by hand from a
+# terminal never reproduced the failure, because a terminal has none of these
+# set — only the real post-commit path does.
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_COMMON_DIR \
+      GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+      GIT_QUARANTINE_PATH GIT_REFLOG_ACTION GIT_INDEX_VERSION
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
@@ -96,9 +111,11 @@ Adapt this finished web commit into the native iOS app.
 
 Commit: $short — $subject
 
-Read $CONTRACT first. It has the twin map, the three bands (ADAPT / NOTE /
-IGNORE) and the five triage buckets. It wins over anything you infer from the
-diff. Read apps/ios/design.md before touching anything visual.
+Read .kiro/skills/sync-ios/SKILL.md first, then read $CONTRACT. The canonical
+skill and contract define the workflow, twin map, three bands (ADAPT / NOTE /
+IGNORE), five triage buckets, write boundary, and report order. They win over
+anything you infer from the diff. Read apps/ios/design.md before touching
+anything visual.
 
 scripts/parity-check.ts has already found the mechanical drift for this commit:
 
@@ -110,9 +127,9 @@ $(git show --stat --format= "$sha" | head -80)
 Diff (adapt/note paths only, truncated):
 $(git show --format= "$sha" -- packages/core services/api services/gateway apps/web/src design.md | head -1500)
 
-Do the work, then write $report using the report shape in the agent brief.
+Do the work, then write $report using the report shape in the canonical skill.
 Run: cd apps/ios/PattadarKit && swift test
-Then: rm -rf apps/ios/PattadarKit/.swiftpm apps/ios/PattadarKit/.build
+The wrapper cleans `.swiftpm` and `.build` after the authoritative test gate.
 
 Most apps/web/src/w360/** diffs correctly produce NO Swift — they sit on the
 Query.web namespace iOS does not read. An empty sweep with a stated reason is a
@@ -121,20 +138,27 @@ NEEDS-FOUNDER. Never run apps/ios/verify.sh.
 PROMPT
 )"
 
+  # The prompt goes in on STDIN, never as a positional argument.
+  #
+  # --allowedTools and --disallowedTools are variadic, so a trailing positional
+  # is swallowed into whichever list came last: the whole brief was parsed as
+  # deny rules ("Permission deny rule \"the\" matches no known tool") and the
+  # run died in three seconds. Stdin also sidesteps the argv size limit, which
+  # a 1500-line diff would eventually hit.
   (
     cd "$wt" || exit 1
-    PATTADAR_PARITY=1 claude -p \
-      --agent ios-parity \
+    printf '%s' "$prompt" | PATTADAR_PARITY=1 claude -p \
       --model "$MODEL" \
       --permission-mode acceptEdits \
       --max-budget-usd "$BUDGET" \
       --allowedTools Read Grep Glob Edit Write \
-        "Bash(bun *)" "Bash(swift *)" "Bash(git *)" "Bash(rm *)" "Bash(mkdir *)" \
-        "Bash(cat *)" "Bash(ls *)" "Bash(grep *)" "Bash(sed *)" "Bash(head *)" \
-        "Bash(tail *)" "Bash(wc *)" "Bash(find *)" "Bash(cd *)" \
+        "Bash(bun run scripts/parity-check.ts *)" \
+        "Bash(bun run scripts/emit-vectors.ts)" \
+        "Bash(bun run scripts/emit-vectors.ts *)" \
+        "Bash(swift test)" "Bash(swift test *)" "Bash(cd *)" \
       --disallowedTools "Bash(xcodebuild*)" "Bash(xcrun*)" "Bash(terraform*)" \
-        "Bash(aws*)" "Bash(git push*)" "Bash(curl*)" "Bash(ssh*)" WebFetch WebSearch \
-      "$prompt"
+        "Bash(aws*)" "Bash(git*)" "Bash(rm*)" "Bash(curl*)" "Bash(ssh*)" \
+        WebFetch WebSearch
   ) > "$log" 2>&1
   local rc=$?
   note "agent exited $rc — log: $log"
@@ -199,12 +223,58 @@ PROMPT
 #
 # A burst of commits queues; each is swept on its own diff. Coalescing them
 # would silently drop whatever only the middle commit changed.
-sweep "$1"
-guard=0
-while [ -s "$STATE/queue" ] && [ $guard -lt 20 ]; do
-  guard=$((guard + 1))
-  next="$(head -1 "$STATE/queue")"
-  tail -n +2 "$STATE/queue" > "$STATE/queue.tmp" && mv "$STATE/queue.tmp" "$STATE/queue"
-  [ -n "$next" ] && sweep "$next"
-done
-rm -f "$STATE/queue"
+drain() {
+  local guard=0 next
+  while [ -s "$STATE/queue" ] && [ $guard -lt 20 ]; do
+    guard=$((guard + 1))
+    next="$(head -1 "$STATE/queue")"
+    tail -n +2 "$STATE/queue" > "$STATE/queue.tmp" && mv "$STATE/queue.tmp" "$STATE/queue"
+    [ -n "$next" ] && sweep "$next"
+  done
+  rm -f "$STATE/queue"
+}
+
+# ── watch ───────────────────────────────────────────────────────────────
+#
+# The post-commit hook is the normal trigger and needs no daemon. This mode is
+# for the other two cases: catching up on commits made before the hook was
+# armed, and running on a machine where you would rather not install a hook at
+# all. It polls rather than watching the filesystem — a commit every few
+# minutes does not justify an fswatch dependency, and polling git is cheap.
+#
+#   scripts/ios-parity-sync.sh --watch &
+#
+# Idempotent by construction: a commit whose parity/ios-<sha> branch already
+# exists is skipped, so restarting the watcher never re-sweeps or double-spends.
+watch_loop() {
+  local interval="${PARITY_WATCH_INTERVAL:-60}"
+  local scanned="" sha short
+  note "watching for web commits every ${interval}s (ctrl-c to stop)"
+  while :; do
+    if [ -f "$STATE/OFF" ]; then
+      sleep "$interval"; continue
+    fi
+    # Newest first, bounded: a cold start on a long history should catch up on
+    # recent work, not sweep the entire repo and spend a fortune doing it.
+    for sha in $(git log -n "${PARITY_WATCH_DEPTH:-20}" --format=%H); do
+      short="$(git rev-parse --short "$sha")"
+      case " $scanned " in *" $short "*) continue ;; esac
+      scanned="$scanned $short"
+      git show-ref --verify --quiet "refs/heads/parity/ios-$short" && continue
+      grep -q "\"$short\"" "$STATE/ledger.jsonl" 2>/dev/null && continue
+      if git show --name-only --format= "$sha" | grep -qE \
+        '^(packages/(core|tokens)/|services/(api|gateway)/|apps/web/src/|apps/web-next/|design\.md$)'; then
+        sweep "$sha"
+        drain
+      fi
+    done
+    sleep "$interval"
+  done
+}
+
+if [ "${1:-}" = "--watch" ]; then
+  watch_loop
+else
+  sweep "${1:-HEAD}"
+  drain
+fi

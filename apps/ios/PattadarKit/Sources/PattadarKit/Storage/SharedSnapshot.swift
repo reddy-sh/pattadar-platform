@@ -143,33 +143,60 @@ public struct LandSnapshot: Codable, Sendable {
     }
 }
 
-public enum SharedSnapshot {
-    public static let appGroup = "group.com.rfactory.pattadar"
+/// A process-local lock makes session changes and writes indivisible. The
+/// random token is persisted so a pre-sign-out request can never repopulate
+/// an empty widget, including a later sign-in to the same account.
+final class SnapshotStore: @unchecked Sendable {
+    private let defaults: UserDefaults
+    private let lock = NSLock()
+    private let key = "land-snapshot-2"
+    private let sessionKey = "land-snapshot-session"
+    init(defaults: UserDefaults) { self.defaults = defaults }
 
-    /// Bumped whenever the shape changes.
-    ///
-    /// A payload written by an older build is then simply not found, and the
-    /// widget says "Open Pattadar" until the app runs once. That is honest;
-    /// decoding half of a stale payload and drawing the rest is not.
-    private static let key = "land-snapshot-2"
-    private static let filingKey = "widget-wants-filing"
-
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: appGroup)
+    func activate(ownerID: String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        let session = ownerID.isEmpty ? "" : UUID().uuidString
+        defaults.set(session, forKey: sessionKey)
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: "widget-wants-filing")
+        return session
     }
-
-    public static func write(_ snapshot: LandSnapshot) {
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults?.set(data, forKey: key)
-        // Tell every widget to redraw; without this they wait for their own
-        // timeline, which is hours away.
-        WidgetCenter.shared.reloadAllTimelines()
+    @discardableResult
+    func write(_ snapshot: LandSnapshot, session: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !session.isEmpty, defaults.string(forKey: sessionKey) == session,
+              let data = try? JSONEncoder().encode(snapshot) else { return false }
+        defaults.set(data, forKey: key)
+        return true
     }
-
-    public static func read() -> LandSnapshot? {
-        guard let data = defaults?.data(forKey: key) else { return nil }
+    func read() -> LandSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let session = defaults.string(forKey: sessionKey), !session.isEmpty,
+              let data = defaults.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(LandSnapshot.self, from: data)
     }
+}
+
+public enum SharedSnapshot {
+    public static let appGroup = "group.com.rfactory.pattadar"
+    private static let filingKey = "widget-wants-filing"
+    private static var defaults: UserDefaults? { UserDefaults(suiteName: appGroup) }
+    private static let store = SnapshotStore(defaults: UserDefaults(suiteName: appGroup)!)
+
+    @discardableResult
+    public static func activate(ownerID: String) -> String {
+        let session = store.activate(ownerID: ownerID)
+        WidgetCenter.shared.reloadAllTimelines()
+        return session
+    }
+    public static func clear() { _ = activate(ownerID: "") }
+    public static func write(_ snapshot: LandSnapshot, session: String) {
+        if store.write(snapshot, session: session) { WidgetCenter.shared.reloadAllTimelines() }
+    }
+    public static func read() -> LandSnapshot? { store.read() }
 
     // MARK: - The Control Centre button
 

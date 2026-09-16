@@ -204,6 +204,7 @@ public struct DashboardStats: Decodable, Sendable {
 }
 
 public struct Me: Decodable, Sendable {
+    public let id: String?
     public let name: String
     public let email: String
 }
@@ -506,4 +507,57 @@ public struct LandExpense: Decodable, Identifiable, Sendable {
 
 public struct LandExpensesResponse: Decodable, Sendable {
     public let landExpenses: [LandExpense]
+}
+
+/// Existing native Services now reads the canonical catalogue and confirmed
+/// orders. Query.web is a narrow exception documented in the repair report.
+public struct NativeServiceField: Decodable, Sendable, Identifiable {
+    public let name: String
+    public let label: String
+    public let kind: String
+    public let required: Bool
+    public let options: [String]
+    public let help: String
+    public var id: String { name }
+}
+public struct NativeServiceOffer: Decodable, Sendable, Identifiable {
+    public let key: String
+    public let label: String
+    public let price: Double
+    public let group: String
+    public let blurb: String
+    public let days: Int
+    public let fields: [NativeServiceField]
+    public var id: String { key }
+}
+public struct NativeServiceRecord: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let subtitle: String
+}
+public struct NativeServiceOrder: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let assignee: String
+    public let cost: Double
+    public let statusLabel: String
+    public let dueDate: String
+    public let recordTitle: String
+    public let ref: String
+}
+public struct NativeServicesResponse: Decodable, Sendable {
+    public struct Web: Decodable, Sendable {
+        public struct Properties: Decodable, Sendable {
+            public let cards: [NativeServiceRecord]
+        }
+        public let servicesOffered: [NativeServiceOffer]
+        public let properties: Properties
+        public let orders: [NativeServiceOrder]
+    }
+    public let web: Web
+}
+public struct NativeOrderConfirmation: Decodable, Sendable {
+    public struct Web: Decodable, Sendable { public let orderService: Int }
+    public let web: Web
 }

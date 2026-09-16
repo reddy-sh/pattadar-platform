@@ -3,14 +3,16 @@ FROM oven/bun:1 AS builder
 WORKDIR /repo
 COPY package.json bun.lock tsconfig.base.json ./
 # bun.lock encodes the FULL workspace graph (apps/mobile, apps/web,
-# apps/web-next, packages/core, packages/tokens, tests/e2e-ux). Docker's
-# build context only ships apps/web-next + packages/*, so --frozen-lockfile
-# would see a partial workspace and refuse (lockfile mismatch). Copy just the
-# other members' manifests (no source) so bun's workspace resolution matches
-# the lockfile exactly, without dragging in unrelated app source.
+# apps/web-next, packages/core, packages/tokens, tests/e2e-app and
+# tests/e2e-web360). Docker's build context only ships apps/web-next +
+# packages/*, so --frozen-lockfile would see a partial workspace and refuse
+# (lockfile mismatch). Copy just the other members' manifests (no source) so
+# bun's workspace resolution matches the lockfile exactly, without dragging
+# in unrelated app or test source.
 COPY apps/mobile/package.json apps/mobile/package.json
 COPY apps/web/package.json apps/web/package.json
-COPY tests/e2e-ux/package.json tests/e2e-ux/package.json
+COPY tests/e2e-app/package.json tests/e2e-app/package.json
+COPY tests/e2e-web360/package.json tests/e2e-web360/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/tokens/package.json packages/tokens/package.json
 COPY apps/web-next/package.json apps/web-next/package.json

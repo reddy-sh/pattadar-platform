@@ -161,3 +161,13 @@ VALUES
    'https://api.anthropic.com/v1/models',
    'ANTHROPIC_API_KEY')
 ON CONFLICT (id) DO NOTHING;
+
+-- Erasure runner freezes every linked subject/owner before external cleanup.
+-- Rows deliberately survive erasure to reject already-issued access tokens.
+CREATE TABLE IF NOT EXISTS account_access_blocks (
+    principal_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS account_access_blocks_owner ON account_access_blocks(owner_id);

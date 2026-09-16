@@ -7,6 +7,17 @@
  *
  * Everything drawn here was derived server-side from the sheet's own corner
  * table; this component computes nothing except unit conversion.
+ *
+ * Two views, and the difference matters. "Sheet" is the projected drawing —
+ * north up, one scale, no imagery — which is the sheet itself and the only
+ * place the side lengths can be read honestly. "On the ground" puts the same
+ * corners on OpenStreetMap and Esri imagery (both key-free), which is where
+ * you find out that the bund runs through the middle of side 6→5.
+ *
+ * The ground view DRAWS but never MEASURES. Its ring is the same lat/long the
+ * sheet prints, rounded to five decimals — about a metre a corner, which on
+ * Field No. 01 is 0.30 acres of drift. Every figure on this screen keeps
+ * coming from the projected table.
  */
 import { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
@@ -26,6 +37,10 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
+import MapIcon from '@mui/icons-material/Map';
+import { mapsAppFor, mapsAppName, mapsLink, ringCentroid } from '@pattadar/core';
+
+import { GeoMap } from './GeoMapLazy';
 
 export interface FmbPoint { id: number; e: number; n: number; lat: number; lon: number }
 export interface FmbSide {
@@ -132,8 +147,38 @@ export function FmbMapViewer({
   village: string;
 }) {
   const [unit, setUnit] = useState<'m' | 'ft'>('m');
+  const [view, setView] = useState<'sheet' | 'ground'>('sheet');
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+
+  // The ring in degrees, closed, [lon,lat] as GeoJSON wants it. One source for
+  // the download and the ground view, so the file a surveyor opens and the
+  // shape on screen can never be two different parcels.
+  const ringLonLat = useMemo(() => {
+    const byId = new Map(geometry.points.map((pt) => [pt.id, pt]));
+    return [...geometry.ring, geometry.ring[0]]
+      .map((id) => byId.get(id))
+      .filter((pt): pt is FmbPoint => !!pt)
+      .map((pt) => [pt.lon, pt.lat]);
+  }, [geometry]);
+
+  // A sheet whose corner table had eastings but no lat/long yields zeros, and
+  // zeros are the Gulf of Guinea. Offer the ground view only when the sheet
+  // actually stated a datum.
+  const located = ringLonLat.length >= 4 && ringLonLat.every(([lon, lat]) => lon !== 0 || lat !== 0);
+  const ringGeoJson = useMemo(
+    () => JSON.stringify({ type: 'Polygon', coordinates: [ringLonLat] }),
+    [ringLonLat],
+  );
+
+  // No maps app takes a boundary, so the hand-off is the centre of the land.
+  const away = useMemo(() => {
+    if (!located) return null;
+    const centre = ringCentroid(ringLonLat.map(([lon, lat]) => ({ latitude: lat, longitude: lon })));
+    if (!centre) return null;
+    const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+    return { href: mapsLink(centre, { label: village || 'FMB parcel', userAgent: ua }), app: mapsAppFor(ua) };
+  }, [located, ringLonLat, village]);
 
   // Fit, not zoom: one scale factor, north up, equal on both axes (§4).
   const layout = useMemo(() => {
@@ -183,28 +228,35 @@ export function FmbMapViewer({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [open, selected, geometry.sides]);
 
+  // In the document, then revoked a beat later. The anchor used to be detached
+  // and the object URL released on the very next statement: starting a download
+  // is a queued task, so releasing it in the same tick can cancel the file
+  // before it is written and both Export buttons look dead — on some browsers
+  // every single time.
   const download = (name: string, mime: string, text: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+    a.href = url;
     a.download = name;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(a.href);
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   // §11 output: exports that make the vault interoperable with every
   // surveyor's toolchain — named the platform's way.
   const exportGeoJSON = () => {
-    const byId = new Map(geometry.points.map((p) => [p.id, p]));
-    const ring = [...geometry.ring, geometry.ring[0]]
-      .map((id) => byId.get(id))
-      .filter((p): p is FmbPoint => !!p)
-      .map((p) => [p.lon, p.lat]);
     download(
       `pattadar-fmb-${slug(village) || 'sheet'}.geojson`,
       'application/geo+json',
       JSON.stringify({
         type: 'Feature',
-        geometry: { type: 'Polygon', coordinates: [ring] },
+        geometry: { type: 'Polygon', coordinates: [ringLonLat] },
+        // Area and perimeter travel WITH the file because they cannot be
+        // recovered from it: five-decimal degrees lose about a metre a corner,
+        // and recomputing Field No. 01 from this ring gives 60.20 ac against
+        // the corner table's 59.90. These two numbers are the projected truth.
         properties: { village, area_ac: geometry.areaAc, perimeter_m: geometry.perimeterM },
       }, null, 2),
     );
@@ -248,6 +300,24 @@ export function FmbMapViewer({
                 label="Corner order inferred — confirm against the sheet" />
         )}
         <Box sx={{ flexGrow: 1 }} />
+        {/* The sheet, or the sheet on the ground. Offered only when the corner
+            table stated a datum — otherwise there is nowhere to put it. */}
+        {located && (
+          <ToggleButtonGroup
+            size="small" exclusive value={view}
+            onChange={(_, v: 'sheet' | 'ground' | null) => { if (v) setView(v); }}
+            aria-label="View"
+          >
+            <ToggleButton value="sheet">Sheet</ToggleButton>
+            <ToggleButton value="ground">On the ground</ToggleButton>
+          </ToggleButtonGroup>
+        )}
+        {away && (
+          <Button size="small" startIcon={<MapIcon />} href={away.href}
+                  target="_blank" rel="noreferrer">
+            {mapsAppName(away.app)}
+          </Button>
+        )}
         <ToggleButtonGroup
           size="small" exclusive value={unit}
           onChange={(_, v: 'm' | 'ft' | null) => { if (v) setUnit(v); }}
@@ -265,6 +335,21 @@ export function FmbMapViewer({
           {/* The map fills its canvas; tapping empty space clears back to
               the parcel summary. */}
           <Box sx={{ bgcolor: 'action.hover', borderRadius: 2, p: 1 }}>
+            {view === 'ground' ? (
+              /* Same corners, real ground. GeoMap is the app's existing
+                 Leaflet seam — OpenStreetMap and Esri imagery, no API key —
+                 and it is read-only here: this dialog shows a government
+                 sheet, it does not let anyone redraw one. The side table
+                 beside it keeps the projected lengths, which is why nothing
+                 is lost by dropping the SVG for a moment. */
+              <GeoMap
+                geometries={[ringGeoJson]}
+                readOnly
+                showSearch={false}
+                height={520}
+                label={village || 'FMB parcel'}
+              />
+            ) : (
             <svg
               viewBox={`0 0 ${VIEW} ${VIEW}`}
               style={{ width: '100%', height: 'auto', display: 'block' }}
@@ -362,6 +447,7 @@ export function FmbMapViewer({
                 </text>
               </g>
             </svg>
+            )}
           </Box>
 
           {/* The right rail: side table, corner table, area check (§11). */}

@@ -59,12 +59,12 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 data "aws_iam_policy_document" "execution_secrets" {
   statement {
     actions = ["secretsmanager:GetSecretValue"]
-    resources = [
+    resources = concat([
       local.persistent.secret_arns["anthropic-api-key"],
       local.persistent.secret_arns["cron-secret"],
       aws_secretsmanager_secret.db_dsn.arn,
       aws_secretsmanager_secret.db_app_password.arn,
-    ]
+    ], values(var.payment_secret_arns))
   }
 
   statement {
@@ -196,7 +196,8 @@ resource "aws_ecs_task_definition" "gateway" {
         { name = "COGNITO_REGION", value = data.aws_region.current.region },
         { name = "API_BASE_URL", value = "http://api:8080" },
         { name = "ASSISTANT_BASE_URL", value = "http://assistant:8080" },
-        { name = "ADMIN_USER_IDS", value = "sankara.telukutla" },
+        { name = "IDENTITY_LEGACY_BINDINGS", value = var.identity_legacy_bindings == null ? "" : jsonencode(var.identity_legacy_bindings) },
+        { name = "ADMIN_SUBJECT_IDS", value = join(",", var.admin_subject_ids) },
       ]
 
       secrets = [
@@ -250,15 +251,17 @@ resource "aws_ecs_task_definition" "api" {
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = data.aws_region.current.region },
         { name = "APP_PUBLIC_URL", value = "https://${var.web_domain}" },
+        { name = "PAYMENTS_MODE", value = var.payments_mode },
+        { name = "RAZORPAY_LIVE_CONFIRMED", value = var.razorpay_live_confirmed ? "1" : "0" },
       ]
 
       # CRON_SECRET is ALWAYS set (invariant): /cron/inactivity-check rejects
       # callers without the matching x-cron-secret header.
-      secrets = [
+      secrets = concat([
         { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
         { name = "CRON_SECRET", valueFrom = local.persistent.secret_arns["cron-secret"] },
         { name = "APP_PG_DSN", valueFrom = aws_secretsmanager_secret.db_dsn.arn },
-      ]
+      ], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }])
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -348,12 +351,24 @@ resource "aws_ecs_service" "api" {
   tags = local.tags
 }
 
-# --- Assistant (ported service; MCP_URL empty = built-in tools only) ---------
+# --- Assistant (FastAPI + Claude SDK + internal record tools) ----------------
 
 resource "aws_iam_role" "assistant_task" {
   name               = "${local.prefix}-assistant-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
   tags               = local.tags
+}
+
+resource "aws_iam_role_policy" "assistant_attachments" {
+  role = aws_iam_role.assistant_task.id
+  name = "durable-attachments"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.persistent.documents_bucket_arn}/assistant/*" },
+      { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = local.persistent.kms_key_arn }
+    ]
+  })
 }
 
 resource "aws_ecs_task_definition" "assistant" {
@@ -391,11 +406,18 @@ resource "aws_ecs_task_definition" "assistant" {
         { name = "PG_PORT", value = "5432" },
         { name = "PG_USER", value = "pattadar_app" },
         { name = "PG_DATABASE", value = "hub" },
-        { name = "MCP_URL", value = "" },
+        { name = "PUBLIC_RECORDS_PG_HOST", value = aws_db_instance.main.address },
+        { name = "PUBLIC_RECORDS_PG_PORT", value = "5432" },
+        { name = "PUBLIC_RECORDS_PG_USER", value = "pattadar_app" },
+        { name = "PUBLIC_RECORDS_PG_DATABASE", value = var.db_name },
+        { name = "PUBLIC_RECORDS_SCHEMA", value = "land" },
+        { name = "PUBLIC_RECORDS_EMBEDDINGS_ENABLED", value = "0" },
+        { name = "ASSISTANT_ATTACHMENTS_BUCKET", value = local.persistent.documents_bucket_name },
       ]
 
       secrets = [
         { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
+        { name = "PUBLIC_RECORDS_PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
         { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
       ]
 

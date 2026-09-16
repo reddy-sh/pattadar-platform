@@ -19,15 +19,32 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import {
-  checkLocation,
-  haversineKm,
-  parseAreaSqYd,
-  placeCandidates,
-  ringCentroid,
-  toAcres,
-  unitKey,
-} from '../packages/core/src/index';
+import { checkLocation, haversineKm, parseAreaSqYd, toAcres, unitKey, parseBoundaryFile, fencePlan } from '../packages/core/src/index';
+
+/**
+ * `placeCandidates` and `ringCentroid` are loaded through the namespace rather
+ * than named imports, because they may not be there.
+ *
+ * A named import of a missing export is a hard module-load failure: the whole
+ * emitter dies and every OTHER family stops being generated too. That is
+ * exactly what happened — the Swift ports and these vectors were committed
+ * while the TypeScript side was still uncommitted work in another session, so
+ * a clean checkout had vectors pinning a rule that existed on only one side.
+ *
+ * Skipping loudly is the honest failure: the families that can be generated
+ * still are, and the two that cannot say why. When the TypeScript lands, they
+ * start being emitted again with no change here.
+ */
+import * as core from '../packages/core/src/index';
+
+type PlaceCandidates = (line: string, state?: string) => string[];
+type RingCentroid = (ring: { latitude: number; longitude: number }[]) => { latitude: number; longitude: number } | null;
+
+const placeCandidates = (core as Record<string, unknown>).placeCandidates as PlaceCandidates | undefined;
+const ringCentroid = (core as Record<string, unknown>).ringCentroid as RingCentroid | undefined;
+const missing: string[] = [];
+if (typeof placeCandidates !== 'function') missing.push('placeCandidates');
+if (typeof ringCentroid !== 'function') missing.push('ringCentroid');
 
 const OUT = join(import.meta.dir, '..', 'packages', 'core', 'vectors');
 const CHECK = process.argv.includes('--check');
@@ -79,7 +96,7 @@ const placeLines = [
   '',
   '  ,  ',
 ];
-const places = placeLines.map((line) => ({ line, candidates: placeCandidates(line) }));
+const places = placeCandidates ? placeLines.map((line) => ({ line, candidates: placeCandidates(line) })) : null;
 
 /* ── why `mapsLink` is NOT vectored ──────────────────────────────────────
  *
@@ -139,9 +156,27 @@ const ringCases: { name: string; ring: { latitude: number; longitude: number }[]
     ],
   },
 ];
-const rings = ringCases.map((c) => ({ name: c.name, ring: c.ring, centroid: round6(ringCentroid(c.ring)) }));
+const rings = ringCentroid
+  ? ringCases.map((c) => ({ name: c.name, ring: c.ring, centroid: round6(ringCentroid(c.ring)) }))
+  : null;
 
 // ── write, or say what would move ───────────────────────────────────────
+const parcelRing = [[79, 15], [79.02, 15], [79.02, 15.02], [79, 15.02], [79, 15]];
+const shedRing = [[79, 15], [79.001, 15], [79.001, 15.001], [79.0005, 15.001], [79, 15.001], [79, 15]];
+const boundaryInputs = [
+  { text: JSON.stringify({ type: 'MultiPolygon', coordinates: [[shedRing], [parcelRing]] }), fileName: 'parcel.geojson' },
+  { text: JSON.stringify({ type: 'MultiPolygon', coordinates: [[parcelRing.slice().reverse()], [shedRing]] }), fileName: 'clockwise.geojson' },
+  { text: JSON.stringify({ type: 'Feature', properties: { name: 'Field 1' }, geometry: { type: 'Polygon', coordinates: [parcelRing] } }), fileName: 'field.geojson' },
+  { text: '<kml><Placemark><name>Survey</name><Polygon><outerBoundaryIs><LinearRing><coordinates>79,15 79.02,15 79.02,15.02 79,15.02 79,15</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></kml>', fileName: 'survey.kml' },
+];
+const boundaries = boundaryInputs.map((input) => ({ ...input, ...parseBoundaryFile(input.text, input.fileName) }));
+const fenceInputs = [
+  { sideMetres: [100, 80, 100, 80], opts: { spacing: 3, strands: 4, closed: true, costPerPost: 450, costPerMetre: 12 } },
+  { sideMetres: [6, 3], opts: { spacing: 3, strands: 2, closed: false, costPerPost: 0, costPerMetre: 0 } },
+  { sideMetres: [0, -1, 5], opts: { spacing: 0, strands: 0, closed: true, costPerPost: 10, costPerMetre: 1 } },
+  { sideMetres: [], opts: { spacing: 3, strands: 4, closed: true, costPerPost: 10, costPerMetre: 1 } },
+];
+const fences = fenceInputs.map((input) => ({ ...input, expected: fencePlan(input.sideMetres, input.opts) }));
 const stale: string[] = [];
 const write = (file: string, data: unknown) => {
   const body = `${JSON.stringify(data, null, 2)}\n`;
@@ -158,8 +193,20 @@ const write = (file: string, data: unknown) => {
 write('units.json', units);
 write('areas.json', areas);
 write('geo.json', geo);
-write('places.json', places);
-write('rings.json', rings);
+if (places) write('places.json', places);
+if (rings) write('rings.json', rings);
+write('boundaries.json', boundaries);
+write('fences.json', fences);
+
+// Say what was skipped and why. A silent skip would let the vectors sit
+// there looking authoritative while pinning nothing.
+if (missing.length) {
+  console.log(
+    `SKIPPED places/rings — packages/core does not export ${missing.join(', ')} yet.\n` +
+    '  The Swift side and the existing vector files are AHEAD of the TypeScript.\n' +
+    '  Those vectors currently pin one implementation, not an agreement between two.',
+  );
+}
 
 if (CHECK) {
   if (stale.length) {

@@ -92,6 +92,35 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:ecs:*:${data.aws_caller_identity.current.account_id}:service/${local.prefix}/*"]
   }
 
+  statement {
+    sid       = "RegisterReleaseTaskDefinitions"
+    actions   = ["ecs:RegisterTaskDefinition"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "VerifyAttachmentTaskPermissions"
+    actions   = ["iam:SimulatePrincipalPolicy"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.prefix}-assistant-task"]
+  }
+
+  statement {
+    sid     = "PassReleaseTaskRoles"
+    actions = ["iam:PassRole"]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.prefix}-ecs-execution",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.prefix}-gateway-task",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.prefix}-api-task",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.prefix}-assistant-task",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.prefix}-web-task",
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
   # Sync the built SPA to the runtime-owned site bucket (name convention:
   # pattadar-<env>-spa-<account>).
   statement {

@@ -6,6 +6,7 @@ import Testing
 /// Photos per holding: the wire contract against the running API, and the
 /// outbox's photo entries offline.
 private func liveAPI() async -> PattadarAPI? {
+    guard ProcessInfo.processInfo.environment["PATTADAR_LIVE_API_TESTS"] == "1" else { return nil }
     let base = URL(string: "http://127.0.0.1:8080")!
     var probe = URLRequest(url: base.appendingPathComponent("health"))
     probe.timeoutInterval = 2

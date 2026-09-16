@@ -1,11 +1,11 @@
 /**
- * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ * Pattadar Bloom · Material 3-guided application shell
  *
  * Shell chrome — AppBar header (matte surface, ink wordmark + amber dot),
  * navigation drawer regrouped under section headers (permanent on desktop,
  * temporary on mobile), measure-capped content area, slim footer, and a
- * right-hand assistant panel. All accents come from `palette.*` seams so both
- * colour schemes stay correct — no hardcoded ramps.
+ * right-hand assistant panel. All accents come from `palette.*` seams so all
+ * three colour schemes stay correct — no hardcoded ramps.
  *
  * Accent budget (design.md § CTA voice, ≤5% per viewport): the amber in this
  * bar is the brand dot, the selected nav pill and the Wallet dot — three
@@ -48,7 +48,7 @@ import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
-import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
+import ContrastOutlinedIcon from '@mui/icons-material/ContrastOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import { AssistantPanel } from '../assistant/AssistantPanel';
@@ -93,35 +93,60 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 function ThemeToggle() {
-  const { mode, systemMode, setMode } = useColorScheme();
+  const { colorScheme, setColorScheme, setMode } = useColorScheme();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
-  if (!mode) return null;
-  const isDark = mode === 'dark' || (mode === 'system' && systemMode === 'dark');
+  if (!colorScheme) return null;
+
   const options = [
     { value: 'light' as const, label: 'Light', icon: <LightModeOutlinedIcon fontSize="small" /> },
     { value: 'dark' as const, label: 'Dark', icon: <DarkModeOutlinedIcon fontSize="small" /> },
-    { value: 'system' as const, label: 'Match device', icon: <SettingsBrightnessOutlinedIcon fontSize="small" /> },
+    {
+      value: 'highContrast' as const,
+      label: 'High Contrast',
+      icon: <ContrastOutlinedIcon fontSize="small" />,
+    },
   ];
+  const triggerIcon =
+    colorScheme === 'highContrast' ? (
+      <ContrastOutlinedIcon />
+    ) : colorScheme === 'dark' ? (
+      <DarkModeOutlinedIcon />
+    ) : (
+      <LightModeOutlinedIcon />
+    );
+
+  const selectTheme = (value: (typeof options)[number]['value']) => {
+    if (value === 'dark') {
+      setColorScheme({ dark: 'dark' });
+      setMode('dark');
+    } else {
+      setColorScheme({ light: value });
+      setMode('light');
+    }
+    setAnchor(null);
+  };
+
   return (
     <>
       <Tooltip title="Theme">
         <IconButton color="inherit" aria-label="Change theme" onClick={(e) => setAnchor(e.currentTarget)}>
-          {isDark ? <DarkModeOutlinedIcon /> : <LightModeOutlinedIcon />}
+          {triggerIcon}
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
         {options.map((o) => (
           <MenuItem
             key={o.value}
-            selected={mode === o.value}
-            onClick={() => {
-              setMode(o.value);
-              setAnchor(null);
-            }}
+            role="menuitemradio"
+            aria-checked={colorScheme === o.value}
+            selected={colorScheme === o.value}
+            onClick={() => selectTheme(o.value)}
           >
             <ListItemIcon>{o.icon}</ListItemIcon>
             <ListItemText>{o.label}</ListItemText>
-            {mode === o.value && <CheckIcon fontSize="small" sx={{ ml: 1.5, color: 'primary.main' }} />}
+            {colorScheme === o.value && (
+              <CheckIcon fontSize="small" sx={{ ml: 1.5, color: 'primary.main' }} />
+            )}
           </MenuItem>
         ))}
       </Menu>

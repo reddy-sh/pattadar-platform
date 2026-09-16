@@ -3,20 +3,20 @@
  *  These exist and work in the previous app. Rather than invent a design for
  *  them — or leave the rail pointing at nothing — each says plainly what it is
  *  for and links to the working screen at `/legacy/*`. When a design arrives
- *  for one, it replaces its entry here.
+ *  for one, it replaces its entry here — which is what happened to `admin`:
+ *  /app/admin is now a redirect into the Pattadar desk (routes.tsx), so a stub
+ *  under that key would be an entry nothing routes to.
  */
 import { Link } from 'react-router';
-import OpenInNewOutlined from '@mui/icons-material/OpenInNewOutlined';
 
 import { PageHead } from '../ui';
 
 const SECTIONS: Record<string, { eyebrow: string; title: string; blurb: string; legacy: string }> = {
-  groups: {
-    eyebrow: 'People',
-    title: 'Families & Groups',
-    blurb: 'Who is in the family, what each person may see, and which records a group holds together.',
-    legacy: '/legacy/groups',
-  },
+  // `groups` was here and is gone: Families & Groups is drawn in this design
+  // now (w360/pages/Groups.tsx) and routed at /app/groups, so a stub under
+  // that key would be an entry nothing routes to — the same reason `admin`
+  // left. It was also the clearest case against the pattern: the one control
+  // on the card sent you out of this app and into /legacy in the same tab.
   invitations: {
     eyebrow: 'People',
     title: 'Invitations',
@@ -29,12 +29,6 @@ const SECTIONS: Record<string, { eyebrow: string; title: string; blurb: string; 
     blurb: 'Everything with a deadline, in one place. The two most urgent also sit on your dashboard.',
     legacy: '/legacy/notifications',
   },
-  wallet: {
-    eyebrow: 'Money',
-    title: 'Wallet',
-    blurb: 'The balance the caretaker, the surveyor and the advocate are paid from, and every movement in and out.',
-    legacy: '/legacy/wallet',
-  },
   tools: {
     eyebrow: 'Reference',
     title: 'Tools',
@@ -46,12 +40,6 @@ const SECTIONS: Record<string, { eyebrow: string; title: string; blurb: string; 
     title: 'Audit Log',
     blurb: 'Every link opened, every paper downloaded, every record changed — with who and when.',
     legacy: '/legacy/audit',
-  },
-  admin: {
-    eyebrow: 'Reference',
-    title: 'Admin & Ref Data',
-    blurb: 'Districts, mandals, villages, SRO offices, deed types and the fee schedule behind them.',
-    legacy: '/legacy/admin',
   },
   profile: {
     eyebrow: 'You',
@@ -75,9 +63,12 @@ export function Section({ id }: { id: keyof typeof SECTIONS }) {
           money and shared kits. This section still runs on the previous interface — it works, it
           just has not been redrawn yet.
         </p>
-        <Link className="btn" to={s.legacy}>
-          <OpenInNewOutlined sx={{ fontSize: 16 }} /> Open {s.title}
-        </Link>
+        {/* This used to carry the open-in-new-window glyph, which promised a
+            second tab and delivered a same-tab SPA navigation into the previous
+            interface. Nothing here opens externally — /legacy is this same app,
+            one route over — so the button is plain, the way every other in-app
+            link in the module is drawn. */}
+        <Link className="btn" to={s.legacy}>Open {s.title}</Link>
       </div>
     </main>
   );

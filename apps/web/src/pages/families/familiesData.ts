@@ -177,6 +177,11 @@ export const MEMBER_FIELDS =
 export const GROUP_FIELDS =
   'id ownerUserId type name description myRole memberCount landCount totalExtent totalShare createdAt';
 
+/** As above plus what the group actually HOLDS. Kept separate from
+ *  GROUP_FIELDS so the legacy screen's query is untouched: `landCount` counts
+ *  khatas, which is not the same number as the things in them. */
+export const GROUP_FIELDS_HOLDINGS = `${GROUP_FIELDS} parcelCount propertyCount`;
+
 /** Member status → the Invited / Active language (port of memberStatusTag). */
 export function memberStatusChip(r: {
   status?: string;
@@ -489,6 +494,24 @@ export async function assignLandToGroup(passbookId: string, groupId: string): Pr
     p: passbookId,
     g: groupId,
   });
+}
+
+/**
+ * Move built property — a flat, a shop, an open plot — into a group, or to ''
+ * for your own name.
+ *
+ * The server has had this mutation since groups shipped and nothing called it,
+ * which is why a group could only ever hold agricultural land: `properties`
+ * has no passbook, so `assignLandToGroup` cannot reach it. A property is
+ * assigned one at a time, unlike a khata, because the group lives on the
+ * property's own row.
+ */
+export async function assignPropertyToGroup(propertyId: string, groupId: string): Promise<void> {
+  const d = await gql<{ assignPropertyToGroup: boolean }>(
+    `mutation($p:String!,$g:String!){ assignPropertyToGroup(propertyId:$p, groupId:$g) }`,
+    { p: propertyId, g: groupId },
+  );
+  if (!d.assignPropertyToGroup) throw new Error('That property was not found — reload and try again');
 }
 
 export async function fetchNotifiers(

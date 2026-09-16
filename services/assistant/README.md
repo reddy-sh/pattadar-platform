@@ -1,28 +1,61 @@
-# Assistant (services/assistant)
+# Pattadar Assistant (`services/assistant`)
 
-In-app AI assistant. **Ported** — FastAPI service in `src/` (port 8080), image
-`pattadar/assistant` in ECR. See `.env.example` for the env contract.
+Deployed FastAPI service for the in-app Pattadar assistant. It is the only
+assistant process: FastAPI, `ClaudeSDKClient`, five UI tools, and eight
+historical public-record tools all run in this service. There is no external or
+public tool server, transport endpoint, URL, token, or second process.
 
-Ported from the predecessor's `api/assistant` (`agent.py`, `main.py`, `config.py`, `model_registry.py`,
-`telemetry.py`, `conversations.py`, `attachments.py`, `models.py`) plus
-`api/common/prompt_service.py` (now `src/prompt_service.py`, with a built-in default
-pattadar prompt when the `agent_prompts` table/row is absent).
+## Architecture and invariants
 
-## Key facts to preserve
+- **Runtime:** `ClaudeSDKClient` with the exact version pinned in
+  `requirements.txt`; LangGraph/LangChain are not runtime dependencies.
+- **Durability:** PostgreSQL owns conversations, ordered messages, idempotent
+  run state, and SDK session metadata. SDK-local files are ephemeral.
+- **Scope:** `src/domain_policy.py` denies out-of-scope requests before file
+  content, SDK execution, or tools. Browser context is data, not authorization.
+- **Models:** the administrator-owned `platform_models` catalog is authoritative;
+  the browser has no model controls.
+- **Tools:** built-in Claude tools are disabled. The exact allowlist contains
+  five in-process UI tools and eight in-process, read-only record tools under
+  the internal `pattadar_records` SDK server key.
+- **Action isolation:** only `mcp__pattadar_ui__*` tool results can emit browser
+  actions. Record output is always treated as data.
+- **SSE:** `token`, `thinking`, `tool_start`, `tool_end`, `action`, and `error`
+  remain stable, with an initial keepalive and one terminal `[DONE]`.
+- **Attachments:** owner-scoped uploads are durable in PostgreSQL BYTEA or S3;
+  legacy disk files remain readable during migration.
+- **Public records:** the corpus connection is independent from conversation
+  storage. Every query uses a read-only transaction and statement timeout.
+  An outage changes `/api/capabilities` to `temporarily_unavailable` but does
+  not fail service health, conversation history, uploads, or product help.
+- **Legal boundary:** corpus results are historical references, not proof of
+  identity, ownership, current title, or a live government lookup. `(rid,
+  s_no)` is the record identity, and source extent units are never converted.
 
-- **No MCP in v1**: with `MCP_URL` unset the assistant runs on its built-in
-  navigate/page-action tools only. v1 ships with no MCP gateway.
-- **Plain Language Only**: the prompt rule in `agent.py` must be preserved — the assistant
-  never narrates endpoints, latencies, sagas, or other internals to users.
-- **SSE streaming**: responses stream over SSE and must not be buffered by any proxy in
-  front (ALB/CloudFront config must pass streams through).
-- **PG trap**: the predecessor's code default didn't match `hub` — always set
-  `PG_DATABASE` explicitly.
-- **Model catalog**: read from `platform_models` with a 30s cache, so super-admin model
-  toggles propagate without a restart.
+## Public-record configuration
 
-## TODO(Phase 3 remainder)
+Use `PUBLIC_RECORDS_DATABASE_URL` or `PUBLIC_RECORDS_PG_*` with a dedicated
+SELECT-only PostgreSQL role. The schema/table defaults match the migrated
+`land.real_estate_records`, `land.party`, and `land.boundary_vectors` corpus.
+No record database setting is sent to the browser.
 
-- Page-awareness context (assistant knows which screen the user is on) — the
-  service accepts `application_context` already; the web panel doesn't send it yet.
-- Super-admin Models screen in the web app.
+Semantic boundary search keeps the source bge-m3/1024-dimension/cosine contract
+but is lazy and optional because the model is large. Install
+`requirements-semantic.txt`, set `PUBLIC_RECORDS_EMBEDDINGS_ENABLED=1`, and
+provide model cache/memory capacity. Without it, the other seven record
+operations remain available and capability output explicitly reports semantic
+search as unavailable.
+
+## Local validation
+
+```sh
+python -m compileall -q services/assistant/src
+python -m pytest -q services/assistant/tests/test_attachment_storage.py services/assistant/tests/test_attachment_migration.py
+python -m pytest -q services/assistant/tests/test_public_records_runtime.py
+bun run --filter @pattadar/web typecheck
+bun run --filter @pattadar/web build
+```
+
+`./scripts/start-local.sh` starts API `:8080`, assistant `:8081`, gateway
+`:8082`, and the web app. The assistant remains behind the authenticated gateway
+that injects `x-user-id`.

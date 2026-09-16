@@ -10,6 +10,7 @@ import Testing
 /// a GraphQL error and an empty screen. These run the real thing and clean up
 /// after themselves.
 private func liveAPI() async -> PattadarAPI? {
+    guard ProcessInfo.processInfo.environment["PATTADAR_LIVE_API_TESTS"] == "1" else { return nil }
     let base = URL(string: "http://127.0.0.1:8080")!
     var probe = URLRequest(url: base.appendingPathComponent("health"))
     probe.timeoutInterval = 2

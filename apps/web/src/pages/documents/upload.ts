@@ -18,7 +18,7 @@
  * is `applyReading`, and it is the only function here that changes a document's
  * type.
  */
-import { apiFetch, gql } from '../../api/client';
+import { apiErrorMessage, apiFetch, gql } from '../../api/client';
 import { classifierToType, labelOfType } from './docTypes';
 import { createDocumentRow, nestUnderPattadar, uploadToDrive } from './storage';
 
@@ -127,7 +127,7 @@ export async function readDocument(file: File | Blob, filename: string): Promise
     method: 'POST',
     body: fd,
   });
-  if (!res.ok) throw new Error('The document reader could not be reached');
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'The document reader could not be reached. Try again.'));
   const fields = (((await res.json()) as { fields?: Record<string, unknown> })?.fields || {}) as Record<
     string,
     unknown

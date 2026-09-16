@@ -1,9 +1,9 @@
 /**
- * Public landing page for pattadar.com — Bloom redesign (Hallmark
- * studied-DNA from usehallmark.com/examples/hyperlane, locked in design.md
- * at the repo root). Dark warm paper, amber accent ≤5%, Inter Tight display
+ * Public landing page for pattadar.com — Pattadar Bloom, guided by Material 3
+ * accessibility, adaptive-layout, and expressive-design principles in design.md. Dark warm paper, amber accent ≤5%, Inter Tight display
  * with an Instrument Serif italic accent phrase, mono data strips, hairline
- * rules, ambient blooms. Styling lives in src/styles/site.css + tokens.css.
+ * rules, ambient blooms, and the original Living Land Record illustration
+ * system. Styling lives in src/styles/site.css + tokens.css.
  *
  * COPY IS BYTE-FROZEN — every visible string comes from landingContent.ts
  * (design.md § Copy freeze). This file may restyle, never reword.
@@ -12,9 +12,9 @@
  * stats or logos), self-hosted everything, links never open new tabs, and
  * sign-in always goes to OUR native /login page.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { Link as RouterLink } from 'react-router';
+import { Link as RouterLink, Navigate } from 'react-router';
 import { useNavigate } from 'react-router';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
@@ -30,13 +30,17 @@ import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
-import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import SquareFootOutlinedIcon from '@mui/icons-material/SquareFootOutlined';
 import StraightenOutlinedIcon from '@mui/icons-material/StraightenOutlined';
+import TouchAppOutlinedIcon from '@mui/icons-material/TouchAppOutlined';
+import TranslateOutlinedIcon from '@mui/icons-material/TranslateOutlined';
 import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined';
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
 import { isAuthMocked, useAuth } from '../../auth/AuthProvider';
 import '../../styles/site.css';
+import { AssistantConversation } from './AssistantConversation';
+import { HeroStory } from './HeroStory';
+import { PlatformJourney } from './PlatformJourney';
 import {
   AI,
   FAQ,
@@ -80,6 +84,15 @@ const ICONS: Record<string, ReactElement> = {
   gavel: <GavelOutlinedIcon />,
 };
 
+/** One icon per Pattadar AI point, in order: it reads YOUR records, it acts on
+ * them, and it answers in plain words. The same robot glyph used to be repeated
+ * three times, which told the eye the three points were interchangeable. */
+const AI_POINT_ICONS: ReactElement[] = [
+  <FolderOutlinedIcon key="records" />,
+  <TouchAppOutlinedIcon key="acts" />,
+  <TranslateOutlinedIcon key="plain" />,
+];
+
 /** Rotating word — amber emphasis, cycles with a rise-in animation.
  * Pauses while hovered/focused (WCAG 2.2.2) and never rotates under
  * prefers-reduced-motion. */
@@ -104,33 +117,10 @@ function FlipWord({ words }: { words: string[] }) {
   );
 }
 
-/** Scroll-reveal wrapper — fades sections up as they enter the viewport. */
+/** Content wrapper. CSS adds progressive view-timeline motion where supported,
+ * while the readable layout remains the default without JavaScript. */
 function Reveal({ children }: { children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === 'undefined') {
-      setShown(true);
-      return;
-    }
-    const ob = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          setShown(true);
-          ob.disconnect();
-        }
-      },
-      { rootMargin: '0px 0px -10% 0px' },
-    );
-    ob.observe(el);
-    return () => ob.disconnect();
-  }, []);
-  return (
-    <div ref={ref} className={shown ? 'reveal is-shown' : 'reveal'}>
-      {children}
-    </div>
-  );
+  return <div className="reveal">{children}</div>;
 }
 
 const scrollToId = (id: string) =>
@@ -145,6 +135,7 @@ export function LandingPage() {
     navigate(isAuthMocked || isAuthenticated ? '/app' : '/login');
   };
 
+
   // N10 scroll-morph: full-width hairline bar at rest, floating pill once
   // the page scrolls.
   const [scrolled, setScrolled] = useState(false);
@@ -154,6 +145,21 @@ export function LandingPage() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // Somebody who is already signed in does not need the pitch again. Typing
+  // pattadar.com used to land them on ten sections of marketing headed by a
+  // "Sign in" button they had already used, and the way to their own records
+  // was to find that button and press it. They go straight to /app instead.
+  //
+  // Below every hook, not beside the others at the top: auth resolves
+  // asynchronously, so this branch is taken on a LATER render than the first,
+  // and returning before useState/useEffect would change the hook count
+  // between renders — the one React error that takes the whole page down.
+  //
+  // `isAuthMocked` is excluded deliberately: in local dev and under the e2e
+  // mock the dev user is permanently signed in, and redirecting on that would
+  // make this page unreachable for the people working on it.
+  if (!isAuthMocked && isAuthenticated) return <Navigate to="/app" replace />;
 
   return (
     <div className="dark site">
@@ -187,28 +193,33 @@ export function LandingPage() {
       <main>
         {/* ── hero · Marquee ─────────────────────────────────────────── */}
         <section className="hero" aria-labelledby="hero-h">
-          <p className="hero__rail">
-            <span className="hero__rail-dot" aria-hidden />
-            {HERO.badge}
-          </p>
-          <h1 className="hero__display" id="hero-h">
-            <span className="hero__line">{HERO.h1Line1}</span>
-            <span className="hero__line">
-              <em>{HERO.h1Line2}</em>
-            </span>
-          </h1>
-          <p className="hero__lead">
-            {HERO.leadPrefix}
-            <FlipWord words={HERO.flipWords} />
-            {HERO.leadSuffix}
-          </p>
-          <div className="hero__ctas">
-            <button type="button" className="cta cta--primary cta--lg" onClick={startSignIn}>
-              {HERO.ctaPrimary}
-            </button>
-            <button type="button" className="cta cta--ghost cta--lg" onClick={startSignIn}>
-              {HERO.ctaSecondary}
-            </button>
+          <div className="hero__stage">
+            <div className="hero__copy">
+              <p className="hero__rail">
+                <span className="hero__rail-dot" aria-hidden />
+                {HERO.badge}
+              </p>
+              <h1 className="hero__display" id="hero-h">
+                <span className="hero__line">{HERO.h1Line1}</span>
+                <span className="hero__line">
+                  <em>{HERO.h1Line2}</em>
+                </span>
+              </h1>
+              <p className="hero__lead">
+                {HERO.leadPrefix}
+                <FlipWord words={HERO.flipWords} />
+                {HERO.leadSuffix}
+              </p>
+              <div className="hero__ctas">
+                <button type="button" className="cta cta--primary cta--lg" onClick={startSignIn}>
+                  {HERO.ctaPrimary}
+                </button>
+                <button type="button" className="cta cta--ghost cta--lg" onClick={startSignIn}>
+                  {HERO.ctaSecondary}
+                </button>
+              </div>
+            </div>
+            <HeroStory />
           </div>
           <ul className="hero__meta">
             {TRUST_ITEMS.map((item) => (
@@ -290,35 +301,28 @@ export function LandingPage() {
         <section id="ai" className="section" aria-labelledby="ai-h">
           <Reveal>
             <div className="section__inner">
-              <header className="section-head">
+              <header className="section-head section-head--tight">
                 <p className="section-eyebrow">{AI.eyebrow}</p>
                 <h2 className="section-h" id="ai-h">
                   {AI.h2}
                 </h2>
-                <p className="section-lead">{AI.lead}</p>
               </header>
               <div className="split">
-                <div className="split__points">
-                  {AI.points.map(([t, b]) => (
-                    <div key={t} className="point">
-                      <SmartToyOutlinedIcon />
-                      <div>
-                        <h3 className="point__h">{t}</h3>
-                        <p className="point__b">{b}</p>
+                <div className="split__copy">
+                  <p className="section-lead">{AI.lead}</p>
+                  <div className="split__points">
+                    {AI.points.map(([t, b], i) => (
+                      <div key={t} className="point">
+                        {AI_POINT_ICONS[i]}
+                        <div>
+                          <h3 className="point__h">{t}</h3>
+                          <p className="point__b">{b}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="convo">
-                  <p className="overline">{AI.convoOverline}</p>
-                  <div className="convo__thread">
-                    {AI.convo.map((m) => (
-                      <p key={m.text} className={`bubble bubble--${m.role}`}>
-                        {m.text}
-                      </p>
                     ))}
                   </div>
                 </div>
+                <AssistantConversation />
               </div>
             </div>
           </Reveal>
@@ -327,21 +331,13 @@ export function LandingPage() {
         {/* ── how it works · numbered timetable rows ─────────────────── */}
         <section id="how" className="section band" aria-labelledby="how-h">
           <div className="section__inner">
-            <header className="section-head">
+            <header className="section-head section-head--tight">
               <p className="section-eyebrow">{HOW.eyebrow}</p>
               <h2 className="section-h" id="how-h">
                 {HOW.h2}
               </h2>
             </header>
-            <ul className="rows">
-              {HOW.steps.map((step) => (
-                <li key={step.n} className="rows__row">
-                  <span className="rows__num">{step.n}</span>
-                  <h3 className="rows__label">{step.title}</h3>
-                  <p className="rows__note">{step.body}</p>
-                </li>
-              ))}
-            </ul>
+            <PlatformJourney />
           </div>
         </section>
 

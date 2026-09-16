@@ -1,6 +1,6 @@
 # Pattadar UX Redesign — Material Design 3 on Emerald & Gold
 
-**Status:** Active spec for the M3 redesign loop · **Rule zero:** functionality parity is gated by the `tests/e2e-ux` Playwright suite — no restyle merges while it's red.
+**Status:** Historical design spec. The former `tests/e2e-ux` Playwright gate was retired on 2026-09-16; current automated regression coverage lives in CI unit tests and `tests/e2e-web360`.
 
 ## Principles (Google-standard, applied to this product)
 

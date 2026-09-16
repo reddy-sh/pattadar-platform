@@ -14,12 +14,123 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Agent Skills
+        run: python3 scripts/validate-agent-governance.py
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - run: bun test packages/core apps/web/src/api apps/web/src/lib apps/web/src/w360 apps/mobile/tests
+      # Discovered, not enumerated: a list here silently stops covering the next
+      # script somebody adds, which is how twelve of these came to run nowhere.
+      - name: Offline rule and guard assertions
+        run: |
+          set -euo pipefail
+          for script in scripts/*-tests.ts; do
+            echo "── $script"
+            bun run "$script"
+          done
+          bun run scripts/icon-guard.ts
+          bun run scripts/ux-guards.ts
       - run: bun run build
+
+  backend:
+    name: Backend and browser regression tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: rhub
+          POSTGRES_PASSWORD: rhub-dev-pwd
+          POSTGRES_DB: pattadar_ci
+        ports: [5432:5432]
+        options: --health-cmd "pg_isready -U rhub -d pattadar_ci" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      APP_PG_DSN: host=localhost port=5432 dbname=pattadar_ci user=rhub password=rhub-dev-pwd
+      TEST_PG_DSN: host=localhost port=5432 dbname=pattadar_ci user=rhub password=rhub-dev-pwd
+      ALLOW_INSECURE_LOCAL: '1'
+      APP_PUBLIC_URL: http://localhost:5175
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Enable isolated PostgreSQL security tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          echo "$(pg_config --bindir)" >> "$GITHUB_PATH"
+      - run: |
+          python -m venv .local/api-venv
+          .local/api-venv/bin/pip install -r services/api/requirements.txt pytest
+          python -m venv .local/gateway-venv
+          .local/gateway-venv/bin/pip install -r services/gateway/requirements.txt pytest
+          python -m venv .local/assistant-venv
+          .local/assistant-venv/bin/pip install -r services/assistant/requirements.txt pytest
+      - name: Initialize disposable test database
+        run: .local/api-venv/bin/python scripts/init-test-db.py
+      - run: .local/api-venv/bin/python -m pytest services/api/tests -q
+      - run: .local/gateway-venv/bin/python -m pytest services/gateway/tests -q
+      - name: Assistant attachment and internal-tool contracts
+        run: |
+          .local/assistant-venv/bin/python -m pytest \
+            services/assistant/tests/test_attachment_storage.py \
+            services/assistant/tests/test_attachment_migration.py -q
+          .local/assistant-venv/bin/python -m pytest \
+            services/assistant/tests/test_public_records_runtime.py -q
+      # deploy-release.py decides what reaches production ECS; it is the one
+      # script whose bugs cannot be caught by a later test.
+      - run: .local/api-venv/bin/python -m pytest scripts/tests -q
+      - run: bunx playwright install --with-deps chromium
+        working-directory: tests/e2e-web360
+      - run: bun run test
+        working-directory: tests/e2e-web360
+      # Boundary drawing and the portfolio map are testIgnore'd by the default
+      # config and own their own servers, so they need their own invocation.
+      - run: bunx playwright test --config maps.config.ts
+        working-directory: tests/e2e-web360
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-evidence
+          path: |
+            tests/e2e-web360/test-results
+            tests/e2e-web360/playwright-report
+
+  ios:
+    name: Native rules and simulator build
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run scripts/emit-vectors.ts --check
+      - name: Check web and native contracts
+        env:
+          PARITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$PARITY_BASE" ] && [ "$PARITY_BASE" != 0000000000000000000000000000000000000000 ]; then
+            bun run scripts/parity-check.ts "$PARITY_BASE..$GITHUB_SHA"
+          else
+            bun run scripts/parity-check.ts "$GITHUB_SHA"
+          fi
+      - run: swift test
+        working-directory: apps/ios/PattadarKit
+      - run: brew install xcodegen
+      - run: xcodegen generate
+        working-directory: apps/ios
+      - run: xcodebuild -project Pattadar.xcodeproj -scheme Pattadar -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        working-directory: apps/ios
 
   terraform-fmt:
     name: Terraform fmt

@@ -55,32 +55,17 @@ export default function SettingsDrawer() {
     </Stack>
   );
 
-  const renderMode = (
+  const renderTheme = (
     <div>
       <Typography variant="caption" component="div" sx={{ ...labelStyles }}>
-        Mode
+        Theme
       </Typography>
 
       <BaseOptions
-        value={settings.themeMode}
-        onChange={(newValue) => settings.onUpdate('themeMode', newValue)}
-        options={['light', 'dark']}
-        icons={['sun', 'moon']}
-      />
-    </div>
-  );
-
-  const renderContrast = (
-    <div>
-      <Typography variant="caption" component="div" sx={{ ...labelStyles }}>
-        Contrast
-      </Typography>
-
-      <BaseOptions
-        value={settings.themeContrast}
-        onChange={(newValue) => settings.onUpdate('themeContrast', newValue)}
-        options={['default', 'bold']}
-        icons={['contrast', 'contrast_bold']}
+        value={settings.themeChoice}
+        onChange={(newValue) => settings.onUpdate('themeChoice', newValue)}
+        options={['light', 'dark', 'highContrast']}
+        icons={['sun', 'moon', 'contrast_bold']}
       />
     </div>
   );
@@ -147,9 +132,7 @@ export default function SettingsDrawer() {
 
       <Scrollbar>
         <Stack spacing={3} sx={{ p: 3 }}>
-          {renderMode}
-
-          {renderContrast}
+          {renderTheme}
 
           {renderLayout}
 

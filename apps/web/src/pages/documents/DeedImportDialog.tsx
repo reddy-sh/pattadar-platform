@@ -20,7 +20,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
-import { apiFetch, gql } from '../../api/client';
+import { apiErrorMessage, apiFetch, gql } from '../../api/client';
 import { uploadToDrive } from './storage';
 import { useReadingMessage } from './readingMessages';
 
@@ -105,7 +105,7 @@ export function DeedImportDialog({ open, onClose, onSaved, onToast }: Props) {
     setFileName(file.name);
     try {
       // My Drive mirror — best-effort, exactly like the source.
-      void uploadToDrive(file);
+      void uploadToDrive(file).catch(() => { /* Reading can proceed; filing still requires a successful upload. */ });
       const fd = new FormData();
       fd.append('file', file);
       const res = await apiFetch('/api/gateway/pattadar/import-registered-document', {
@@ -114,13 +114,7 @@ export function DeedImportDialog({ open, onClose, onSaved, onToast }: Props) {
       });
       if (!res.ok) {
         // Hard failure (e.g. a 504 timeout) — surface the backend's readable error message.
-        let reason = "Couldn't read this document — please fill in the details below.";
-        try {
-          const body = await res.json();
-          if (body?.error) reason = String(body.error);
-        } catch {
-          /* keep fallback */
-        }
+        const reason = await apiErrorMessage(res, "Couldn't read this document — please fill in the details below.");
         setFailReason(reason);
         setImporting(false);
         return;

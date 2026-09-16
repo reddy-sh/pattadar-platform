@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Seed the demo data behind screens W01–W15.
+"""Seed the demo data behind screens W01–W16.
 
     .local/api-venv/bin/python scripts/seed-web360.py [user_id]
 
@@ -16,7 +16,15 @@ mock's totals disagree with its own line items, the line items win:
     to more than that even before the managed/watched filter.
   · W15 shows eight shelves adding to 61 documents under a "64 papers" header.
 Both are seeded to the line items; see the handover note.
+
+W16 adds six service tickets on Sy 214/2, one in every state worth showing,
+with the trail, the dispatches, the deliverables and the ledger rows that go
+with each. The money is a record of what is owed and nothing more — every
+service_payments row is provider='stub', status='recorded', and no rupee has
+moved anywhere.
 """
+import base64
+import hashlib
 import os
 import sys
 import psycopg
@@ -208,16 +216,34 @@ VERSIONS = [
 ]
 
 # ── W04 · boundary marks ──────────────────────────────────────────────
+# These four points are now drawn on a real basemap, so they have to enclose
+# the extent the record claims. The old set spanned ~15 acres on a 3.24-acre
+# parcel — invisible in a 0..1 sketch, a plain contradiction over imagery.
+# 1.3:1, turned 8° off north, closing at 3.25 ac against the register's 3.24:
+# a 0.3% disagreement, which is what a real survey looks like and what the
+# sheet-versus-ground check exists to report.
 MARKS = [
     (P + "bm-1", 1, "South-west stone", "confirmed", "confirmed 12/08/2026",
-     17.0771, 82.1385, 0, "12/08/2026"),
+     17.07765, 82.13872, 0, "12/08/2026"),
     (P + "bm-2", 2, "North-west stone", "confirmed", "confirmed 12/08/2026",
-     17.0795, 82.1387, 0, "12/08/2026"),
+     17.07882, 82.13855, 0, "12/08/2026"),
     (P + "bm-3", 3, "North-east stone", "confirmed", "confirmed 12/08/2026",
-     17.0795, 82.1408, 0, "12/08/2026"),
+     17.07895, 82.13948, 0, "12/08/2026"),
     (P + "bm-4", 4, "South-east stone moved ~4 ft in", "moved",
-     "reported 12/08/2026 · 2 photos", 17.0772, 82.1406, 2, "12/08/2026"),
+     # No "· 2 photos": nothing in the schema links a photo to a boundary
+     # mark, so the resolver reports 0 and the sentence contradicted it.
+     "reported 12/08/2026", 17.07778, 82.13965, 0, "12/08/2026"),
 ]
+
+# The surveyed outline for Sy 214/2 — the four stones above, in the order they
+# are walked, in `parcels.boundary`'s own "lat,lng;…" convention (the column
+# main.py has carried since the FMB point table, mutations and all). `shape`
+# stays the 0..1 sketch every other record still uses; only a record that has
+# actually been surveyed gets a boundary, and everything else keeps the
+# sketch, which is the honest answer.
+BOUNDARIES = {
+    P + "p-214-2": "17.07765,82.13872;17.07882,82.13855;17.07895,82.13948;17.07778,82.13965",
+}
 
 # ── W08 · people on Sy 214/2 ──────────────────────────────────────────
 PEOPLE = [
@@ -350,17 +376,245 @@ WAITING = [
      "map", "Combine", "primary", P + "p-214-2", 3),
 ]
 
-# ── W03 Services · the two orders live on Sy 214/2 ────────────────────
-# id, kind, title, note, assignee, cost, stage, needs_you, due
+# ── W16 Services · six jobs, one in every state worth seeing ──────────
+# A demo has to be able to walk the whole life of a ticket without anybody
+# clicking it through first: placed and unsent, sent out and unanswered, in
+# progress, work back and waiting on you, accepted and filed, sent back and
+# then cancelled with a part settlement. Every one carries its own trail,
+# its own dispatches, its own deliverables and its own ledger rows, because
+# a ticket whose money does not match its status is worse than no seed.
+#
+# "Today" in the demo is 13/08/2026.
+# id, kind, title, note, assignee, cost, status, due, created, status_at, outcome
 ORDERS = [
     ("PT-2094", "survey", "Boundary re-survey",
      "Licensed surveyor re-walks the four marks and issues a sketch. "
-     "\u20b92,900 is held in escrow until you accept it.",
-     "G. Srinivas", 2900, 2, True, "20/08/2026"),
+     "₹2,900 is held in escrow until you accept it.",
+     "G. Srinivas", 2900, "submitted", "20/08/2026", "2026-08-01", "2026-08-12", ""),
     ("PT-2081", "site_visit", "Monthly site visit",
      "Dated geo-stamped photos, boundary walk, condition of every feature.",
-     "M. Satyanarayana", 1200, 3, False, "01/09/2026"),
+     "M. Satyanarayana", 1200, "on_site", "01/09/2026", "2026-08-04", "2026-08-11", ""),
+    ("PT-2101", "ec", "Encumbrance Certificate",
+     "Thirty years of the registrar's record, for the bank.",
+     "", 1180, "placed", "14/09/2026", "2026-08-10", "2026-08-10", ""),
+    ("PT-2102", "title_opinion", "Title opinion",
+     "An advocate reads the chain of documents and writes whether the title is clean.",
+     "", 4500, "sent", "21/09/2026", "2026-08-02", "2026-08-04", ""),
+    ("PT-2103", "patta_copy", "Certified patta copy",
+     "A stamped copy of the pattadar passbook entry from the village office.",
+     "K. Prasad", 450, "accepted", "10/08/2026", "2026-07-28", "2026-08-06",
+     "The stamp is clear and the khata matches."),
+    ("PT-2104", "mutation", "Mutation / name transfer",
+     "Getting the revenue record moved into the new owner's name after the sale.",
+     "B. Ravi", 2200, "cancelled", "30/08/2026", "2026-07-20", "2026-08-08",
+     "Two deeds short and no answer for a fortnight. Settled him for the trips."),
 ]
+
+# The 0..3 pip index each status projects onto. Mirrors ticketing.STATUS_STAGE
+# in services/api/src/web360.py's neighbour — the seed is a standalone script
+# and cannot import the service package, so it restates the four numbers and
+# nothing else.
+STAGE_FOR_STATUS = {"placed": 0, "sent": 0, "assigned": 1, "on_site": 2,
+                    "submitted": 3, "changes": 2, "accepted": 3, "cancelled": 3}
+
+# ── W16 · what happened on each job ──────────────────────────────────
+# The trail is the tracking screen and it is the file somebody opens six
+# months later, so every status the ticket passed through has a line, and
+# every line is dated. Nothing here is ever updated in the app either.
+# ticket, kind, action, from, to, actor_label, actor_kind, headline, detail, at
+TICKET_EVENTS = [
+    ("PT-2094", "status", "place", "", "placed", "You", "owner",
+     "Placed", "Ordered from Sy 214/2", "2026-08-01"),
+    ("PT-2094", "payment", "", "", "", "", "system",
+     "₹2,900 set aside", "Recorded, not charged", "2026-08-01"),
+    ("PT-2094", "status", "assign", "placed", "assigned", "You", "owner",
+     "You put G. Srinivas on it", "", "2026-08-03"),
+    ("PT-2094", "status", "start", "assigned", "on_site", "G. Srinivas", "worker",
+     "G. Srinivas is on site", "", "2026-08-09"),
+    ("PT-2094", "deliverable", "", "", "", "You", "owner",
+     "'Re-survey sketch' came back", "", "2026-08-12"),
+    ("PT-2094", "status", "deliver", "on_site", "submitted", "You", "owner",
+     "Work came back", "Four things, waiting on you", "2026-08-12"),
+
+    ("PT-2081", "status", "place", "", "placed", "You", "owner",
+     "Placed", "Ordered from Sy 214/2", "2026-08-04"),
+    ("PT-2081", "payment", "", "", "", "", "system",
+     "₹1,200 set aside", "Recorded, not charged", "2026-08-04"),
+    ("PT-2081", "status", "assign", "placed", "assigned", "You", "owner",
+     "You put M. Satyanarayana on it", "", "2026-08-05"),
+    ("PT-2081", "status", "start", "assigned", "on_site", "M. Satyanarayana", "worker",
+     "M. Satyanarayana is on site", "", "2026-08-11"),
+
+    ("PT-2101", "status", "place", "", "placed", "You", "owner",
+     "Placed", "Ordered from Sy 214/2", "2026-08-10"),
+
+    ("PT-2102", "status", "place", "", "placed", "You", "owner",
+     "Placed", "Ordered from Sy 214/2", "2026-08-02"),
+    ("PT-2102", "payment", "", "", "", "", "system",
+     "₹4,500 set aside", "Recorded, not charged", "2026-08-02"),
+    ("PT-2102", "dispatch", "", "", "", "You", "owner",
+     "Sent to K. Prasad on WhatsApp — recorded, not sent (stub)",
+     "Nine days ago. Nothing back.", "2026-08-04"),
+    ("PT-2102", "status", "dispatch", "placed", "sent", "You", "owner",
+     "You sent it out", "", "2026-08-04"),
+
+    ("PT-2103", "status", "place", "", "placed", "You", "owner",
+     "Placed", "Ordered from Sy 214/2", "2026-07-28"),
+    ("PT-2103", "payment", "", "", "", "", "system",
+     "₹450 set aside", "Recorded, not charged", "2026-07-28"),
+    ("PT-2103", "status", "assign", "placed", "assigned", "You", "owner",
+     "You put K. Prasad on it", "", "2026-07-29"),
+    ("PT-2103", "status", "deliver", "assigned", "submitted", "You", "owner",
+     "Work came back", "One stamped copy", "2026-08-05"),
+    ("PT-2103", "filed", "", "", "", "You", "owner",
+     "Filed on the Revenue record shelf", "Certified patta copy 2026", "2026-08-06"),
+    ("PT-2103", "status", "accept", "submitted", "accepted", "You", "owner",
+     "You accepted the work", "The stamp is clear and the khata matches.", "2026-08-06"),
+    ("PT-2103", "payment", "", "", "", "", "system",
+     "₹405 recorded as owed to K. Prasad", "Recorded, not charged", "2026-08-06"),
+
+    ("PT-2104", "status", "place", "", "placed", "You", "owner",
+     "Placed", "Ordered from Sy 214/2", "2026-07-20"),
+    ("PT-2104", "payment", "", "", "", "", "system",
+     "₹2,200 set aside", "Recorded, not charged", "2026-07-20"),
+    ("PT-2104", "status", "assign", "placed", "assigned", "You", "owner",
+     "You put B. Ravi on it", "", "2026-07-22"),
+    ("PT-2104", "status", "deliver", "assigned", "submitted", "You", "owner",
+     "Work came back", "One form, no deeds", "2026-07-30"),
+    ("PT-2104", "status", "send_back", "submitted", "changes", "You", "owner",
+     "You sent it back", "The sale deed and the EC are not with it.", "2026-07-31"),
+    ("PT-2104", "status", "cancel", "changes", "cancelled", "You", "owner",
+     "You cancelled it", "Two deeds short and no answer for a fortnight.", "2026-08-08"),
+    ("PT-2104", "payment", "", "", "", "", "system",
+     "₹1,500 given back", "Recorded, not charged", "2026-08-08"),
+]
+
+# ── W16 · what left the building ─────────────────────────────────────
+# ticket, purpose, channel, contact, person, subject, provider, status,
+# expires_on, revoked_at, sent_at
+DISPATCHES = [
+    ("PT-2102", "invite", "whatsapp", "+919848012345", "K. Prasad", "",
+     "stub", "logged", "18/08/2026", "", "2026-08-04"),
+    ("PT-2094", "invite", "email", "g.srinivas@example.com", "G. Srinivas",
+     "Boundary re-survey at Peddapuram — PT-2094",
+     "stub", "logged", "17/08/2026", "", "2026-08-03"),
+    ("PT-2104", "withdrawn", "sms", "+919848055512", "B. Ravi", "",
+     "stub", "logged", "03/08/2026", "2026-08-08", "2026-08-08"),
+]
+
+# Exactly what went out, kept so "See what was sent" has something to show and
+# so the seed proves the point the whole dispatch design rests on: there is no
+# link in any of these. Written out rather than rendered, because the seed is
+# a standalone script and ticketing.render_dispatch lives in the service.
+DISPATCH_BODIES = {
+    "PT-2102": "Namaste K. Prasad \U0001f64f\n"
+               "A landowner using Pattadar has asked for a Title opinion at Peddapuram.\n"
+               "\U0001f4cd Peddapuram · 3.24 ac\n"
+               "\U0001f5d3 By 21/09/2026\n"
+               "\U0001f4b0 ₹4,500, paid when the owner accepts what you send.\n"
+               "Reply here and it reaches the owner through Pattadar. The owner can "
+               "withdraw this request at any time.\n"
+               "Ref PT-2102",
+    "PT-2094": "<p>Namaste G. Srinivas,</p>\n"
+               "<p>A landowner using Pattadar has asked for a Boundary re-survey at "
+               "Peddapuram.</p>\n"
+               "<p><strong>Where</strong> Peddapuram · 3.24 ac<br>\n"
+               "   <strong>By</strong> 20/08/2026<br>\n"
+               "   <strong>Fee</strong> ₹2,900, paid when the owner accepts what "
+               "you send.</p>\n"
+               "<p>Reply to this email and it reaches the owner through Pattadar. The "
+               "owner can withdraw this request at any time.</p>\n"
+               "<p>— Pattadar · PT-2094</p>",
+    # ASCII only and inside one 160-character segment: GSM-7 has no rupee sign
+    # and a single one of them halves the message.
+    "PT-2104": "Pattadar PT-2104: The owner has withdrawn this request. Nothing more "
+               "is needed. Reply to this number. -PTDR",
+}
+
+# What a dispatch tells the person, and nothing else of the owner's goes with
+# it. Mirrors ticketing.DISPATCH_SHOWS.
+DISPATCH_SHOWS = ["What the job is", "Where the land is", "How big it is",
+                  "What you asked for", "What it pays", "When it is wanted by"]
+
+REVOKE_REASONS = {"PT-2104": "Two deeds short and no answer for a fortnight."}
+
+# ── W16 · what came back ─────────────────────────────────────────────
+# A deliverable is not a document, a photo or a feature yet. PT-2094's four
+# are still pending, which is what makes the review screen worth opening;
+# PT-2103's one was accepted and became a real documents row; PT-2104's was
+# rejected and is kept, because it is evidence of what was sent.
+# ticket, kind, label, note, file_ref, file_name, mime, size, file_as,
+# review, review_note, submitted_by, submitted_at, filed_table, filed_id
+DELIVERABLES = [
+    ("PT-2094", "paper", "Re-survey sketch",
+     "Traced against FMB 214, all four corners pinned.", "", "FMB-214-resurvey.pdf",
+     "application/pdf", 1_412_000, "map", "pending", "", "G. Srinivas", "12/08/2026", "", ""),
+    ("PT-2094", "photo", "Corner A — stone found", "", "", "corner-a.jpg",
+     "image/jpeg", 2_240_000, "boundary", "pending", "", "G. Srinivas", "12/08/2026", "", ""),
+    ("PT-2094", "photo", "Corner C — stone missing", "", "", "corner-c.jpg",
+     "image/jpeg", 2_110_000, "boundary", "pending", "", "G. Srinivas", "12/08/2026", "", ""),
+    ("PT-2094", "boundary", "The corrected outline",
+     "Eastern edge moved 12 m west of the sheet.", "", "", "", 0, "",
+     "pending", "", "G. Srinivas", "12/08/2026", "", ""),
+
+    ("PT-2103", "paper", "Certified patta copy 2026",
+     "Stamped at the village office 05/08/2026.", "", "patta-copy-2026.pdf",
+     "application/pdf", 640_000, "revenue", "accepted", "", "K. Prasad", "05/08/2026",
+     "documents", P + "doc-patta-2026"),
+
+    ("PT-2104", "paper", "Mutation form MA-3", "Signed, but no deeds attached.", "",
+     "mutation-form.pdf", "application/pdf", 210_000, "revenue", "rejected",
+     "The sale deed and the EC are not with it.", "B. Ravi", "30/07/2026", "", ""),
+]
+
+# The one deliverable that carries a shape. Everything else's payload is '{}'.
+DELIVERABLE_RINGS = {
+    "The corrected outline":
+        '{"ring": "16.8412,80.1233;16.8419,80.1251;16.8404,80.1259;16.8397,80.1240"}',
+}
+
+# When each decided deliverable was decided, and when the accepted one landed.
+DELIVERABLE_REVIEWED = {"Certified patta copy 2026": "2026-08-06",
+                        "Mutation form MA-3": "2026-07-31"}
+DELIVERABLE_FILED_AT = {"Certified patta copy 2026": "2026-08-06"}
+
+# ── W16 · the ledger ─────────────────────────────────────────────────
+# Append-only, double-entry, always positive: the direction is the bucket
+# pair. Every figure on the Wallet page is a SUM over these rows, so the two
+# cannot drift.
+#   held   = (2900+1200+4500+450+2200) - (405+45+1500+630+70) = 8,600
+#   payout = 405 + 630 = 1,035   fee = 45 + 70 = 115   gone out = 1,150
+#   wallet = 1,500 back in against 11,250 set aside
+# ticket, entry, amount, payee, note, at
+LEDGER = [
+    ("PT-2094", "hold",    2900.0, "", "Set aside for this job",        "2026-08-01"),
+    ("PT-2081", "hold",    1200.0, "", "Set aside for this job",        "2026-08-04"),
+    ("PT-2102", "hold",    4500.0, "", "Set aside for this job",        "2026-08-02"),
+    ("PT-2103", "hold",     450.0, "", "Set aside for this job",        "2026-07-28"),
+    ("PT-2103", "release",  405.0, "K. Prasad", "Released on acceptance", "2026-08-06"),
+    ("PT-2103", "fee",       45.0, "", "Pattadar's share",              "2026-08-06"),
+    ("PT-2104", "hold",    2200.0, "", "Set aside for this job",        "2026-07-20"),
+    ("PT-2104", "return",  1500.0, "", "Given back on cancellation",    "2026-08-08"),
+    ("PT-2104", "release",  630.0, "B. Ravi", "Settled on cancellation", "2026-08-08"),
+    ("PT-2104", "fee",       70.0, "", "Pattadar's share",              "2026-08-08"),
+]
+
+# Which two buckets each entry moves money between. The source of truth is
+# ticketing.ENTRIES in services/api/src/ticketing.py; the seed is a standalone
+# script that cannot import the service package, so it restates the five pairs
+# here and must be changed with it.
+ENTRIES = {
+    "top_up":  ("outside", "wallet"),
+    "hold":    ("wallet",  "held"),
+    "release": ("held",    "payout"),
+    "fee":     ("held",    "fee"),
+    "return":  ("held",    "wallet"),
+}
+
+# What the wallet was topped up with before any of this. 25,000 in, 11,250 set
+# aside on jobs and 8,700 already paid to people leaves a positive balance and
+# a legible split, which is the whole point of putting a number here.
+WALLET_TOPPED_UP = 25000
 
 # ── W09 · someone else's property ─────────────────────────────────────
 KITS = [
@@ -400,6 +654,11 @@ def main() -> None:
             ("share_links", "id"), ("document_versions", "id"), ("shared_kit_items", "id"),
             ("shared_kit_checks", "id"), ("shared_kits", "id"), ("waiting_items", "id"),
             ("land_features", "id"), ("land_expenses", "id"), ("notes", "id"),
+            # W16 · a ticket's children key off the ticket and not off the
+            # record, so nothing else in this list can reach them. Children
+            # before the parent, or the ticket goes and its trail stays.
+            ("ticket_events", "id"), ("ticket_deliverables", "id"),
+            ("ticket_dispatches", "id"), ("service_payments", "id"),
             ("work_requests", "id"),
             ("parcel_photos", "id"), ("documents", "id"), ("parcels", "id"),
             ("properties", "id"), ("passbooks", "id"),
@@ -425,10 +684,12 @@ def main() -> None:
             conn.execute(
                 "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent, unit,"
                 " classification, geo_point, created_at, status, stake, market_value,"
-                " purchase_price, purchase_date, loan_amount, guideline_value, shape, address)"
-                " VALUES (%s,%s,%s,%s,%s,'Acres-Guntas','agri',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                " purchase_price, purchase_date, loan_amount, guideline_value, shape, boundary,"
+                " address)"
+                " VALUES (%s,%s,%s,%s,%s,'Acres-Guntas','agri',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (pid, pb, sy, sub, ext, geo, OPENED.get(pid, "2026-08-01"), status, stake, mkt, paid, paid_on,
-                 loan, mkt * 0.7, shape, "కొత్తపల్లి, పెద్దాపురం" if "214" in sy else ""))
+                 loan, mkt * 0.7, shape, BOUNDARIES.get(pid, ""),
+                 "కొత్తపల్లి, పెద్దాపురం" if "214" in sy else ""))
 
         for (rid, typ, label, locality, city, built, land, status, stake, mkt, paid,
              geo, shape) in PROPERTIES:
@@ -590,13 +851,102 @@ def main() -> None:
                 " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (wid, UID, title, detail, icon, action, kind, rec, sort))
 
-        for (oid, kind, title, note, who, cost, stage, needs, due) in ORDERS:
+        # ── W16 · the six tickets, and everything hanging off them ────
+        # `stage` is written FROM `status` and never by hand, exactly as
+        # web360._move does it, so the four pips and the eight-valued truth
+        # cannot disagree the moment the app touches a seeded row.
+        for (oid, kind, title, note, who, cost, status, due, made, moved,
+             outcome) in ORDERS:
+            stage = STAGE_FOR_STATUS[status]
             conn.execute(
                 "INSERT INTO work_requests (id, owner_user_id, kind, title, entity_type,"
                 " entity_id, assignee, cost, stage, needs_you, note, due_date, closed,"
-                " created_at) VALUES (%s,%s,%s,%s,'record',%s,%s,%s,%s,%s,%s,%s,false,"
-                "'2026-08-01')",
-                (P + oid, UID, kind, title, parcel, who, cost, stage, needs, note, due))
+                " created_at, params, status, status_at, quoted, payee_share,"
+                " outcome_note, accepted_at)"
+                " VALUES (%s,%s,%s,%s,'record',%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}',%s,%s,%s,"
+                "0.90,%s,%s)",
+                (P + oid, UID, kind, title, parcel, who, cost, stage,
+                 status == "submitted", note, due,
+                 status in ("accepted", "cancelled"), made, status, moved, cost,
+                 outcome, moved if status == "accepted" else ""))
+
+        for i, (oid, ekind, action, frm, to, actor_label, actor_kind, headline,
+                detail, at) in enumerate(TICKET_EVENTS):
+            conn.execute(
+                "INSERT INTO ticket_events (id, owner_user_id, ticket_id, kind, action,"
+                " from_status, to_status, actor, actor_kind, actor_label, headline,"
+                " detail, ref_table, ref_id, at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'','',%s)",
+                (f"{P}te-{i}", UID, P + oid, ekind, action, frm, to,
+                 UID if actor_kind == "owner" else "", actor_kind, actor_label,
+                 headline, detail, at))
+
+        for i, (oid, purpose, channel, contact, person, subject, provider, dstatus,
+                expires, revoked, sent) in enumerate(DISPATCHES):
+            # The token is minted the way ticketing.mint_token mints one, off a
+            # fixed string rather than the entropy pool: a seed that rolls dice
+            # is a seed whose rows change under a re-run.
+            token = base64.urlsafe_b64encode(
+                hashlib.sha256(f"w360-seed:{oid}:{purpose}".encode()).digest()
+            ).decode().rstrip("=")
+            conn.execute(
+                "INSERT INTO ticket_dispatches (id, owner_user_id, ticket_id, purpose,"
+                " channel, contact, person_name, subject, body, shows, token_hash,"
+                " token_tail, provider, status, error, expires_on, revoked_at,"
+                " revoke_reason, sent_at, sort)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'',%s,%s,%s,%s,%s)",
+                (f"{P}dx-{i}", UID, P + oid, purpose, channel, contact, person, subject,
+                 DISPATCH_BODIES.get(oid, ""), __import__("json").dumps(DISPATCH_SHOWS),
+                 hashlib.sha256(token.encode()).hexdigest(), token[-4:], provider,
+                 dstatus, expires, revoked, REVOKE_REASONS.get(oid, "") if revoked else "",
+                 sent, i))
+
+        for i, (oid, dkind, label, dnote, ref, fname, mime, size, file_as, review,
+                review_note, by, at, filed_table, filed_id) in enumerate(DELIVERABLES):
+            conn.execute(
+                "INSERT INTO ticket_deliverables (id, owner_user_id, ticket_id, record_id,"
+                " kind, label, note, file_ref, file_name, mime_type, size_bytes, payload,"
+                " submitted_by, submitted_via, submitted_at, file_as, review, review_note,"
+                " reviewed_at, filed_table, filed_id, filed_prev, filed_at, sort,"
+                " created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'owner',%s,%s,%s,%s,%s,"
+                "%s,%s,'',%s,%s,%s)",
+                (f"{P}dv-{i}", UID, P + oid, parcel, dkind, label, dnote, ref, fname,
+                 mime, size, DELIVERABLE_RINGS.get(label, "{}"), by, at, file_as,
+                 review, review_note, DELIVERABLE_REVIEWED.get(label, ""),
+                 filed_table, filed_id, DELIVERABLE_FILED_AT.get(label, ""), i, at))
+
+        # The paper PT-2103's accepted deliverable became. It carries the
+        # honesty columns a real filing carries — source='order' and an
+        # order_ref pointing back at the ticket — so the trail closes at both
+        # ends without anybody having to remember which one came first.
+        conn.execute(
+            "INSERT INTO documents (id, owner_user_id, name, subtitle, shelf, doc_type,"
+            " page_count, record_id, parcel_id, file_ref, source, order_ref, created_at,"
+            " size_bytes, sort) VALUES (%s,%s,%s,%s,'revenue','revenue',2,%s,%s,'',"
+            "'order',%s,'2026-08-06',640000,90)",
+            (P + "doc-patta-2026", UID, "Certified patta copy 2026",
+             "From PT-2103 · K. Prasad", parcel, parcel, P + "PT-2103"))
+
+        for i, (oid, entry, amount, payee, lnote, at) in enumerate(LEDGER):
+            frm, to = ENTRIES[entry]
+            conn.execute(
+                "INSERT INTO service_payments (id, owner_user_id, ticket_id, entry,"
+                " from_bucket, to_bucket, amount, payee, payee_ref, method, provider,"
+                " provider_ref, status, note, error, idempotency_key, actor, created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'','','stub','','recorded',%s,'',%s,"
+                "%s,%s)",
+                (f"{P}sp-{i}", UID, P + oid, entry, frm, to, amount, payee, lnote,
+                 f"{P}{oid}:{entry}:1", UID, at))
+
+        # The wallet the demo's figures are measured against. seed-demo-data.py
+        # runs after this one and its own insert is ON CONFLICT DO NOTHING, so
+        # the last word has to be here or the balance is whoever went first.
+        conn.execute(
+            "INSERT INTO wallet_accounts (owner_user_id, topped_up, auto_top_up, created_at)"
+            " VALUES (%s, %s, false, '2026-07-01')"
+            " ON CONFLICT (owner_user_id) DO UPDATE SET topped_up = %s,"
+            " auto_top_up = false", (UID, WALLET_TOPPED_UP, WALLET_TOPPED_UP))
 
         for (kid, title, headline, kind, purpose, line, sender, ini, snote, at, terms,
              opened, days, expired, price, pics, feats, state, sort) in KITS:
@@ -630,7 +980,9 @@ def main() -> None:
         counts = {}
         for t in ("parcels", "properties", "documents", "land_features", "parcel_photos",
                   "record_people", "land_expenses", "shared_kits", "share_links",
-                  "boundary_marks", "purchase_lots", "waiting_items"):
+                  "boundary_marks", "purchase_lots", "waiting_items", "work_requests",
+                  "ticket_events", "ticket_deliverables", "ticket_dispatches",
+                  "service_payments"):
             cur = conn.execute(f"SELECT count(*) FROM {t} WHERE 1=1")
             counts[t] = cur.fetchone()[0]
         print(f"seeded for {UID}: " + ", ".join(f"{k}={v}" for k, v in counts.items()))

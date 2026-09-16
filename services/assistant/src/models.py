@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 class ConversationCreate(BaseModel):
     title: Optional[str] = None
-    model: str = "claude-sonnet-4-6"
+    # Retained for wire compatibility; the service always applies the
+    # administrator-selected model and ignores this browser-supplied value.
+    model: Optional[str] = None
     application_context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -41,10 +43,13 @@ class ConversationListOut(BaseModel):
 class ChatRequest(BaseModel):
     conversation_id: UUID
     message: str
+    # Deprecated compatibility fields. End users cannot select models or MCP
+    # servers; both are authoritative platform-admin policy.
     model: Optional[str] = None
     application_context: dict[str, Any] = Field(default_factory=dict)
     attachment_ids: list[UUID] = Field(default_factory=list)
-    enabled_servers: Optional[list[str]] = None  # None = all enabled
+    enabled_servers: Optional[list[str]] = None
+    run_id: Optional[UUID] = None
 
 
 # ── Attachments ────────────────────────────────────────────────────────────────

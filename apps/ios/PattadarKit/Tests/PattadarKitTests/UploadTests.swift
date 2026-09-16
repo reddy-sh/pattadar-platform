@@ -10,6 +10,7 @@ import Testing
 /// the RN one could not until it was rewritten.
 @Test("A real deed uploads, streams progress, and comes back read")
 func realDeedUploads() async throws {
+    guard ProcessInfo.processInfo.environment["PATTADAR_LIVE_UPLOAD_TESTS"] == "1" else { return }
     let path = NSString(string: "~/Downloads/pattadar docs/Guntur Sites/Site At Nallapadu School 418.pdf")
         .expandingTildeInPath
     guard FileManager.default.fileExists(atPath: path) else { return }

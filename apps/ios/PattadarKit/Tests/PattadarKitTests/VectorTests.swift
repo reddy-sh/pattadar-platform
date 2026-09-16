@@ -271,3 +271,49 @@ func lShapeIsWeightedByArea() throws {
     let got = try #require(ringCentroid(ring))
     #expect(abs(got.latitude - plainLat) > 1e-6 || abs(got.longitude - plainLon) > 1e-6)
 }
+
+// MARK: - Imported boundary files and fence plans
+private struct BoundaryFileVector: Decodable {
+    let text: String
+    let fileName: String
+    let ring: [[Double]]
+    let format: String
+    let name: String
+}
+@Test("Boundary imports agree with core, including the largest-area MultiPolygon")
+func boundaryFileVectorsMatch() throws {
+    let vectors = try loadVectors("boundaries", as: [BoundaryFileVector].self)
+    #expect(!vectors.isEmpty)
+    for v in vectors {
+        let result = try parseBoundaryFile(v.text, fileName: v.fileName)
+        #expect(result.format == v.format)
+        #expect(result.name == v.name)
+        #expect(result.ring == v.ring.map { LatLng(latitude: $0[0], longitude: $0[1]) })
+        let exported = try toBoundaryGeoJson(result.ring)
+        #expect(try parseBoundaryFile(exported).ring == result.ring)
+    }
+}
+private struct FenceVector: Decodable {
+    let sideMetres: [Double]
+    let opts: FenceOptions
+    let expected: FencePlan
+}
+@Test("Fencing counts shared corner posts and matches every core estimate")
+func fenceVectorsMatch() throws {
+    let vectors = try loadVectors("fences", as: [FenceVector].self)
+    #expect(!vectors.isEmpty)
+    for v in vectors {
+        let got = fencePlan(v.sideMetres, options: v.opts), expected = v.expected
+        #expect(got.posts == expected.posts)
+        #expect(got.sides == expected.sides)
+        #expect(got.corners == expected.corners)
+        #expect(got.cornerPosts == expected.cornerPosts)
+        #expect(got.linePosts == expected.linePosts)
+        #expect(abs(got.perimeter - expected.perimeter) < 1e-8)
+        #expect(abs(got.wire - expected.wire) < 1e-8)
+        #expect(abs(got.postCost - expected.postCost) < 1e-8)
+        #expect(abs(got.wireCost - expected.wireCost) < 1e-8)
+        #expect(abs(got.cost - expected.cost) < 1e-8)
+        #expect(got.bySide == expected.bySide)
+    }
+}

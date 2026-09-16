@@ -92,8 +92,13 @@ export {
 export type { ExtentPref, UnitKey } from './land/units';
 export {
   LENGTH_FT,
+  SQ_M_PER_ACRE,
+  ringSides,
+  compassPoint,
+  cornerLabel,
   LENGTH_UNITS,
   fenceEstimate,
+  fencePlan,
   parsePolygonRing,
   quadrilateralSqft,
   rectangleSqft,
@@ -102,7 +107,11 @@ export {
   toFeet,
   triangleSqft,
 } from './land/landcalc';
-export type { LengthUnit } from './land/landcalc';
+export type { LengthUnit, FencePlan, FenceOptions } from './land/landcalc';
+export {
+  TILE_PX, boundsZoom, lonLatToPixel, pixelToLonLat, snapZoom,
+} from './land/tiles';
+export type { WorldPoint } from './land/tiles';
 export { buildCsv, buildMatrix, csvEscape, exportCell, exportStamp } from './export/exporters';
 export type { ExportBrand, ExportCol } from './export/exporters';
 export { calcStampDuty } from './land/stampDuty';
@@ -128,9 +137,22 @@ export {
   checkLocation,
   formatDistance,
   haversineKm,
+  mapsAppFor,
+  mapsAppName,
+  mapsLink,
+  safeMapLabel,
+  placeCandidates,
+  villageKey,
+  DEFAULT_STATE,
+  ringCentroid,
   type LatLng,
   type LocationSanity,
+  type MapsApp,
+  type MapsLinkOptions,
 } from './land/geo';
+export type { RingSide } from './land/landcalc';
+export { parseBoundaryFile, BoundaryFileError, toBoundaryGeoJson, boundaryFileName } from './land/boundaryFile';
+export type { ParsedBoundary, BoundaryExportMeta } from './land/boundaryFile';
 export { barFraction } from './land/scale';
 export { canonicalizeNameTokens, nameVariantPair } from './land/names';
 export * from './records/registry';

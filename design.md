@@ -4,7 +4,7 @@ A locked design system for this app. Every page redesign reads this file before
 emitting code. Do not regenerate per page — extend or amend this file when the
 system needs to grow.
 
-Stamp: `Hallmark · genre: atmospheric · macrostructure: Marquee Hero (marketing family) · theme: studied-DNA (source: https://www.usehallmark.com/examples/hyperlane/ · Bloom) · studied: yes · DNA-source: url · designed-as-app`
+Authority: Pattadar applies Google Material 3 principles for accessible hierarchy, adaptive layout, expressive shape, purposeful motion, and clear interaction states while retaining its original Bloom identity.
 
 ## Genre
 
@@ -12,15 +12,18 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
 
 ## Provenance
 
-- Extracted from `https://www.usehallmark.com/examples/hyperlane/` (Hallmark's own
-  public example gallery) as a **public reference for the user's brand** on
-  2026-08-14. Attestation: (b) public reference.
-- Tokens are exact (extracted from the source's `tokens.css`). Fonts are exact
-  (extracted from the source's Google Fonts declaration, re-shipped self-hosted
-  via @fontsource per the founder rule). Rhythm was verified with a screenshot
-  pass (generous, left-biased sections under a centered hero).
-- The DNA is structural: macrostructure + archetypes + colour anchor +
-  type roles. Pattadar's copy, IA, routes and behaviour are untouched.
+- Pattadar's Bloom identity is project-owned: warm dark paper, amber action colour,
+  expressive typography, and original land-record illustrations.
+- Interaction, accessibility, adaptive-layout, shape, and motion decisions follow
+  Google Material 3 and Google Design guidance, adapted to Pattadar rather than
+  copying Google's brand identity.
+- Official principle references:
+  [Material Design](https://design.google/tags/material-design),
+  [expressive Material research](https://design.google/library/expressive-material-design-google-research),
+  [making motion meaningful](https://design.google/library/making-motion-meaningful/), and
+  [Gemini visual design](https://design.google/library/gemini-ai-visual-design).
+  These references inform interaction principles only; Pattadar owns its palette,
+  artwork, product metaphors, and implementation.
 
 ## Macrostructure family
 
@@ -32,9 +35,9 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
   scroll-morph** (full-width hairline bar at rest → floating pill when
   scrolled; deliberate variation from the source's N5 — Pattadar's nav
   carries 7 links + brand + CTA).
-- **App pages** (`/app/*`): existing MUI shell, tokens-only restyle. No
-  enrichment ever — function carries the page. Both light and dark MUI
-  colorSchemes stay functional.
+- **App pages** (`/app/*`): functional shell, tokens-only restyle. No
+  enrichment ever — function carries the page. Light, Dark, and High Contrast
+  remain complete, user-switchable schemes.
 - **Content/legal pages** (`/privacy`, `/terms`, auth frames): Long Document
   voice — wordmark hairline bar, measure-limited column, statement-free
   bottom row.
@@ -64,33 +67,58 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
 - primary.main `#aa5910` (oklch 55% 0.13 55 — white contrastText 5.07:1)
 - error `#be222a` (6.08:1 w/ white) · success `#27762f` (5.65:1 w/ white)
 
-### Semantic slots — define ALL SIX on BOTH schemes (added 2026-08-14)
+### High Contrast scheme (app only — low-vision reading mode)
+
+High Contrast is deliberately light-based: it is not a more saturated brand
+skin. Reading surfaces are white, primary text is black (21:1), secondary text
+is `#1f1f1f` (16.48:1), rules are solid black, and focus indicators grow from
+2px to 3px. Filled actions use dark blue `#003b73` (11.21:1 on white) with
+white text. Selected states retain shape, weight, border, or checkmark cues so
+colour is never their only signal.
+
+### Semantic slots — define ALL SIX on ALL THREE schemes
 
 MUI does not disable an undefined palette slot; it substitutes its factory
-default. `warning`, `info` and `secondary` were undefined while being used 22
-times, so #ed6c02 orange, #0288d1 blue and #9c27b0 purple shipped inside an
-amber system. Ratios measured against that scheme's `background.default`.
+default. `warning`, `info` and `secondary` were once undefined while being
+used 22 times, so unrelated default blue and purple reached the amber system.
+Ratios below are measured against that scheme's background.
 
-| slot | dark | light |
-| --- | --- | --- |
-| secondary | `#ff4a63` coral (6.16:1) — this is `--color-accent-2` | `#b23645` (5.56:1) |
-| warning | `#f5ae39` gold @75° (10.57:1) | `#905d00` (5.20:1) |
-| info | `#82bad5` muted slate @230° (9.55:1) | `#3d6a7f` (5.47:1) |
+| slot | dark | light | High Contrast |
+| --- | --- | --- | --- |
+| primary | `#fe860f` amber (8.29:1) | `#aa5910` (5.07:1) | `#003b73` dark blue (11.21:1) |
+| secondary | `#ff4a63` coral (6.16:1) | `#b23645` (5.56:1) | `#5a1a78` plum (11.33:1) |
+| error | `#ff5453` | `#be222a` | `#a40000` (8.14:1) |
+| success | `#61c568` | `#27762f` | `#006b3c` (6.63:1) |
+| warning | `#f5ae39` gold (10.57:1) | `#905d00` (5.20:1) | `#6b4f00` (7.65:1) |
+| info | `#82bad5` slate (9.55:1) | `#3d6a7f` (5.47:1) | `#004f6b` (9.01:1) |
 
-`warning` is held off primary's 55° so "needs attention" never reads as "do
-this". `info` is the system's ONE cool seam and is deliberately low-chroma.
+`warning` stays distinct from the primary action colour so "needs attention"
+never reads as "do this". `info` remains the system's one cool semantic seam.
+
+### Theme choice and persistence
+
+Authenticated app headers expose exactly **Light**, **Dark**, and **High
+Contrast** in an accessible menu; the Next settings drawer exposes the same
+three choices as one preference. The selected choice is visibly marked,
+announced to assistive technology, and restored after reload. Web360 persists
+under `w360.scheme`; the legacy MUI renderer persists mode and named scheme;
+the Next renderer migrates its previous `themeMode`/`themeContrast` settings
+into one `themeChoice`. A former `bold` preference becomes High Contrast.
+Marketing remains intentionally dark, independent of the signed-in app choice.
 
 ### Default scheme
 
-**Dark.** `apps/web/src/main.tsx` boots `defaultMode="dark"`. The landing page
-is permanently dark, so booting the app in light broke the brand at the exact
-moment of sign-in. Light stays fully supported via the header toggle.
+**Dark** in `apps/web`; **Light** in `apps/web-next`. The landing page remains
+permanently dark, while every signed-in renderer provides all three choices.
 
 ## Typography
 
 - Display: **Inter Tight**, weights 600/700/800, style normal, tracking −0.02em,
   display leading 0.92
-- Body: **Inter**, weights 400/500/600
+- Body: **Atkinson Hyperlegible**, weights 400/700. Chosen as the all-ages
+  reading face because its deliberately differentiated letter and number forms
+  improve recognition for low-vision readers without making the interface feel
+  specialized or clinical.
 - Mono: **JetBrains Mono**, weights 400/500 (labels, data strips, numerals, `tnum`)
 - Accent face: **Instrument Serif** *italic* — ONLY for the hero's second line,
   the FlipWord rotator, and the Ft5 statement's emphasis phrase. Never on
@@ -109,18 +137,85 @@ tokens.css). Pages must use named tokens, never raw values.
 
 - Easings: `--ease-out: cubic-bezier(0.20, 0.80, 0.20, 1.00)` (+ `--ease-in`,
   `--ease-in-out` in tokens.css); durations 120/220/400ms.
-- Keyframes: `rise` (fade-up) and `pulse` only. No shimmer, no border-spin,
-  no float, no aurora drift.
-- Reveal pattern: rise on scroll-enter (IntersectionObserver), staggered rise
-  on hero load.
-- Reduced-motion fallback: opacity-only, ≤150ms (scoped block in site.css plus
-  the global guard in theme.ts).
+- Motion must explain hierarchy, continuity, or system response. Content is visible
+  by default; `reveal-in` is a progressive CSS view-timeline enhancement and
+  never a JavaScript gate on readability.
+- **Animation engine: Motion** (`motion`, motion.dev, MIT), pinned exactly and
+  already the choice in `apps/web-next`. Import through `LazyMotion` with the `m`
+  component and asynchronously loaded `domAnimation` features, in `strict` mode,
+  so a marketing page never pays for the full bundle. Motion+ and its private
+  registry are out of scope: no paid token belongs in this repo. Hand-rolled
+  keyframe systems are not to be reintroduced where Motion expresses the intent.
+- Motion earns its place by teaching or confirming something. Exactly two scenes
+  on the landing page qualify, and they must not share a visual grammar:
+  - `HeroStory` states the promise. Five kinds of real Andhra Pradesh record —
+    pattadar passbook, registered deed, FMB survey sketch, village map, adangal
+    rows — drift in from the edges, each collapsing into the row it becomes
+    inside ONE record card, which is then stamped verified and locked while the
+    family gathers beneath it. It **converges**, because the headline is "in one
+    secure place". Papers aim at their own row, never a shared point, so cause
+    and effect stay legible instead of piling into a blob.
+  - `PlatformJourney` explains the mechanics: three acts matching the three
+    frozen steps — a document photographed and its details filling themselves
+    in, verification links reaching family and coming back confirmed, then
+    everything settling into one organised, locked set. It **advances one act at
+    a time in place**, beside the step it illustrates, because it is a sequence
+    of steps and a visitor can only read one of them at a time. All three acts
+    at once in one very wide panel is how this section looked before: the whole
+    mechanism on screen, every part of it small, none of it connected to the
+    words. That is a diagram, not a story.
+- One grammar each, and no reuse: the hero converges, the journey advances a step
+  at a time. Three left-to-right arrow chains is how this page looked before, and
+  it read as filler.
+- A left-to-right chain of abstract icons is not a story. If a scene could be
+  swapped for any other product's diagram, it is not carrying its weight.
+- **Pattadar AI is deliberately NOT a Motion scene.** It used to be one: a panel
+  of abstract placeholder bars, plus a separate chat card beneath it. The bars
+  explained nothing and the two panels competed. The sample conversation is the
+  picture now — real words, arriving beat by beat, with the record visibly opening
+  when the last answer says it is opening. Because that panel holds real copy it
+  must never wait on a lazily loaded chunk, so its beats are a CSS timeline
+  (`AssistantConversation`): every message is in the DOM and visible by default,
+  and the staging is added only once the panel is seen. A dead script leaves a
+  complete, readable conversation.
+- **Play once, then rest.** The hero story runs on mount; the journey and the
+  conversation start when they scroll into view. All stop on the finished picture.
+  Nothing on this page loops indefinitely, which is why no pause control is owed
+  under WCAG 2.2.2. The journey is re-tellable by choosing any step — by pointer
+  or by keyboard — and choosing one ends the autoplay, so it never moves on under
+  someone mid-read.
+- **Reduced motion must be resolved before the scene mounts.** Motion animates
+  through the Web Animations API, so the `prefers-reduced-motion` block in
+  site.css cannot rein it in. Read the preference synchronously in the first
+  render and pass it down, so the scene mounts at its finished state with no
+  movement at all. An effect is too late: the animation has already started.
+- **A decorative scene may never break the page.** Both scenes are lazily loaded
+  behind an error boundary and a space-reserving fallback. A dropped chunk on a
+  poor connection must leave the copy — the part that matters — fully intact.
+- **Animation delays are not covered by the reduced-motion guard.** The global
+  block under `.site` collapses `animation-duration`, not `animation-delay`, so a
+  CSS beat sheet would keep its last beat invisible for seconds. Any staged
+  timeline must remove its own animation outright under
+  `prefers-reduced-motion: reduce`.
+- Elements animate by drawing (`pathLength`), arriving (`scale`), filling
+  (`scaleX` from the leading edge) or settling (`y`). No decorative shimmer,
+  border-spin, aurora drift, constant floating, or unrelated tilt.
+- `rise` provides the short hero-load sequence and `pulse` indicates live status.
+  Supporting illustrations stay still so they never compete with the explainer.
+- No motion is required to understand content or operate a control. The step list
+  beside the journey is the source of truth: all three steps render complete and
+  unanimated, whichever act is on the stage, and the state of the story is carried
+  by a leading rule and a filled numeral as well as by colour. Under
+  `prefers-reduced-motion: reduce` the journey mounts on its first step with that
+  act already complete and never advances on its own; steps remain choosable and
+  change with no movement at all.
 
 ## Microinteractions stance
 
 - Silent success; no celebratory toasts.
 - Hover: −1px translate + border-strong on cards; never scale, never glow.
-- Focus: `--color-focus` ring, 2px, visible instantly (never animated).
+- Focus: `--color-focus` ring, 2px normally and 3px in High Contrast,
+  visible instantly (never animated).
 - Hover tooltips delay 800ms; focus tooltips 0ms.
 
 ## CTA voice
@@ -131,10 +226,36 @@ tokens.css). Pages must use named tokens, never raw values.
 - The hero and final statement own the amber; nav CTA stays ghost. Accent
   footprint ≤ 5% per viewport.
 
+## Design authority
+
+The rules in this document are quality defaults, not a ceiling. Explicit founder direction may override aesthetic constraints when the result improves clarity, trust, emotional resonance, or product understanding. Accessibility, truthful content, privacy, licensing, responsive usability, and performance remain outcome requirements. When an aesthetic rule is overridden, document the decision here and keep the implementation coherent rather than accumulating exceptions.
+
 ## Per-page allowances
 
-- Marketing pages: typography-only enrichment (ambient blooms + grain allowed);
-  no CSS-art heroes, no fake chrome, no invented imagery.
+- Marketing pages remain typography-led. Ambient blooms and grain are allowed.
+  The approved **Living Land Record** system is the only illustration exception.
+  It is original, domain-specific work using Pattadar's Bloom palette and land,
+  document, verification, and family metaphors. It stays decorative beside
+  complete text and never reproduces third-party artwork, product icons, branded
+  shapes, or distinctive brand colour systems. No CSS-art heroes, fake chrome,
+  stock art, or additional invented imagery.
+- There are exactly two scenes — `HeroStory` and `PlatformJourney` — and no
+  static illustration files. Each is authored as inline SVG inside its component
+  so Motion can animate individual parts, which a bundled `.svg` cannot do.
+  Because they are inline they must resolve colour through `var(--color-*)`
+  tokens rather than hex literals. Both are decorative and `aria-hidden`; the
+  hero copy and the step list hold the meaning. Pattadar AI has no scene at all:
+  its panel is the sample conversation itself, in real words, and the only
+  decorative part of it is the typing pause and the opening record beneath the
+  last answer. See § Motion for the play-once-then-rest, reduced-motion and
+  failure rules.
+- Provenance for both: original Pattadar artwork built from domain metaphors —
+  parcel boundaries, passbooks, registered deeds, FMB sketches, village maps,
+  adangal rows, verification and family. They embed no third-party image, icon or
+  font file, load nothing from a third-party URL, and reproduce no Gemini
+  artwork, Google product icon, the Google four-colour system, sparkle branding,
+  or any other third-party visual identity. Google Design informed interaction
+  principles only.
 - App pages: no enrichment. Legal/auth pages: typography only.
 
 ## What pages MUST share
@@ -142,7 +263,7 @@ tokens.css). Pages must use named tokens, never raw values.
 - The wordmark voice: "Pattadar" in Inter Tight 700 (landing keeps its literal
   `.` in amber).
 - The amber accent and its placement discipline (≤5% per viewport).
-- Inter Tight display + Inter body + JetBrains Mono labels.
+- Inter Tight display + Atkinson Hyperlegible body + JetBrains Mono labels.
 - The CTA voice (pill shape, weight 600, sentence case).
 - Hairline rule language (`--rule-hair` solid `--color-rule`).
 
@@ -171,10 +292,16 @@ again.
   The audit found 86 hex/rgba literals across 12 files — an Ant Design status
   ramp, two blue gradients (`#14202f → #1b3252`, `#144E8C → #4D9BE0`) and a
   14-colour avatar rainbow, all surviving from superseded systems.
-  Three exceptions, each commented at the call site: scrims and controls that
+  Four exceptions, each commented at the call site: scrims and controls that
   sit over **arbitrary user media** (neutral black/white, never a palette
-  tint), the **PDF iframe** backdrop (a PDF page is white), and **FmbMapViewer**
-  sketch strokes (SVG over imagery — literals, but Bloom values).
+  tint), the **PDF iframe** backdrop (a PDF page is white), **FmbMapViewer**
+  sketch strokes (SVG over imagery — literals, but Bloom values), and
+  **VillageCanvas** plot/edge/selection colours (Leaflet paints onto a canvas
+  over map imagery and cannot resolve a CSS var — literals, but Bloom values:
+  the blue magnitude ramp, `--color-accent` selection, `--color-focus` hover,
+  and Bloom paper/ink edges). The `ErrorBoundary` fallback is a fifth, separate
+  case: it uses inline literals deliberately because it must render when the
+  theme provider or stylesheet is itself the thing that failed.
 - **Hairline, not shadow.** `MuiCard` defaults to `variant="outlined"`.
   Surfaces separate with a 1px `divider` rule; pass `elevation` explicitly only
   for things that genuinely float (menus, dialogs). Card hover is
@@ -210,6 +337,11 @@ again.
 
 Canonical: `apps/web/src/styles/tokens.css` (imported globally by
 `apps/web/src/main.tsx`). MUI mappings: `apps/web/src/theme.ts`.
+The Web360 surface (`apps/web/src/w360/w360.css`) does NOT consume `theme.ts`;
+it redeclares the light and High Contrast schemes as its own `--w-*` custom
+properties. Those values mirror the canonical tokens by hand, so a token change
+here must be reflected in `w360.css` too — `scripts/parity-check.ts` classifies
+the `w360/` tree as NOTE, not `adapt`, and does not enforce the mirror.
 Cross-app values (chart series, status hues): `packages/tokens/src/index.ts` —
 consumed by `apps/web` and `apps/web-next`, NOT by mobile/iOS.
 No Tailwind/shadcn consumers exist in this repo; generate those formats from

@@ -8,56 +8,61 @@
  * export, status+stake badges on emerald hero cards, and the Add flows
  * (AI-classified Add for properties/deeds, manual Add Parcel).
  *
+ * NOW BUILT ON THE COMPONENT KIT (`src/components/kit`). This screen was the
+ * kit's donor — every primitive in `components/kit/**` was extracted from the
+ * 828 lines that used to live here — so it is also the kit's proof: the page is
+ * assembled from `ListScreen` plus the primitives, and what remains below is
+ * only what the kit deliberately refuses to absorb. That refusal is the design:
+ * the tab axis IS the kind axis (a predicate, never a field name), the tiles are
+ * computed from the FULL dataset while the list shows the filtered rows, Family
+ * matches by NAME while Passbook matches by ID, the litigation-outranks-status
+ * and owned-renders-nothing pill rules are passed as data, and `formatArea`
+ * (re-exported by the kit as `area`) stays the only renderer of acreage.
+ *
  * Deep links: /app/parcels?pb=<passbookId> lands on Land Parcels filtered to
  * that khata; ?group=<groupId> pre-filters by family; ?tab=properties opens
- * the Properties tab (the old /app/properties route redirects here).
+ * the Properties tab (the old /app/properties route redirects here). `?pb=`
+ * outranks `?tab=` through `useQueryState`'s mount-time `seed`, and `?group=`'s
+ * id→name resolution runs through `seedOnce` — so "Clear all" now clears a
+ * deep-linked family filter and it stays cleared.
+ *
+ * Contract: docs/specs/2026-09-14-web-component-kit-contract.md
+ * Design authority: docs/specs/2026-07-26-ux-redesign-m3.md
  */
-import { useMemo, useRef, useState } from 'react';
-import type { ChangeEvent } from 'react';
-import { useRouter, useSearchParams } from 'src/routes/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'src/routes/hooks';
 import { useQueryClient } from '@tanstack/react-query';
-import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import Card from '@mui/material/Card';
-import Chip from '@mui/material/Chip';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
-import IconButton from '@mui/material/IconButton';
-import InputAdornment from '@mui/material/InputAdornment';
-import Link from '@mui/material/Link';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import Snackbar from '@mui/material/Snackbar';
-import Tab from '@mui/material/Tab';
-import Tabs from '@mui/material/Tabs';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
-import SearchIcon from '@mui/icons-material/Search';
-import ViewListOutlinedIcon from '@mui/icons-material/ViewListOutlined';
-import { formatArea } from '@pattadar/core';
-import { CardActionsMenu, CardHero, EmptyLanding, StatCard, StatRow, clickableCardSx, parcelPill, stakePill } from '../components/holdingCards';
-import { CardGridSkeleton, HeaderSkeleton, StatRowSkeleton } from '../components/Skeletons';
-import { stickyHeadSx } from '../components/tableSx';
-import { PageHeader } from '../components/PageHeader';
-import { ExportMenu } from '../export/ExportMenu';
-import type { ExportBrand, ExportCol } from '../export/ExportMenu';
+import {
+  area,
+  areaOrDash,
+  CountChip,
+  dash,
+  exportBrand,
+  FilterShortcutChip,
+  inrOrDash,
+  ListScreen,
+  MediaCard,
+  MetaChip,
+  num,
+  shortName,
+  StatusChip,
+  useFilePicker,
+  useQueryState,
+  useToast,
+} from '../components/kit';
+import type {
+  ActionItem,
+  Column,
+  FilterField,
+  FilterValues,
+  PillSpec,
+  StatItem,
+  StatusTone,
+  TabItem,
+  ToastSeverity,
+  ViewMode,
+} from '../components/kit';
 import { useHoldings } from '../data/hooks';
 import { deleteParcel, deleteProperty } from '../data/pattadarActions';
 import { STORAGE_OFFLINE_MSG, uploadCoverPhoto } from './documents/storage';
@@ -94,57 +99,215 @@ interface Holding {
   groupName: string;
 }
 
-interface Toast {
-  msg: string;
-  severity: 'success' | 'error' | 'warning' | 'info';
+/** The dataset the filter declarations read their options and labels from. */
+type HoldingsData = ReturnType<typeof useHoldings>['data'];
+
+type TabKey = 'all' | 'parcels' | 'properties';
+
+/**
+ * What a filter declaration needs to build its options, decide whether it is
+ * offered on this tab, and name its own collapsed chip. The tab rides along
+ * because two of the five filters are tab-conditional.
+ */
+interface FilterCtx {
+  data: HoldingsData;
+  tab: TabKey;
 }
 
-
-const shortName = (name: string) => {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  let out = parts.slice(0, 2).join(' ');
-  if (parts.length > 2) out += '…';
-  return out.length > 25 ? out.slice(0, 24) + '…' : out;
+/** The URL-addressable state of this screen. `group` arrives as an id alias. */
+type HoldingsQuery = {
+  tab: TabKey;
+  view: ViewMode;
+  search: string;
+  kind: string | undefined;
+  status: string | undefined;
+  stake: string | undefined;
+  group: string | undefined;
+  pb: string | undefined;
 };
 
+const TAB_VALUES = ['all', 'parcels', 'properties'] as const;
+const VIEW_VALUES = ['list', 'grid'] as const;
+
+const isTabKey = (value: string): value is TabKey =>
+  (TAB_VALUES as readonly string[]).includes(value);
+
+const TABS: TabItem[] = [
+  { value: 'all', label: 'All' },
+  { value: 'parcels', label: 'Land Parcels' },
+  { value: 'properties', label: 'Properties' },
+];
+
+/**
+ * Status pill for a holding card hero. DOMAIN LAW, and it stays here: litigation
+ * outranks the status entirely, and the kit is handed the answer as data rather
+ * than the rule. The words are the predecessor's own — lower-case, hyphens
+ * spaced — and an unrecognised status has always read as owned.
+ */
+function statusPill(status: string, litigation: boolean): PillSpec {
+  if (litigation) return { label: 'Litigation', tone: 'error' };
+  const s = String(status || 'owned');
+  const tones: Record<string, StatusTone> = {
+    owned: 'success',
+    'for-sale': 'info',
+    sold: 'neutral',
+    disputed: 'error',
+  };
+  return { label: s.replace(/-/g, ' '), tone: tones[s] ?? 'success' };
+}
+
+/** Stake pill (managed / watch) — owned holdings show no second pill. */
+function stakePill(stake: string): PillSpec | undefined {
+  if (stake === 'managed') return { label: 'Managed', tone: 'warning' };
+  if (stake === 'watch') return { label: 'Watch', tone: 'info' };
+  return undefined;
+}
+
+/**
+ * The five filters, declared ONCE: the panel, the collapsed chip row, the active
+ * count and the row predicate below all read this array, which is what retired
+ * the five bespoke chip branches the screen used to carry.
+ *
+ * Two asymmetries are deliberate and documented rather than "fixed": Family
+ * matches on the group NAME (the row carries a name, not an id) while Passbook
+ * matches on the passbook ID; and Kind is offered only on the All tab while
+ * Passbook is withheld on Properties — withheld, not cleared, so a filter set on
+ * one tab survives a visit to another and stays removable from the chip row.
+ */
+const FILTER_FIELDS: FilterField<FilterCtx, Holding>[] = [
+  {
+    key: 'kind',
+    label: 'Kind',
+    placeholder: 'All kinds',
+    options: [
+      { value: 'parcel', label: '🌾 Land parcels' },
+      { value: 'property', label: '🏢 Properties' },
+    ],
+    visible(ctx) {
+      return ctx.tab === 'all';
+    },
+    match(row, value) {
+      return row.kind === value;
+    },
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    placeholder: 'All statuses',
+    options: ['owned', 'for-sale', 'sold', 'disputed'].map((x) => ({
+      value: x,
+      label: x.replace(/-/g, ' '),
+    })),
+    match(row, value) {
+      return row.status === value;
+    },
+  },
+  {
+    key: 'stake',
+    label: 'My stake',
+    placeholder: 'All stakes',
+    options: [
+      { value: 'owned', label: 'Owned' },
+      { value: 'managed', label: 'Managed' },
+      { value: 'watch', label: 'Watch' },
+    ],
+    match(row, value) {
+      return row.stake === value;
+    },
+  },
+  {
+    key: 'group',
+    label: 'Family / group',
+    placeholder: 'All families',
+    options: (ctx) => ctx.data.groups.map((g) => ({ value: g.name, label: `👪 ${g.name}` })),
+    match(row, value) {
+      return row.groupName === value;
+    },
+  },
+  {
+    key: 'pb',
+    label: 'Passbook',
+    placeholder: 'All passbooks',
+    options: (ctx) =>
+      ctx.data.passbooks.map((b) => ({
+        value: b.id,
+        label: `📗 ${b.pattadarNo} · ${shortName(b.ownerName || '') || dash}`,
+      })),
+    visible(ctx) {
+      return ctx.tab !== 'properties';
+    },
+    /* A passbook chip names the khata, not the id the filter holds — and a
+       stale deep link still reads as a passbook rather than as a UUID. */
+    chipLabel(value, ctx) {
+      const b = ctx.data.passbooks.find((x) => x.id === value);
+      return `📗 ${b ? `${b.pattadarNo} · ${shortName(b.ownerName || '')}` : 'Passbook'}`;
+    },
+    match(row, value) {
+      return row.passbookId === value;
+    },
+  },
+];
+
 export function LandPropertiesPage() {
-  const searchParams = useSearchParams();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data, isSample, isLoading } = useHoldings();
 
-  const pb0 = searchParams.get('pb') || undefined;
-  const g0 = searchParams.get('group') || undefined;
-  const tab0 = searchParams.get('tab');
-  const [tab, setTab] = useState<'all' | 'parcels' | 'properties'>(
-    pb0 ? 'parcels' : tab0 === 'properties' ? 'properties' : tab0 === 'parcels' ? 'parcels' : 'all',
-  );
-  const [view, setView] = useState<'list' | 'grid'>('grid');
-  const [search, setSearch] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-  const [fKind, setFKind] = useState<string | undefined>(undefined);
-  const [fStatus, setFStatus] = useState<string | undefined>(undefined);
-  const [fStake, setFStake] = useState<string | undefined>(undefined);
-  const [fGroup, setFGroup] = useState<string | undefined>(() => {
-    // ?group=<id> — resolved to a name once data lands (see effect below).
-    return undefined;
+  /**
+   * Tab, view, search and all five filters, in the URL. `seed` is synchronous
+   * precedence — `?pb=` implies the Parcels tab whatever `?tab=` says — and
+   * `group` is declared `seedOnly` because the param carries an id while the
+   * filter holds a name: the raw value must never masquerade as the filter.
+   */
+  const qs = useQueryState<HoldingsQuery>({
+    params: {
+      tab: 'tab',
+      view: 'view',
+      search: 'q',
+      kind: 'kind',
+      status: 'status',
+      stake: 'stake',
+      group: 'group',
+      pb: 'pb',
+    },
+    defaults: {
+      tab: 'all',
+      view: 'grid',
+      search: '',
+      kind: undefined,
+      status: undefined,
+      stake: undefined,
+      group: undefined,
+      pb: undefined,
+    },
+    seed: (raw) => (raw.pb ? { tab: 'parcels' } : {}),
+    allow: { tab: TAB_VALUES, view: VIEW_VALUES },
+    filterKeys: ['kind', 'status', 'stake', 'group', 'pb'],
+    seedOnlyKeys: ['group'],
   });
-  const [fPb, setFPb] = useState<string | undefined>(pb0);
+
+  const { tab, view, search } = qs.values;
+
+  const [showFilters, setShowFilters] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [addParcelOpen, setAddParcelOpen] = useState(false);
   const [stakeTarget, setStakeTarget] = useState<StakeTarget>(null);
   const [locTarget, setLocTarget] = useState<LocationTarget>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Holding | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [toast, setToast] = useState<Toast | null>(null);
-  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: Holding } | null>(null);
-  // Hidden picker behind the "Add / Change cover photo" card action
-  // (source parity: useCoverUpload in AllHoldingsView / PropertiesView).
-  const coverInputRef = useRef<HTMLInputElement | null>(null);
-  const coverTargetRef = useRef<{ kind: 'parcel' | 'property'; id: string } | null>(null);
 
-  const notify = (msg: string, severity: Toast['severity'] = 'success') => setToast({ msg, severity });
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['pattadar'] });
+  /* The hidden picker behind "Add / Change cover photo". One input for the
+     whole screen, and `pick()` resolves with the outcome, so the target no
+     longer has to be parked in a ref between the click and the change event. */
+  const coverPicker = useFilePicker({ accept: 'image/*' });
+
+  const notify = useCallback(
+    (msg: string, severity: ToastSeverity = 'success') => toast.notify(msg, severity),
+    [toast],
+  );
+  const refresh = useCallback(
+    () => void queryClient.invalidateQueries({ queryKey: ['pattadar'] }),
+    [queryClient],
+  );
 
   // ── normalize rows (verbatim semantics from AllHoldingsView) ────────────
   const gname = useMemo(() => new Map(data.groups.map((g) => [g.id, g.name])), [data.groups]);
@@ -177,7 +340,7 @@ export function LandPropertiesPage() {
         groupName: pbGroup.get(p.passbookId) || '',
         owner: p.currentOwner || '',
         location: pbLoc.get(p.passbookId) || '',
-        extentLabel: formatArea(acres),
+        extentLabel: area(acres),
         value: val,
         perAc: val > 0 && acres > 0 ? Math.round(val / acres) : 0,
         status: p.status || 'owned',
@@ -196,7 +359,7 @@ export function LandPropertiesPage() {
       return {
         id: p.id,
         kind: 'property',
-        title: p.label || '—',
+        title: p.label || dash,
         passbookId: '',
         passbook: '',
         khata: '',
@@ -207,7 +370,7 @@ export function LandPropertiesPage() {
           ? `${p.landArea} ${p.landUnit}`
           : p.builtupArea
             ? `${p.builtupArea} ${p.builtupUnit}`
-            : '—',
+            : dash,
         value: Number(p.currentValue) || 0,
         perAc: 0,
         status: p.holdingStatus || 'owned',
@@ -224,9 +387,15 @@ export function LandPropertiesPage() {
     return [...parcels, ...properties];
   }, [data, gname]);
 
-  // ?group=<id> deep link → group-name filter once groups arrive.
-  const g0Name = g0 ? gname.get(g0) : undefined;
-  if (g0Name && !fGroup) setFGroup(g0Name);
+  /* ?group=<id> deep link → the family-NAME filter, once the groups land.
+     `seedOnce` stays pending while the lookup returns undefined, applies
+     exactly once, and is dead to the key the moment the reader touches it —
+     which is what makes "Clear all" stick on a deep-linked filter. */
+  useEffect(() => {
+    const raw = qs.rawParam('group');
+    if (!raw) return;
+    qs.seedOnce('group', gname.get(raw));
+  }, [qs, gname]);
 
   // ── summary tiles (verbatim from HoldingsView.loadSum) ──────────────────
   const t = useMemo(() => {
@@ -250,550 +419,332 @@ export function LandPropertiesPage() {
     };
   }, [data]);
 
+  /* Per-tab tile sets, computed from the FULL dataset (`data.parcels` /
+     `data.properties`), never from the filtered rows — declared to the kit as
+     `scope: 'dataset'` so the tiles do not move when a filter does. The unit
+     suffixes are concatenated here on purpose: `num()` never appends one, so
+     `Sq.yd` and `sq.ft` render byte-for-byte as they always have. */
+  const stats = useMemo<StatItem[]>(() => {
+    if (tab === 'parcels') {
+      return [
+        { key: 'parcels', label: 'Parcels', value: t.parcels },
+        { key: 'extent', label: 'Total Extent', value: areaOrDash(t.acres) },
+        { key: 'passbooks', label: 'Passbooks', value: t.passbooks },
+        { key: 'attention', label: 'Needs Attention', value: t.attention },
+      ];
+    }
+    if (tab === 'properties') {
+      return [
+        { key: 'properties', label: 'Properties', value: t.properties },
+        {
+          key: 'sqyd',
+          label: 'Plots & Sites',
+          value: t.sqyd > 0 ? `${num(t.sqyd)} Sq.yd` : dash,
+        },
+        { key: 'sqft', label: 'Built-up', value: t.sqft > 0 ? `${num(t.sqft)} sq.ft` : dash },
+        { key: 'plots', label: 'Plots', value: t.plots },
+      ];
+    }
+    return [
+      { key: 'holdings', label: 'Holdings', value: t.parcels + t.properties },
+      { key: 'farmland', label: 'Farmland', value: areaOrDash(t.acres) },
+      { key: 'sqyd', label: 'Plots & Sites', value: t.sqyd > 0 ? `${num(t.sqyd)} Sq.yd` : dash },
+      { key: 'passbooks', label: 'Passbooks', value: t.passbooks },
+    ];
+  }, [tab, t]);
+
   // ── filtering ───────────────────────────────────────────────────────────
-  const activeFilters = [fKind, fStatus, fStake, fGroup, fPb].filter(Boolean).length;
-  const clearFilters = () => {
-    setFKind(undefined);
-    setFStatus(undefined);
-    setFStake(undefined);
-    setFGroup(undefined);
-    setFPb(undefined);
-  };
-  const q = search.trim().toLowerCase();
-  const shown = useMemo(
-    () =>
-      holdings.filter(
-        (h) =>
-          (tab === 'all' || (tab === 'parcels' ? h.kind === 'parcel' : h.kind === 'property')) &&
-          (!fKind || h.kind === fKind) &&
-          (!fStatus || h.status === fStatus) &&
-          (!fStake || h.stake === fStake) &&
-          (!fGroup || h.groupName === fGroup) &&
-          (!fPb || h.passbookId === fPb) &&
-          (!q ||
-            [h.title, h.owner, h.location, h.passbook, h.groupName, h.typeLabel, h.khata, h.status]
-              .join(' ')
-              .toLowerCase()
-              .includes(q)),
-      ),
-    [holdings, tab, fKind, fStatus, fStake, fGroup, fPb, q],
+  const ctx = useMemo<FilterCtx>(() => ({ data, tab }), [data, tab]);
+  const filterValues = useMemo<FilterValues>(
+    () => ({
+      kind: qs.values.kind,
+      status: qs.values.status,
+      stake: qs.values.stake,
+      group: qs.values.group,
+      pb: qs.values.pb,
+    }),
+    [qs.values.kind, qs.values.status, qs.values.stake, qs.values.group, qs.values.pb],
   );
 
-  // ── export (verbatim cols from AllHoldingsView) ─────────────────────────
-  const exportCols: ExportCol<Holding>[] = [
-    { key: 'title', title: 'Name' },
-    { key: 'kind', title: 'Kind', fmt: (v) => (v === 'parcel' ? 'Land parcel' : 'Property') },
-    { key: 'typeLabel', title: 'Type' },
-    { key: 'owner', title: 'Owner' },
-    { key: 'location', title: 'Location' },
-    { key: 'passbook', title: 'Passbook' },
-    { key: 'groupName', title: 'Family / Group' },
-    { key: 'extentLabel', title: 'Extent' },
-    { key: 'value', title: 'Value (₹)', fmt: (v) => (Number(v) ? Number(v).toLocaleString('en-IN') : '') },
-    { key: 'status', title: 'Status' },
-  ];
-  const exportBrand: ExportBrand = {
-    brand: 'Pattadar',
-    title: 'Land & Properties Register',
-    subtitle: 'Andhra Pradesh / Telangana Land Records',
-    watermark: 'PATTADAR',
-  };
+  /* The tab IS the kind axis, expressed as a predicate rather than a field
+     name, and every other clause comes from the declaration above — so there is
+     exactly one place where "what does this filter mean" is written down. */
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return holdings.filter(
+      (h) =>
+        (tab === 'all' || (tab === 'parcels' ? h.kind === 'parcel' : h.kind === 'property')) &&
+        FILTER_FIELDS.every((field) => {
+          const value = filterValues[field.key];
+          return !value || !field.match || field.match(h, value, ctx);
+        }) &&
+        (!q ||
+          [h.title, h.owner, h.location, h.passbook, h.groupName, h.typeLabel, h.khata, h.status]
+            .join(' ')
+            .toLowerCase()
+            .includes(q)),
+    );
+  }, [holdings, tab, filterValues, ctx, search]);
+
+  // ── actions ─────────────────────────────────────────────────────────────
+  // Parcels open the parcel 360, properties the property detail (source parity).
+  const openDetail = useCallback(
+    (h: Holding) => router.push(`/app/${h.kind === 'parcel' ? 'parcels' : 'properties'}/${h.id}`),
+    [router],
+  );
+
+  const chooseCover = useCallback(
+    async (h: Holding) => {
+      const picked = await coverPicker.pick();
+      if (picked.status !== 'ok') return;
+      const file = picked.files[0];
+      if (!file) return;
+      const res = await uploadCoverPhoto(
+        file,
+        h.kind === 'property' ? { propertyId: h.id } : { parcelId: h.id },
+      );
+      if (res === 'ok') {
+        toast.success('Cover photo updated');
+        refresh();
+      } else if (res === 'storage') toast.info(STORAGE_OFFLINE_MSG);
+      else toast.error("Couldn't upload the photo — try again");
+    },
+    [coverPicker, refresh, toast],
+  );
+
+  /* Throwing is the report: `ConfirmDialog` keeps the question open and shows
+     the message inline, instead of closing over a delete that did not happen. */
+  const removeHolding = useCallback(
+    async (h: Holding) => {
+      try {
+        if (h.kind === 'property') await deleteProperty(h.id);
+        else await deleteParcel(h.id);
+      } catch {
+        throw new Error("Couldn't delete — try again");
+      }
+      toast.success('Deleted — files moved to Trash');
+      refresh();
+    },
+    [refresh, toast],
+  );
+
+  const rowActions = useCallback(
+    (h: Holding): ActionItem[] => [
+      { key: 'open', label: 'Open', onSelect: () => openDetail(h) },
+      {
+        key: 'cover',
+        label: h.cover ? 'Change cover photo' : 'Add cover photo',
+        onSelect: () => chooseCover(h),
+      },
+      {
+        key: 'stake',
+        label: 'My stake…',
+        onSelect: () =>
+          setStakeTarget({ kind: h.kind, id: h.id, title: h.title, stake: h.stake || 'owned' }),
+      },
+      // Location on the open-source map — parcels only (source parity: ParcelLocationModal).
+      ...(h.kind === 'parcel'
+        ? [
+            {
+              key: 'location',
+              label: 'Location…',
+              onSelect: () =>
+                setLocTarget({
+                  id: h.id,
+                  title: h.title,
+                  geoPoint: h.geoPoint,
+                  autoLocate: h.location ? `${h.location}, India` : '',
+                }),
+            },
+          ]
+        : []),
+      {
+        key: 'delete',
+        label: 'Delete',
+        danger: true,
+        // The cascade copy is load-bearing, not boilerplate: deleting a holding
+        // takes its documents with it.
+        confirm: {
+          title: `Delete ${h.title}?`,
+          body: 'Its documents are also removed — files go to My Drive Trash. This cannot be undone.',
+          confirmLabel: 'Delete',
+          busyLabel: 'Deleting…',
+          destructive: true,
+        },
+        onSelect: () => removeHolding(h),
+      },
+    ],
+    [chooseCover, openDetail, removeHolding],
+  );
+
+  /* ONE column array drives the table head, the cells and the export — the two
+     declarations that used to disagree are now the same ten objects. `value` is
+     the exported text and `render` is the screen cell, which is how the report
+     keeps raw owner / passbook / status strings while the table shows the chip,
+     the 📗 and the em-dash. */
+  const columns = useMemo<Column<Holding>[]>(
+    () => [
+      { key: 'title', header: 'Name', value: (r) => r.title },
+      {
+        key: 'kind',
+        header: 'Kind',
+        value: (r) => (r.kind === 'parcel' ? 'Land parcel' : 'Property'),
+        render: (r) => <MetaChip label={r.kind === 'parcel' ? 'Land parcel' : 'Property'} />,
+      },
+      { key: 'typeLabel', header: 'Type', value: (r) => r.typeLabel },
+      { key: 'owner', header: 'Owner', value: (r) => r.owner },
+      { key: 'location', header: 'Location', value: (r) => r.location },
+      {
+        key: 'passbook',
+        header: 'Passbook',
+        value: (r) => r.passbook,
+        render: (r) => (r.passbook ? `📗 ${r.passbook}` : dash),
+      },
+      {
+        key: 'groupName',
+        header: 'Family / Group',
+        value: (r) => r.groupName,
+        render: (r) => (r.groupName ? <MetaChip label={`👪 ${r.groupName}`} /> : dash),
+      },
+      { key: 'extentLabel', header: 'Extent', value: (r) => r.extentLabel },
+      {
+        key: 'value',
+        header: 'Value (₹)',
+        value: (r) => (r.value ? r.value.toLocaleString('en-IN') : ''),
+        render: (r) => inrOrDash(r.value),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        value: (r) => r.status,
+        render: (r) =>
+          r.litigation ? (
+            <StatusChip label="litigation" tone="error" />
+          ) : (
+            <MetaChip label={String(r.status || 'owned').replace(/-/g, ' ')} />
+          ),
+      },
+    ],
+    [],
+  );
+
   const exportName =
     tab === 'parcels' ? 'pattadar-parcels' : tab === 'properties' ? 'pattadar-properties' : 'pattadar-holdings';
 
-  // ── actions ─────────────────────────────────────────────────────────────
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      if (deleteTarget.kind === 'property') await deleteProperty(deleteTarget.id);
-      else await deleteParcel(deleteTarget.id);
-      notify('Deleted — files moved to Trash');
-      refresh();
-    } catch {
-      notify("Couldn't delete — try again", 'error');
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
-    }
-  };
+  /* A khata or a family on a card is a shortcut into the page's own filters,
+     and the kit's chip stops the click reaching the card it is standing on. */
+  const renderCard = useCallback(
+    (r: Holding) => {
+      const pills: PillSpec[] = [statusPill(r.status, r.litigation)];
+      const stake = stakePill(r.stake);
+      if (stake) pills.push(stake);
 
-  const onCoverFile = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    const target = coverTargetRef.current;
-    if (!file || !target) return;
-    const res = await uploadCoverPhoto(
-      file,
-      target.kind === 'property' ? { propertyId: target.id } : { parcelId: target.id },
-    );
-    if (res === 'ok') {
-      notify('Cover photo updated');
-      refresh();
-    } else if (res === 'storage') notify(STORAGE_OFFLINE_MSG, 'info');
-    else notify("Couldn't upload the photo — try again", 'error');
-  };
+      const khataChip =
+        r.kind === 'parcel' ? (
+          <FilterShortcutChip
+            key="khata"
+            label={`Khata ${r.khata || dash}`}
+            actionLabel={r.passbookId ? `Filter by khata ${r.khata || dash}` : undefined}
+            onActivate={
+              r.passbookId ? () => qs.set({ tab: 'parcels', pb: r.passbookId }) : undefined
+            }
+          />
+        ) : null;
+      const groupChip = r.groupName ? (
+        <FilterShortcutChip
+          key="group"
+          variant="outlined"
+          label={`👪 ${r.groupName}`}
+          actionLabel={`Filter by family ${r.groupName}`}
+          onActivate={() => qs.set({ group: r.groupName })}
+        />
+      ) : null;
 
-  // Parcels open the parcel 360, properties the property detail (source parity).
-  const openDetail = (h: Holding) =>
-    router.push(`/app/${h.kind === 'parcel' ? 'parcels' : 'properties'}/${h.id}`);
-
-  const rowActions = (h: Holding) => [
-    { key: 'open', label: 'Open', onClick: () => openDetail(h) },
-    {
-      key: 'cover',
-      label: h.cover ? 'Change cover photo' : 'Add cover photo',
-      onClick: () => {
-        coverTargetRef.current = { kind: h.kind, id: h.id };
-        coverInputRef.current?.click();
-      },
+      return (
+        <MediaCard
+          ariaLabel={`Open ${r.title}`}
+          onOpen={() => openDetail(r)}
+          media={{ fileRef: r.cover, fallbackIcon: r.icon }}
+          pills={pills}
+          actions={rowActions(r)}
+          title={r.title}
+          titleChip={<StatusChip label={r.typeLabel} tone={r.typeColor} />}
+          subtitle={r.owner}
+          location={r.location}
+          chips={khataChip || groupChip ? <>{khataChip}{groupChip}</> : undefined}
+          footer={{
+            figure: r.extentLabel,
+            caption: r.kind === 'parcel' ? 'Land parcel' : r.typeLabel,
+          }}
+        />
+      );
     },
-    {
-      key: 'stake',
-      label: 'My stake…',
-      onClick: () => setStakeTarget({ kind: h.kind, id: h.id, title: h.title, stake: h.stake || 'owned' }),
-    },
-    // Location on the open-source map — parcels only (source parity: ParcelLocationModal).
-    ...(h.kind === 'parcel'
-      ? [
-          {
-            key: 'location',
-            label: 'Location…',
-            onClick: () =>
-              setLocTarget({
-                id: h.id,
-                title: h.title,
-                geoPoint: h.geoPoint,
-                autoLocate: h.location ? `${h.location}, India` : '',
-              }),
-          },
-        ]
-      : []),
-    { key: 'delete', label: 'Delete', danger: true, onClick: () => setDeleteTarget(h) },
-  ];
-
-  const firstRun = !isLoading && holdings.length === 0;
-
-  const flabel = (txt: string) => (
-    <Typography
-      variant="caption"
-      color="text.secondary"
-      sx={{ textTransform: 'uppercase', letterSpacing: 0.4, display: 'block', mb: 0.5, fontSize: 11 }}
-    >
-      {txt}
-    </Typography>
+    [openDetail, qs, rowActions],
   );
-  const filterSelect = (
-    label: string,
-    value: string | undefined,
-    onChange: (v: string | undefined) => void,
-    options: { value: string; label: string }[],
-    placeholder: string,
-  ) => (
-    <Box sx={{ minWidth: 170, flex: 1 }}>
-      {flabel(label)}
-      <TextField
-        select
-        size="small"
-        fullWidth
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        slotProps={{ select: { displayEmpty: true } }}
-      >
-        <MenuItem value="">{placeholder}</MenuItem>
-        {options.map((o) => (
-          <MenuItem key={o.value} value={o.value}>
-            {o.label}
-          </MenuItem>
-        ))}
-      </TextField>
-    </Box>
-  );
-
-  const pbOptions = data.passbooks.map((b) => ({
-    value: b.id,
-    label: `📗 ${b.pattadarNo} · ${shortName(b.ownerName || '') || '—'}`,
-  }));
-  const groupOptions = data.groups.map((g) => ({ value: g.name, label: `👪 ${g.name}` }));
-
-  // Shaped loading state — never paint the sample dataset uncredited.
-  if (isLoading)
-    return (
-      <>
-        <HeaderSkeleton />
-        <StatRowSkeleton />
-        <CardGridSkeleton />
-      </>
-    );
 
   return (
-    <>
-      {firstRun ? (
-        <>
-        <PageHeader eyebrow="Your holdings" title="Land & Properties" />
-        <EmptyLanding
-          icon="🌍"
-          title="Add your first holding"
-          body="Farmland parcels, plots, flats or commercial spaces — upload the deed, passbook or allotment letter and it's read, classified and filed in the right place automatically."
-          ctaText="＋ Add a holding"
-          onCta={() => setAddOpen(true)}
-        />
-        </>
-      ) : (
-        <>
-          {/* Header: eyebrow + title + holdings chip + composition subtitle. */}
-          <PageHeader
-            eyebrow="Your holdings"
-            title="Land & Properties"
-            sample={isSample}
-            titleChips={<Chip size="small" color="primary" label={`${t.parcels + t.properties} holdings`} />}
-            subtitle={`${t.parcels} land parcel${t.parcels !== 1 ? 's' : ''} (${formatArea(t.acres)}) · ${t.properties} propert${t.properties !== 1 ? 'ies' : 'y'}${t.managed ? ` · ${t.managed} managed` : ''}${t.watch ? ` · ${t.watch} watched` : ''}.`}
-          />
-
-          {/* Stat row — per-tab sets, verbatim from source. */}
-          <StatRow>
-            {tab === 'parcels' ? (
-              <>
-                <StatCard label="Parcels" value={t.parcels} />
-                <StatCard label="Total Extent" value={t.acres > 0 ? formatArea(t.acres) : '—'} />
-                <StatCard label="Passbooks" value={t.passbooks} />
-                <StatCard label="Needs Attention" value={t.attention} />
-              </>
-            ) : tab === 'properties' ? (
-              <>
-                <StatCard label="Properties" value={t.properties} />
-                <StatCard
-                  label="Plots & Sites"
-                  value={t.sqyd > 0 ? `${t.sqyd.toLocaleString('en-IN')} Sq.yd` : '—'}
-                />
-                <StatCard label="Built-up" value={t.sqft > 0 ? `${t.sqft.toLocaleString('en-IN')} sq.ft` : '—'} />
-                <StatCard label="Plots" value={t.plots} />
-              </>
-            ) : (
-              <>
-                <StatCard label="Holdings" value={t.parcels + t.properties} />
-                <StatCard label="Farmland" value={t.acres > 0 ? formatArea(t.acres) : '—'} />
-                <StatCard
-                  label="Plots & Sites"
-                  value={t.sqyd > 0 ? `${t.sqyd.toLocaleString('en-IN')} Sq.yd` : '—'}
-                />
-                <StatCard label="Passbooks" value={t.passbooks} />
-              </>
-            )}
-          </StatRow>
-
-          {/* Tabs + toolbar. */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1.5 }}>
-            <Tabs value={tab} onChange={(_e, val) => setTab(val)} sx={{ minHeight: 38, '& .MuiTab-root': { minHeight: 38, py: 0.5 } }}>
-              <Tab label="All" value="all" />
-              <Tab label="Land Parcels" value="parcels" />
-              <Tab label="Properties" value="properties" />
-            </Tabs>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-              <TextField
-                size="small"
-                placeholder="Search holdings…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                sx={{ minWidth: 190 }}
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchIcon fontSize="small" />
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-              />
-              <ToggleButtonGroup size="small" exclusive value={view} onChange={(_e, val) => val && setView(val)} aria-label="View mode">
-                <ToggleButton value="list" aria-label="List view">
-                  <ViewListOutlinedIcon fontSize="small" sx={{ mr: 0.5 }} /> List
-                </ToggleButton>
-                <ToggleButton value="grid" aria-label="Grid view">
-                  <GridViewOutlinedIcon fontSize="small" sx={{ mr: 0.5 }} /> Grid
-                </ToggleButton>
-              </ToggleButtonGroup>
-              <Button
-                variant={activeFilters ? 'contained' : 'outlined'}
-                color={activeFilters ? 'primary' : 'inherit'}
-                startIcon={<FilterListIcon />}
-                onClick={() => setShowFilters((v) => !v)}
-              >
-                Filters{activeFilters ? ` (${activeFilters})` : ''}
-              </Button>
-              <ExportMenu filename={exportName} brand={exportBrand} cols={exportCols} rows={shown} />
-              {tab === 'parcels' ? (
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddParcelOpen(true)}>
-                  Add Parcel
-                </Button>
-              ) : (
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-                  Add
-                </Button>
-              )}
-            </Box>
-          </Box>
-
-          {/* Filters panel. */}
-          {showFilters && (
-            <Card variant="outlined" sx={{ p: 1.75, mb: 1.5, bgcolor: 'background.default' }}>
-              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                {tab === 'all' &&
-                  filterSelect('Kind', fKind, setFKind, [
-                    { value: 'parcel', label: '🌾 Land parcels' },
-                    { value: 'property', label: '🏢 Properties' },
-                  ], 'All kinds')}
-                {filterSelect(
-                  'Status',
-                  fStatus,
-                  setFStatus,
-                  ['owned', 'for-sale', 'sold', 'disputed'].map((x) => ({ value: x, label: x.replace(/-/g, ' ') })),
-                  'All statuses',
-                )}
-                {filterSelect('My stake', fStake, setFStake, [
-                  { value: 'owned', label: 'Owned' },
-                  { value: 'managed', label: 'Managed' },
-                  { value: 'watch', label: 'Watch' },
-                ], 'All stakes')}
-                {filterSelect('Family / group', fGroup, setFGroup, groupOptions, 'All families')}
-                {tab !== 'properties' && filterSelect('Passbook', fPb, setFPb, pbOptions, 'All passbooks')}
-                <Button disabled={!activeFilters} onClick={clearFilters}>
-                  Clear
-                </Button>
-              </Box>
-            </Card>
-          )}
-
-          {/* Collapsed "Filtered by" chips. */}
-          {!showFilters && activeFilters > 0 && (
-            <Card variant="outlined" sx={{ px: 1.5, py: 1, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', bgcolor: 'background.default' }}>
-              <Typography variant="caption" color="text.secondary">
-                Filtered by
-              </Typography>
-              {fKind && (
-                <Chip size="small" onDelete={() => setFKind(undefined)} label={fKind === 'parcel' ? '🌾 Land parcels' : '🏢 Properties'} />
-              )}
-              {fStatus && <Chip size="small" onDelete={() => setFStatus(undefined)} label={fStatus.replace(/-/g, ' ')} />}
-              {fStake && (
-                <Chip
-                  size="small"
-                  onDelete={() => setFStake(undefined)}
-                  label={fStake === 'managed' ? 'Managed' : fStake === 'watch' ? 'Watch' : 'Owned'}
-                />
-              )}
-              {fGroup && <Chip size="small" onDelete={() => setFGroup(undefined)} label={`👪 ${fGroup}`} />}
-              {fPb && (
-                <Chip
-                  size="small"
-                  onDelete={() => setFPb(undefined)}
-                  label={`📗 ${(() => {
-                    const b = data.passbooks.find((x) => x.id === fPb);
-                    return b ? `${b.pattadarNo} · ${shortName(b.ownerName || '')}` : 'Passbook';
-                  })()}`}
-                />
-              )}
-              <Box sx={{ ml: 'auto', display: 'flex', gap: 1.5 }}>
-                <Link component="button" variant="caption" onClick={() => setShowFilters(true)}>
-                  Edit ›
-                </Link>
-                <Link component="button" variant="caption" onClick={clearFilters}>
-                  Clear all
-                </Link>
-              </Box>
-            </Card>
-          )}
-
-          {view === 'grid' ? (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' }, gap: 3 }}>
-              {shown.map((r) => (
-                <Card
-                  key={`${r.kind}-${r.id}`}
-                  role="link"
-                  tabIndex={0}
-                  aria-label={`Open ${r.title}`}
-                  onClick={() => openDetail(r)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && e.target === e.currentTarget) openDetail(r);
-                  }}
-                  sx={clickableCardSx}
-                >
-                  <CardActionsMenu actions={rowActions(r)} />
-                  <CardHero fileRef={r.cover} fallbackIcon={r.icon} pill={parcelPill(r.status, r.litigation)} pill2={stakePill(r.stake)} />
-                  <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1, flexGrow: 1 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
-                      <Typography sx={{ fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {r.title}
-                      </Typography>
-                      <Chip size="small" color={r.typeColor} label={r.typeLabel} sx={{ flexShrink: 0 }} />
-                    </Box>
-                    <Typography variant="body2" color="text.secondary" noWrap>
-                      {r.owner || '—'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, color: 'text.secondary' }}>
-                      <PlaceOutlinedIcon sx={{ fontSize: 16, ml: -0.25, flexShrink: 0 }} />
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {r.location || '—'}
-                      </Typography>
-                    </Box>
-                    {(r.kind === 'parcel' || r.groupName) && (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.25 }}>
-                        {r.kind === 'parcel' && (
-                          <Chip
-                            size="small"
-                            label={`Khata ${r.khata || '—'}`}
-                            onClick={
-                              r.passbookId
-                                ? (e) => {
-                                    e.stopPropagation();
-                                    setTab('parcels');
-                                    setFPb(r.passbookId);
-                                  }
-                                : undefined
-                            }
-                            sx={(th) => ({
-                              bgcolor: (th.vars ?? th).palette.primary.container,
-                              color: (th.vars ?? th).palette.primary.onContainer,
-                              fontWeight: 600,
-                              '&:hover': {
-                                bgcolor: `color-mix(in srgb, ${(th.vars ?? th).palette.primary.main} 8%, ${(th.vars ?? th).palette.primary.container})`,
-                              },
-                            })}
-                          />
-                        )}
-                        {r.groupName && (
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={`👪 ${r.groupName}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setFGroup(r.groupName);
-                            }}
-                          />
-                        )}
-                      </Box>
-                    )}
-                    <Box sx={{ mt: 'auto', pt: 1.5, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 1 }}>
-                      <Typography className="tnum" sx={{ fontSize: 17, fontWeight: 700 }} noWrap>
-                        {r.extentLabel}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {r.kind === 'parcel' ? 'Land parcel' : r.typeLabel}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Card>
-              ))}
-            </Box>
-          ) : (
-            <TableContainer component={Card} sx={stickyHeadSx}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Kind</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Owner</TableCell>
-                    <TableCell>Location</TableCell>
-                    <TableCell>Passbook</TableCell>
-                    <TableCell>Family / Group</TableCell>
-                    <TableCell>Extent</TableCell>
-                    <TableCell>Value (₹)</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell align="right" />
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {shown.map((r) => (
-                    <TableRow key={`${r.kind}-${r.id}`} hover>
-                      <TableCell>
-                        <Link
-                          component="button"
-                          underline="hover"
-                          onClick={() => openDetail(r)}
-                          sx={{ fontWeight: 600 }}
-                        >
-                          {r.title}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          color={r.kind === 'parcel' ? 'success' : 'info'}
-                          variant="outlined"
-                          label={r.kind === 'parcel' ? 'Land parcel' : 'Property'}
-                        />
-                      </TableCell>
-                      <TableCell>{r.typeLabel}</TableCell>
-                      <TableCell>{r.owner || '—'}</TableCell>
-                      <TableCell>{r.location || '—'}</TableCell>
-                      <TableCell>{r.passbook ? `📗 ${r.passbook}` : '—'}</TableCell>
-                      <TableCell>
-                        {r.groupName ? (
-                          <Chip size="small" variant="outlined" label={`👪 ${r.groupName}`} />
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell>{r.extentLabel}</TableCell>
-                      <TableCell>{r.value ? `₹${r.value.toLocaleString('en-IN')}` : '—'}</TableCell>
-                      <TableCell>
-                        {r.litigation ? (
-                          <Chip size="small" color="error" label="litigation" />
-                        ) : (
-                          <Chip size="small" variant="outlined" label={String(r.status || 'owned').replace(/-/g, ' ')} />
-                        )}
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton className="rowActions" size="small" aria-label="Row actions" onClick={(e) => setRowMenu({ anchor: e.currentTarget, row: r })}>
-                          <MoreVertIcon fontSize="small" />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </>
-      )}
-
-      {/* Row-action menu (list view). */}
-      <Menu anchorEl={rowMenu?.anchor ?? null} open={Boolean(rowMenu)} onClose={() => setRowMenu(null)}>
-        {rowMenu &&
-          rowActions(rowMenu.row).map((a) => (
-            <MenuItem
-              key={a.key}
-              onClick={() => {
-                setRowMenu(null);
-                a.onClick();
-              }}
-              sx={a.danger ? { color: 'error.main' } : undefined}
-            >
-              {a.label}
-            </MenuItem>
-          ))}
-      </Menu>
-
-      {/* Kind-aware delete confirmation. */}
-      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)}>
-        <DialogTitle>Delete {deleteTarget?.title}?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Its documents are also removed — files go to My Drive Trash. This cannot be undone.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
-            Cancel
-          </Button>
-          <Button color="error" variant="contained" onClick={() => void confirmDelete()} disabled={deleting}>
-            {deleting ? 'Deleting…' : 'Delete'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
+    <ListScreen<Holding, FilterCtx>
+      header={{
+        eyebrow: 'Your holdings',
+        title: 'Land & Properties',
+        dataState: isSample ? 'unreachable' : 'live',
+        titleChips: (
+          <CountChip count={t.parcels + t.properties} noun="holdings" nounPlural="holdings" />
+        ),
+        subtitle: `${t.parcels} land parcel${t.parcels !== 1 ? 's' : ''} (${area(t.acres)}) · ${t.properties} propert${t.properties !== 1 ? 'ies' : 'y'}${t.managed ? ` · ${t.managed} managed` : ''}${t.watch ? ` · ${t.watch} watched` : ''}.`,
+      }}
+      stats={{ items: stats, scope: 'dataset' }}
+      tabs={{
+        items: TABS,
+        value: tab,
+        onChange: (value) => {
+          if (isTabKey(value)) qs.set({ tab: value });
+        },
+        ariaLabel: 'Holdings view',
+        idPrefix: 'holdings',
+      }}
+      search={{ noun: 'holdings', value: search, onChange: (value) => qs.set({ search: value }) }}
+      view={{ value: view, onChange: (value) => qs.set({ view: value }) }}
+      filters={{
+        fields: FILTER_FIELDS,
+        values: filterValues,
+        ctx,
+        onChange: (next) =>
+          qs.set({
+            kind: next.kind,
+            status: next.status,
+            stake: next.stake,
+            group: next.group,
+            pb: next.pb,
+          }),
+        onClear: () => qs.reset(),
+        open: showFilters,
+        onOpenChange: setShowFilters,
+      }}
+      /* Bimodal by design: the parcels tab opens the manual form, every other
+         tab opens the AI classifier that routes agricultural deeds to parcels
+         and everything else to properties. */
+      primaryAction={
+        tab === 'parcels'
+          ? { label: 'Add Parcel', icon: <AddIcon />, onClick: () => setAddParcelOpen(true) }
+          : { label: 'Add', icon: <AddIcon />, onClick: () => setAddOpen(true) }
+      }
+      exportConfig={{ filename: exportName, brand: exportBrand('Land & Properties Register') }}
+      rows={shown}
+      getRowKey={(r) => `${r.kind}-${r.id}`}
+      rowLabel={(r) => r.title}
+      total={holdings.length}
+      columns={columns}
+      table={{ onRowOpen: openDetail, rowActions }}
+      renderCard={renderCard}
+      state={{ isLoading, isUnreachable: isSample }}
+      empty={{
+        icon: '🌍',
+        title: 'Add your first holding',
+        body: "Farmland parcels, plots, flats or commercial spaces — upload the deed, passbook or allotment letter and it's read, classified and filed in the right place automatically.",
+        primaryAction: { label: '＋ Add a holding', onClick: () => setAddOpen(true) },
+      }}
+    >
       {/* The AI uploader classifies each document — agricultural deeds are
           filed as land parcels, everything else as properties. */}
       <AddPropertyDialog
@@ -815,14 +766,8 @@ export function LandPropertiesPage() {
       <StakeDialog target={stakeTarget} onClose={() => setStakeTarget(null)} onDone={refresh} notify={notify} />
       <LocationDialog target={locTarget} onClose={() => setLocTarget(null)} onDone={refresh} notify={notify} />
 
-      {/* Hidden picker for the cover-photo card action. */}
-      <input ref={coverInputRef} type="file" accept="image/*" hidden onChange={(e) => void onCoverFile(e)} />
-
-      <Snackbar open={Boolean(toast)} autoHideDuration={4000} onClose={() => setToast(null)}>
-        <Alert severity={toast?.severity ?? 'success'} onClose={() => setToast(null)}>
-          {toast?.msg}
-        </Alert>
-      </Snackbar>
-    </>
+      {/* The managed hidden input behind the cover-photo card action. */}
+      {coverPicker.element}
+    </ListScreen>
   );
 }

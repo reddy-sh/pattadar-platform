@@ -1,15 +1,27 @@
-/** The record 360 (W03) and the frame its six hangers are drawn in.
+/** The record 360 (W03) and the frame its nine hangers are drawn in.
  *
- *  Each hanger writes its own headline — "Sy 214/2", "On this land", "Who looks
- *  after it", "What it cost, what it's worth" — because the question being
- *  asked changes, and the mock is emphatic that the page announces the question
- *  rather than the tab. What they share is the breadcrumb and the tab strip,
- *  and those live here. */
-import { Outlet, NavLink, useOutletContext, useParams } from 'react-router';
+ *  The frame is the record itself: its name, its extent, where it is, what can
+ *  be ordered against it, how much of it is filled in, and the tab strip. All
+ *  of that is drawn here, once, so it is the same on every hanger — it used to
+ *  live inside the Papers tab, which is why the other eight had no title but
+ *  their own ("On this land", "Who looks after it") and no way to tell you
+ *  which parcel you were reading.
+ *
+ *  Each hanger now writes a section heading instead — the question it answers —
+ *  and the record stays the <h1>. See RecordHead.tsx.
+ *
+ *  Three other screens live under `records/:id` and are not hangers: ordering a
+ *  service, requesting work, and the expense ledger. They are flows, they draw
+ *  their own chrome, and `tabFor` returning undefined is what keeps this frame
+ *  off them.
+ */
+import { Outlet, useLocation, useOutletContext, useParams } from 'react-router';
 
 import { useRecord } from '../api';
 import type { RecordDetail } from '../api';
-import { Crumbs, Loading } from '../ui';
+import { Crumbs, Failed } from '../ui';
+import { SkRecordPage } from '../skeletons';
+import { RecordHead, tabFor } from './RecordHead';
 
 interface Ctx { rec: RecordDetail }
 
@@ -17,47 +29,32 @@ export function useRecordCtx(): RecordDetail {
   return useOutletContext<Ctx>().rec;
 }
 
-const TABS = [
-  { to: '', label: 'Papers', count: (r: RecordDetail) => r.paperCount, end: true },
-  { to: 'features', label: 'Features', count: (r: RecordDetail) => r.featureCount },
-  { to: 'people', label: 'People', count: (r: RecordDetail) => r.peopleCount },
-  { to: 'services', label: 'Services', count: (r: RecordDetail) => r.serviceCount },
-  { to: 'money', label: 'Money', count: () => 0 },
-  { to: 'history', label: 'History', count: () => 0 },
-];
-
-export function RecordTabs({ rec }: { rec: RecordDetail }) {
-  return (
-    <nav className="tabs" aria-label="This record">
-      {TABS.map((t) => (
-        <NavLink key={t.label} end={t.end} to={t.to ? `/app/records/${rec.id}/${t.to}` : `/app/records/${rec.id}`}>
-          {t.label}
-          {t.count(rec) > 0 && <span className="n">{t.count(rec)}</span>}
-        </NavLink>
-      ))}
-    </nav>
-  );
-}
-
-/** The breadcrumb every hanger shares: Properties › the record › this hanger. */
-export function RecordCrumbs({ rec, here }: { rec: RecordDetail; here?: string }) {
-  return (
-    <Crumbs
-      trail={[
-        { label: 'Properties', to: '/app/properties' },
-        { label: rec.title, to: here ? `/app/records/${rec.id}` : undefined },
-        ...(here ? [{ label: here }] : []),
-      ]}
-    />
-  );
-}
+// Re-exported for the flows under `records/:id`, which still draw their own
+// breadcrumb and (in the ledger's case) their own strip. They imported these
+// from here long before the chrome moved out.
+export { RecordCrumbs, RecordTabs, TABS } from './RecordHead';
 
 export function Record() {
   const { id } = useParams();
+  const { pathname } = useLocation();
   const { data, isLoading, error } = useRecord(id);
 
-  if (isLoading) return <main><Loading h="70vh" /></main>;
-  if (error || !data) {
+  // The whole 360 is gated on this one query — no title, no extent, no tab
+  // strip, no map until it lands — so what stood here was a 70vh grey slab.
+  // The skeleton says which screen is arriving instead.
+  if (isLoading) return <SkRecordPage />;
+  // A dropped request and a record that genuinely is not yours used to give
+  // the same answer. Telling an owner their parcel "is not in your portfolio"
+  // because the API was briefly down is the worst sentence this app can say.
+  if (error) {
+    return (
+      <main>
+        <Crumbs trail={[{ label: 'Properties', to: '/app/properties' }, { label: 'Record' }]} />
+        <Failed what="This record" error={error} boxed h="26rem" />
+      </main>
+    );
+  }
+  if (!data) {
     return (
       <main>
         <Crumbs trail={[{ label: 'Properties', to: '/app/properties' }, { label: 'Not found' }]} />
@@ -66,5 +63,16 @@ export function Record() {
       </main>
     );
   }
-  return <Outlet context={{ rec: data } satisfies Ctx} />;
+
+  const tab = tabFor(pathname);
+  const ctx = { rec: data } satisfies Ctx;
+  // A flow, not a hanger: it owns the whole page, including its own <main>.
+  if (!tab) return <Outlet context={ctx} />;
+
+  return (
+    <main>
+      <RecordHead rec={data} here={tab.to ? tab.label : undefined} />
+      <Outlet context={ctx} />
+    </main>
+  );
 }

@@ -10,13 +10,16 @@ import SvgColor from '../../svg-color';
 
 export default function BaseOptions({ icons, options, value, onChange }) {
   return (
-    <Stack direction="row" spacing={2}>
+    <Stack direction="row" spacing={1}>
       {options.map((option, index) => {
         const selected = value === option;
+        const label = option.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase());
 
         return (
           <ButtonBase
             key={option}
+            aria-label={label}
+            aria-pressed={selected}
             onClick={() => onChange(option)}
             sx={{
               width: 1,
@@ -38,7 +41,7 @@ export default function BaseOptions({ icons, options, value, onChange }) {
               },
             }}
           >
-            <SvgColor src={`/assets/icons/setting/ic_${index === 0 ? icons[0] : icons[1]}.svg`} />
+            <SvgColor src={`/assets/icons/setting/ic_${icons[index]}.svg`} />
           </ButtonBase>
         );
       })}

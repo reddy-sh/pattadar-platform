@@ -103,7 +103,7 @@ variable "waf_block_mode" {
 }
 
 variable "cloudfront_origin_read_timeout" {
-  description = "CloudFront /api/* origin response timeout — raise to 180 after the service-quota increase (extraction ceiling)."
+  description = "CloudFront /api/* origin response timeout. Default quota caps it at 60s. Extraction no longer needs headroom here (it is a durable job); this bounds large uploads — see infra/terraform/README.md."
   type        = number
   default     = 60
 }
@@ -124,4 +124,42 @@ variable "web_origin" {
   description = "CloudFront default-behavior origin: \"spa\" (S3 SPA, current) or \"ecs\" (Next.js via ALB). The flip to \"ecs\" is the founder-gated cutover (D4) — leave at spa here."
   type        = string
   default     = "spa"
+}
+
+variable "identity_legacy_bindings" {
+  description = "Reviewed immutable-principal to legacy owner mapping; null blocks gateway startup until migration preflight is complete."
+  type        = map(string)
+  default     = null
+}
+
+variable "admin_subject_ids" {
+  description = "Immutable subject_ principal IDs allowed to administer models."
+  type        = list(string)
+  default     = []
+}
+
+variable "payments_mode" {
+  description = "Razorpay off/test/live mode. Off preserves the explicit simulated wallet."
+  type        = string
+  default     = "off"
+  validation {
+    condition     = contains(["off", "test", "live"], var.payments_mode)
+    error_message = "payments_mode must be off, test or live."
+  }
+}
+
+variable "razorpay_live_confirmed" {
+  description = "Enable only after provider onboarding and test-mode acceptance."
+  type        = bool
+  default     = false
+}
+
+variable "payment_secret_arns" {
+  description = "Existing Secrets Manager ARNs encrypted with the persistent CMK for Razorpay config. Values are secret ARNs, never credentials."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition     = alltrue([for key in keys(var.payment_secret_arns) : contains(["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET", "RAZORPAY_LINKED_ACCOUNTS_JSON"], key)])
+    error_message = "Only the four documented Razorpay secret names are supported."
+  }
 }

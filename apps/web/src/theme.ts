@@ -1,24 +1,24 @@
 /**
- * Hallmark · design-system: design.md · theme: Bloom (studied-DNA) · designed-as-app
+ * Pattadar Bloom · Material 3-guided theme · design authority: design.md
  *
  * Bloom design system (founder decision 2026-08-14 — see design.md at the
  * repo root). Supersedes the 2026-07-26 stock-MUI decision: colors and
- * typography now derive from the studied Hallmark DNA in
+ * typography now derive from Pattadar's project-owned Bloom tokens in
  * src/styles/tokens.css (dark scheme is the canonical Bloom palette; the
- * light scheme is a warm-tinted derivation documented in design.md).
- * Every hex below is a pre-computed sRGB conversion of a tokens.css oklch
- * value — MUI needs literal parseable colors for its channel math.
+ * light scheme is a warm-tinted derivation documented in design.md; the
+ * high-contrast scheme is a light-based accessibility palette). Every hex
+ * below is literal and parseable so MUI can perform its channel math.
  *
- * ALL SIX semantic slots are defined on BOTH schemes. Leaving `warning`,
+ * ALL SIX semantic slots are defined on ALL THREE schemes. Leaving `warning`,
  * `info` or `secondary` undefined does not disable them — MUI silently falls
  * back to its factory defaults (#ed6c02 orange, #0288d1 blue, #9c27b0 purple),
- * which is how blue and purple reached an amber app. Every ratio in the
- * comments is measured against that scheme's `background.default`.
+ * which is how blue and purple reached an amber app. Documented ratios are
+ * measured against the relevant scheme background.
  *
  * CSS theme variables stay enabled with a CLASS colour-scheme selector so
- * both schemes ship in one stylesheet AND `useColorScheme().setMode` works
- * (the default 'media' selector makes setMode a no-op). Marketing surfaces
- * opt into permanent dark by wrapping themselves in `.dark.site`.
+ * all three schemes ship in one stylesheet AND `useColorScheme` can switch
+ * the active scheme (the default 'media' selector makes setters a no-op).
+ * Marketing surfaces remain permanently dark inside `.dark.site`.
  *
  * Functional seams preserved from the stock era (pages rely on them):
  *  - `palette.primary.container` / `.onContainer` (selected fills)
@@ -29,6 +29,9 @@
 import { createTheme } from '@mui/material/styles';
 
 declare module '@mui/material/styles' {
+  interface ColorSchemeOverrides {
+    highContrast: true;
+  }
   interface PaletteColor {
     /** Soft container fill for selected states / tonal surfaces. */
     container?: string;
@@ -48,8 +51,8 @@ declare module '@mui/material/Button' {
   }
 }
 
-const FONT_BODY = '"Inter", system-ui, -apple-system, sans-serif';
-const FONT_DISPLAY = '"Inter Tight", "Inter", system-ui, sans-serif';
+const FONT_BODY = '"Atkinson Hyperlegible", system-ui, -apple-system, sans-serif';
+const FONT_DISPLAY = '"Inter Tight", "Atkinson Hyperlegible", system-ui, sans-serif';
 const FONT_MONO = '"JetBrains Mono", ui-monospace, "SFMono-Regular", monospace';
 
 /** Shared heading voice — Inter Tight, tight tracking, roman always. */
@@ -58,6 +61,54 @@ const heading = (fontWeight: number, letterSpacing = '-0.02em') => ({
   fontWeight,
   letterSpacing,
 });
+
+/**
+ * The high-contrast palette, built through `createTheme` rather than written
+ * out as an object literal beside `light` and `dark`.
+ *
+ * That asymmetry is forced, not stylistic. `light` and `dark` are MUI's OWN
+ * scheme names, so createThemeWithVars merges its default palette underneath
+ * whatever is written for them — which is where `common`, `grey`, and the
+ * `.light` / `.dark` variants of every semantic colour come from. A scheme
+ * declared through `ColorSchemeOverrides` gets NO such merge: it is used
+ * exactly as written. MUI then reads all of those keys anyway while it
+ * derives its CSS variables — `palette.common.background`,
+ * `palette.grey[100]`, `palette.error.light` and a dozen more — and every one
+ * of them is undefined on a hand-written custom scheme.
+ *
+ * The failure is not a mis-coloured control: it is a TypeError thrown inside
+ * `createTheme`, at module scope, before React renders anything. The whole
+ * app fails to evaluate and EVERY route — signed in or out, app or marketing
+ * — paints blank white.
+ *
+ * Running these colours through `createTheme` first is what fills all of it
+ * in: MUI augments each semantic colour into main/light/dark/contrastText and
+ * supplies common, grey and action at their light-scheme defaults. Only the
+ * `container` / `onContainer` pair is added afterwards, because those two are
+ * this app's own extension (see the module augmentation above) and MUI has no
+ * opinion to contribute about them.
+ */
+const HIGH_CONTRAST = (() => {
+  const base = createTheme({
+    palette: {
+      mode: 'light',
+      primary: { main: '#003b73', contrastText: '#ffffff' },
+      secondary: { main: '#5a1a78', contrastText: '#ffffff' },
+      error: { main: '#a40000', contrastText: '#ffffff' },
+      success: { main: '#006b3c', contrastText: '#ffffff' },
+      warning: { main: '#6b4f00', contrastText: '#ffffff' },
+      info: { main: '#004f6b', contrastText: '#ffffff' },
+      background: { default: '#ffffff', paper: '#ffffff' },
+      text: { primary: '#000000', secondary: '#1f1f1f' },
+      divider: '#000000',
+    },
+  }).palette;
+  return {
+    ...base,
+    primary: { ...base.primary, container: '#d9ecff', onContainer: '#001c38' },
+    secondary: { ...base.secondary, container: '#f4ddff', onContainer: '#2c003e' },
+  };
+})();
 
 export const theme = createTheme({
   cssVariables: { colorSchemeSelector: 'class' },
@@ -118,6 +169,11 @@ export const theme = createTheme({
         divider: '#312622', // --color-rule
       },
     },
+    // Light-based accessibility palette for low-vision users. Every semantic
+    // main colour clears 4.5:1 against white and carries white contrast text.
+    // Built by HIGH_CONTRAST above — see the note there for why it cannot be
+    // written inline the way `light` and `dark` are.
+    highContrast: { palette: HIGH_CONTRAST },
   },
   shape: { borderRadius: 8 },
   typography: {
@@ -143,6 +199,12 @@ export const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        // Strong, two-tone keyboard focus ring only while High Contrast is active.
+        '.highContrast :focus-visible': {
+          outline: '3px solid #000000 !important',
+          outlineOffset: '3px',
+          boxShadow: '0 0 0 3px #ffffff !important',
+        },
         // Tabular numerals for stat figures — mono per the Bloom DNA.
         '.tnum': {
           fontFamily: FONT_MONO,

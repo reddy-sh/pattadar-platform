@@ -63,24 +63,26 @@ persistent state to exist):
 ## Runtime layer
 
 `modules/runtime/` is the destroyable half: VPC (2 public subnets, NO NAT —
-tasks get public IPs, ~$3.6/mo per task IPv4), ALB (`idle_timeout = 200`;
-extraction runs to 180s, never retried), two ARM64 Fargate services
-(gateway/api; the ALB forwards ONLY `/cron/inactivity-check` to api —
-x-user-id invariant), RDS PG17, EventBridge Scheduler cron (retries = 0 so
-the dead-man's-switch can never double-fire), CloudFront + WAF (prod only:
-`enable_cdn` / `enable_waf`, dev talks straight to the ALB), alarms, and DNS
-records in the persistent zone.
+tasks get public IPs, with documented per-address cost), ALB (`idle_timeout =
+200`; extraction runs to 180s, never retried), three ARM64 Fargate services
+(gateway/API/assistant) plus an optional staged web service, RDS PG17,
+EventBridge Scheduler cron, CloudFront + WAF and the SPA bucket, alarms, and DNS.
+The ALB forwards only `/cron/inactivity-check` directly to API; `/api/*` goes to
+the gateway. Active SPA default content comes from CloudFront/S3; the ALB web
+target is for an explicit future web-next cutover.
 
-### Down (platform-down.sh)
+### Down (`scripts/platform-down.sh`)
 
-1. Flip RDS deletion protection off:
-   `terraform apply -var deletion_protection=false -target=module.runtime.aws_db_instance.main`
-2. Destroy with a unique final-snapshot name:
-   `terraform destroy -var deletion_protection=false -var final_snapshot_suffix=$(date +%Y%m%d%H%M)`
-   → snapshot `pattadar-<env>-pg-final-<suffix>`.
+Use the reviewed lifecycle script or its manual workflow, not an ad-hoc targeted
+apply. The script performs a **full runtime apply** with deletion protection
+disabled, creates a unique final-snapshot identifier, parks documents according
+to the configured class, and then destroys runtime. A targeted `-target` apply
+can desynchronize dependencies/state and is explicitly not the current flow.
+Production retains the typed `decommission-prod` confirmation.
 
 The persistent layer (documents, users, images, secrets, zone) is untouched;
-the script separately parks documents into `parking_storage_class`.
+see `docs/runbooks/up-down.md` for prerequisites, evidence, rerun behavior, and
+recovery from interruption.
 
 ### Up again (restore from snapshot)
 
@@ -96,10 +98,18 @@ Find the latest final snapshot and pass it in:
   `terraform apply` and `aws ecs update-service --force-new-deployment` for
   both services. TODO(Phase 2): dedicated app DB user or IAM DB auth.
 - **CloudFront origin timeout**: default service quota caps
-  `origin_read_timeout` at 60s; extraction needs 180. Request the "Response
-  timeout per origin" quota increase, then set
-  `cloudfront_origin_read_timeout = 180`. Until then long extraction calls go
-  to `https://api.pattadar.com` directly (ALB allows 200s).
+  `origin_read_timeout` at 60s. This is no longer an extraction ceiling —
+  document reading runs as a durable server job (`services/api/src/import_jobs.py`)
+  whose every HTTP hop is short, and the browser only ever calls relative
+  `/api` paths (see the docblock in `apps/web/src/api/client.ts`), so nothing
+  talks to `https://api.pattadar.com` directly any more. What the 60s cap still
+  binds is a **large upload**: the gateway accepts up to
+  `STORAGE_MAX_UPLOAD_BYTES` (100 MB) and CloudFront will cut the connection at
+  60s regardless, so a big scan on a slow rural link fails at the edge. Until
+  either the "Response timeout per origin" quota increase lands (then set
+  `cloudfront_origin_read_timeout = 180`) or uploads move to a presigned S3 PUT
+  that bypasses CloudFront, treat 100 MB as advertised-but-not-deliverable over
+  a slow connection.
 - **ALB access logs** land in the persistent logs bucket under `alb/` — the
   bucket policy statement `ALBAccessLogsDelivery` (persistent/s3.tf) is what
   authorises the regional ELB account; removing it breaks the runtime apply.
@@ -155,9 +165,11 @@ prod's ECR repositories. Separate accounts need none of this.
 
 ## Invariants baked into this layout
 
-- api trusts `x-user-id` and is never internet-reachable except
-  `/cron/inactivity-check`; user id = email local-part lowercased (the Cognito
-  pre-token-gen Lambda lowercases the email claim in both tokens).
+- API trusts gateway-injected `x-user-id` and is never generally
+  internet-reachable; the single `/cron/inactivity-check` exception is guarded
+  by `CRON_SECRET`. New identities use immutable Cognito issuer/subject.
+  Existing owner keys resolve only through reviewed `IDENTITY_LEGACY_BINDINGS`;
+  neither API nor gateway derives authority from the email local part.
 - Extraction routes need >= 200s timeouts and NO retries — ALB
   `idle_timeout = 200` and zero-retry semantics everywhere (scheduler
   `maximum_retry_attempts = 0`; CloudFront quota caveat above).
@@ -166,8 +178,8 @@ prod's ECR repositories. Separate accounts need none of this.
 
 ## Validation
 
-Terraform is not installed on the authoring machine; files are written
-conservatively against AWS provider 6.x (plus `hashicorp/archive` for the
-Lambda zip). CI must run
-`terraform init -backend=false && terraform validate && terraform fmt -check`
-in each env root before the first apply. TODO(Track B): add that CI job.
+CI already runs `terraform fmt -check -recursive` and
+`terraform init -backend=false && terraform validate` across all four
+environment roots (`dev/prod` × `persistent/runtime`). Local `init` downloads
+providers and writes `.terraform`; mention that side effect before running it.
+A successful static validation is not a reviewed plan or applied-state proof.

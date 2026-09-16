@@ -4,7 +4,7 @@
     "live in docs/specs/2026-08-22-web-ios-parity-contract.md; this file is only",
     "the pairing, so scripts/parity-check.ts can read it without a parser.",
     "",
-    "A module with no twin is not a defect \u2014 it may be genuinely web-only. It is",
+    "A module with no twin is not a defect — it may be genuinely web-only. It is",
     "a defect when a twin exists and only one side moved."
   ],
   "twins": [
@@ -37,6 +37,18 @@
       "ts": "packages/core/src/land/landcalc.ts",
       "swift": [
         "apps/ios/PattadarKit/Sources/PattadarKit/Land/Boundary.swift"
+      ],
+      "$note": [
+        "cornerLabel, ringSides and compassPoint are WEB-ONLY presentation helpers",
+        "for the boundary-tracing UI (RecordBoundary / FenceStudio). iOS takes side",
+        "lengths and bearings server-derived through FMBGeometry.swift instead, so no",
+        "Swift twin is owed for these three. Decided 13/09/2026.",
+        "",
+        "They are not silently divergent: core's ringSides().metres is haversine",
+        "(ringPerimM, R=6371000) while Swift's boundarySideMetres projects",
+        "equirectangularly, and at parcel scale the two agree to ~1.6 ppm — 0.1 mm on",
+        "a 64 m side, far below the precision either head prints. Revisit only if a",
+        "native screen starts computing side lengths for a user-traced ring."
       ]
     },
     {
@@ -155,7 +167,7 @@
       "apps/web/src/"
     ]
   },
-  "$tokens": "Slots both design systems declare, compared against apps/web/src/theme.ts \u2014 which holds the PRE-COMPUTED sRGB hex for both schemes ('hex conversions of tokens.css oklch values'), so nothing here has to re-derive OKLCH. `assert` slots must agree exactly and today all of them do. `derived` slots are reported for information only: apps/ios/design.md says the paper ramp is DERIVED from the same OKLCH source, not copied, and Palette.ground / Palette.caution are deliberate native choices.",
+  "$tokens": "Slots both design systems declare, compared against apps/web/src/theme.ts — which holds the PRE-COMPUTED sRGB hex for both schemes ('hex conversions of tokens.css oklch values'), so nothing here has to re-derive OKLCH. `assert` slots must agree exactly and today all of them do. `derived` slots are reported for information only: apps/ios/design.md says the paper ramp is DERIVED from the same OKLCH source, not copied, and Palette.ground / Palette.caution are deliberate native choices.",
   "tokens": {
     "theme": "apps/web/src/theme.ts",
     "swift": "apps/ios/Pattadar/Sources/DesignSystem.swift",

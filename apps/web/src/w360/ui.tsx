@@ -13,7 +13,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import MoreVertOutlined from '@mui/icons-material/MoreVertOutlined';
+import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
+
+import { useBlobFetch } from '../components/holdingCards';
+import { isStorageRef } from '../pages/documents/storage';
 
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import AgricultureOutlined from '@mui/icons-material/AgricultureOutlined';
@@ -24,6 +29,7 @@ import CancelOutlined from '@mui/icons-material/CancelOutlined';
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined';
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
+import InsertDriveFileOutlined from '@mui/icons-material/InsertDriveFileOutlined';
 import DoorFrontOutlined from '@mui/icons-material/DoorFrontOutlined';
 import ElectricBoltOutlined from '@mui/icons-material/ElectricBoltOutlined';
 import ErrorOutlineOutlined from '@mui/icons-material/ErrorOutlineOutlined';
@@ -70,10 +76,50 @@ export function inGroup(n: number): string {
 export function inr(n: number, sign = false): string {
   const a = Math.abs(n);
   const lead = n < 0 ? '−' : sign ? '+' : '';
-  if (a >= 1e7) return `${lead}₹${(a / 1e7).toFixed(2)} Cr`;
-  if (a >= 1e5) return `${lead}₹${(a / 1e5).toFixed(2).replace(/0$/, '')} L`;
+  if (a >= 1e5) {
+    // Round in lakhs FIRST, then decide the unit. Choosing the unit on the raw
+    // number and rounding afterwards printed ₹99,99,500 as "₹100.0 L" — a unit
+    // nobody writes, at exactly the threshold where a reader is checking
+    // whether a parcel has crossed a crore. One threshold, so two cannot
+    // disagree: anything at or above a crore already rounds to 100.00 lakh.
+    const l = (a / 1e5).toFixed(2);
+    if (Number(l) >= 100) return `${lead}₹${(a / 1e7).toFixed(2)} Cr`;
+    return `${lead}₹${l.replace(/0$/, '')} L`;
+  }
   return `${lead}₹${inGroup(a)}`;
 }
+
+/** A figure, or a dash where there is no figure.
+ *
+ *  `inr(0)` is "₹0", which on a market value or a rate is a claim: it says
+ *  somebody valued this parcel and the answer was nothing. Every screen that
+ *  prints a valuation wants this instead. The CSV export deliberately does
+ *  not — a spreadsheet column wants the number 0, not an em dash. */
+export const inrOr = (n: number, blank = '—') => (n > 0 ? inr(n) : blank);
+
+/** ₹1,00,500 — a figure somebody reconciles, not a magnitude.
+ *
+ *  A balance, a ledger row or an amount set aside is a number that has to
+ *  MATCH something: the movement listed under it, a receipt, a bank line. A
+ *  wallet reading "₹1.01 L" over a movement reading ₹1,00,500 is ₹433 of
+ *  daylight between two figures on one screen, and that is the "why did my
+ *  wallet lose money" call. Above a crore the full digits stop being readable,
+ *  so the short form takes over there and nowhere else.
+ *
+ *  Three screens had each written this out locally before it was lifted here. */
+export const inrFullish = (n: number): string => (n >= 1e7 ? inr(n) : `₹${inGroup(n)}`);
+
+/** What to call this record in a sentence — "this parcel", "this flat".
+ *
+ *  Copy in these screens addresses one specific thing, and a screen that says
+ *  "this parcel" over a third-floor flat has stopped being about the reader's
+ *  property. Two screens kept identical copies of this, which is the drift
+ *  STATUS_WORD had just been rescued from. */
+export const nounFor = (kind: string, cls: string): string =>
+  (kind === 'parcel' ? 'parcel'
+    : cls === 'flat' ? 'flat'
+    : cls === 'shop' ? 'shop'
+    : cls === 'open_plot' ? 'plot' : 'property');
 
 /** ₹58,00,000 — the full figure, for a consideration or a receipt. */
 export const inrFull = (n: number) => `₹${inGroup(n)}`;
@@ -94,6 +140,18 @@ export const num = (n: number, dp = 0) =>
  *  every one of them read "1 need repair" and "1 properties". */
 export function plural(n: number, one: string, many?: string): string {
   return `${num(n)} ${n === 1 ? one : many ?? `${one}s`}`;
+}
+
+/** [lat,lon,lat,lon,…] → [[lat,lon],…]. The API sends a ring flat for the
+ *  same reason `shape` is flat: one list, no per-corner object churn.
+ *
+ *  It lives here rather than beside the map it feeds because MapCanvas is
+ *  behind a lazy import — anything a page reads eagerly from that module drags
+ *  Leaflet's 150 kB back into the main bundle. */
+export function pairs(flat: number[]): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) out.push([flat[i], flat[i + 1]]);
+  return out;
 }
 
 /** 15.3133 → "15.3133° N, 80.0729° E"; an unset pin returns "" so the caller
@@ -142,6 +200,10 @@ const ICONS: Record<string, typeof MapOutlined> = {
   old: HistoryEduOutlined,
   photos: ImageOutlined,
   unsorted: HelpOutlineOutlined,
+  // A filed scan whose shelf nobody has decided yet is still plainly a
+  // document; the 'Unsorted' chip beside it already carries the doubt,
+  // and a column of question marks reads as broken rather than untriaged.
+  paper: InsertDriveFileOutlined,
   // record kinds
   parcel: GrassOutlined,
   agri: GrassOutlined,
@@ -170,6 +232,53 @@ const ICONS: Record<string, typeof MapOutlined> = {
 export function Icon({ name, size = 18, className }: { name: string; size?: number; className?: string }) {
   const C = ICONS[name] ?? ICONS.feature;
   return <C className={className} sx={{ fontSize: size, flex: 'none' }} aria-hidden />;
+}
+
+/**
+ * A stored photo, or the icon that stands in for one.
+ *
+ * Most photos on these screens have no bytes behind them — seeded rows carry an
+ * empty fileRef, and legacy rows sometimes carry a filename where a node id
+ * should be. Both must land on the caller's placeholder rather than a broken
+ * image, so `fallback` is required, not a nicety.
+ *
+ * The source cannot be a plain `src`: the storage gateway wants a Bearer token
+ * on every read, so the bytes arrive through an authenticated fetch and are
+ * handed to the <img> as an object URL.
+ */
+export function PhotoImg(
+  { fileRef, alt, thumb, fallback, kind, className }:
+  { fileRef: string; alt: string; thumb?: number; fallback: ReactNode;
+    kind?: 'photo' | 'video'; className?: string },
+) {
+  // A video is fetched whole — ?thumb would hand back a still frame, and the
+  // point of filing a clip is that it moves.
+  const photo = useBlobFetch(isStorageRef(fileRef) ? fileRef : undefined,
+                             kind === 'video' ? undefined : thumb);
+
+  // A photo that EXISTS and could not be read is not a photo that was never
+  // taken. Both used to render the caller's `fallback` — the "nothing filed
+  // here" placeholder — so an expired session or a refused object looked
+  // exactly like an empty slot, with no way to ask again. `fallback` keeps its
+  // one meaning: nothing is filed. This says the other thing.
+  if (photo.status === 'error') {
+    return (
+      <span className={`photo-failed ${className ?? ''}`.trim()} role="alert">
+        <ErrorOutlineOutlined sx={{ fontSize: 16 }} aria-hidden />
+        <span>
+          {photo.httpStatus === 403
+            ? 'You do not have access to this file'
+            : 'This did not load'}
+        </span>
+        <button type="button" onClick={photo.retry}>Try again</button>
+      </span>
+    );
+  }
+  if (!photo.url) return <>{fallback}</>;
+  if (kind === 'video') {
+    return <video className={className} src={photo.url} controls aria-label={alt} />;
+  }
+  return <img className={className} src={photo.url} alt={alt} />;
 }
 
 // ── Text ───────────────────────────────────────────────────────────────
@@ -233,6 +342,49 @@ export const Tag = ({ children, alert }: { children: ReactNode; alert?: boolean 
   <span className={alert ? 'tag alert' : 'tag'}>{children}</span>
 );
 
+/** The words the system has for a record's status and stake.
+ *
+ *  This map was copied into three screens, and the copies had drifted: none of
+ *  them carried `archived`, so an archived record painted a coloured capsule
+ *  with nothing written in it. One map, and a total function over it — an
+ *  unknown value from the server is humanised rather than dropped, because a
+ *  blank pill is the one outcome that tells the reader nothing at all. */
+export const STATUS_WORD: Record<string, string> = {
+  owned: 'Owned', for_sale: 'For sale', disputed: 'Disputed',
+  managed: 'Managed', watch: 'Watch', archived: 'Archived',
+};
+
+export function statusWord(key: string): string {
+  if (!key) return '';
+  return STATUS_WORD[key]
+    ?? key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
+/** The eight shelves of the vault, as `vault` in web360.py spells them.
+ *
+ *  A fourth copy of this map was about to be written. Three screens name the
+ *  same eight shelves — the wall, the shelf list and the reader's "move this
+ *  paper to" menu — and a shelf renamed in one of them and not the others is a
+ *  paper the owner can no longer find. */
+export const SHELF_WORD: Record<string, string> = {
+  title: 'Title', revenue: 'Revenue record', map: 'Map', search: 'Search & tax',
+  identity: 'Identity', old: 'Old record', photos: 'Photos', unsorted: 'Unsorted',
+};
+
+/** One cell of a CSV, safe to hand to a spreadsheet.
+ *
+ *  Four screens export a CSV and each had written this out. The guard is not
+ *  cosmetic: Excel and Sheets EXECUTE a cell that opens with =, + , - or @, and
+ *  a record's title, a seller's name and a tag are all free text the owner
+ *  typed — so `=HYPERLINK(...)` in a parcel's title would run on whoever opened
+ *  the export. A leading apostrophe makes it read as text. `\r` counts as a
+ *  line break inside a cell for strict readers, so it forces quoting too. */
+export function csvCell(v: unknown): string {
+  let s = String(v ?? '');
+  if (/^[=+\-@]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 /** A status word the system owns — "For sale", "Managed", "agri". */
 export const Pill = ({ kind, children }: { kind: string; children: ReactNode }) => (
   <span className={`pill ${kind}`}>{children}</span>
@@ -257,9 +409,35 @@ export function Cell({ k, v, unit, note, tone }: {
   );
 }
 
-export function KV({ rows }: { rows: { k: string; v: ReactNode; highlight?: boolean }[] }) {
+export function KV(
+  { rows, as, className }: {
+    rows: { k: string; v: ReactNode; highlight?: boolean }[];
+    /** `'dl'` renders a real description list — `<dl>/<dt>/<dd>` — instead of
+     *  divs and spans. Same `.kv` CSS either way: `.kv dt, .kv .k` and
+     *  `.kv dd, .kv .v` are already written as pairs, so nothing restyles.
+     *
+     *  It matters where the pairs ARE the content rather than a summary
+     *  beside it — a screen reader is told "list, 3 items" and can move
+     *  term by term, instead of walking a run of anonymous spans. */
+    as?: 'dl';
+    className?: string;
+  },
+) {
+  const cls = ['kv', className].filter(Boolean).join(' ');
+  if (as === 'dl') {
+    return (
+      <dl className={cls}>
+        {rows.map((r) => (
+          <div key={r.k} className={r.highlight ? 'hl' : undefined}>
+            <dt>{r.k}</dt>
+            <dd>{r.v}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
   return (
-    <div className="kv">
+    <div className={cls}>
       {rows.map((r) => (
         <div key={r.k} className={r.highlight ? 'hl' : undefined}>
           <span className="k">{r.k}</span>
@@ -271,13 +449,18 @@ export function KV({ rows }: { rows: { k: string; v: ReactNode; highlight?: bool
 }
 
 export function Card({
-  title, link, linkTo, children, className, aside,
+  title, link, linkTo, children, className, aside, busy,
 }: {
   title?: ReactNode; link?: string; linkTo?: string; children: ReactNode;
   className?: string; aside?: ReactNode;
+  /** The card is showing the last good answer while a new one is fetched.
+   *  Screens were wrapping cards in a bare div just to carry this, because a
+   *  panel that refreshes in place has to say so — otherwise changing a rate
+   *  looks like nothing happened until the numbers silently change. */
+  busy?: boolean;
 }) {
   return (
-    <section className={`card pad-lg ${className ?? ''}`}>
+    <section className={`card pad-lg ${className ?? ''}`} aria-busy={busy || undefined}>
       {(title || link || aside) && (
         <div className="cardhead">
           {title && <h2>{title}</h2>}
@@ -290,7 +473,27 @@ export function Card({
   );
 }
 
-export interface MenuItem { label: string; onClick: () => void; danger?: boolean }
+export interface MenuItem {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  /** Marks one choice in an exclusive menu. Supplying either boolean renders
+   *  radio-menu semantics; omit it for ordinary action items. */
+  selected?: boolean;
+  /** Optional glyph, drawn before the label. A menu of four one-off actions
+   *  reads much faster with them; a menu of "Edit / Delete" does not need
+   *  them, so they stay optional and the existing callers are untouched. */
+  icon?: ReactNode;
+  /** Renders the item as a real link. An item that goes somewhere OUT of the
+   *  app — a maps hand-off — must be middle-clickable and copyable, and a
+   *  button calling window.open is neither (and is what a popup blocker
+   *  stops). `onClick` is ignored when this is set. */
+  href?: string;
+  /** Draws a hairline ABOVE this item, separating it from the group before
+   *  it. The rule rides on the item rather than being a node of its own, so
+   *  the arrow-key roving in `Menu` has nothing extra to skip over. */
+  rule?: boolean;
+}
 
 /** A kebab menu. The list is position:fixed off the button's rect AND
  *  portalled to the app root: its anchors live inside overflow-clipped
@@ -306,8 +509,19 @@ export interface MenuItem { label: string; onClick: () => void; danger?: boolean
  *  keyboard user could not edit or delete a record at all.
  *
  *  Clicks stop propagation so a menu inside a Link never navigates. */
-export function Menu({ label, items, className }: {
+export function Menu({ label, items, className, header, trigger, triggerClassName }: {
   label: string; items: MenuItem[]; className?: string;
+  /** Named above the items — "which record will this act on". A menu opened
+   *  from a grid of forty cards is otherwise a column of verbs with no
+   *  subject, and one of them is Delete. */
+  header?: ReactNode;
+  /** What the trigger wears. Defaults to the kebab every card row uses. The
+   *  topbar account control wears the avatar instead: the same portalled,
+   *  arrow-navigable, focus-returning machinery behind a different face,
+   *  rather than a second hand-rolled menu growing inside Shell.tsx. */
+  trigger?: ReactNode;
+  /** Class for the trigger when it is not an `iconbtn` — see `trigger`. */
+  triggerClassName?: string;
 }) {
   const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -316,6 +530,15 @@ export function Menu({ label, items, className }: {
   // Only a keyboard-opened menu grabs focus; a mouse user's pointer is
   // already where they want it, and stealing focus would scroll the page.
   const takeFocus = useRef(false);
+
+  /** How tall the list will be, used to decide whether it opens downwards.
+   *  Both the opening click and the scroll-follow ask, and they used to each
+   *  carry their own copy of `items.length * 40 + 16` — which stopped being
+   *  true the moment a menu grew a header and hairline rules, and a menu that
+   *  guesses short flips the wrong way at the bottom of a long grid. */
+  const menuH = items.length * 40 + 16
+    + (header ? 26 : 0)
+    + items.filter((it) => it.rule).length * 6;
 
   const close = (toTrigger = false) => {
     setPos(null);
@@ -326,7 +549,9 @@ export function Menu({ label, items, className }: {
     if (!pos) return;
     if (takeFocus.current) {
       takeFocus.current = false;
-      listRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+      listRef.current?.querySelector<HTMLElement>(
+        '[role="menuitem"], [role="menuitemradio"]',
+      )?.focus();
     }
     const away = (e: PointerEvent) => {
       const t = e.target as Node;
@@ -335,34 +560,60 @@ export function Menu({ label, items, className }: {
     };
     const keys = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); close(true); return; }
-      if (e.key === 'Tab') { setPos(null); return; }
+      // Hand focus back to the kebab rather than just closing. Unmounting the
+      // portalled list while one of its items held focus reset activeElement to
+      // <body>, so the next Tab restarted from the top of the document — a
+      // keyboard user had to walk the whole rail and list to get back. No
+      // preventDefault: the browser's own Tab then continues from the kebab,
+      // which is the WAI-ARIA menu-button behaviour.
+      if (e.key === 'Tab') { close(true); return; }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       const all = Array.from(
-        listRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+        listRef.current?.querySelectorAll<HTMLElement>(
+          '[role="menuitem"], [role="menuitemradio"]',
+        ) ?? []);
       if (!all.length) return;
       e.preventDefault();
-      const at = all.indexOf(document.activeElement as HTMLButtonElement);
+      const at = all.indexOf(document.activeElement as HTMLElement);
       const step = e.key === 'ArrowDown' ? 1 : -1;
       all[(at + step + all.length) % all.length].focus();
     };
-    const shut = () => setPos(null);
+    // The list is position:fixed, so it has to be told when its trigger moves.
+    // It used to just close on any scroll — which sounds harmless and is not:
+    // clicking a kebab low on the page makes the browser scroll it into view,
+    // and the menu shut about 20ms after opening. It looked like a dead
+    // control. Follow the trigger instead, and close only once it is actually
+    // gone from the viewport.
+    const follow = () => {
+      const b = btnRef.current;
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      const gone = r.bottom < 0 || r.top > window.innerHeight
+        || r.right < 0 || r.left > window.innerWidth;
+      if (gone) { setPos(null); return; }
+      const up = window.innerHeight - r.bottom < menuH;
+      setPos((cur) => (cur && cur.top === (up ? r.top - 4 : r.bottom + 4)
+        && cur.left === r.right && cur.up === up
+        ? cur                              // unchanged: do not re-render
+        : { top: up ? r.top - 4 : r.bottom + 4, left: r.right, up }));
+    };
     window.addEventListener('pointerdown', away);
     window.addEventListener('keydown', keys);
-    window.addEventListener('scroll', shut, true);
-    window.addEventListener('resize', shut);
+    window.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
     return () => {
       window.removeEventListener('pointerdown', away);
       window.removeEventListener('keydown', keys);
-      window.removeEventListener('scroll', shut, true);
-      window.removeEventListener('resize', shut);
+      window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('resize', follow);
     };
-  }, [pos]);
+  }, [pos, items.length]);
 
   return (
     <div className={`menu ${className ?? ''}`} ref={ref}>
       <button
         ref={btnRef}
-        type="button" className="iconbtn" aria-label={label}
+        type="button" className={triggerClassName ?? 'iconbtn'} aria-label={label}
         aria-haspopup="menu" aria-expanded={!!pos}
         onClick={(e) => {
           e.preventDefault();
@@ -371,32 +622,53 @@ export function Menu({ label, items, className }: {
           // detail is 0 for Enter/Space activation, non-zero for a real click.
           takeFocus.current = e.detail === 0;
           const r = e.currentTarget.getBoundingClientRect();
-          const up = window.innerHeight - r.bottom < items.length * 40 + 16;
+          const up = window.innerHeight - r.bottom < menuH;
           setPos({ top: up ? r.top - 4 : r.bottom + 4, left: r.right, up });
         }}
       >
-        <MoreVertOutlined sx={{ fontSize: 18 }} />
+        {trigger ?? <MoreVertOutlined sx={{ fontSize: 18 }} />}
       </button>
       {pos && createPortal(
+        /* `role="menu"` sits on the inner list, not this box. A header is not a
+           menuitem, and a non-menuitem child of role="menu" is the same ARIA
+           violation Shell.tsx documents fixing for its role="listbox". */
         <div
-          ref={listRef} className="menu-list" role="menu" aria-label={label}
+          ref={listRef} className="menu-list"
           style={{ top: pos.top, left: pos.left,
                    transform: pos.up ? 'translate(-100%, -100%)' : 'translateX(-100%)' }}
         >
-          {items.map((it) => (
-            <button
-              key={it.label} type="button" role="menuitem"
-              className={it.danger ? 'danger' : undefined}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setPos(null);
-                it.onClick();
-              }}
-            >
-              {it.label}
-            </button>
-          ))}
+          {header && <div className="menuhead">{header}</div>}
+          <div role="menu" aria-label={label}>
+          {items.map((it) => {
+            const cls = [it.danger && 'danger', it.rule && 'ruled'].filter(Boolean).join(' ') || undefined;
+            const role = it.selected === undefined ? 'menuitem' : 'menuitemradio';
+            return it.href ? (
+              <a
+                key={it.label} role={role} aria-checked={it.selected} href={it.href}
+                target="_blank" rel="noreferrer"
+                className={cls}
+                onClick={(e) => { e.stopPropagation(); setPos(null); }}
+              >
+                {it.icon}
+                {it.label}
+              </a>
+            ) : (
+              <button
+                key={it.label} type="button" role={role} aria-checked={it.selected}
+                className={cls}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  close(true);
+                  it.onClick();
+                }}
+              >
+                {it.icon}
+                {it.label}
+              </button>
+            );
+          })}
+          </div>
         </div>,
         document.querySelector('.w360') ?? document.body,
       )}
@@ -404,11 +676,136 @@ export function Menu({ label, items, className }: {
   );
 }
 
-/** A single loading block — the screens never spin, they hold their shape. */
-export const Loading = ({ h = '10rem' }: { h?: string }) => (
-  <div className="skeleton" style={{ height: h }} role="status" aria-label="Loading" />
+/** A single loading block — the screens never spin, they hold their shape.
+ *
+ *  The block is decorative and the sentence under it is the real content of the
+ *  status region. It used to be a bare `role="status"` div carrying only an
+ *  `aria-label`: an empty live region announces nothing whatever you label it,
+ *  and a 70vh slab with no words was exactly the screen that read as broken.
+ *  Real DOM text fixes both at once — it is announced, and it is legible.
+ *
+ *  `what` names the thing being fetched and should match the noun the same
+ *  screen gives `Failed what=`, so the waiting word and the failure word agree. */
+export const Loading = ({ h = '10rem', what }: { h?: string; what?: string }) => (
+  <div role="status" aria-busy="true" style={{ display: 'grid', gap: 'var(--space-sm)' }}>
+    <div className="skeleton" style={{ height: h }} aria-hidden />
+    <p className="note">Loading{what ? ` ${what}` : ''}…</p>
+  </div>
 );
 
-export const Empty = ({ children }: { children: ReactNode }) => (
-  <p className="note" style={{ padding: 'var(--space-lg) 0' }}>{children}</p>
-);
+/**
+ * Nothing here — said in words.
+ *
+ * The screens used to have three states and two renderings: loading drew a
+ * skeleton, and *empty* and *failed* both drew the same skeleton, forever.
+ * W09 was the plainest case — a recipient with no shared kits watched a 60vh
+ * grey block pulse for as long as they cared to wait, because the kit query is
+ * `enabled: !!id` and there was no id to enable it with.
+ *
+ * Called with only `children` this is still the one-line note it always was,
+ * so existing callers are untouched. Given a `title` it becomes a real empty
+ * state: a marker, a sentence naming what is absent, and — where the user can
+ * actually do something about it — the thing to do.
+ */
+export function Empty({
+  icon, title, children, action, boxed, h,
+}: {
+  icon?: string; title?: ReactNode; children?: ReactNode;
+  action?: ReactNode; boxed?: boolean; h?: string;
+}) {
+  if (!title && !icon && !action && !boxed) {
+    return <p className="note" style={{ padding: 'var(--space-lg) 0' }}>{children}</p>;
+  }
+  return (
+    <div className={boxed ? 'blank boxed' : 'blank'} style={h ? { minHeight: h } : undefined}>
+      {icon && <span className="blank-i"><Icon name={icon} size={24} /></span>}
+      {title && <p className="blank-t">{title}</p>}
+      {children && <p className="note">{children}</p>}
+      {action && <div className="row tight blank-do">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * A read that did not come back.
+ *
+ * `main.tsx` configures react-query with `retry: 1`, so a query that fails
+ * twice settles into `isLoading: false, data: undefined` and stays there. Every
+ * screen written as `if (isLoading || !data) return <Loading/>` therefore drew
+ * a skeleton that could never resolve — an outage rendered as an eternity.
+ *
+ * Retry invalidates the whole `w360` key rather than taking a `refetch` from
+ * the caller: a screen is usually several queries deep and a stale sibling is
+ * the next thing to break, so one button repairs the page rather than one row.
+ * `onRetry` is still accepted for the cases that own a narrower remedy.
+ *
+ * The reason is printed verbatim. It is mono, small and grey because it is for
+ * whoever is being asked "what does it say?" down a phone line, not for the
+ * owner — but a failure with no reason at all is the thing that cannot be
+ * supported at all.
+ */
+export function Failed({
+  what, error, onRetry, boxed, h,
+}: {
+  what: string; error?: unknown; onRetry?: () => void; boxed?: boolean; h?: string;
+}) {
+  const qc = useQueryClient();
+  const [retrying, setRetrying] = useState(false);
+  const why = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+
+  // A retry that refetches in silence looks like a dead button, and a dead
+  // button on an error screen is the point at which someone gives up. The
+  // label changes, the button refuses a second click, and if the read fails
+  // again the screen is still here saying so — which is itself the answer.
+  const again = async () => {
+    setRetrying(true);
+    try {
+      if (onRetry) await onRetry();
+      else await qc.invalidateQueries({ queryKey: ['w360'] });
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <div
+      className={boxed ? 'blank boxed bad' : 'blank bad'}
+      style={h ? { minHeight: h } : undefined}
+      role="alert"
+    >
+      <span className="blank-i"><ErrorOutlineOutlined sx={{ fontSize: 24 }} /></span>
+      <p className="blank-t">{what} did not load</p>
+      <p className="note">
+        Nothing has been lost — the app could not reach the server, or the server refused
+        the read. Your records are untouched.
+      </p>
+      {why && <p className="blank-why">{why}</p>}
+      <div className="row tight blank-do">
+        <button type="button" className="btn sm" disabled={retrying} onClick={() => void again()}>
+          <RefreshOutlined sx={{ fontSize: 15 }} /> {retrying ? 'Trying…' : 'Try again'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The stage pips. It lived inside Orders.tsx as inline styles, which meant
+ *  the ticket page could not have the same one without copying them. The
+ *  word is not decoration: four amber dashes say nothing to a screen reader,
+ *  which is why the aria-label counts them out loud. */
+export function Rail({ stage, steps, word }:
+  { stage: number; steps: string[]; word?: string }) {
+  const at = Math.min(Math.max(stage, 0), steps.length - 1);
+  return (
+    <span className="rail" aria-label={`Stage ${at + 1} of ${steps.length}`}>
+      {steps.map((s, i) => (
+        <i key={s} title={s} className={i <= at ? 'on' : undefined} />
+      ))}
+      <span className="w">{word || steps[at]}</span>
+    </span>
+  );
+}
+
+/** The four stages a work_request's `stage` integer indexes. Mirrors
+ *  _STAGES in services/api/src/web360.py. */
+export const ORDER_STAGES = ['Placed', 'Assigned', 'On site', 'Delivered'];

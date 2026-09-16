@@ -1,327 +1,260 @@
 import PattadarKit
 import SwiftUI
 
-/// Services (M09) — a storefront that knows your land.
-///
-/// Prices and the contextual bundle are `SampleData` until the marketplace
-/// exists server-side. The ORDERING is real where it can be: a tapped service
-/// opens the same `AddRequestSheet` that Get-it-done uses, so what you ask for
-/// lands in the live work-request record rather than a demo cul-de-sac.
+/// The catalogue, parcels and confirmations all come from the authenticated
+/// server. A local preference cannot be evidence that an order was placed.
 struct ServicesScreen: View {
     @Environment(AppModel.self) private var app
-    @State private var category: SampleData.ServiceCategory? = nil
-    @State private var showAll = false
-    @State private var asking: RequestKind?
-    @State private var quoteFor: SampleData.ServiceItem?
-    /// The bundle survives being ignored, but not being answered.
-    @AppStorage("pattadar.services.bundle") private var bundleState = "open"
+    @State private var data: NativeServicesResponse.Web?
+    @State private var category = "All"
+    @State private var selection: ServiceSelection?
+    @State private var dismissedBundle = false
+    @State private var loading = true
+    @State private var failure: String?
+
+    private var groups: [String] {
+        ["All"] + Array(Set(data?.servicesOffered.map(\.group) ?? [])).sorted()
+    }
+    private var bundle: [NativeServiceOffer] {
+        (data?.servicesOffered ?? []).filter { $0.key == "ec" || $0.key == "survey" }
+    }
 
     var body: some View {
         List {
-            Section {
-                Text("Priced for 3 parcels in Kakinada dist.")
-                    .font(.note).foregroundStyle(.secondary)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-
-            if bundleState == "open" {
-                bundleCard
-            } else if bundleState == "ordered" {
+            if loading { ProgressView("Loading services…") }
+            if let failure {
                 Section {
+                    Text(failure).foregroundStyle(Palette.danger)
+                    Button("Try again") { Task { await load() } }
+                }
+            }
+            if let data {
+                Section {
+                    Text("Services for your \(data.properties.cards.count) land records")
+                        .font(.note).foregroundStyle(.secondary)
+                    Text("Placing an order records a request. Payment and provider assignment are shown separately.")
+                        .font(.note).foregroundStyle(.secondary)
+                }
+                if !dismissedBundle, bundle.count == 2 {
+                    Section("Prepare for a sale") {
+                        Text("An EC and boundary survey for a record you choose.")
+                        Text(rupees(bundle.reduce(0) { $0 + $1.price })).font(.headline)
+                        Button("Order both") { selection = ServiceSelection(offers: bundle) }
+                            .disabled(data.properties.cards.isEmpty)
+                        Button("Not now") { dismissedBundle = true }
+                    }
+                }
+                Section {
+                    Picker("Category", selection: $category) {
+                        ForEach(groups, id: \.self) { Text($0).tag($0) }
+                    }
+                    ForEach(data.servicesOffered.filter { category == "All" || $0.group == category }) { offer in
+                        Button { selection = ServiceSelection(offers: [offer]) } label: {
+                            VStack(alignment: .leading, spacing: Space.xs) {
+                                HStack {
+                                    Text(offer.label).font(.headline)
+                                    Spacer()
+                                    Text(rupees(offer.price)).font(.callout)
+                                }
+                                Text(offer.blurb).font(.note).foregroundStyle(.secondary)
+                                Text("Typically \(offer.days) days").font(.caption).foregroundStyle(.secondary)
+                            }.padding(.vertical, Space.xs)
+                        }.buttonStyle(.plain).disabled(data.properties.cards.isEmpty)
+                    }
+                    if data.properties.cards.isEmpty {
+                        Text("Add a land record before ordering a service.").font(.note)
+                    }
                     NavigationLink { GetItDoneScreen() } label: {
-                        Label {
+                        Label("Other work and your requests", systemImage: "list.bullet.rectangle")
+                    }
+                }
+                Section("Your orders") {
+                    if data.orders.isEmpty { Text("No orders yet.").foregroundStyle(.secondary) }
+                    ForEach(data.orders) { order in
+                        NavigationLink { ConfirmedOrderDetail(order: order) } label: {
                             VStack(alignment: .leading, spacing: Space.hair) {
-                                Text("EC and survey ordered")
-                                Text("Both recorded — watch them move under Your requests")
+                                Text(order.title)
+                                Text("\(order.recordTitle) · \(order.statusLabel)")
                                     .font(.note).foregroundStyle(.secondary)
                             }
-                        } icon: {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Palette.success)
                         }
                     }
-                }
-            }
-
-            Section {
-                categoryChips
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-            }
-
-            Section {
-                ForEach(visibleServices) { item in
-                    Button {
-                        if let kind = item.requestKind { asking = kind } else { quoteFor = item }
-                    } label: {
-                        serviceRow(item)
-                    }
-                    .buttonStyle(.plain)
-                }
-                if !showAll, category == nil {
-                    Button("All \(SampleData.services.count) services") {
-                        withAnimation(Motion.standard()) { showAll = true }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-
-            Section("In progress") {
-                NavigationLink { OrderDetailScreen(order: SampleData.order) } label: {
-                    HStack {
-                        Image(systemName: "camera")
-                            .foregroundStyle(Color.accentColor)
-                        VStack(alignment: .leading, spacing: Space.hair) {
-                            Text(SampleData.order.title)
-                            Text("\(SampleData.order.reference) · \(SampleData.order.provider)")
-                                .font(.note).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                NavigationLink { GetItDoneScreen() } label: {
-                    Label("Your requests", systemImage: "list.bullet.rectangle")
                 }
             }
         }
         .navigationTitle("Services")
-        .sheet(item: $asking) { kind in
-            AddRequestSheet(kind: kind) { }
-        }
-        .alert("A person prices this one", isPresented: quoteAlertShown) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("This work is priced for the land itself, not off a rate card. Write to support@pattadar.com with the survey number and a quote comes back within two days.")
-        }
-    }
-
-    // MARK: - Pieces
-
-    private var bundleCard: some View {
-        Section {
-            VStack(alignment: .leading, spacing: Space.md) {
-                HStack(alignment: .top, spacing: Space.md) {
-                    Image(systemName: "bolt.fill")
-                        .foregroundStyle(Color.accentColor)
-                    VStack(alignment: .leading, spacing: Space.hair) {
-                        Text("Because Sy 214/2 is for sale")
-                            .font(.sectionHead)
-                        Text("Buyers ask for a 13-year EC and a fresh survey. Both together, ₹4,800.")
-                            .font(.bodyCopy).foregroundStyle(.secondary)
-                    }
-                }
-                HStack(spacing: Space.sm) {
-                    Button {
-                        bundleState = "ordered"
-                    } label: {
-                        Text("Order both")
-                            .font(.callout.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 40)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button {
-                        bundleState = "dismissed"
-                    } label: {
-                        Text("Not now")
-                            .font(.callout)
-                            .padding(.horizontal, Space.lg)
-                            .frame(minHeight: 40)
-                    }
-                    .buttonStyle(.bordered)
-                }
+        .task(id: app.sessionID) { await load() }
+        .refreshable { await load() }
+        .sheet(item: $selection) { picked in
+            ServiceOrderSheet(offers: picked.offers, records: data?.properties.cards ?? []) {
+                Task { await load() }
             }
-            .padding(Space.lg)
-            .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground)))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(0.4)))
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.lg,
-                                      bottom: Space.xs, trailing: Space.lg))
-            .listRowSeparator(.hidden)
         }
     }
 
-    private var categoryChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Space.sm) {
-                chip(nil, "All")
-                ForEach(SampleData.ServiceCategory.allCases, id: \.self) { c in
-                    chip(c, c.rawValue)
-                }
-            }
-            .padding(.vertical, Space.xs)
-        }
-    }
-
-    private func chip(_ value: SampleData.ServiceCategory?, _ title: String) -> some View {
-        let selected = category == value
-        return Button {
-            withAnimation(Motion.standard()) { category = value }
-        } label: {
-            Text(title)
-                .font(.footnote.weight(selected ? .semibold : .regular))
-                .padding(.horizontal, Space.md)
-                .padding(.vertical, Space.sm)
-                .background(Capsule().fill(selected ? Palette.accent : Color(.secondarySystemGroupedBackground)))
-                .overlay(Capsule().strokeBorder(selected ? .clear : Palette.rule))
-                .foregroundStyle(selected ? Palette.accentInk : Palette.ink)
-        }
-        .buttonStyle(.plain)
-        .minimumTouchTarget()
-    }
-
-    private func serviceRow(_ item: SampleData.ServiceItem) -> some View {
-        HStack(spacing: Space.md) {
-            Image(systemName: item.symbol)
-                .font(.scaled(15, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 38, height: 38)
-                .background(Palette.accentWash,
-                            in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-            VStack(alignment: .leading, spacing: Space.hair) {
-                Text(item.name)
-                Text(item.detail)
-                    .font(.note).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(item.price)
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(item.requestKind == nil ? Color.accentColor : Palette.ink)
-        }
-        .contentShape(Rectangle())
-    }
-
-    private var visibleServices: [SampleData.ServiceItem] {
-        let all = SampleData.services.filter { category == nil || $0.category == category }
-        if category != nil || showAll { return all }
-        return Array(all.prefix(6))
-    }
-
-    private var quoteAlertShown: Binding<Bool> {
-        Binding(get: { quoteFor != nil }, set: { if !$0 { quoteFor = nil } })
+    private func load() async {
+        let session = app.sessionID
+        loading = true
+        let result = await app.fetch(Queries.nativeServices, as: NativeServicesResponse.self)
+        guard session == app.sessionID else { return }
+        data = result.value?.web
+        failure = result.failure
+        loading = false
     }
 }
 
-/// Order detail (M10) — every step stamped in IST and your own time.
-///
-/// Entirely `SampleData` furniture: there is no dispatch server yet. The two
-/// live exits are real, though — a re-survey opens the work-request sheet, and
-/// the photos filed to the parcel are the photos feature that already ships.
-struct OrderDetailScreen: View {
-    let order: SampleData.Order
-    @State private var asking: RequestKind?
-    @State private var explainCall = false
-    @State private var explainInvoice = false
+private struct ServiceSelection: Identifiable {
+    let id = UUID()
+    let offers: [NativeServiceOffer]
+}
 
+private struct ServiceOrderSheet: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    let offers: [NativeServiceOffer]
+    let records: [NativeServiceRecord]
+    var onChanged: () -> Void
+    @State private var recordID = ""
+    @State private var answers: [String: String] = [:]
+    @State private var confirmed: Set<String> = []
+    @State private var requestKeys: [String: String] = [:]
+    @State private var busy = false
+    @State private var attempted = false
+    @State private var problem = ""
+
+    private var complete: Bool { confirmed.count == offers.count }
+    private var ready: Bool {
+        !recordID.isEmpty && offers.allSatisfy { offer in
+            offer.fields.allSatisfy { !$0.required || !(answers["\(offer.key).\($0.name)"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+    }
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: Space.hair) {
-                    Text(order.kicker.uppercased())
-                        .font(.label).foregroundStyle(.secondary).kerning(1.1)
-                    Text(order.title)
-                        .font(.recordTitle)
-                    Text(order.provider)
-                        .font(.bodyCopy).foregroundStyle(.secondary)
+        NavigationStack {
+            Form {
+                Section("Land record") {
+                    Picker("Record", selection: $recordID) {
+                        Text("Choose a record").tag("")
+                        ForEach(records) { Text("\($0.title) · \($0.subtitle)").tag($0.id) }
+                    }.disabled(attempted)
                 }
-                .padding(.vertical, Space.xs)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-
-            Section {
-                ForEach(Array(order.steps.enumerated()), id: \.offset) { index, step in
-                    timelineRow(step, isLast: index == order.steps.count - 1)
+                ForEach(offers) { offer in
+                    Section {
+                        HStack {
+                            Text(offer.label)
+                            Spacer()
+                            Text(rupees(offer.price))
+                        }
+                        if confirmed.contains(offer.key) {
+                            Label("Order confirmed", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(Palette.success)
+                        } else {
+                            ForEach(offer.fields) { field in
+                                answerField(field, offer: offer).disabled(attempted)
+                            }
+                        }
+                    }
+                }
+                if !problem.isEmpty {
+                    Section { Text(problem).foregroundStyle(Palette.danger) }
+                }
+                Section {
+                    if complete {
+                        Text("All \(confirmed.count) orders were confirmed by the server.")
+                        Button("Done") { dismiss() }
+                    } else {
+                        Button {
+                            Task { await placeOrders() }
+                        } label: {
+                            if busy { ProgressView() }
+                            else { Text(attempted ? "Retry unconfirmed orders" : offers.count > 1 ? "Place both orders" : "Place order") }
+                        }.disabled(!ready || busy)
+                    }
+                } footer: {
+                    Text("No payment is taken here. If a connection is interrupted, retrying the same request will not create a duplicate.")
                 }
             }
-
-            Section {
-                Fact(label: "Paid", value: rupees(Double(order.paid)))
-                Fact(label: "Method", value: order.method)
-                Fact(label: "Next visit", value: order.nextVisit)
-            }
-
-            Section {
-                Button { explainInvoice = true } label: {
-                    Label("Invoice", systemImage: "doc.plaintext")
-                }
-                Button { explainCall = true } label: {
-                    Label("Chat with \(order.providerShort)", systemImage: "bubble.left")
-                }
-            }
-        }
-        .navigationTitle(order.reference)
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $asking) { kind in
-            AddRequestSheet(kind: kind) { }
-        }
-        .alert("Arrives with payments", isPresented: $explainInvoice) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Invoices are issued once real payments switch on. This order is demonstration furniture — the visit, the photos and the finding are what the real thing will look like.")
-        }
-        .alert("Chat arrives with dispatch", isPresented: $explainCall) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Messaging a caretaker switches on when caretakers are assigned through Pattadar. Until then, the person you already work with is a phone call you already have.")
+            .navigationTitle(offers.count > 1 ? "Order both" : "Order service")
+            .toolbar { ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }.disabled(busy)
+            } }
+            .interactiveDismissDisabled(busy)
         }
     }
 
-    private func timelineRow(_ step: SampleData.OrderStep, isLast: Bool) -> some View {
-        HStack(alignment: .top, spacing: Space.md) {
-            Image(systemName: step.needsYou ? "exclamationmark.circle" : "checkmark.circle.fill")
-                .foregroundStyle(step.needsYou ? Palette.caution : Palette.success)
-                .padding(.top, Space.hair)
-            VStack(alignment: .leading, spacing: Space.xs) {
-                Text(step.title)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(step.needsYou ? Palette.caution : Palette.ink)
-                Text(step.detail)
-                    .font(.note).foregroundStyle(.secondary)
-                if !step.photos.isEmpty {
-                    HStack(spacing: Space.xs + 2) {
-                        ForEach(Array(step.photos.enumerated()), id: \.offset) { _, symbol in
-                            Image(systemName: symbol)
-                                .font(.scaled(16))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 52, height: 52)
-                                .background(Palette.cardRaised,
-                                            in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                        }
-                        Text("+11")
-                            .font(.note.monospacedDigit()).foregroundStyle(.secondary)
-                            .frame(width: 52, height: 52)
-                            .background(Palette.cardRaised,
-                                        in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                    }
-                    .padding(.top, Space.xs)
-                }
-                if step.needsYou {
-                    HStack(spacing: Space.sm) {
-                        Button {
-                            asking = .survey
-                        } label: {
-                            Text("Order re-survey ₹2,900")
-                                .font(.footnote.weight(.semibold))
-                                .padding(.horizontal, Space.md)
-                                .frame(minHeight: 38)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        Button {
-                            explainCall = true
-                        } label: {
-                            Text("Call him")
-                                .font(.footnote)
-                                .padding(.horizontal, Space.md)
-                                .frame(minHeight: 38)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding(.top, Space.xs)
+    @ViewBuilder
+    private func answerField(_ field: NativeServiceField, offer: NativeServiceOffer) -> some View {
+        let binding = Binding<String>(get: { answers["\(offer.key).\(field.name)"] ?? "" },
+                                      set: { answers["\(offer.key).\(field.name)"] = $0 })
+        if field.kind == "select" {
+            Picker(field.label + (field.required ? " *" : ""), selection: binding) {
+                Text("Choose").tag("")
+                ForEach(field.options, id: \.self) { Text($0).tag($0) }
+            }
+        } else {
+            TextField(field.label + (field.required ? " *" : ""), text: binding,
+                      axis: field.kind == "textarea" ? .vertical : .horizontal)
+        }
+        if !field.help.isEmpty { Text(field.help).font(.caption).foregroundStyle(.secondary) }
+    }
+
+    private func placeOrders() async {
+        guard ready, !busy else { return }
+        let session = app.sessionID
+        busy = true
+        attempted = true
+        problem = ""
+        defer { busy = false }
+        for offer in offers where !confirmed.contains(offer.key) {
+            let params = Dictionary(uniqueKeysWithValues: offer.fields.map {
+                ($0.name, answers["\(offer.key).\($0.name)"] ?? "")
+            })
+            guard let json = try? JSONSerialization.data(withJSONObject: params),
+                  let encoded = String(data: json, encoding: .utf8) else { return }
+            let key = requestKeys[offer.key] ?? UUID().uuidString
+            requestKeys[offer.key] = key
+            let response = await app.load(Mutations.nativeOrderService, variables: [
+                "recordIds": [recordID], "kind": offer.key, "params": encoded, "idempotencyKey": key,
+            ], as: NativeOrderConfirmation.self)
+            guard session == app.sessionID else { return }
+            guard response?.web.orderService == 1 else {
+                problem = "\(confirmed.count) of \(offers.count) orders confirmed. "
+                    + (app.lastFailure ?? "This order was not accepted; check your record and answers.")
+                onChanged()
+                return
+            }
+            confirmed.insert(offer.key)
+        }
+        onChanged()
+    }
+}
+
+private struct ConfirmedOrderDetail: View {
+    @Environment(AppModel.self) private var app
+    let order: NativeServiceOrder
+    var body: some View {
+        List {
+            Section {
+                Text(order.title).font(.recordTitle)
+                Text(order.recordTitle).foregroundStyle(.secondary)
+                if !order.detail.isEmpty { Text(order.detail) }
+            }
+            Section {
+                Fact(label: "Status", value: order.statusLabel)
+                Fact(label: "Quoted", value: rupees(order.cost))
+                Fact(label: "Assigned to", value: order.assignee.isEmpty ? "Awaiting assignment" : order.assignee)
+                if !order.dueDate.isEmpty { Fact(label: "Due", value: order.dueDate) }
+            }
+            if app.api.config.baseURL.host() == "pattadar.com" {
+                Section {
+                    Link("Payment and settlement status", destination: URL(string: "https://pattadar.com")!
+                        .appendingPathComponent("app/tickets").appendingPathComponent(order.id).appendingPathComponent("pay"))
+                    Text("Opens the secure web checkout. Sign in with the same account if asked.")
+                        .font(.note).foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(.vertical, Space.xs)
+        .navigationTitle(order.ref.isEmpty ? "Order" : order.ref)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

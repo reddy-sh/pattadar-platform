@@ -4,9 +4,8 @@
  * PUBLIC route — beneficiary verification landing (must work WITHOUT login).
  * Serves both /verify/[token] and /active/[token] (source apps/web/src/pages/
  * VerifyPage.tsx + routes.tsx route the SAME component to both paths, with no
- * distinguishing prop — the two are functionally identical invite-link
- * variants, confirmed by tests/e2e-ux/specs/auth-pages.spec.ts expecting the
- * same "Verify membership" probe text on both routes).
+ * distinguishing prop, so the two invite-link variants intentionally render
+ * the same "Verify membership" probe text.
  *
  * Fires the verifyBeneficiary mutation — the gateway's ONLY unauthenticated
  * carve-out (body-substring match on "verifyBeneficiary"; the verifyMember

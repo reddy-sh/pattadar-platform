@@ -16,16 +16,30 @@ from . import fmb_geometry
 # Record-360 surface for the web app (screens W01–W15). Its eleven tables and
 # six column additions live in their own module so this file — the iOS-facing
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
-from . import web360
-from datetime import date, datetime, timedelta
+from . import villagemap, web360
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 from contextlib import asynccontextmanager
+
+# Both sibling services configure logging before taking their logger
+# (services/assistant/src/main.py, services/gateway/app/main.py:31); this one
+# never did, and under uvicorn's default LOGGING_CONFIG — which registers the
+# uvicorn* loggers and no root entry — that left "pattadar" at WARNING with no
+# handlers. Every _log.warning here still surfaced through logging's last-resort
+# handler, which is why the gap went unnoticed, but every _log.info was dropped
+# on the floor. The ai.usage cost line below is INFO, so without this the
+# telemetry would exist in the source and nowhere else.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 _log = logging.getLogger("pattadar")
 
 from fastapi import FastAPI, Request, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from strawberry.fastapi import GraphQLRouter
+from strawberry.extensions import SchemaExtension
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -149,6 +163,17 @@ GROUP_TYPES: dict = {
     "trust":       {"label": "Trust / Society","has_tree": False,
                     "primary_role": "Trustee",
                     "roles": ["Trustee", "Beneficiary", "Member"]},
+    # A lightweight "wallet": a way to group holdings without any succession
+    # machinery behind it. The web app has offered this type in its create
+    # dialog since Families & Groups shipped, and it was missing here — so
+    # `create_group` fell through to its `type not in GROUP_TYPES` branch and
+    # silently wrote "family" instead. Picking Portfolio produced a Family,
+    # with a Head and a genealogy the owner never asked for and no error to
+    # say why. The column is plain TEXT with no constraint, so this is purely
+    # additive: existing rows are untouched.
+    "portfolio":   {"label": "Portfolio / Wallet", "has_tree": False,
+                    "primary_role": "Owner",
+                    "roles": ["Owner", "Viewer"]},
 }
 
 
@@ -480,10 +505,23 @@ class GroupType:
     description: str
     my_role: str = ""
     member_count: int = 0
+    #: Passbooks (khatas) assigned to this group. NOT the number of things the
+    #: group holds — a khata can contain many parcels, or none at all. Kept with
+    #: its original meaning because the previous app's screen labels it
+    #: "N passbooks"; use `parcel_count`/`property_count` for holdings.
     land_count: int = 0
+    #: Agricultural extent, in acres, of the parcels under this group's khatas.
     total_extent: float = 0.0
     total_share: float = 0.0
     created_at: str = ""
+    #: What the group actually holds, counted the way the Properties screen
+    #: counts it. `land_count` above could read "3 passbooks" for a group whose
+    #: khatas were all empty, which is how a group holding nothing came to
+    #: report three holdings and an extent of zero.
+    parcel_count: int = 0
+    #: Built property — flats, shops, plots — assigned to this group directly.
+    #: These have no passbook, which is why they are invisible to `land_count`.
+    property_count: int = 0
 
 
 @strawberry.type
@@ -973,9 +1011,66 @@ class RegisteredDocumentType:
 def _uid_from_info(info) -> str:
     """The current user's id from the gateway-injected x-user-id header."""
     try:
-        return (info.context["request"].headers.get("x-user-id") or "").strip()
-    except Exception:
-        return ""
+        uid = (info.context["request"].headers.get("x-user-id") or "").strip()
+    except (KeyError, AttributeError, TypeError):
+        uid = ""
+    if not uid:
+        raise NotAuthorized("Authentication required")
+    return uid
+
+
+class RequireAuthenticatedRoot(SchemaExtension):
+    """API defense in depth: all root fields except token verification need a user.
+
+    The API is private behind the gateway; only its stripped/injected identity
+    header is trusted. This also protects roots without an explicit info arg.
+    """
+    def resolve(self, next_, root, info, *args, **kwargs):
+        if info.parent_type.name in {"Query", "Mutation"}:
+            if not (info.parent_type.name == "Mutation" and info.field_name == "verifyBeneficiary"):
+                _uid_from_info(info)
+        if info.parent_type.name == "Mutation" and info.field_name in {
+            "addDocument", "createDocument", "updateDocument", "createRegisteredDocument", "updateRegisteredDocument",
+        }:
+            async def with_consent():
+                import inspect
+                from . import account
+                await account.require_purpose(_uid_from_info(info), "document_processing")
+                result = next_(root, info, *args, **kwargs)
+                return await result if inspect.isawaitable(result) else result
+            return with_consent()
+        return next_(root, info, *args, **kwargs)
+
+
+# Type-qualified scopes avoid matching an unrelated table's colliding id.
+_INVITATION_OWNED = """(
+ (scope_type='passbook' AND scope_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s))
+ OR (scope_type='parcel' AND scope_id IN (SELECT p.id FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id WHERE pb.owner_user_id=%s))
+ OR (scope_type='document' AND scope_id IN (SELECT id FROM documents WHERE owner_user_id=%s))
+ OR (scope_type IN ('family', 'beneficiary') AND scope_id IN (SELECT id FROM family_members WHERE owner_user_id=%s))
+ OR (scope_type='beneficiary' AND scope_id IN (SELECT b.id FROM beneficiaries b LEFT JOIN parcels p ON p.id=b.parcel_id LEFT JOIN passbooks pb ON pb.id=p.passbook_id WHERE b.owner_user_id=%s OR pb.owner_user_id=%s))
+)"""
+
+
+def _invitation_expiry() -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+
+
+def _invitation_is_current(invitation: dict) -> bool:
+    if invitation.get("status") != "pending":
+        return False
+    try:
+        # Old invitations lacked an expiry. Preserve their intended seven-day
+        # window from issuance; an absent/malformed timestamp never lasts forever.
+        raw = invitation.get("expiry") or invitation.get("created_at") or ""
+        expiry = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if not invitation.get("expiry"):
+            expiry += timedelta(days=7)
+        return expiry > datetime.now(timezone.utc)
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 # Who may touch a `documents` row: its owner, or the owner of the land it is
@@ -1254,6 +1349,15 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
     ext = (await (await conn.execute(
         "SELECT COALESCE(SUM(extent),0) AS t FROM parcels WHERE passbook_id IN "
         "(SELECT id FROM passbooks WHERE group_id=%s AND owner_user_id=%s)", (gid, uid))).fetchone())["t"]
+    # What the group HOLDS, as opposed to how many khatas point at it. A group
+    # can hold built property with no passbook behind it, and it can own a
+    # passbook with nothing in it yet; neither case is answerable from `lc`.
+    pc = (await (await conn.execute(
+        "SELECT count(*) AS c FROM parcels WHERE passbook_id IN "
+        "(SELECT id FROM passbooks WHERE group_id=%s AND owner_user_id=%s)", (gid, uid))).fetchone())["c"]
+    prc = (await (await conn.execute(
+        "SELECT count(*) AS c FROM properties WHERE group_id=%s AND owner_user_id=%s",
+        (gid, uid))).fetchone())["c"]
     sh = (await (await conn.execute(
         "SELECT COALESCE(SUM(share_pct),0) AS s FROM family_members "
         "WHERE group_id=%s AND is_beneficiary=true AND status <> 'revoked'", (gid,))).fetchone())["s"]
@@ -1263,7 +1367,8 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
     return GroupType(id=gid, owner_user_id=g["owner_user_id"], type=g["type"], name=g["name"],
                      description=g.get("description", ""), my_role=myrole or _group_primary_role(g["type"]),
                      member_count=int(mc), land_count=int(lc), total_extent=float(ext or 0),
-                     total_share=float(sh or 0), created_at=g.get("created_at", ""))
+                     total_share=float(sh or 0), created_at=g.get("created_at", ""),
+                     parcel_count=int(pc), property_count=int(prc))
 
 
 # ── Query ─────────────────────────────────────────────────────────────
@@ -1600,7 +1705,8 @@ class Query:
     @strawberry.field
     async def group_activity(self, info: strawberry.Info, group_id: str) -> List[AuditEventType]:
         """Audit events relevant to a group the caller owns: the group itself, its
-        members, and its passbooks. Powers the group's Activity tab."""
+        members, its passbooks and the property assigned to it. Powers the
+        group's Activity tab."""
         uid = _uid_from_info(info) or "system"
         async with pool.connection() as conn:
             own = await (await conn.execute(
@@ -1610,26 +1716,30 @@ class Query:
             cur = await conn.execute(
                 "SELECT * FROM audit_events WHERE actor=%s AND (target=%s "
                 "OR target IN (SELECT id FROM family_members WHERE group_id=%s) "
-                "OR target IN (SELECT id FROM passbooks WHERE group_id=%s)) "
-                "ORDER BY timestamp DESC LIMIT 50", (uid, group_id, group_id, group_id))
+                "OR target IN (SELECT id FROM passbooks WHERE group_id=%s) "
+                # Built property is the other half of what a group holds, and
+                # `assign_property_to_group` audits against the property id —
+                # so without this line moving a flat into a group happened, was
+                # logged, and never appeared in that group's history.
+                "OR target IN (SELECT id FROM properties WHERE group_id=%s AND owner_user_id=%s)) "
+                "ORDER BY timestamp DESC LIMIT 50",
+                (uid, group_id, group_id, group_id, group_id, uid))
             return [to_type(AuditEventType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def invitations(self, info: strawberry.Info) -> List[InvitationType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
-                "SELECT * FROM invitations WHERE scope_id IN "
-                "(SELECT id FROM passbooks WHERE owner_user_id = %s "
-                " UNION SELECT id FROM parcels WHERE passbook_id IN "
-                " (SELECT id FROM passbooks WHERE owner_user_id = %s)) ORDER BY created_at DESC", (uid, uid)
-            )
+                "SELECT * FROM invitations WHERE " + _INVITATION_OWNED + " ORDER BY created_at DESC", (uid,) * 6)
             return [to_type(InvitationType, r) for r in await cur.fetchall()]
 
     @strawberry.field
-    async def pending_invitations(self) -> List[InvitationType]:
+    async def pending_invitations(self, info: strawberry.Info) -> List[InvitationType]:
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM invitations WHERE status='pending' ORDER BY created_at DESC")
+            cur = await conn.execute(
+                "SELECT * FROM invitations WHERE status='pending' AND " + _INVITATION_OWNED + " ORDER BY created_at DESC", (uid,) * 6)
             return [to_type(InvitationType, r) for r in await cur.fetchall()]
 
     @strawberry.field
@@ -1902,9 +2012,11 @@ class Query:
             )
 
     @strawberry.field
-    async def users(self) -> List[UserType]:
+    async def users(self, info: strawberry.Info) -> List[UserType]:
+        # Retain the legacy list shape without exposing other users' profiles.
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM users ORDER BY name")
+            cur = await conn.execute("SELECT * FROM users WHERE id=%s ORDER BY name", (uid,))
             return [to_type(UserType, r) for r in await cur.fetchall()]
 
 
@@ -1982,73 +2094,94 @@ async def _write_person(conn, uid, pid, v, is_update):
         await conn.execute("UPDATE family_members SET invite_token=%s, status='pending', invite_channel=%s WHERE id=%s", (token, channel, pid))
         await conn.execute(
             "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-            "VALUES (%s, 'beneficiary', %s, %s, %s, %s, '', 'pending', %s)",
-            (new_id(), pid, v["kind"] or "coowner", invitee, token, datetime.utcnow().isoformat()))
+            "VALUES (%s, 'beneficiary', %s, %s, %s, %s, %s, 'pending', %s)",
+            (new_id(), pid, v["kind"] or "coowner", invitee, token, _invitation_expiry(), datetime.utcnow().isoformat()))
         row["invite_token"] = token; row["status"] = "pending"
     return to_type(PersonType, row)
 
 
 async def _verify_by_token(info, token: str) -> "BeneficiaryType":
-    """Accept a verification invite (via its token) — flips the member/beneficiary
-    to 'verified'. Token-based so the invitee can accept. Shared by the
-    verify_beneficiary (public link) and verify_member mutations."""
+    """Consume one live invitation and update the matching pending person atomically."""
     token = (token or "").strip()
     if not token:
         raise ValueError("Invalid or expired verification link")
     async with pool.connection() as conn:
-        cur = await conn.execute(
-            "UPDATE family_members SET status='verified', "
-            "email_verified = (email_verified OR invite_channel='email'), "
-            "phone_verified = (phone_verified OR invite_channel='phone') "
-            "WHERE invite_token=%s AND invite_token <> '' RETURNING *", (token,))
-        row = await cur.fetchone()
-        if not row:
-            cur = await conn.execute(
-                "UPDATE beneficiaries SET status='verified' WHERE invite_token=%s AND invite_token <> '' RETURNING *", (token,))
-            row = await cur.fetchone()
-        if not row:
-            raise ValueError("Invalid or expired verification link")
-        await conn.execute("UPDATE invitations SET status='accepted' WHERE token=%s", (token,))
-        out = dict(row)
-        out.setdefault("person_name", out.get("name") or "")
-        out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
-        out.setdefault("relationship", out.get("relation") or "")
-        await log_audit(conn, row.get("owner_user_id") or "system", "verify_beneficiary", row["id"],
-                        f"{out['person_name']} verified")
-        return to_type(BeneficiaryType, out)
-
-
-async def _do_update_member_status(info, id: str, status: str) -> "BeneficiaryType":
-    """Set a member/beneficiary's verification status, owner-scoped. Shared by the
-    update_beneficiary_status and update_member_status mutations."""
-    uid = _uid_from_info(info) or "system"
-    async with pool.connection() as conn:
-        cur = await conn.execute(
-            "UPDATE family_members SET status=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
-            (status, id, uid))
-        row = await cur.fetchone()
-        if row:
-            await conn.execute(
-                "UPDATE beneficiaries SET status=%s WHERE id=%s AND (owner_user_id=%s OR parcel_id IN "
-                "(SELECT id FROM parcels WHERE passbook_id IN "
-                "(SELECT id FROM passbooks WHERE owner_user_id=%s)))",
-                (status, id, uid, uid))
-            await log_audit(conn, uid, "update_beneficiary_status", id, f"Status -> {status}")
+        async with conn.transaction():
+            invitations = await (await conn.execute(
+                "SELECT * FROM invitations WHERE token=%s ORDER BY id FOR UPDATE", (token,))).fetchall()
+            live = [i for i in invitations if _invitation_is_current(i)
+                    and i["scope_type"] in {"family", "beneficiary"}]
+            # Replays and old tokens cannot revive revoked/accepted credentials,
+            # even if a legacy resend accidentally inserted a duplicate token.
+            if not live or any(i["status"] != "pending" for i in invitations):
+                raise ValueError("Invalid or expired verification link")
+            scope_ids = {i["scope_id"] for i in live}
+            if len(scope_ids) != 1:
+                raise ValueError("Invalid or expired verification link")
+            scope_id = next(iter(scope_ids))
+            member = await (await conn.execute(
+                "SELECT id, status, invite_token FROM family_members WHERE id=%s OR legacy_beneficiary_id=%s FOR UPDATE",
+                (scope_id, scope_id))).fetchone()
+            if member and (member["status"] != "pending" or member["invite_token"] != token):
+                raise ValueError("Invalid or expired verification link")
+            row = await (await conn.execute(
+                "UPDATE family_members SET status='verified', invite_token='', "
+                "email_verified = (email_verified OR invite_channel='email'), "
+                "phone_verified = (phone_verified OR invite_channel='phone') "
+                "WHERE invite_token=%s AND status='pending' "
+                "AND (id=%s OR legacy_beneficiary_id=%s) RETURNING *", (token, scope_id, scope_id))).fetchone()
+            if row:
+                # The legacy compatibility row must not retain a live credential.
+                await conn.execute(
+                    "UPDATE beneficiaries SET status='verified', invite_token='' "
+                    "WHERE invite_token=%s AND status='pending' AND id=%s", (token, scope_id))
+            else:
+                row = await (await conn.execute(
+                    "UPDATE beneficiaries SET status='verified', invite_token='' "
+                    "WHERE invite_token=%s AND status='pending' AND id=%s RETURNING *", (token, scope_id))).fetchone()
+            if not row:
+                raise ValueError("Invalid or expired verification link")
+            await conn.execute("UPDATE invitations SET status='accepted', token='' WHERE token=%s", (token,))
             out = dict(row)
             out.setdefault("person_name", out.get("name") or "")
             out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
             out.setdefault("relationship", out.get("relation") or "")
+            await log_audit(conn, row.get("owner_user_id") or "system", "verify_beneficiary", row["id"],
+                            f"{out['person_name']} verified")
             return to_type(BeneficiaryType, out)
-        cur = await conn.execute(
-            "UPDATE beneficiaries SET status=%s WHERE id=%s AND (owner_user_id=%s OR parcel_id IN "
-            "(SELECT id FROM parcels WHERE passbook_id IN "
-            "(SELECT id FROM passbooks WHERE owner_user_id=%s))) RETURNING *",
-            (status, id, uid, uid))
-        row = await cur.fetchone()
-        if not row:
-            raise NotAuthorized("Not authorized for this beneficiary")
-        await log_audit(conn, uid, "update_beneficiary_status", id, f"Status -> {status}")
-        return to_type(BeneficiaryType, row)
+
+
+async def _do_update_member_status(info, id: str, status: str) -> "BeneficiaryType":
+    """Owner status changes invalidate outstanding credentials atomically."""
+    uid = _uid_from_info(info)
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            row = await (await conn.execute(
+                "UPDATE family_members SET status=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (status, id, uid))).fetchone()
+            legacy_id = (row.get("legacy_beneficiary_id") or id) if row else id
+            legacy = await (await conn.execute(
+                "UPDATE beneficiaries SET status=%s WHERE id=%s AND (owner_user_id=%s OR parcel_id IN "
+                "(SELECT id FROM parcels WHERE passbook_id IN "
+                "(SELECT id FROM passbooks WHERE owner_user_id=%s))) RETURNING *",
+                (status, legacy_id, uid, uid))).fetchone()
+            if not row and not legacy:
+                raise NotAuthorized("Not authorized for this beneficiary")
+            if status != "pending":
+                for target in {id, legacy_id}:
+                    await conn.execute(
+                        "UPDATE invitations SET status='revoked', token='' WHERE scope_type IN ('family','beneficiary') "
+                        "AND scope_id=%s AND status='pending'", (target,))
+                await conn.execute("UPDATE family_members SET invite_token='' WHERE id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("UPDATE beneficiaries SET invite_token='' WHERE id=%s", (legacy_id,))
+            out = dict(row or legacy)
+            if status != "pending":
+                out["invite_token"] = ""
+            out.setdefault("person_name", out.get("name") or "")
+            out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
+            out.setdefault("relationship", out.get("relation") or "")
+            await log_audit(conn, uid, "update_beneficiary_status", id, f"Status -> {status}")
+            return to_type(BeneficiaryType, out)
 
 
 # ── Inactivity dead-man's-switch engine (Phase 3) ──────────────────────────
@@ -3087,8 +3220,8 @@ class Mutation:
             # Verification invite — the beneficiary/guardian accepts via this token.
             await conn.execute(
                 "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-                "VALUES (%s, 'beneficiary', %s, %s, %s, %s, '', 'pending', %s)",
-                (new_id(), bid, kind, invitee or contact, token, datetime.utcnow().isoformat()),
+                "VALUES (%s, 'beneficiary', %s, %s, %s, %s, %s, 'pending', %s)",
+                (new_id(), bid, kind, invitee or contact, token, _invitation_expiry(), datetime.utcnow().isoformat()),
             )
             await log_audit(conn, uid, "add_beneficiary", bid, f"{person_name} ({kind}) — invite sent, pending verification")
             return to_type(BeneficiaryType, row)
@@ -3166,6 +3299,17 @@ class Mutation:
                  note, due_date, datetime.utcnow().isoformat()),
             )
             row = await cur.fetchone()
+            # The ticket's own trail, which the audit log is not: the Ticket
+            # screen reads its history out of ticket_events, and both order
+            # paths in web360 write a 'place' line the moment a ticket exists.
+            # A ticket placed through this older mutation opened with an empty
+            # history — no record of who asked for it or when. Same helper, so
+            # the two kinds of ticket cannot drift into two kinds of trail.
+            await web360._event(
+                conn, uid, rid, kind="status", action="place", to_status="placed",
+                headline=web360.ticketing.event_headline(
+                    "status", "place", {"actor_label": "You"}),
+                detail=f"Ordered from {entity_id}" if entity_id else "Ordered")
             await log_audit(conn, uid, "add_work_request", rid, title)
             return to_type(WorkRequestType, row)
 
@@ -3350,11 +3494,11 @@ class Mutation:
             token = str(uuid.uuid4())
             await conn.execute(
                 "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-                "VALUES (%s, 'family', %s, %s, %s, %s, '', 'pending', %s)",
-                (iid, id, role, invitee, token, datetime.utcnow().isoformat()),
+                "VALUES (%s, 'family', %s, %s, %s, %s, %s, 'pending', %s)",
+                (iid, id, role, invitee, token, _invitation_expiry(), datetime.utcnow().isoformat()),
             )
             cur = await conn.execute(
-                "UPDATE family_members SET invite_status='invited' WHERE id=%s AND owner_user_id=%s RETURNING *", (id, uid))
+                "UPDATE family_members SET invite_status='invited', status='pending', invite_token=%s, invite_channel=%s WHERE id=%s AND owner_user_id=%s RETURNING *", (token, "email" if "@" in invitee else "phone", id, uid))
             await log_audit(conn, uid, "invite_family_member", id, f"To {invitee}")
             return to_type(FamilyMemberType, await cur.fetchone())
 
@@ -3384,6 +3528,12 @@ class Mutation:
             row = await cur.fetchone()
             if not row:
                 raise NotAuthorized("Not authorized for this group")
+            # create_group and delete_group both audit; this one did not, so a
+            # rename was the one change to a group that left no trace. The
+            # group's Activity tab is built on exactly this table, so renaming
+            # a group and then looking at its history said "nothing has
+            # happened yet" — which is a worse answer than no tab at all.
+            await log_audit(conn, uid, "update_group", id, _named("", row["name"]))
             return await _group_summary(conn, uid, row)
 
     @strawberry.mutation
@@ -3396,6 +3546,13 @@ class Mutation:
             if not g:
                 return False
             await conn.execute("UPDATE passbooks SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+            # Built property is grouped by its OWN column, not through a
+            # passbook, and this line was missing — so deleting a group left
+            # every flat and shop in it pointing at a group that no longer
+            # existed. They stayed out of "in your own name" and out of the
+            # deleted group, which is to say they fell out of the filter
+            # altogether, recoverable only by reassigning them by hand.
+            await conn.execute("UPDATE properties SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
             await conn.execute("DELETE FROM family_members WHERE group_id=%s AND owner_user_id=%s", (id, uid))
             cur = await conn.execute("DELETE FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))
             await log_audit(conn, uid, "delete_group", id, _named("", g["name"]))
@@ -3566,13 +3723,14 @@ class Mutation:
             if not invitee:
                 raise ValueError("Add a phone or email for this person before inviting")
             channel = "email" if email else "phone"
-            token = (m.get("invite_token") or "").strip() or str(uuid.uuid4())
+            token = str(uuid.uuid4())
+            await conn.execute("UPDATE invitations SET status='revoked', token='' WHERE scope_id=%s AND scope_type IN ('family', 'beneficiary') AND status='pending'", (id,))
             base = os.getenv("APP_PUBLIC_URL", "").rstrip("/")
             link = f"{base}/verify/{token}"
             await conn.execute(
                 "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-                "VALUES (%s, 'family', %s, %s, %s, %s, '', 'pending', %s)",
-                (new_id(), id, role, invitee, token, datetime.utcnow().isoformat()))
+                "VALUES (%s, 'family', %s, %s, %s, %s, %s, 'pending', %s)",
+                (new_id(), id, role, invitee, token, _invitation_expiry(), datetime.utcnow().isoformat()))
             name = (m.get("name") or "there").strip() or "there"
             subject = "Please confirm your family/heir details — Pattadar"
             body = (f"Hi {name}, you've been listed as a beneficiary/heir on Pattadar land records. "
@@ -3733,42 +3891,41 @@ class Mutation:
 
     @strawberry.mutation
     async def update_invitation_status(self, info: strawberry.Info, id: str, status: str) -> InvitationType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
+        if status not in {"pending", "accepted", "revoked", "expired"}:
+            raise ValueError("Invalid invitation status")
         async with pool.connection() as conn:
-            cur = await conn.execute(
-                "UPDATE invitations SET status=%s WHERE id=%s AND (scope_id IN "
-                "(SELECT id FROM passbooks WHERE owner_user_id=%s) OR scope_id IN "
-                "(SELECT id FROM parcels WHERE passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s))) RETURNING *",
-                (status, id, uid, uid),
-            )
-            row = await cur.fetchone()
-            if not row:
-                raise NotAuthorized("Not authorized for this invitation")
-            await log_audit(conn, uid, "update_invitation_status", id, f"Status -> {status}")
-            return to_type(InvitationType, row)
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT * FROM invitations WHERE id=%s AND " + _INVITATION_OWNED + " FOR UPDATE",
+                    (id,) + (uid,) * 6)).fetchone()
+                if not row:
+                    raise NotAuthorized("Not authorized for this invitation")
+                if status == "pending" and row["status"] != "pending":
+                    raise ValueError("Send a new invitation to restore access")
+                if status != "pending" and row["token"]:
+                    await conn.execute("UPDATE family_members SET invite_token='' WHERE invite_token=%s", (row["token"],))
+                    await conn.execute("UPDATE beneficiaries SET invite_token='' WHERE invite_token=%s", (row["token"],))
+                out = await (await conn.execute(
+                    "UPDATE invitations SET status=%s, token=CASE WHEN %s='pending' THEN token ELSE '' END WHERE id=%s RETURNING *",
+                    (status, status, id))).fetchone()
+                await log_audit(conn, uid, "update_invitation_status", id, f"Status -> {status}")
+                return to_type(InvitationType, out)
 
     @strawberry.mutation
     async def delete_invitation(self, info: strawberry.Info, id: str) -> bool:
-        """Invitations have no owner_user_id of their own — ownership is derived
-        from scope_id, covering every scope_type actually written by the
-        invite-creating mutations: passbook, parcel, document, family
-        (family_members), beneficiary (family_members or the legacy
-        beneficiaries table)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute(
-                "DELETE FROM invitations WHERE id=%s AND ("
-                "scope_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s) "
-                "OR scope_id IN (SELECT id FROM parcels WHERE passbook_id IN (SELECT id FROM passbooks WHERE owner_user_id=%s)) "
-                "OR scope_id IN (SELECT id FROM documents WHERE owner_user_id=%s) "
-                "OR scope_id IN (SELECT id FROM family_members WHERE owner_user_id=%s) "
-                "OR scope_id IN (SELECT id FROM beneficiaries WHERE owner_user_id=%s)"
-                ")",
-                (id, uid, uid, uid, uid, uid))
-            deleted = cur.rowcount > 0
-            if deleted:
-                await log_audit(conn, uid, "delete_invitation", id)
-            return deleted
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "DELETE FROM invitations WHERE id=%s AND " + _INVITATION_OWNED + " RETURNING token",
+                    (id,) + (uid,) * 6)).fetchone()
+                if row:
+                    if row["token"]:
+                        await conn.execute("UPDATE family_members SET invite_token='' WHERE invite_token=%s", (row["token"],))
+                        await conn.execute("UPDATE beneficiaries SET invite_token='' WHERE invite_token=%s", (row["token"],))
+                    await log_audit(conn, uid, "delete_invitation", id)
+                return row is not None
 
     @strawberry.mutation
     async def create_registered_document(self, info: strawberry.Info, file_ref: str, payload: str) -> RegisteredDocumentType:
@@ -4632,8 +4789,6 @@ async def init_db() -> None:
         await ensure_property_photos_schema(conn)
         # Ciphertext only — the masked token stays in aadhaar_masked for display.
         await conn.execute(
-            "ALTER TABLE family_members ADD COLUMN IF NOT EXISTS aadhaar_enc TEXT NOT NULL DEFAULT ''")
-        await conn.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_ref_enc TEXT NOT NULL DEFAULT ''")
         # Extended parcel dossier (identity/status, address, boundary schedule,
         # financials, legal) — manual entry now; AP-IGRS auto-fill later.
@@ -5055,6 +5210,8 @@ async def init_db() -> None:
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_family_owner ON family_members(owner_user_id)")
+        await conn.execute(
+            "ALTER TABLE family_members ADD COLUMN IF NOT EXISTS aadhaar_enc TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''")
 
@@ -5584,6 +5741,7 @@ async def init_db() -> None:
         # the DDL, and last so a failure here cannot strand the core schema.
         web360.bind(pool, _uid_from_info)
         await web360.ensure_schema(conn)
+        await account.ensure_schema(conn)
 
         await conn.execute("SELECT pg_advisory_unlock(918273645)")
 
@@ -5874,7 +6032,13 @@ async def lifespan(app: FastAPI):
     await pool.open(wait=True, timeout=30)
     try:
         await init_db()
-        yield
+        async with import_jobs.lifecycle(pool, {
+            "import-registered-document": import_registered_document,
+            "import-passbook": import_passbook,
+            "extract-property": extract_property,
+            "extract-aadhaar": extract_aadhaar,
+        }), payments.lifecycle(pool):
+            yield
     finally:
         await pool.close()
 
@@ -5890,7 +6054,7 @@ async def _graphql_context(request: Request) -> dict:
     return {"request": request}
 
 
-schema = strawberry.Schema(query=Query, mutation=Mutation)
+schema = strawberry.Schema(query=Query, mutation=Mutation, extensions=[RequireAuthenticatedRoot])
 graphql_app = GraphQLRouter(schema, path="/graphql", context_getter=_graphql_context)
 app.include_router(graphql_app)
 
@@ -5922,6 +6086,150 @@ async def cron_inactivity_check(request: Request):
 # confidence). Sonnet reads the Telugu names correctly and stably. Used by BOTH
 # the passbook importer and the registered-document importer below.
 _IMPORT_MODEL = "claude-sonnet-5"
+
+# ── Prompt caching ────────────────────────────────────────────────────
+#
+# The system prompt is the one part of an extraction request that is
+# byte-identical on every call — the same thousands of tokens of deed-reading
+# rules, re-billed at full price for every document anybody uploads. Marking it
+# cacheable makes the first read write the entry (1.25x) and every read after
+# it inside the window pay 0.1x instead of 1x. Entries are scoped to the API
+# key rather than to a user, so one pattadar's upload warms the prompt for the
+# next one.
+#
+# Break-even is the SECOND read inside the window: 1.25x + 0.1x < 2x. Below
+# that the write premium is a small loss, which is why the default 5-minute TTL
+# is the right one here — "ttl": "1h" doubles the write to 2x and then needs
+# three reads to pay for itself, and uploads do not arrive in hour-long bursts.
+#
+# The floor matters more than the marker. claude-sonnet-5 caches nothing under
+# 1024 tokens and says nothing when it declines: usage.cache_creation_input_
+# tokens simply stays 0. Measured sizes of the five prompts on this path:
+#
+#   _DOC_IMPORT_SYSTEM       ~4,146 tok  ← caches (registered deeds, the big one)
+#   _PROPERTY_IMPORT_SYSTEM  ~1,289 tok  ← caches, only just
+#   _IMPORT_SYSTEM             ~358 tok  ← below the floor, marker is inert
+#   _PARCEL_PHOTO_SYSTEM       ~327 tok  ← below the floor, marker is inert
+#   _AADHAAR_SYSTEM            ~208 tok  ← below the floor, marker is inert
+#
+# The three short ones are marked anyway: an inert marker costs nothing, and
+# these prompts grow — the day one crosses 1024 tokens it should start caching
+# without anybody remembering to come back here. _log_ai_usage is how we find
+# out which ones actually are.
+#
+# Deliberately NOT cached: the document block itself. It is by far the biggest
+# part of the request, but it is different bytes on every upload — caching it
+# would pay a 1.25x write on thousands of tokens that is only ever read back if
+# the identical file is read twice inside the window. That is a loss on every
+# first read, which is nearly all of them.
+#
+# The per-prompt sizes above are estimates from character counts, and character
+# counts are a blunt proxy — so rather than trust them, _cacheable_system checks
+# each prompt against the floor once and says out loud which ones will never
+# cache. That way the answer comes from the running service, not from a comment
+# that rots the first time somebody edits a prompt.
+_CACHE_MIN_TOKENS = {
+    "claude-sonnet-5": 1024,
+    "claude-sonnet-4-6": 1024,
+    "claude-opus-4-7": 2048,
+    "claude-haiku-4-5": 4096,
+}.get(_IMPORT_MODEL, 4096)
+
+# Prompts already checked against the floor, so the notice is logged once per
+# prompt rather than once per upload.
+_CACHE_FLOOR_CHECKED: set[int] = set()
+
+
+def _cacheable_system(text: str) -> list[dict]:
+    """The system prompt as a single cache-marked block.
+
+    The API takes either a bare string or a list of blocks for `system`;
+    caching needs the list form, because the marker rides on a block. One block
+    means the breakpoint sits at the end of the whole prompt, which is what we
+    want — everything before it (there are no tools on this path) is cached
+    together and the document, which follows in `messages`, is not.
+    """
+    key = hash(text)
+    if key not in _CACHE_FLOOR_CHECKED:
+        _CACHE_FLOOR_CHECKED.add(key)
+        # ~3.6 chars/token is rough and runs OPTIMISTIC against Sonnet 5's
+        # denser tokenizer, so this under-reports rather than over-reports: a
+        # prompt it passes might still be short of the floor. The honest
+        # confirmation is cache_write > 0 in the ai.usage line, not this.
+        approx = len(text) / 3.6
+        if approx < _CACHE_MIN_TOKENS:
+            _log.info(
+                "ai.cache prompt ~%d tok is under the %d-tok floor for %s — the marker is "
+                "inert, this prompt bills at full price every time (expect cache_write=0 "
+                "and cache_read=0 in its ai.usage lines)",
+                approx, _CACHE_MIN_TOKENS, _IMPORT_MODEL,
+            )
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+
+# List price in USD per million tokens, keyed by model, because the line this
+# feeds prints model=%s beside the dollars — a hardcoded Sonnet 5 rate would go
+# on quoting Sonnet 5 money next to whatever model _IMPORT_MODEL was changed to,
+# and a cost number that lies is worse than no cost number.
+# The cache rates are DERIVED (write 1.25x input, read 0.1x input) rather than
+# typed out, so they cannot drift away from the input price they follow from.
+_LIST_PRICE_PER_MTOK = {
+    "claude-opus-5":     {"input": 5.0, "output": 25.0},
+    "claude-sonnet-5":   {"input": 2.0, "output": 10.0},
+    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+    "claude-haiku-4-5":  {"input": 1.0, "output": 5.0},
+}
+
+
+def _usd_per_mtok(model: str) -> dict:
+    """The four token classes priced apart, or zeros for a model we have no
+    price for — an unknown model reports usd=0.0000, which reads as "unpriced"
+    rather than quietly billing it at the last model's rate."""
+    p = _LIST_PRICE_PER_MTOK.get(model)
+    if not p:
+        return {"input": 0.0, "output": 0.0, "cache_write": 0.0, "cache_read": 0.0}
+    return {
+        "input": p["input"],
+        "output": p["output"],
+        "cache_write": p["input"] * 1.25,
+        "cache_read": p["input"] * 0.1,
+    }
+
+
+def _log_ai_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -> None:
+    """Record what a read actually cost.
+
+    Nothing on this path used to read `usage`, so nobody could say what reading
+    a deed cost, which half of the bill was thinking, or whether the cache was
+    working at all. That last one matters most: a broken cache is silent — the
+    requests still succeed, the bill is just quietly higher — and these four
+    numbers are the only ground truth there is. Two consecutive reads of the
+    same document type should show cache_read > 0 on the second.
+
+    `input_tokens` is only the UNCACHED remainder, so the prompt total is the
+    sum of all three input classes, not that field alone.
+    """
+    u = body.get("usage") or {}
+    read = int(u.get("cache_read_input_tokens") or 0)
+    write = int(u.get("cache_creation_input_tokens") or 0)
+    fresh = int(u.get("input_tokens") or 0)
+    out = int(u.get("output_tokens") or 0)
+    rate = _usd_per_mtok(_IMPORT_MODEL)
+    usd = (
+        fresh * rate["input"]
+        + out * rate["output"]
+        + write * rate["cache_write"]
+        + read * rate["cache_read"]
+    ) / 1_000_000
+    _log.info(
+        "ai.usage endpoint=%s attempt=%s model=%s file=%s prompt_total=%d "
+        "(fresh=%d cache_write=%d cache_read=%d) output=%d stop=%s usd=%.4f",
+        endpoint, attempt, _IMPORT_MODEL, name or "-",
+        fresh + write + read, fresh, write, read, out,
+        body.get("stop_reason"), usd,
+    )
+
+
 # The acres-cents convention, stated ONCE for every extraction prompt.
 # It was written into one prompt and not the others, and the drift cost a
 # real user 24.75 acres on screen: "Ac 25-00" read as "25.00 cents".
@@ -6050,8 +6358,169 @@ async def _post_with_retry(url: str, *, headers: dict, json_body: dict, timeout:
     raise AssertionError("unreachable")  # loop always returns or re-raises
 
 
+# ── Village maps ──────────────────────────────────────────────────────
+#
+# The shipped maps are built at the desk (scripts/village-map-import.py) and
+# served by Vite out of apps/web/public/vm. These three routes are the other
+# way in: the owner has a KMZ on their laptop and no reason to know what a
+# terminal is. Same parser (services/api/src/villagemap.py), so a village
+# uploaded here and the same village built there cannot come out different.
+
+_VM_ONE_MAX = 12 * 1024 * 1024      # a 2,729-plot village zips to 0.5 MB
+_VM_TOTAL_MAX = 32 * 1024 * 1024
+
+
+@app.get("/village-maps")
+async def village_maps_index():
+    """Which village maps have been uploaded. The browser merges these with
+    the shipped /vm/index.json, preferring these — re-uploading a village is
+    how you correct one."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT key, village, file_name, plots, source_name, created_at,"
+            " acres, centre_lat, centre_lon, outline FROM village_maps ORDER BY village")
+        rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        try:
+            outline = json.loads(r.get("outline") or "[]")
+        except ValueError:
+            outline = []
+        out.append({
+            "key": r["key"], "village": r["village"], "file": r["file_name"],
+            "plots": r["plots"], "source": r["source_name"],
+            "uploadedOn": r["created_at"], "uploaded": True,
+            "acres": r.get("acres") or 0,
+            "centre": [r.get("centre_lat") or 0, r.get("centre_lon") or 0],
+            "outline": outline,
+        })
+    return out
+
+
+@app.get("/village-maps/{file_name}")
+async def village_map_file(file_name: str):
+    """The plots themselves. Served as a plain JSON body rather than through
+    GraphQL: it is up to a megabyte of geometry, it never changes once
+    uploaded, and the browser should be free to cache it like any other file."""
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT geojson FROM village_maps WHERE file_name=%s", (file_name,))
+        row = await cur.fetchone()
+    if not row:
+        return JSONResponse(status_code=404, content={"error": "no such village map"})
+    return Response(content=row["geojson"], media_type="application/json",
+                    headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.delete("/village-maps/{key}")
+async def village_map_delete(key: str):
+    async with pool.connection() as conn:
+        cur = await conn.execute(
+            "DELETE FROM village_maps WHERE key=%s RETURNING village", (key,))
+        row = await cur.fetchone()
+    if not row:
+        return JSONResponse(status_code=404, content={"error": "no such village map"})
+    return {"removed": row["village"]}
+
+
+@app.post("/village-maps")
+async def village_map_upload(request: Request, files: List[UploadFile] = File(...)):
+    """Take one or more KML/KMZ files and turn them into village maps.
+
+    More than one on purpose. The department's older exports split a village
+    in two — the polygons in one file, their numbers in another as label
+    points — and neither half is usable alone: the first is 219 shapes all
+    called "Burada Palem", the second is 219 numbers floating over nothing.
+    Sent together they are grouped by village and matched, exactly as the
+    command-line importer does it, and the same village sent twice replaces
+    itself rather than stacking a second copy."""
+    uid = (request.headers.get("x-user-id") or "").strip() or "system"
+
+    sources, skipped, total = [], [], 0
+    for up in files:
+        name = up.filename or "file"
+        if not name.lower().endswith((".kml", ".kmz")):
+            skipped.append({"name": name, "why": "not a KML or KMZ"})
+            continue
+        data = await up.read()
+        total += len(data)
+        if len(data) > _VM_ONE_MAX or total > _VM_TOTAL_MAX:
+            skipped.append({"name": name, "why": "too large"})
+            continue
+        try:
+            sources.append(villagemap.Source(name, data))
+        except Exception as exc:
+            skipped.append({"name": name, "why": str(exc) or "could not be read"})
+
+    if not sources:
+        return JSONResponse(status_code=400, content={
+            "error": "Nothing here could be read as a village map.",
+            "skipped": skipped})
+
+    groups: dict = {}
+    for src in sources:
+        groups.setdefault(src.key, []).append(src)
+
+    out = []
+    async with pool.connection() as conn:
+        for key in sorted(groups, key=lambda k: groups[k][0].village):
+            group = groups[key]
+            built, src, others = villagemap.assemble(group)
+            if not built:
+                skipped.append({"name": ", ".join(s.name for s in group),
+                                "why": "no plot polygons in it"})
+                continue
+            collection, dropped, clashes = villagemap.feature_collection(
+                src.village, built["plots"])
+            plots = len(collection["features"])
+            if not plots:
+                # Every shape in it is anonymous. Usually one half of a split
+                # export; say so, because "0 plots" alone reads as a bad file.
+                skipped.append({
+                    "name": src.name,
+                    "why": ("its shapes carry no plot numbers — this export keeps "
+                            "them in a separate label file, so send both together")})
+                continue
+
+            cur = await conn.execute("SELECT village FROM village_maps WHERE key=%s", (key,))
+            replaced = bool(await cur.fetchone())
+            over = villagemap.overview_of(collection)
+            await conn.execute(
+                "INSERT INTO village_maps (key, village, file_name, source_name,"
+                " plots, geojson, uploaded_by, created_at, acres, centre_lat,"
+                " centre_lon, outline)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (key) DO UPDATE SET village=EXCLUDED.village,"
+                " file_name=EXCLUDED.file_name, source_name=EXCLUDED.source_name,"
+                " plots=EXCLUDED.plots, geojson=EXCLUDED.geojson,"
+                " uploaded_by=EXCLUDED.uploaded_by, created_at=EXCLUDED.created_at,"
+                " acres=EXCLUDED.acres, centre_lat=EXCLUDED.centre_lat,"
+                " centre_lon=EXCLUDED.centre_lon, outline=EXCLUDED.outline",
+                (key, src.village, villagemap.file_name(src.village), src.name,
+                 plots, villagemap.dumps(collection), uid,
+                 datetime.now().isoformat(timespec="seconds"),
+                 over["acres"], over["centre"][0], over["centre"][1],
+                 json.dumps(over["outline"], separators=(",", ":"))))
+            out.append({
+                "key": key, "village": src.village, "plots": plots,
+                "file": villagemap.file_name(src.village), "from": src.name,
+                "replaced": replaced, "within": built["within"], "near": built["near"],
+                "dropped": dropped, "clashes": clashes,
+                "duplicates": [{"name": o.name,
+                                "why": "labels only" if not o.plots
+                                       else "same village, less complete"}
+                               for o in others],
+            })
+
+    if not out:
+        return JSONResponse(status_code=400, content={
+            "error": "No village came out of that.", "skipped": skipped})
+    return {"villages": out, "skipped": skipped}
+
+
 @app.post("/import-passbook")
-async def import_passbook(file: UploadFile = File(...)):
+async def import_passbook(file: UploadFile = File(...), request: Request = None):
+    await _check_read_consent(request)
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
@@ -6081,7 +6550,7 @@ async def import_passbook(file: UploadFile = File(...)):
         # to 53s) without changing a single extracted value.
         "max_tokens": 16000,
         "output_config": {"effort": "medium"},
-        "system": _IMPORT_SYSTEM,
+        "system": _cacheable_system(_IMPORT_SYSTEM),
         "messages": [{"role": "user", "content": [
             block,
             {"type": "text", "text": "Extract the passbook fields and return ONLY the JSON object."},
@@ -6104,6 +6573,7 @@ async def import_passbook(file: UploadFile = File(...)):
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", file.filename or "", r.status_code, (r.text or '')[:300])
         return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
     body = r.json()
+    _log_ai_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="first")
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = _extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -6122,6 +6592,7 @@ async def import_passbook(file: UploadFile = File(...)):
             )
             if r2.status_code == 200:
                 body = r2.json()
+                _log_ai_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="low-effort-retry")
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = _extract_json(text)
         except Exception as e:
@@ -6183,7 +6654,7 @@ def _sniff_image_mime(data: bytes) -> str:
     return ""
 
 
-async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024, effort: str = "medium") -> dict:
+async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024, effort: str = "medium", endpoint: str = "anthropic-extract") -> dict:
     """Shared vision-extraction call: base64 → Claude → parsed JSON. Returns
     {"fields", "raw"} or {"_error": (status, message)}. `max_mb`/`max_tokens` let a
     caller with larger scans (e.g. multi-page property docs) raise the defaults."""
@@ -6208,7 +6679,7 @@ async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, use
     else:
         return {"_error": (400, "Upload a PDF, JPG or PNG")}
     payload = {
-        "model": _IMPORT_MODEL, "max_tokens": max_tokens, "system": system,
+        "model": _IMPORT_MODEL, "max_tokens": max_tokens, "system": _cacheable_system(system),
         "output_config": {"effort": effort},
         "messages": [{"role": "user", "content": [block, {"type": "text", "text": user_text}]}],
     }
@@ -6229,6 +6700,7 @@ async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, use
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
         return {"_error": (502, "AI call failed")}
     body = r.json()
+    _log_ai_usage(body, endpoint=endpoint, name=name, attempt="first")
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = _extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -6247,6 +6719,7 @@ async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, use
             )
             if r2.status_code == 200:
                 body = r2.json()
+                _log_ai_usage(body, endpoint=endpoint, name=name, attempt="low-effort-retry")
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = _extract_json(text)
         except Exception as e:
@@ -6308,7 +6781,8 @@ async def classify_parcel_photo(file: UploadFile = File(...)):
     data = await file.read()
     out = await _anthropic_extract(
         data, file.content_type or "", file.filename or "",
-        _PARCEL_PHOTO_SYSTEM, "Classify this picture and return ONLY the JSON object.")
+        _PARCEL_PHOTO_SYSTEM, "Classify this picture and return ONLY the JSON object.",
+        endpoint="classify-parcel-photo")
     if "_error" in out:
         # An image we cannot READ is not an image we can vouch for. Returning an
         # error would make the client fail open and accept it silently, which is
@@ -6332,10 +6806,12 @@ async def classify_parcel_photo(file: UploadFile = File(...)):
 
 
 @app.post("/extract-aadhaar")
-async def extract_aadhaar(file: UploadFile = File(...)):
+async def extract_aadhaar(file: UploadFile = File(...), request: Request = None):
+    await _check_read_consent(request)
     data = await file.read()
     out = await _anthropic_extract(data, file.content_type or "", file.filename or "",
-                                   _AADHAAR_SYSTEM, "Extract the Aadhaar KYC fields and return ONLY the JSON object.")
+                                   _AADHAAR_SYSTEM, "Extract the Aadhaar KYC fields and return ONLY the JSON object.",
+                                   endpoint="extract-aadhaar")
     if "_error" in out:
         code, msg = out["_error"]
         return JSONResponse(status_code=code, content={"error": msg})
@@ -6529,7 +7005,8 @@ _DOC_IMPORT_SYSTEM = (
 
 
 @app.post("/import-registered-document")
-async def import_registered_document(file: UploadFile = File(...)):
+async def import_registered_document(file: UploadFile = File(...), request: Request = None):
+    await _check_read_consent(request)
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
@@ -6559,7 +7036,7 @@ async def import_registered_document(file: UploadFile = File(...)):
         # to 53s) without changing a single extracted value.
         "max_tokens": 16000,
         "output_config": {"effort": "medium"},
-        "system": _DOC_IMPORT_SYSTEM,
+        "system": _cacheable_system(_DOC_IMPORT_SYSTEM),
         "messages": [{"role": "user", "content": [
             block,
             {"type": "text", "text": "Extract the registered-document fields and return ONLY the JSON object."},
@@ -6596,6 +7073,7 @@ async def _extract_registered_fields(
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
         return 502, {"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"}
     body = r.json()
+    _log_ai_usage(body, endpoint="import-registered-document", name=name, attempt="first")
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = _extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -6614,6 +7092,7 @@ async def _extract_registered_fields(
             )
             if r2.status_code == 200:
                 body = r2.json()
+                _log_ai_usage(body, endpoint="import-registered-document", name=name, attempt="low-effort-retry")
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = _extract_json(text)
         except Exception as e:
@@ -6643,85 +7122,7 @@ async def _extract_registered_fields(
     return 200, {"fields": fields, "raw": text}
 
 
-# ── Async import: submit fast, poll for the result ────────────────────
-# A phone cannot hold an HTTP response open for the minutes a deed takes to
-# read: iOS background transfers hang up during the silence and re-send (five
-# identical reads of one deed, none delivered), and CloudFront caps origin
-# reads at 60s in production anyway. So the read becomes a JOB: the upload
-# returns a receipt in seconds, the phone asks after it until it is done.
-# Jobs live in process memory — a restart loses them, and the phone's poll
-# gets an honest 404 telling it to send the document again.
-_import_jobs: dict = {}
-_IMPORT_JOB_TTL = 1800.0
-
-
-def _prune_import_jobs() -> None:
-    cutoff = time.time() - _IMPORT_JOB_TTL
-    for k in [k for k, v in _import_jobs.items() if v["at"] < cutoff]:
-        _import_jobs.pop(k, None)
-
-
-@app.post("/import-registered-document-async")
-async def import_registered_document_async(file: UploadFile = File(...)):
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
-    data = await file.read()
-    if len(data) > 25 * 1024 * 1024:
-        return JSONResponse(status_code=413, content={"error": "File too large (max 25 MB)"})
-    mime = (file.content_type or "").lower()
-    name = (file.filename or "").lower()
-    b64 = base64.standard_b64encode(data).decode()
-    if mime == "application/pdf" or name.endswith(".pdf"):
-        block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
-    elif mime.startswith("image/"):
-        block = {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}}
-    else:
-        return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
-    payload = {
-        "model": _IMPORT_MODEL,
-        "max_tokens": 16000,
-        "output_config": {"effort": "medium"},
-        "system": _DOC_IMPORT_SYSTEM,
-        "messages": [{"role": "user", "content": [
-            block,
-            {"type": "text", "text": "Extract the registered-document fields and return ONLY the JSON object."},
-        ]}],
-    }
-    _prune_import_jobs()
-    job = uuid.uuid4().hex
-    _import_jobs[job] = {"state": "running", "status": 0, "payload": {}, "at": time.time()}
-    fname = file.filename or ""
-    data_len = len(data)
-
-    async def run() -> None:
-        try:
-            status, result = await _extract_registered_fields(
-                api_key=api_key, payload=payload, data_len=data_len, name=fname)
-        except Exception as e:
-            _log.warning("async import crashed (job=%s, file=%s): %r", job, fname, e)
-            status, result = 500, {"error": "The reading failed on the server. Send the document again."}
-        _import_jobs[job] = {
-            "state": "done" if status == 200 else "failed",
-            "status": status, "payload": result, "at": time.time(),
-        }
-
-    asyncio.create_task(run())
-    return {"job": job}
-
-
-@app.get("/import-status/{job}")
-async def import_status(job: str):
-    _prune_import_jobs()
-    j = _import_jobs.get(job)
-    if j is None:
-        return JSONResponse(status_code=404, content={
-            "error": "This read is no longer on the server — send the document again."})
-    if j["state"] == "running":
-        return {"state": "running"}
-    if j["status"] == 200:
-        return {"state": "done", **j["payload"]}
-    return JSONResponse(status_code=j["status"], content={"state": "failed", **j["payload"]})
+# Durable async import routes are registered below all extraction handlers.
 
 
 # ── AI Property Importer ──────────────────────────────────────────────
@@ -6795,15 +7196,36 @@ _PROPERTY_IMPORT_SYSTEM = (
 
 
 @app.post("/extract-property")
-async def extract_property(file: UploadFile = File(...)):
+async def extract_property(file: UploadFile = File(...), request: Request = None):
+    await _check_read_consent(request)
     data = await file.read()
     out = await _anthropic_extract(
         data, file.content_type or "", file.filename or "",
         _PROPERTY_IMPORT_SYSTEM,
         "Classify kind and extract the property (or agricultural parcel) fields. Return ONLY the JSON object.",
-        max_mb=25, max_tokens=16000,
+        max_mb=25, max_tokens=16000, endpoint="extract-property",
     )
     if "_error" in out:
         status, msg = out["_error"]
         return JSONResponse(status_code=status, content={"error": msg})
     return {"fields": out.get("fields") or {}}
+
+
+from . import import_jobs
+app.include_router(import_jobs.router)
+from . import capabilities
+app.include_router(capabilities.router)
+from . import payments
+app.include_router(payments.router)
+
+from . import account
+account.bind(pool)
+app.include_router(account.router)
+
+
+async def _check_read_consent(request):
+    # Internal jobs check consent at submission and again before execution.
+    if request is not None:
+        uid = import_jobs.owner(request)
+        await account.require_purpose(uid, "document_processing")
+        await account.require_purpose(uid, "ai_extraction")

@@ -15,6 +15,7 @@ import ProgressBar from 'src/components/progress-bar';
 import { MotionLazy } from 'src/components/animate/motion-lazy';
 import SnackbarProvider from 'src/components/snackbar/snackbar-provider';
 import { SettingsDrawer, SettingsProvider } from 'src/components/settings';
+import { ToastProvider } from 'src/components/kit';
 
 // ----------------------------------------------------------------------
 
@@ -44,17 +45,53 @@ export const metadata = {
 
 // ----------------------------------------------------------------------
 
+// SettingsContext is the source of truth, while MUI's initializer reads its
+// own keys. Mirror the canonical (or legacy) persisted choice before MUI runs
+// so the first painted frame already uses the requested scheme.
+const THEME_BOOTSTRAP_SCRIPT = `
+  (() => {
+    try {
+      const stored = window.localStorage.getItem('settings');
+      const settings = stored ? JSON.parse(stored) : {};
+      const canonical = ['light', 'dark', 'highContrast'].includes(settings.themeChoice)
+        ? settings.themeChoice
+        : null;
+      const choice = canonical
+        || (settings.themeContrast === 'bold'
+          ? 'highContrast'
+          : settings.themeMode === 'dark' ? 'dark' : 'light');
+
+      if (choice === 'dark') {
+        window.localStorage.setItem('mui-mode', 'dark');
+        window.localStorage.setItem('mui-color-scheme-dark', 'dark');
+      } else {
+        window.localStorage.setItem('mui-mode', 'light');
+        window.localStorage.setItem(
+          'mui-color-scheme-light',
+          choice === 'highContrast' ? 'highContrast' : 'light'
+        );
+      }
+    } catch (_) {
+      // Invalid or unavailable storage falls through to MUI's light default.
+    }
+  })();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={primaryFont.className} suppressHydrationWarning>
       <body>
-        {/* Applies the persisted light/dark class before hydration (no flash). */}
+        {/* eslint-disable-next-line react/no-danger */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
+        {/* Applies the mirrored MUI theme class before hydration (no flash). */}
         <InitColorSchemeScript attribute="class" defaultMode="light" />
 
         <SettingsProvider
           defaultSettings={{
-            themeMode: 'light', // 'light' | 'dark'
-            themeContrast: 'default', // 'default' | 'bold'
+            // Legacy fields remain only as migration/reset fallbacks. Deliberately
+            // omit themeChoice so persisted legacy values cannot be masked.
+            themeMode: 'light',
+            themeContrast: 'default',
             themeLayout: 'vertical', // 'vertical' | 'horizontal' | 'mini'
             themeStretch: false,
           }}
@@ -65,7 +102,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <SettingsDrawer />
                 <ProgressBar />
                 <QueryProvider>
-                  <AuthProvider>{children}</AuthProvider>
+                  {/* The kit's one snackbar host. `useToast` throws without it,
+                      and ExportAction and useRowSelection both call it — so it
+                      mounts here, above RequireAuth, rather than under /app:
+                      a public page that grows a toast must not have to
+                      remember to add a provider. */}
+                  <ToastProvider>
+                    <AuthProvider>{children}</AuthProvider>
+                  </ToastProvider>
                 </QueryProvider>
               </SnackbarProvider>
             </MotionLazy>

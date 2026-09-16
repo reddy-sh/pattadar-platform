@@ -1,5 +1,4 @@
 import * as AuthSession from 'expo-auth-session';
-import * as SecureStore from 'expo-secure-store';
 
 import { AVATAR_KEY, adoptProviderPhoto } from '@/lib/avatar';
 import * as WebBrowser from 'expo-web-browser';
@@ -7,7 +6,8 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { setIdentity } from '@/api/client';
-import { COGNITO_CLIENT_ID, COGNITO_DOMAIN, TOKENS_KEY } from '@/auth/cognitoConfig';
+import { COGNITO_CLIENT_ID, COGNITO_DOMAIN } from '@/auth/cognitoConfig';
+import { storeTokens } from '@/auth/accessToken';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -96,8 +96,11 @@ export function useCognitoAuth() {
         const claims = decodeJwtPayload(t.idToken ?? '');
         const email = String(claims.email ?? '');
         if (!email) throw new Error('Cognito did not return an email for this account.');
-        // Platform invariant: identity = email local-part, lowercased.
-        await setIdentity(email.split('@')[0]);
+        const issuer = String(claims.iss ?? '');
+        const subject = String(claims.sub ?? '');
+        if (!issuer || !subject) throw new Error('Cognito did not return a stable account identity.');
+        await setIdentity(`principal:${encodeURIComponent(issuer)}:${subject}`);
+        qc.clear();
         // Google (and other IdPs) return a profile photo — use it as the avatar
         // on first sign-in so a new account is not a blank initial.
         const picture = String(claims.picture ?? '');
@@ -105,16 +108,13 @@ export function useCognitoAuth() {
           await adoptProviderPhoto(picture).catch(() => false);
           qc.invalidateQueries({ queryKey: AVATAR_KEY });
         }
-        await SecureStore.setItemAsync(
-          TOKENS_KEY,
-          JSON.stringify({
-            accessToken: t.accessToken,
-            idToken: t.idToken,
-            refreshToken: t.refreshToken,
-            issuedAt: t.issuedAt,
-            expiresIn: t.expiresIn,
-          }),
-        ).catch(() => undefined);
+        await storeTokens({
+          accessToken: t.accessToken,
+          idToken: t.idToken,
+          refreshToken: t.refreshToken,
+          issuedAt: t.issuedAt * 1000,
+          expiresIn: t.expiresIn,
+        });
         qc.invalidateQueries({ queryKey: ['pattadar'] });
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Sign-in failed');

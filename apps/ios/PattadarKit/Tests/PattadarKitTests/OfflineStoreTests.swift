@@ -197,3 +197,23 @@ struct OfflineStoreTests {
         }
     }
 }
+
+@Test("Verified legacy ownership migrates pending bytes without changing the filing identity")
+func migrateLegacyOutboxOwner() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("scan.pdf")
+    try Data("deed".utf8).write(to: source)
+    let queue = WriteQueue(directory: root)
+    let id = try await queue.enqueueFiling(user: "legacy-alice", fieldsJSON: "{}", fileURL: source,
+                                           originalName: "scan.pdf", displayName: "Deed", link: .none)
+    try await queue.migrateVerifiedOwner(from: "legacy-alice", to: "principal:alice")
+    #expect(await queue.pending(for: "legacy-alice").isEmpty)
+    #expect(await queue.pending(for: "principal:bob").isEmpty)
+    let pending = await queue.pending(for: "principal:alice")
+    #expect(pending.map(\.id) == [id.id])
+    let restored = WriteQueue(directory: root)
+    #expect(await restored.pending(for: "principal:alice").map(\.id) == [id.id])
+    #expect(FileManager.default.fileExists(atPath: await queue.documentURL(for: pending[0]).path))
+}

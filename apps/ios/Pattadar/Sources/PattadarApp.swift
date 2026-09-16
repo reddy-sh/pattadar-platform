@@ -52,18 +52,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 
-/// Where the app points and who it believes it is.
-///
-/// `x-user-id` is the trust header the API still uses. It becomes a Cognito
-/// Bearer token in the same change that adds one to the API — not before, or
-/// this client locks itself out of a backend with no Cognito path yet.
-/// Main-actor isolated, which it always was in practice: every property here is
-/// read and written by views. Stating it lets the model talk to the background
-/// reader without hopping actors on each call.
+/// Shared native session state. The gateway verifies Bearer tokens; local
+/// caches and queued work are partitioned by immutable account identity.
 @MainActor
 @Observable
 final class AppModel {
     var api: PattadarAPI
+    private(set) var sessionID = UUID()
+    private(set) var widgetSession = ""
     /// Set once and shared, so every screen reports the same failure rather
     /// than each inventing its own wording for the same dead server.
     var lastFailure: String?
@@ -112,7 +108,9 @@ final class AppModel {
 
     func startRead(_ endpoint: PattadarAPI.ExtractionEndpoint, fileURL: URL, name: String,
                    owner: UUID? = nil) {
+        let expectedSession = sessionID
         readOwner = owner
+        reviewInProgress = nil
         readTask?.cancel()
         readResult = nil
         readState = .sending(0)
@@ -123,7 +121,7 @@ final class AppModel {
 
         let reader = BackgroundRead.shared
         reader.onProgress = { [weak self] fraction in
-            guard let self else { return }
+            guard let self, self.sessionID == expectedSession else { return }
             if fraction >= 1 {
                 if case .sending = self.readState { self.readState = .reading(0) }
             } else {
@@ -131,14 +129,15 @@ final class AppModel {
             }
         }
         reader.onFinished = { [weak self] result in
-            guard let self else { return }
+            guard let self, self.sessionID == expectedSession else { return }
             switch result {
             case .success(let fields):
                 // This result was ALSO queued for review (in case nobody was
                 // here). Somebody IS here — the flow that saves from this scan
                 // completes that entry, so it never haunts Home afterwards.
                 self.reviewInProgress = BackgroundRead.shared.lastEnqueuedReviewID
-                self.readResult = ScanResult(fields: fields, fileURL: fileURL, originalName: name)
+                self.readResult = self.pendingReviews.first(where: { $0.id == self.reviewInProgress })?.scan
+                    ?? ScanResult(fields: fields, fileURL: fileURL, originalName: name)
                 self.readState = .done
             case .failure(let error):
                 if case PattadarAPI.APIError.cancelled = error { self.readState = .idle }
@@ -150,6 +149,7 @@ final class AppModel {
             // A fresh token before a long upload: the read may outlive this
             // process, and nobody will be around to answer a 401.
             await freshenAuth()
+            guard sessionID == expectedSession else { return }
             do {
                 try reader.start(endpoint: endpoint, config: api.config, fileURL: fileURL, name: name)
             } catch {
@@ -176,22 +176,27 @@ final class AppModel {
     /// going, and the person scans the same document a second time.
     func adoptRunningRead() async {
         guard readResult == nil, !isReading else { return }
+        let expectedSession = sessionID
         let reader = BackgroundRead.shared
+        await freshenAuth()
+        guard sessionID == expectedSession else { return }
         guard let p = await reader.resumeIfRunning(config: api.config) else { return }
+        guard sessionID == expectedSession else { return }
         let file = URL(fileURLWithPath: p.documentPath)
         reader.onFinished = { [weak self] result in
-            guard let self else { return }
+            guard let self, self.sessionID == expectedSession else { return }
             switch result {
             case .success(let fields):
-                self.readResult = ScanResult(fields: fields, fileURL: file,
-                                             originalName: p.originalName)
+                self.reviewInProgress = BackgroundRead.shared.lastEnqueuedReviewID
+                self.readResult = self.pendingReviews.first(where: { $0.id == self.reviewInProgress })?.scan
+                    ?? ScanResult(fields: fields, fileURL: file, originalName: p.originalName)
                 self.readState = .done
             case .failure(let error):
                 self.readState = .failed(String(describing: error))
             }
         }
         reader.onProgress = { [weak self] fraction in
-            guard let self else { return }
+            guard let self, self.sessionID == expectedSession else { return }
             self.readState = fraction >= 1 ? .reading(0) : .sending(fraction)
         }
         readState = .reading(Int(Date().timeIntervalSince(p.startedAt)))
@@ -386,12 +391,24 @@ final class AppModel {
     /// list is already lit when the detail screen opens, with no round trip.
     var favourites: Set<String> = []
 
-    /// Switch identity without rebuilding the client's other settings.
+    /// Invalidate screen state and delayed completions before adopting identity.
     func setUser(_ user: String) {
-        api = PattadarAPI(config: .init(baseURL: api.config.baseURL, userID: user,
-                                        authorization: api.config.authorization))
+        sessionID = UUID()
+        readTask?.cancel()
+        readTask = nil
+        clearRead()
+        reviewInProgress = nil
+        BackgroundRead.shared.activate(ownerID: user)
+        ReviewQueue.shared.activate(ownerID: user)
+        widgetSession = SharedSnapshot.activate(ownerID: user)
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        api = PattadarAPI(config: .init(baseURL: api.config.baseURL, userID: user))
         favourites = []
         servedStaleAt = nil
+        lastFailure = nil
+        pendingHolding = nil
+        for tab in tabVersions.keys { tabVersions[tab] = UUID() }
         SyncEngine.shared.identityChanged()
     }
 
@@ -399,7 +416,14 @@ final class AppModel {
     /// is about to lapse. Called before requests rather than on a timer — a
     /// timer is one more thing that can be wrong while the phone sleeps.
     func freshenAuth() async {
+        let expectedSession = sessionID
         let token = await CognitoAuth.shared.validAccessToken() ?? ""
+        guard sessionID == expectedSession else { return }
+        if token.isEmpty, !CognitoAuth.shared.isSignedIn, !api.config.authorization.isEmpty {
+            Identity.clear()
+            setUser("")
+            return
+        }
         if api.config.authorization != token {
             api = PattadarAPI(config: .init(baseURL: api.config.baseURL,
                                             userID: api.config.userID,
@@ -412,9 +436,10 @@ final class AppModel {
         // signal still signs out. The response cache goes too: a cache that
         // outlives the session is a copy of someone's land records left on a
         // shared phone.
-        Task { await CognitoAuth.shared.signOut() }
+        CognitoAuth.shared.signOutImmediately()
         Task { await ResponseCache.shared.clear() }
         Identity.clear()
+        setUser("")
         favourites = []
         clearRead()
         servedStaleAt = nil
@@ -459,8 +484,15 @@ final class AppModel {
         }
         let base = setting("PATTADAR_API_URL", "PattadarAPIURL")
             .flatMap(URL.init(string:)) ?? URL(string: "http://127.0.0.1:8080")!
-        let fallback = setting("PATTADAR_USER", "PattadarUser") ?? "u01"
-        api = PattadarAPI(config: .init(baseURL: base, userID: Identity.current(default: fallback)))
+        let fallback = setting("PATTADAR_USER", "PattadarUser") ?? ""
+        // Existing token sessions use the immutable issuer/subject scope.
+        // A legacy mutable identity does not claim ownerless pending scans.
+        let user = CognitoAuth.shared.accountID
+            ?? (base.scheme == "http" ? Identity.current(default: fallback) : "")
+        api = PattadarAPI(config: .init(baseURL: base, userID: user))
+        ReviewQueue.shared.activate(ownerID: user)
+        BackgroundRead.shared.activate(ownerID: user)
+        widgetSession = SharedSnapshot.activate(ownerID: user)
 
         // The sync engine works FOR this model: it borrows a freshened client
         // for each drain and hands back landed filings for the best-effort
@@ -469,12 +501,14 @@ final class AppModel {
         SyncEngine.shared.userProvider = { [weak self] in self?.api.config.userID ?? "" }
         SyncEngine.shared.apiProvider = { [weak self] in
             guard let self else { return nil }
+            let session = self.sessionID
             await self.freshenAuth()
+            guard session == self.sessionID, !self.api.config.userID.isEmpty else { return nil }
             guard let root = Self.gatewayRoot(of: self.api.config.baseURL) else { return nil }
             return (self.api, root)
         }
         SyncEngine.shared.postProcess = { [weak self] filing in
-            guard let self else { return }
+            guard let self, filing.entry.user == self.api.config.userID else { return }
             let fields = (try? JSONSerialization.jsonObject(
                 with: Data(filing.entry.fieldsJSON.utf8))) as? [String: Any] ?? [:]
             await self.adoptGround(from: fields, into: LinkTarget(filing.entry.link))
@@ -620,9 +654,14 @@ final class AppModel {
     func fetch<T: Decodable & Sendable>(
         _ document: String, variables: [String: any Sendable] = [:], as: T.Type
     ) async -> (value: T?, failure: String?) {
+        let expectedSession = sessionID
         await freshenAuth()
+        guard sessionID == expectedSession else { return (nil, nil) }
         do {
             let answer = try await api.queryCached(document, variables: variables, as: T.self)
+            guard sessionID == expectedSession else { return (nil, nil) }
+            if answer.asOf == nil { await adoptVerifiedQueueOwner(answer.value, session: expectedSession) }
+            guard sessionID == expectedSession else { return (nil, nil) }
             lastFailure = nil
             if let asOf = answer.asOf {
                 servedStaleAt = min(servedStaleAt ?? asOf, asOf)
@@ -631,6 +670,7 @@ final class AppModel {
             }
             return (answer.value, nil)
         } catch {
+            guard sessionID == expectedSession else { return (nil, nil) }
             if case PattadarAPI.APIError.cancelled = error { return (nil, nil) }
             if error is CancellationError { return (nil, nil) }
             let described = String(describing: error)
@@ -639,10 +679,23 @@ final class AppModel {
         }
     }
 
+    private func adoptVerifiedQueueOwner<T>(_ value: T, session: UUID) async {
+        guard sessionID == session, !api.config.authorization.isEmpty,
+              let owner = (value as? DashboardResponse)?.me?.id, !owner.isEmpty else { return }
+        try? await WriteQueue.shared.migrateVerifiedOwner(from: owner, to: api.config.userID)
+        guard sessionID == session else { return }
+        SyncEngine.shared.kick(.launch)
+    }
+
     func load<T: Decodable & Sendable>(_ document: String, variables: [String: any Sendable] = [:], as: T.Type) async -> T? {
+        let expectedSession = sessionID
         await freshenAuth()
+        guard sessionID == expectedSession else { return nil }
         do {
             let answer = try await api.queryCached(document, variables: variables, as: T.self)
+            guard sessionID == expectedSession else { return nil }
+            if answer.asOf == nil { await adoptVerifiedQueueOwner(answer.value, session: expectedSession) }
+            guard sessionID == expectedSession else { return nil }
             lastFailure = nil
             // A screen fires several loads at once; the banner shows the
             // OLDEST stale answer among them, and any fresh answer clears
@@ -655,6 +708,7 @@ final class AppModel {
             }
             return answer.value
         } catch {
+            guard sessionID == expectedSession else { return nil }
             // A CANCELLED load is not a failure and must never be shown as
             // one. SwiftUI cancels a `.task` when its view goes away, and this
             // app rebuilds a tab whenever you leave it (`restartTab`), so

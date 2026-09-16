@@ -377,9 +377,16 @@ def has_rows(conn, table: str, col: str, value: str) -> bool:
     return cur.fetchone() is not None
 
 
-def seed(conn, uid: str) -> None:
+def seed(conn, uid: str, only: str = "") -> None:
     ensure_stamp(conn)
     recs = records_for(conn, uid)
+    if only:
+        kept = [x for x in recs if str(x["id"]).startswith(only)]
+        skipped = len(recs) - len(kept)
+        recs = kept
+        if skipped:
+            # Say it out loud. A silent skip reads as "there was nothing to do".
+            print(f"--only {only}: left {skipped} record(s) alone — not this script's to fill")
     if not recs:
         print(f"no records for {uid} — nothing to fill")
         return
@@ -616,7 +623,9 @@ def seed(conn, uid: str) -> None:
                      f"{corner} stone moved ~{r.randint(2,6)} ft in" if is_moved
                      else f"{corner} stone",
                      "moved" if is_moved else "confirmed",
-                     f"reported {r.randint(1,28):02d}/0{r.randint(1,8)}/2026 · 2 photos"
+                     # A mark cannot carry photos in this schema — see the
+                     # boundary() resolver — so the detail no longer claims any.
+                     f"reported {r.randint(1,28):02d}/0{r.randint(1,8)}/2026"
                      if is_moved else f"confirmed {r.randint(1,28):02d}/0{r.randint(1,8)}/2026",
                      round(float(lat0 or 0) + r.uniform(-0.001, 0.001), 4),
                      round(float(lon0 or 0) + r.uniform(-0.001, 0.001), 4),
@@ -802,6 +811,17 @@ def seed(conn, uid: str) -> None:
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
+    # --only <prefix>: fill ONLY records whose id starts with it. Ownership is
+    # not a safe scope on a shared account — anything a person files by hand in
+    # the demo identity is "an empty record this user owns", and got a full set
+    # of generated papers, photos, people and a stamped pin 200 km from where
+    # the record actually is. Convincing filler on a real record is worse than
+    # an empty one, so the caller can name what it owns.
+    only = ""
+    for f in list(flags):
+        if f.startswith("--only="):
+            only = f.split("=", 1)[1]
+            flags.discard(f)
     with psycopg.connect(DSN, autocommit=True) as conn:
         if "--purge" in flags:
             # `--purge` alone clears every user; `--purge <uid>` only that one.
@@ -812,7 +832,7 @@ def main() -> None:
             print("error: give a user id (e.g. w360-demo, or your own)")
             sys.exit(2)
         for uid in args:
-            seed(conn, uid)
+            seed(conn, uid, only)
 
 
 if __name__ == "__main__":

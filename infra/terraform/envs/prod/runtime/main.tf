@@ -53,7 +53,12 @@ module "runtime" {
   api_domain      = var.api_domain
   api_base_url    = var.api_base_url
 
-  gateway_image_tag = var.gateway_image_tag
+  identity_legacy_bindings = var.identity_legacy_bindings
+  admin_subject_ids        = var.admin_subject_ids
+  payments_mode            = var.payments_mode
+  razorpay_live_confirmed  = var.razorpay_live_confirmed
+  payment_secret_arns      = var.payment_secret_arns
+  gateway_image_tag        = var.gateway_image_tag
 
   assistant_image_tag = var.assistant_image_tag
   api_image_tag       = var.api_image_tag

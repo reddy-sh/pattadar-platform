@@ -15,10 +15,12 @@ Deltas vs the predecessor (v1):
 from __future__ import annotations
 
 import functools
+import hashlib
 import io
 import logging
 import os
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -87,8 +89,22 @@ def _err(exc: Exception) -> JSONResponse:
 
 
 def _cd(name: str) -> str:
-    safe = (name or "download").replace('"', "").replace("\n", " ").replace("\r", " ")
-    return f'inline; filename="{safe}"'
+    """Content-Disposition for a stored file.
+
+    HTTP headers are latin-1, and real filenames are not. A macOS screenshot
+    carries U+202F (narrow no-break space) before the AM/PM, and a Telugu
+    document carries far more; putting either straight into `filename=` makes
+    Starlette raise UnicodeEncodeError, which 500s the whole read before a
+    single byte of the image is sent.
+
+    RFC 6266: an ASCII-safe `filename=` every client can parse, plus a
+    percent-encoded `filename*=` that carries the true name to anything
+    current. Control characters go too — they would let a name inject a
+    header break.
+    """
+    raw = (name or "download").replace('"', "").replace("\n", " ").replace("\r", " ")
+    fallback = "".join(c if 32 <= ord(c) < 127 else "_" for c in raw) or "download"
+    return f"inline; filename=\"{fallback}\"; filename*=UTF-8\'\'{quote(raw, safe='')}"
 
 
 def _is_heic(mime: str, name: str) -> bool:
@@ -198,6 +214,32 @@ async def get_node(request: Request, node_id: str, _claims: dict = Depends(requi
     return {"node": node, "breadcrumb": crumbs}
 
 
+#: Short and revalidated rather than long and immutable. A node's content CAN
+#: be replaced in place when no version is pinned, so a grid of thumbnails has
+#: to be able to notice. 60s covers a scroll and a click back; after that the
+#: browser asks, and the answer is a 304 costing one read and no decode.
+_CACHE = "private, max-age=60, must-revalidate"
+
+
+def _content_etag(data: bytes, fmt: Optional[str], thumb: Optional[int]) -> str:
+    """An ETag over the SOURCE bytes and the transform that was asked for.
+
+    Both halves matter. The bytes, so replacing a file changes the tag; and the
+    transform, so a thumbnail and its original are different entities and can
+    never answer each other's request — a 512 px card thumbnail served in place
+    of a full-size download would be a silent corruption, not a cache hit.
+
+    It is computed from the ORIGINAL rather than from the response body, and
+    that is what makes it worth having: there is no stored derivative, so
+    `?thumb=` decodes the whole image with Pillow and re-encodes it on EVERY
+    request, and a property grid asks for one per card. Answering 304 above the
+    decode is the entire saving — answering it below would spare the wire and
+    still burn the CPU.
+    """
+    stamp = f"|{fmt or ''}|{thumb or ''}".encode()
+    return '"' + hashlib.sha1(data + stamp).hexdigest()[:24] + '"'
+
+
 @router.get("/files/{node_id}/content")
 async def file_content(
     request: Request,
@@ -213,6 +255,11 @@ async def file_content(
         data, mime, name = await run_in_threadpool(svc.read_content, owner, node_id, version)
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
+
+    etag = _content_etag(data, fmt, thumb)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": _CACHE})
+
     # thumb=<px>: downscale image (incl. HEIC) to a JPEG thumbnail for grid tiles.
     if thumb and _is_imageish(mime, name):
         try:
@@ -231,7 +278,9 @@ async def file_content(
         except Exception as exc:  # noqa: BLE001
             _log.warning("storage.heic_convert_failed: %s", exc)
             return JSONResponse(status_code=502, content={"error": "Could not convert image"})
-    return Response(content=data, media_type=mime, headers={"Content-Disposition": _cd(name)})
+    return Response(content=data, media_type=mime, headers={
+        "Content-Disposition": _cd(name), "ETag": etag, "Cache-Control": _CACHE,
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
-/* Hallmark · genre: atmospheric · macrostructure: Marquee Hero · theme: studied-DNA (source: https://www.usehallmark.com/examples/hyperlane/ · Bloom)
- * tokens · paper-band: dark · display-style: weighty-sans · accent-hue: warm-amber
- * studied: yes · DNA-source: url · design-system: design.md · designed-as-app
+/* Pattadar Bloom marketing tokens.
+ * Project-owned palette and type roles; Material 3-guided accessibility,
+ * hierarchy, adaptive layout, and interaction behavior live in design.md.
  * fonts self-hosted via @fontsource (founder rule: nothing loads from third-party URLs)
  *
  * These are inert custom properties, safe on :root for the whole app.
@@ -30,8 +30,8 @@
   --color-bloom-2:      oklch(60% 0.220 15);
 
   /* === Typography ============================================== */
-  --font-display: "Inter Tight", "Inter", system-ui, sans-serif;
-  --font-body:    "Inter", system-ui, sans-serif;
+  --font-display: "Inter Tight", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-body:    "Atkinson Hyperlegible", system-ui, sans-serif;
   --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
   --font-accent:  "Instrument Serif", "Times New Roman", Georgia, serif;
 

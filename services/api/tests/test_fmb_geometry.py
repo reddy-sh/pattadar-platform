@@ -191,6 +191,103 @@ def test_lengths_with_units_still_build_the_ring():
     assert fields["geometry"]["ring"] == [3, 8, 7, 6, 5, 4, 9, 1, 2]
 
 
+# ── The exported file, and what it is allowed to be used for ────────────────
+
+# `pattadar-fmb-mangalakunta.geojson`, exactly as FmbMapViewer's GeoJSON button
+# writes it for this sheet. Checked in as the authority: if the ring order or
+# the coordinates ever change, a file already in a surveyor's hands stops
+# matching the record it came from.
+EXPORTED_RING = [
+    [79.32177, 15.66567], [79.32274, 15.66514], [79.32344, 15.66486],
+    [79.32437, 15.66464], [79.32334, 15.66053], [79.32252, 15.65922],
+    [79.32146, 15.65872], [79.31919, 15.66026], [79.31944, 15.66072],
+    [79.32177, 15.66567],
+]
+
+
+def test_the_geojson_ring_is_the_sheets_ring_in_lon_lat_and_closed():
+    from fmb_geometry import to_geojson_ring
+    ring = to_geojson_ring(geometry())
+    # Ten entries for nine corners: GeoJSON repeats the first one last.
+    assert len(ring) == 10 and ring[0] == ring[-1]
+    assert ring == EXPORTED_RING, ring
+    # Walked in the sheet's order 3→8→7→6→5→4→9→1→2, NOT corner-id order.
+    assert ring[0] == [79.32177, 15.66567]   # point 3
+    assert ring[1] == [79.32274, 15.66514]   # point 8
+
+
+def test_the_boundary_column_form_is_lat_first_and_open():
+    from fmb_geometry import to_boundary_text
+    text = to_boundary_text(geometry())
+    corners = text.split(";")
+    # `parcels.boundary` stores corners, so nine — the closing repeat is a
+    # GeoJSON rule, not a survey fact.
+    assert len(corners) == 9, corners
+    assert corners[0] == "15.66567,79.32177"   # lat first, unlike GeoJSON
+
+
+def test_a_sheet_with_no_datum_yields_no_geographic_ring():
+    from fmb_geometry import build_geometry, to_boundary_text, to_geojson_ring
+    # Eastings and northings, but the lat/long columns were never printed.
+    # Emitting zeros would put this parcel in the Gulf of Guinea.
+    blind = [{k: (0.0 if k in ("lat", "lon") else v) for k, v in p.items()} for p in POINTS]
+    g = build_geometry(blind, PRINTED)
+    assert g is not None and g["area_ac"] == 59.90   # the sheet still measures
+    assert to_geojson_ring(g) == []                  # but it cannot be placed
+    assert to_boundary_text(g) == ""
+
+
+def test_one_unplaced_corner_rejects_the_whole_ring():
+    from fmb_geometry import attach_geometry, to_boundary_text, to_geojson_ring
+    # The realistic failure: a scan where eight corners read cleanly and the
+    # ninth's lat/long column did not. attach_geometry defaults that row to
+    # 0.0/0.0 and datum_stated still goes true off the other eight, so the
+    # geometry builds. Nine-tenths of a parcel must not be drawn — it looks
+    # right, and one vertex is 2,000 km into the Atlantic.
+    fields = {
+        "doc_type": "FMB",
+        "boundary_points": [
+            {"id": p["id"], "easting": p["e"], "northing": p["n"],
+             "lat": (None if p["id"] == 7 else p["lat"]),
+             "lng": (None if p["id"] == 7 else p["lon"])}
+            for p in POINTS
+        ],
+        "printed_side_lengths": PRINTED,
+    }
+    attach_geometry(fields)
+    g = fields["geometry"]
+    assert g["area_ac"] == 59.90                  # the sheet still measures
+    assert any(p["lat"] == 0 and p["lon"] == 0 for p in g["points"])
+    assert to_geojson_ring(g) == []               # but it cannot be placed
+    assert to_boundary_text(g) == ""
+
+
+def test_area_must_not_be_recomputed_from_the_exported_ring():
+    """The reason area_ac and perimeter_m travel inside the exported file.
+
+    Five decimal places of latitude is about 1.1 m on the ground. Over nine
+    corners that is 0.30 acres — enough to move this parcel from 0.17% off the
+    sheet to 0.33%, and on a smaller parcel enough to flip the §7 verdict. Any
+    map that draws this ring must keep taking its numbers from the projected
+    corner table, which is what the viewer's own header comment promises.
+    """
+    import math
+    from fmb_geometry import to_geojson_ring
+    ring = to_geojson_ring(geometry())[:-1]
+    r = 6378137.0
+    rad = math.radians
+    total = sum(
+        (rad(ring[(i + 1) % len(ring)][0]) - rad(ring[i][0]))
+        * (2 + math.sin(rad(ring[i][1])) + math.sin(rad(ring[(i + 1) % len(ring)][1])))
+        for i in range(len(ring))
+    )
+    from_degrees_ac = abs(total * r * r / 2) / 4046.8564
+    from_table_ac = geometry()["area_ac"]
+    assert from_table_ac == 59.90
+    assert round(from_degrees_ac, 2) == 60.20, round(from_degrees_ac, 2)
+    assert round(from_degrees_ac - from_table_ac, 2) == 0.30
+
+
 def test_attach_geometry_leaves_the_raster_path_alone():
     from fmb_geometry import attach_geometry
     # A scanned FMB with lat/lng-only rows (the old reader shape) and a deed

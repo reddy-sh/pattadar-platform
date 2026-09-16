@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Font review — Atkinson Hyperlegible + Inter Tight</title>
+
+  <!-- Review-only document. Loads fonts from Google Fonts CDN purely so you
+       can preview quickly. The real app self-hosts via @fontsource per the
+       founder rule; this file is NOT shipped and is not part of the app. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+
+  <style>
+    /* --- Bloom dark theme tokens (subset, from tokens.css) --- */
+    :root {
+      --color-paper:   oklch(13% 0.018 35);
+      --color-paper-2: oklch(17% 0.020 35);
+      --color-paper-3: oklch(22% 0.022 35);
+      --color-ink:     oklch(95% 0.010 70);
+      --color-ink-2:   oklch(78% 0.015 60);
+      --color-ink-3:   oklch(58% 0.015 50);
+      --color-rule:    oklch(28% 0.018 40);
+      --color-rule-strong: oklch(40% 0.025 40);
+      --color-accent:  oklch(74% 0.180 55);
+      --color-accent-ink: oklch(15% 0.040 50);
+
+      --font-display: "Inter Tight", system-ui, sans-serif;
+      --font-body:    "Atkinson Hyperlegible", system-ui, sans-serif;
+      --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+      --leading-body: 1.6;
+      --measure: 66ch;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--color-paper);
+      color: var(--color-ink);
+      font-family: var(--font-body);
+      font-weight: 400;
+      line-height: var(--leading-body);
+      /* 17px base — one step up from 16 for low-vision comfort */
+      font-size: 17px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: var(--measure);
+      margin: 0 auto;
+      padding: clamp(1.5rem, 4vw, 4rem) clamp(1rem, 4vw, 3rem) 6rem;
+    }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 0.75rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      margin: 0 0 0.75rem;
+    }
+
+    h1, h2, h3 {
+      font-family: var(--font-display);
+      letter-spacing: -0.02em;
+      color: var(--color-ink);
+      line-height: 1.1;
+    }
+    h1 { font-weight: 800; font-size: clamp(2.5rem, 6vw, 4rem); margin: 0 0 0.5rem; }
+    h2 { font-weight: 700; font-size: 1.75rem; margin: 3rem 0 1rem; }
+    h3 { font-weight: 600; font-size: 1.25rem; margin: 2rem 0 0.5rem; }
+
+    p { margin: 0 0 1.1rem; color: var(--color-ink); }
+    .lead { font-size: 1.25rem; color: var(--color-ink-2); line-height: 1.5; }
+
+    a { color: var(--color-accent); }
+
+    hr {
+      border: 0;
+      border-top: 1px solid var(--color-rule);
+      margin: 3rem 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .card {
+      border: 1px solid var(--color-rule);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      background: var(--color-paper-2);
+    }
+    .card h3 { margin-top: 0; }
+
+    .pill {
+      display: inline-block;
+      background: var(--color-accent);
+      color: var(--color-accent-ink);
+      font-family: var(--font-display);
+      font-weight: 600;
+      border-radius: 999px;
+      padding: 0.65rem 1.4rem;
+      text-decoration: none;
+      margin-top: 0.5rem;
+    }
+
+    /* Legibility test: characters that are commonly confused. */
+    .confusables {
+      font-size: 2rem;
+      letter-spacing: 0.1em;
+      background: var(--color-paper-3);
+      border: 1px solid var(--color-rule);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin: 1rem 0;
+    }
+    .confusables small {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-ink-3);
+      margin-top: 0.75rem;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--color-rule);
+    }
+    th {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-ink-3);
+    }
+    .tnum { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    .sizes p { margin: 0 0 0.4rem; }
+    .s14 { font-size: 14px; } .s16 { font-size: 16px; }
+    .s18 { font-size: 18px; } .s22 { font-size: 22px; }
+
+    .weights b { font-weight: 700; }
+    .weights i { font-style: italic; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="eyebrow">Font review · Bloom theme</p>
+    <h1>Atkinson Hyperlegible</h1>
+    <p class="lead">
+      Body text set in Atkinson Hyperlegible, headings in Inter Tight, labels in
+      JetBrains Mono. This is the proposed stack for readers of all ages,
+      including low-vision users. Review it on the device and screen size your
+      customers actually use.
+    </p>
+    <a class="pill" href="#">Primary action</a>
+
+    <hr />
+
+    <h2>Why this font for all ages</h2>
+    <p>
+      Atkinson Hyperlegible was designed by the Braille Institute to make letters
+      that are easy to mistake for one another clearly distinct. That helps older
+      readers, low-vision readers, and anyone glancing at a small label on a phone
+      in bright sunlight. For everyone else it still reads as a clean, neutral
+      sans-serif, so nothing feels clinical or unusual.
+    </p>
+    <p>
+      Headings stay in Inter Tight so the Pattadar brand voice is unchanged. Only
+      the body copy switches, which is where reading comfort matters most.
+    </p>
+
+    <h2>The letters that usually get confused</h2>
+    <p>
+      This is the whole point of the typeface. Read each group and check that the
+      shapes are obviously different from one another.
+    </p>
+
+    <div class="confusables">
+      I l 1 | i j
+      <small>Capital I · lowercase L · one · pipe · lowercase i · j</small>
+    </div>
+    <div class="confusables">
+      O 0 o Q
+      <small>Capital O · zero · lowercase o · Q</small>
+    </div>
+    <div class="confusables">
+      rn m &nbsp; cl d &nbsp; vv w
+      <small>r-n vs m · c-l vs d · v-v vs w</small>
+    </div>
+    <div class="confusables">
+      8 B &nbsp; 5 S &nbsp; 2 Z &nbsp; 6 b &nbsp; 9 g q
+      <small>Numbers that mimic letters</small>
+    </div>
+
+    <h2>Body text at a real reading length</h2>
+    <p>
+      A pattadar is the recorded holder of agricultural land. When a family reviews
+      their holdings on this platform, they are often doing it together, across
+      three generations, on whatever phone happens to be in the room. The text has
+      to survive a scratched screen, a bright verandah, and eyes that no longer
+      focus the way they did at twenty. Good letterforms do quiet work here: they
+      let someone read a survey number aloud without squinting, and they keep a
+      long paragraph from turning into a grey wall.
+    </p>
+    <p>
+      Notice the spacing between words and the height of the lines. At this line
+      height a reader can move to the next line without losing their place, which
+      is one of the first things that becomes hard with age or low vision. Nothing
+      here shouts. The page simply gets out of the way of the words.
+    </p>
+
+    <h3>An emphasis test</h3>
+    <p class="weights">
+      This sentence mixes <b>bold weight</b> and <i>italic style</i> so you can see
+      how emphasis behaves. Bold should feel confident without smearing; italic is
+      used sparingly because slanted text is harder for some readers.
+    </p>
+
+    <hr />
+
+    <h2>Size ladder</h2>
+    <p>Check the smallest size you would ever ship. If 14px is uncomfortable, the app should default higher.</p>
+    <div class="sizes">
+      <p class="s14">14px — the survey number is 172/A in Rampur mandal.</p>
+      <p class="s16">16px — the survey number is 172/A in Rampur mandal.</p>
+      <p class="s18">18px — the survey number is 172/A in Rampur mandal.</p>
+      <p class="s22">22px — the survey number is 172/A in Rampur mandal.</p>
+    </div>
+
+    <h2>Numbers in a table (tabular figures)</h2>
+    <table>
+      <thead>
+        <tr><th>Survey no.</th><th>Extent (acres)</th><th>Village</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="tnum">172/A</td><td class="tnum">3.50</td><td>Rampur</td></tr>
+        <tr><td class="tnum">089/B</td><td class="tnum">10.08</td><td>Kondapur</td></tr>
+        <tr><td class="tnum">1100/C</td><td class="tnum">0.75</td><td>Ibrahimpatnam</td></tr>
+        <tr><td class="tnum">64/D</td><td class="tnum">125.20</td><td>Shamirpet</td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Headings</h3>
+        <p>Inter Tight, weights 600–800, tight tracking. Unchanged from today.</p>
+      </div>
+      <div class="card">
+        <h3>Body</h3>
+        <p>Atkinson Hyperlegible, 400 and 700. The proposed change.</p>
+      </div>
+      <div class="card">
+        <h3>Labels</h3>
+        <p class="eyebrow" style="margin:0">Mono eyebrow example</p>
+        <p style="margin-top:.5rem">JetBrains Mono, unchanged.</p>
+      </div>
+    </div>
+
+    <hr />
+    <p style="color:var(--color-ink-3); font-family:var(--font-mono); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;">
+      Review artifact · not shipped · docs/font-review-atkinson.html
+    </p>
+  </main>
+</body>
+</html>

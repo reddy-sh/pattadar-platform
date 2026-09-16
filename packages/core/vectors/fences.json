@@ -1,0 +1,144 @@
+[
+  {
+    "sideMetres": [
+      100,
+      80,
+      100,
+      80
+    ],
+    "opts": {
+      "spacing": 3,
+      "strands": 4,
+      "closed": true,
+      "costPerPost": 450,
+      "costPerMetre": 12
+    },
+    "expected": {
+      "perimeter": 360,
+      "sides": 4,
+      "corners": 4,
+      "cornerPosts": 4,
+      "linePosts": 118,
+      "posts": 122,
+      "wire": 1440,
+      "postCost": 54900,
+      "wireCost": 17280,
+      "cost": 72180,
+      "bySide": [
+        {
+          "metres": 100,
+          "posts": 33,
+          "spacing": 2.9411764705882355
+        },
+        {
+          "metres": 80,
+          "posts": 26,
+          "spacing": 2.962962962962963
+        },
+        {
+          "metres": 100,
+          "posts": 33,
+          "spacing": 2.9411764705882355
+        },
+        {
+          "metres": 80,
+          "posts": 26,
+          "spacing": 2.962962962962963
+        }
+      ]
+    }
+  },
+  {
+    "sideMetres": [
+      6,
+      3
+    ],
+    "opts": {
+      "spacing": 3,
+      "strands": 2,
+      "closed": false,
+      "costPerPost": 0,
+      "costPerMetre": 0
+    },
+    "expected": {
+      "perimeter": 9,
+      "sides": 2,
+      "corners": 3,
+      "cornerPosts": 3,
+      "linePosts": 1,
+      "posts": 4,
+      "wire": 18,
+      "postCost": 0,
+      "wireCost": 0,
+      "cost": 0,
+      "bySide": [
+        {
+          "metres": 6,
+          "posts": 1,
+          "spacing": 3
+        },
+        {
+          "metres": 3,
+          "posts": 0,
+          "spacing": 3
+        }
+      ]
+    }
+  },
+  {
+    "sideMetres": [
+      0,
+      -1,
+      5
+    ],
+    "opts": {
+      "spacing": 0,
+      "strands": 0,
+      "closed": true,
+      "costPerPost": 10,
+      "costPerMetre": 1
+    },
+    "expected": {
+      "perimeter": 5,
+      "sides": 1,
+      "corners": 1,
+      "cornerPosts": 1,
+      "linePosts": 0,
+      "posts": 1,
+      "wire": 0,
+      "postCost": 10,
+      "wireCost": 0,
+      "cost": 10,
+      "bySide": [
+        {
+          "metres": 5,
+          "posts": 0,
+          "spacing": 5
+        }
+      ]
+    }
+  },
+  {
+    "sideMetres": [],
+    "opts": {
+      "spacing": 3,
+      "strands": 4,
+      "closed": true,
+      "costPerPost": 10,
+      "costPerMetre": 1
+    },
+    "expected": {
+      "perimeter": 0,
+      "sides": 0,
+      "corners": 0,
+      "cornerPosts": 0,
+      "linePosts": 0,
+      "posts": 0,
+      "wire": 0,
+      "postCost": 0,
+      "wireCost": 0,
+      "cost": 0,
+      "bySide": []
+    }
+  }
+]

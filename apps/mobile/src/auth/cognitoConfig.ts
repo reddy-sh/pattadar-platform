@@ -17,7 +17,7 @@ export interface StoredTokens {
   accessToken?: string;
   idToken?: string;
   refreshToken?: string;
-  /** ms since epoch, as expo-auth-session reports it. */
+  /** Milliseconds since epoch; sign-in converts Expo seconds to milliseconds. */
   issuedAt?: number;
   /** seconds */
   expiresIn?: number;

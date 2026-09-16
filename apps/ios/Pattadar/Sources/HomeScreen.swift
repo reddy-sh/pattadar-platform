@@ -432,11 +432,14 @@ struct HomeScreen: View {
     }
 
     private func load() async {
+        let widgetSession = app.widgetSession
+        let sessionID = app.sessionID
         async let dash = app.fetch(Queries.dashboard, as: DashboardResponse.self)
         async let held = app.load(Queries.holdings, as: HoldingsResponse.self)
         async let docs = app.load(Queries.documents, as: DocumentsResponse.self)
         async let spend = app.load(Queries.landExpenses, as: LandExpensesResponse.self)
         let dashboard = await dash
+        guard sessionID == app.sessionID else { return }
         data = dashboard.value
         ownFailure = dashboard.failure
         holdings = await held
@@ -452,7 +455,7 @@ struct HomeScreen: View {
             SharedSnapshot.write(.build(stats: d.dashboardStats, holdings: h,
                                         documents: documents,
                                         favourites: app.favourites,
-                                        waiting: app.pendingReviews.count))
+                                        waiting: app.pendingReviews.count), session: widgetSession)
         }
     }
 }

@@ -47,10 +47,11 @@ apps/ios/**/xcuserdata/
 .DS_Store
 *.log
 
-# Playwright (tests/e2e-ux)
-test-results/
-playwright-report/
-tests/e2e-ux/results.json
+# Playwright generated outputs (including port-suffixed parallel runs)
+**/test-results*/
+**/playwright-report*/
+tests/e2e-app/results.json
+tests/e2e-web360/results-*.json
 
 # Playwright MCP plugin scratch — screenshots, page snapshots, stray downloads
 .playwright-mcp/
@@ -61,6 +62,16 @@ tests/e2e-ux/results.json
 # sdd scratch
 .superpowers/
 
+# Local multi-agent review transcripts and council deliberations.
+# They may contain provisional findings; commit only a separately reviewed,
+# redacted decision record when one becomes authoritative.
+.skill-reviews/
+
+# Raw skill-evaluation runs may include prompts, outputs, timing and feedback.
+# Keep only separately reviewed/redacted aggregate evidence in version control.
+.kiro/skill-eval-workspace/
+
 # Parity sweep state — lock, queue, ledger, logs, the OFF switch. Local only:
 # a sweep that ran on this machine is not a fact about the repo.
 .parity/
+tests/e2e-app/results.json

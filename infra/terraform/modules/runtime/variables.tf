@@ -188,11 +188,9 @@ variable "waf_block_mode" {
 variable "cloudfront_origin_read_timeout" {
   description = <<-EOT
     CloudFront origin response timeout (seconds) for the /api/* behavior.
-    INVARIANT TENSION: AI extraction runs up to 180s, but the CloudFront
-    default service quota caps this at 60. Request a quota increase for
-    "Response timeout per origin" and raise this to 180. Until then, the SPA
-    must call long-running extraction endpoints on https://<api_domain>
-    directly (ALB idle_timeout is 200) — TODO(Phase 2).
+    Document readings use durable asynchronous jobs and short status polls.
+    Keep this budget for ordinary API responses; do not route new synchronous
+    long-running extraction calls through this behavior.
   EOT
   type        = number
   default     = 60
@@ -227,5 +225,43 @@ variable "web_origin" {
   validation {
     condition     = contains(["spa", "ecs"], var.web_origin)
     error_message = "web_origin must be \"spa\" or \"ecs\"."
+  }
+}
+
+variable "identity_legacy_bindings" {
+  description = "Reviewed immutable-principal to legacy owner mapping; null blocks gateway startup until migration preflight is complete."
+  type        = map(string)
+  default     = null
+}
+
+variable "admin_subject_ids" {
+  description = "Immutable subject_ principal IDs allowed to administer models."
+  type        = list(string)
+  default     = []
+}
+
+variable "payments_mode" {
+  description = "Razorpay off/test/live mode. Off preserves the explicit simulated wallet."
+  type        = string
+  default     = "off"
+  validation {
+    condition     = contains(["off", "test", "live"], var.payments_mode)
+    error_message = "payments_mode must be off, test or live."
+  }
+}
+
+variable "razorpay_live_confirmed" {
+  description = "Enable only after provider onboarding and test-mode acceptance."
+  type        = bool
+  default     = false
+}
+
+variable "payment_secret_arns" {
+  description = "Existing Secrets Manager ARNs encrypted with the persistent CMK for Razorpay config. Values are secret ARNs, never credentials."
+  type        = map(string)
+  default     = {}
+  validation {
+    condition     = alltrue([for key in keys(var.payment_secret_arns) : contains(["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET", "RAZORPAY_LINKED_ACCOUNTS_JSON"], key)])
+    error_message = "Only the four documented Razorpay secret names are supported."
   }
 }

@@ -16,13 +16,8 @@ import UIKit
 /// browser, and the callback is a custom scheme that never leaves the device.
 /// Tokens live in the Keychain — not UserDefaults, which is a plist on disk.
 ///
-/// Identity: the gateway derives every owner key as the EMAIL'S LOCAL PART,
-/// LOWERCASED (services/gateway/app/auth.py, `_normalize_user_id` — marked
-/// byte-identical, do not improve). `userID(fromEmail:)` mirrors that rule, so
-/// the id this app adopts after sign-in is exactly the id the gateway would
-/// derive from the same token — signing in lands on the same records the dev
-/// header pointed at, and switching the base URL to the gateway changes
-/// nothing about who you are.
+/// The gateway authorizes tokens. Local caches use issuer + immutable subject,
+/// independent of the server's approved legacy ownership mapping.
 @MainActor
 final class CognitoAuth: NSObject {
     static let shared = CognitoAuth()
@@ -77,12 +72,13 @@ final class CognitoAuth: NSObject {
         tokens = Keychain.load()
     }
 
-    /// The gateway's identity rule, mirrored: local part of the email,
-    /// lowercased. `sankara.telukutla@gmail.com` → `sankara.telukutla`.
-    static func userID(fromEmail email: String) -> String {
-        var s = email.trimmingCharacters(in: .whitespaces)
-        if let at = s.firstIndex(of: "@") { s = String(s[s.startIndex..<at]) }
-        return s.trimmingCharacters(in: .whitespaces).lowercased()
+    var accountID: String? {
+        guard let token = tokens?.idToken else { return nil }
+        let claims = Self.claims(of: token)
+        guard let issuer = claims["iss"] as? String, !issuer.isEmpty,
+              let subject = claims["sub"] as? String, !subject.isEmpty else { return nil }
+        return "principal:" + SHA256.hash(data: Data("\(issuer)|\(subject)".utf8))
+            .map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Sign in
@@ -219,10 +215,12 @@ final class CognitoAuth: NSObject {
                 "client_id": Self.clientID,
                 "refresh_token": refresh,
             ], keepingRefreshFrom: current)
+            guard tokens?.refreshToken == current.refreshToken, tokens?.idToken == current.idToken else { return nil }
             tokens = fresh
             Keychain.save(fresh)
             return fresh.accessToken
         } catch let AuthError.failed(reason) where refreshFailureMeansSignedOut(reason) {
+            guard tokens?.refreshToken == current.refreshToken, tokens?.idToken == current.idToken else { return nil }
             // Cognito's OWN verdict — invalid_grant: the refresh token is
             // revoked or aged out. That, and only that, is a sign-out.
             signOutLocally()
@@ -241,15 +239,28 @@ final class CognitoAuth: NSObject {
 
     /// Revokes the refresh token (best-effort — signing out on a train must
     /// still work) and forgets everything local.
-    func signOut() async {
-        if let refresh = tokens?.refreshToken {
-            var r = URLRequest(url: URL(string: "https://\(Self.domain)/oauth2/revoke")!)
-            r.httpMethod = "POST"
-            r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            r.httpBody = Self.form(["token": refresh, "client_id": Self.clientID])
-            _ = try? await URLSession.shared.data(for: r)
-        }
+    /// Forget synchronously so no request can reuse this account while a
+    /// best-effort network revocation is still in flight.
+    func signOutImmediately() {
+        let refresh = tokens?.refreshToken
         signOutLocally()
+        Task { await Self.revoke(refresh) }
+    }
+
+    func signOut() async {
+        let refresh = tokens?.refreshToken
+        signOutLocally()
+        await Self.revoke(refresh)
+    }
+
+    private static func revoke(_ refresh: String?) async {
+        guard let refresh else { return }
+        var r = URLRequest(url: URL(string: "https://\(domain)/oauth2/revoke")!)
+        r.timeoutInterval = 10
+        r.httpMethod = "POST"
+        r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        r.httpBody = form(["token": refresh, "client_id": clientID])
+        _ = try? await URLSession.shared.data(for: r)
     }
 
     private func signOutLocally() {

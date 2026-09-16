@@ -20,15 +20,89 @@ export function setAccessTokenProvider(provider: GetAccessToken): void {
   getAccessToken = provider;
 }
 
+export interface ApiRequestInit extends RequestInit {
+  /** A per-operation deadline; caller cancellation is always honored. */
+  timeoutMs?: number;
+}
+
+const ASYNC_READS = new Set([
+  '/api/gateway/pattadar/import-registered-document',
+  '/api/gateway/pattadar/import-passbook',
+  '/api/gateway/pattadar/extract-property',
+  '/api/gateway/pattadar/extract-aadhaar',
+]);
+
+export function requestTimeoutMs(path: string, init: ApiRequestInit): number {
+  if (init.timeoutMs !== undefined) return init.timeoutMs;
+  if (init.body instanceof FormData || /\/content(?:\?|$)|\/chat\/stream(?:\?|$)/.test(path)) return 600_000;
+  return 20_000;
+}
+
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const abort = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, ms);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+/** Keep existing import callers compatible while the expensive reading happens
+ * in a durable server job. Each HTTP response is short enough for CloudFront. */
+async function readAsync(path: string, init: ApiRequestInit): Promise<Response> {
+  const deadline = AbortSignal.timeout(init.timeoutMs ?? 900_000);
+  const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+  const started = await apiFetch(`${path}-async`, { ...init, signal });
+  if (!started.ok) return started;
+  const receipt = await started.json() as { job?: string };
+  if (!receipt.job) throw new Error('The document reader did not return a reading receipt.');
+  const statusPath = `/api/gateway/pattadar/import-status/${encodeURIComponent(receipt.job)}`;
+  while (true) {
+    signal.throwIfAborted();
+    const response = await apiFetch(statusPath, { signal });
+    if (!response.ok) return response;
+    const body = await response.json() as { state?: string; error?: string };
+    if (body.state === 'done') return Response.json(body);
+    if (body.state === 'failed') return Response.json(body, { status: 422 });
+    if (body.state !== 'running' && body.state !== 'queued') throw new Error('The reading returned an unexpected status.');
+    await pause(1_500, signal);
+  }
+}
+
 /** fetch wrapper that attaches the Bearer token when one is available. */
-export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function apiFetch(path: string, init: ApiRequestInit = {}): Promise<Response> {
+  if (ASYNC_READS.has(path) && (init.method || 'GET').toUpperCase() === 'POST') return readAsync(path, init);
+  const { timeoutMs: _timeoutMs, ...requestInit } = init;
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  return fetch(path, { ...init, headers });
+  const deadline = AbortSignal.timeout(requestTimeoutMs(path, init));
+  const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
+  try {
+    return await fetch(path, { ...requestInit, headers, signal });
+  } catch (e) {
+    // TimeoutError is what `AbortSignal.timeout` throws, and "signal is aborted
+    // without reason" is not a sentence to put in front of an owner.
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      throw new Error('The server did not answer in time.');
+    }
+    throw e;
+  }
 }
 
 const GRAPHQL_PATH = '/api/gateway/pattadar/graphql';
+
+/** Keep actionable server errors (for example consent or size limits) in the
+ * calling screen, with a fallback for proxy HTML and empty responses. */
+export async function apiErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = await response.clone().json();
+    for (const value of [body?.detail?.message, body?.detail, body?.error, body?.message]) {
+      if (typeof value === 'string' && value.trim()) return value;
+    }
+  } catch { /* A proxy may return an HTML error page. */ }
+  return fallback;
+}
 
 interface GraphQLResponse<T> {
   data?: T;

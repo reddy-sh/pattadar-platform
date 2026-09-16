@@ -291,6 +291,56 @@ def build_geometry(
     return geometry
 
 
+def to_geojson_ring(geometry: dict) -> list:
+    """The ring as GeoJSON wants it: [[lon, lat], …], closed, in ring order.
+
+    Three traps live in this six-line function, which is why it is a function.
+    `geometry["ring"]` holds point IDS, not coordinates, and after
+    canonicalisation Field No. 01 starts at 3 — zipping it positionally against
+    `points` gives a scrambled polygon that still renders convincingly. GeoJSON
+    is [lon, lat] while everything else here is lat-first. And a GeoJSON ring
+    must repeat its first corner last, which build_geometry does not do because
+    a table-derived ring closes by construction.
+
+    Returns [] unless EVERY corner is placed. attach_geometry defaults an
+    unreadable lat/long to 0.0 a row at a time, and datum_stated is true as
+    soon as one row has both — so a sheet with nine good corners and one the
+    scanner could not read builds a geometry that is nine-tenths right. Nine
+    tenths right is the dangerous kind: the parcel draws, looks plausible, and
+    has one vertex in the Gulf of Guinea. All or nothing.
+
+    The ring comes out CLOCKWISE, because _derive_ring canonicalises it that
+    way. RFC 7946 asks for counter-clockwise exterior rings; Leaflet, Mapbox
+    and every viewer we ship do not care, and the files already exported to
+    surveyors are clockwise. Winding is not corrected here — a file in
+    somebody's hands must keep matching the record it came from. Reverse at
+    the point of handing this to something that validates, such as PostGIS.
+    """
+    by_id = {p["id"]: p for p in geometry.get("points", [])}
+    ring = geometry.get("ring") or []
+    pts = [by_id[i] for i in ring if i in by_id]
+    if len(pts) < 3:
+        return []
+    # A corner with no coordinate serialises as 0.0/0.0. One is enough to
+    # reject the ring. Kept the same shape as FmbMapViewer's `located` check
+    # so the two halves of this rule can never drift apart.
+    if any(not p.get("lat") and not p.get("lon") for p in pts):
+        return []
+    return [[p["lon"], p["lat"]] for p in pts] + [[pts[0]["lon"], pts[0]["lat"]]]
+
+
+def to_boundary_text(geometry: dict) -> str:
+    """The same ring in `parcels.boundary`'s convention: "lat,lng;lat,lng;…".
+
+    Open, not closed — the column stores corners, and the closing repeat is a
+    GeoJSON requirement, not a survey fact.
+    """
+    ring = to_geojson_ring(geometry)
+    if not ring:
+        return ""
+    return ";".join(f"{lat},{lon}" for lon, lat in ring[:-1])
+
+
 def _num(value) -> float | None:
     try:
         return float(value)

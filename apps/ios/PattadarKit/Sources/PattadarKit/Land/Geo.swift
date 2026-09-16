@@ -97,7 +97,8 @@ private extension Int {
 /// `rings` vectors. Averaging the corners instead would drag the pin towards
 /// whichever edge the surveyor happened to mark most often; on an L-shaped
 /// field the plain average can land outside the land altogether. The ring may
-/// be open or closed.
+/// be open or closed. File imports select their parcel by spherical area
+/// before computing this centroid; vertex count does not identify the parcel.
 public func ringCentroid(_ ring: [LatLng]) -> LatLng? {
     let pts = ring.filter { $0.latitude.isFinite && $0.longitude.isFinite }
     if pts.isEmpty { return nil }

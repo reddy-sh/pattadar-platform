@@ -33,6 +33,7 @@ final class SyncEngine {
 
     private let monitor = NWPathMonitor()
     private var draining = false
+    private var generation = UUID()
     private var retryTask: Task<Void, Never>?
 
     private init() {
@@ -63,7 +64,10 @@ final class SyncEngine {
 
     func refreshPending() async {
         guard let user = userProvider?() else { return }
-        pendingFilings = await WriteQueue.shared.pending(for: user)
+        let epoch = generation
+        let pending = await WriteQueue.shared.pending(for: user)
+        guard epoch == generation, userProvider?() == user else { return }
+        pendingFilings = pending
     }
 
     /// An entry the person gave up on — scoped to who is signed in, so a
@@ -79,6 +83,7 @@ final class SyncEngine {
     /// Identity changed: the mirror must not keep showing the previous
     /// user's queue while the next snapshot loads.
     func identityChanged() {
+        generation = UUID()
         pendingFilings = []
         retryTask?.cancel()
         Task { await refreshPending() }
@@ -86,15 +91,17 @@ final class SyncEngine {
 
     private func drain(_ reason: Reason) async {
         guard !draining else { return }
+        let epoch = generation
         draining = true
         defer { draining = false }
 
         await refreshPending()
         guard pendingFilings.contains(where: { !$0.needsReview }) else { return }
-        guard let (api, root) = await apiProvider?() else { return }
+        guard let (api, root) = await apiProvider?(), epoch == generation else { return }
 
         let completed = await WriteQueue.shared.drain(api: api, gatewayRoot: root)
         for filing in completed {
+            guard epoch == generation else { return }
             await postProcess?(filing)
             // Per filing, not per drain: the pending row disappears the
             // moment its entry completes, and the refetch this tick drives

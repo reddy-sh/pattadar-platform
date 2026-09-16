@@ -5,7 +5,7 @@
  * best-effort: in local dev the storage service may be absent and every
  * helper degrades gracefully.
  */
-import { apiFetch, gql } from '../../api/client';
+import { apiErrorMessage, apiFetch, gql } from '../../api/client';
 
 /** Legacy document rows sometimes hold a raw FILENAME in fileRef instead of a
  * storage node UUID (pre-migration data). Guard every storage call — a
@@ -18,7 +18,14 @@ export const isStorageRef = (ref: string | undefined | null): ref is string =>
  * is unreachable (local dev has no cloud storage) — never N error toasts.
  */
 export const STORAGE_OFFLINE_MSG =
-  'File storage runs on the cloud gateway — uploads work on pattadar.com; local preview shows metadata only';
+  'The file could not be uploaded. Check your connection and try again; your existing files are unchanged.';
+
+export class StorageUploadError extends Error {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+    this.name = 'StorageUploadError';
+  }
+}
 
 /** What the storage gateway knows about a stored file, once it is stored. */
 export interface StoredNode {
@@ -38,9 +45,9 @@ export interface StoredNode {
  * as "deed (2).pdf" instead of over it. An explicit "Upload new version"
  * action is what asks for the versioning behaviour.
  *
- * Returns the stored node, or null when storage is unreachable.
+ * Returns the stored node. Upload failures retain their actual reason.
  */
-export async function uploadToDrive(file: File): Promise<StoredNode | null> {
+export async function uploadToDrive(file: File): Promise<StoredNode> {
   try {
     const fd = new FormData();
     fd.append('file', file);
@@ -48,17 +55,27 @@ export async function uploadToDrive(file: File): Promise<StoredNode | null> {
       method: 'POST',
       body: fd,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const messages: Record<number, string> = {
+        401: 'Your session expired. Sign in again to upload this file.',
+        403: 'You do not have permission to upload this file.',
+        413: 'This file exceeds the upload size limit.',
+        429: 'Too many uploads are running. Wait a moment and try again.',
+      };
+      throw new StorageUploadError(await apiErrorMessage(res, messages[res.status] || `The upload service could not save this file (HTTP ${res.status}). Try again.`), res.status);
+    }
     const node = (await res.json()) as Partial<StoredNode>;
-    if (!node?.id) return null;
+    if (!node?.id) throw new StorageUploadError('The upload service did not confirm that the file was saved.');
     return {
       id: node.id,
       name: node.name || file.name || 'Document',
       sizeBytes: Number(node.sizeBytes ?? file.size ?? 0),
       mimeType: node.mimeType || file.type || '',
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof StorageUploadError) throw error;
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new StorageUploadError(error instanceof Error ? error.message : STORAGE_OFFLINE_MSG);
   }
 }
 
@@ -182,7 +199,8 @@ export async function uploadCoverPhoto(
   file: File,
   target: { parcelId?: string; propertyId?: string },
 ): Promise<'ok' | 'storage' | 'error'> {
-  const node = await uploadToDrive(file);
+  let node: StoredNode;
+  try { node = await uploadToDrive(file); } catch { return 'storage'; }
   if (!node) return 'storage';
   const id = await createDocumentRow(target, {
     docType: 'photo',

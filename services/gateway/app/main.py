@@ -25,6 +25,8 @@ from .cognito_jwt import CognitoJWTConfig, JWKSCache
 from .proxy import router as proxy_router
 from .routes_admin_models import router as admin_models_router
 from .routes_storage import router as storage_router
+from .routes_account import router as account_router, check_account_access
+from .routes_capabilities import router as capabilities_router
 
 logging.basicConfig(level=logging.INFO)
 _log = logging.getLogger("pattadar.gateway")
@@ -68,6 +70,7 @@ async def lifespan(app: FastAPI):
         )
         auth.pool_jwt_config = None
         auth.pool_jwks_cache = None
+    auth.validate_identity_configuration()
     auth.proxy_client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
     if not auth.jwt_config.is_configured:
         _log.error(
@@ -77,14 +80,17 @@ async def lifespan(app: FastAPI):
     # Schema bootstrap (IF NOT EXISTS under advisory lock) — fail fast if the
     # hub DB is unreachable; the gateway is useless without it.
     await asyncio.to_thread(db.ensure_schema)
+    auth.account_access_check = check_account_access
     _log.info("gateway.started issuer=%s", auth.jwt_config.issuer or "<unset>")
     yield
     await auth.proxy_client.aclose()
     auth.proxy_client = None
+    auth.account_access_check = None
     db.close()
 
 
 app = FastAPI(title="pattadar-gateway", lifespan=lifespan)
+app.include_router(capabilities_router)
 
 
 class StripIdentityHeadersMiddleware:
@@ -116,6 +122,7 @@ async def health():
 
 
 app.include_router(storage_router)
+app.include_router(account_router)
 app.include_router(admin_models_router)
 # Mounted always, answers 404 unless the local trust root is active — an
 # in-handler guard on runtime state, so tests and prod need no special wiring.

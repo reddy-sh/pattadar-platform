@@ -124,7 +124,7 @@ def test_pool_token_accepted_alongside_local_trust(wired, pool_keypair, pool_con
     private_pem, _ = pool_keypair
     claims = validate(make_pool_token(private_pem, pool_config))
     assert claims["email"] == "sankara.telukutla@gmail.com"
-    assert auth.user_id_from_claims(claims) == "sankara.telukutla"
+    assert auth.user_id_from_claims(claims) == auth.principal_id_from_claims(claims)
 
 
 def test_local_token_still_first_class(wired, local_trust):

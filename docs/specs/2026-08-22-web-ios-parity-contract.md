@@ -17,7 +17,8 @@ their deed was without first asking which device they were holding.
 
 This file is the standing answer: what crosses from web to iOS, what must never
 cross, and who decides the rest. It is read by `scripts/parity-check.ts`, by the
-`/sync-ios` skill, and by the `ios-parity` agent the `post-commit` hook runs.
+canonical `.kiro/skills/sync-ios` workflow, and by the detached post-commit
+runner.
 
 ## The twin map
 
@@ -43,6 +44,22 @@ the contract; the machine-readable copy is `scripts/parity-map.json`.
 
 A module with no twin is not a defect — it may be genuinely web-only. It is a
 defect when a twin **exists** and only one side moved.
+
+### Recorded exceptions inside a twinned module
+
+A twinned module may still hold members that are deliberately one-sided. Record
+them here, so the next sweep does not re-open a closed question.
+
+- **`land/landcalc.ts` → `cornerLabel`, `ringSides`, `compassPoint`** — web-only
+  presentation helpers for the boundary-tracing UI (`RecordBoundary`,
+  `FenceStudio`). iOS takes side lengths and bearings server-derived through
+  `FMBGeometry.swift`, so no Swift twin is owed. *Decided 13/09/2026.*
+
+  Checked rather than assumed: core's `ringSides().metres` is haversine
+  (`ringPerimM`, R=6371000) while Swift's `boundarySideMetres` projects
+  equirectangularly. At parcel scale the two agree to **~1.6 ppm** — 0.1 mm on a
+  64 m side, orders of magnitude below what either head prints. Revisit only if
+  a native screen begins computing side lengths for a user-traced ring.
 
 ## Three bands of change
 
@@ -168,4 +185,5 @@ git worktree remove … && git branch -D parity/ios-<short>   # drop it
 ```
 
 Files the agent may write: `apps/ios/**`, `packages/core/vectors/**` (only as
-regenerated output), `docs/parity/**`. Nothing else.
+regenerated output), `scripts/emit-vectors.ts` (only when a shared rule needs a
+new vector source case), and `docs/parity/**`. Nothing else.

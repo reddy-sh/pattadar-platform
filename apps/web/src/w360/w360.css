@@ -1,13 +1,12 @@
-/* Hallmark · Bloom, applied to the record-360 app surface (screens W01–W15).
+/* Pattadar Bloom, applying Material 3 accessibility and interaction principles to the record-360 app surface (screens W01–W15).
  *
- * Every colour here resolves through a token in styles/tokens.css — design.md's
- * app-surface rule: "No colour literals in app code." Surfaces separate with a
- * 1px rule, never a shadow; the only elevation is on things that genuinely
- * float (the hover card, the drawer).
+ * Colour is owned by the scheme slots below; component rules consume those
+ * slots rather than choosing their own palette. Most surfaces separate with a
+ * 1px rule. Shadows are reserved for genuinely floating UI such as menus,
+ * hover cards, and drawers.
  *
- * Scope: `.w360`. The screens are drawn dark, but light is a first-class
- * scheme — `.w360[data-scheme='light']` restates the same slots with the
- * warm-tinted light values design.md derives, so the header toggle works.
+ * Scope: `.w360`. Dark is the default, with complete Light and High Contrast
+ * palettes selected from the header theme menu.
  */
 
 /* Border-box throughout: several elements here are given an explicit width
@@ -34,6 +33,7 @@
   --w-info: oklch(76% 0.070 230);
   --w-rail: 15rem;
 
+  color-scheme: dark;
   background: var(--w-bg);
   color: var(--w-ink);
   font-family: var(--font-body);
@@ -57,6 +57,30 @@
   --w-ok: #27762f;
   --w-warn: #905d00;
   --w-info: #3d6a7f;
+
+  color-scheme: light;
+}
+
+.w360[data-scheme='highContrast'] {
+  --w-bg: #fff;
+  --w-surface: #fff;
+  --w-surface-2: #f2f2f2;
+  --w-line: #000;
+  --w-line-strong: #000;
+  --w-ink: #000;
+  --w-ink-2: #171717;
+  --w-ink-3: #292929;
+  --w-accent: #003b73;
+  --w-accent-ink: #fff;
+  --w-accent-wash: #d9ecff;
+  --w-danger: #780000;
+  --w-danger-wash: #ffe0e0;
+  --w-ok: #005a20;
+  --w-warn: #6b3d00;
+  --w-info: #004f6e;
+  --color-focus: #005fcc;
+
+  color-scheme: light;
 }
 
 /* ── Type roles ─────────────────────────────────────────────────────── */
@@ -213,26 +237,10 @@
   z-index: 39;
 }
 
-.w360 .lang {
-  display: flex;
-  border: 1px solid var(--w-line);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-}
-.w360 .lang button {
-  border: 0;
-  background: none;
-  color: var(--w-ink-3);
-  font: inherit;
-  font-size: 0.75rem;
-  padding: 0.3125rem 0.75rem;
-  cursor: pointer;
-}
-.w360 .lang button[aria-pressed='true'] {
-  background: var(--w-accent-wash);
-  color: var(--w-accent);
-  font-weight: 600;
-}
+/* The `.lang` pill was removed with the EN / తెలుగు toggle it dressed — the
+   toggle had no onClick and no translation layer behind it. When i18n lands the
+   preference belongs on Profile, not in the topbar, so these rules would not
+   have been reused. */
 
 .w360 .iconbtn {
   display: grid;
@@ -258,6 +266,22 @@
   font-size: 0.8125rem;
   font-weight: 600;
 }
+/* The avatar is the account menu's trigger, so it is a <button> now and needs
+   the chrome reset every other button in this file gets — a UA button brings
+   its own font family, its own padding and its own text colour, and the
+   initials shrank and greyed the moment the span became one.
+
+   The hover is not decoration: an account control that does not answer the
+   pointer is exactly how the previous one read as a picture of an account
+   control. Border-only, matching .chip:hover — the fill is already the
+   avatar's own. */
+.w360 button.avatar {
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--w-ink);
+}
+.w360 button.avatar:hover { border-color: var(--w-line-strong); }
 
 .w360 .body { display: grid; grid-template-columns: var(--w-rail) minmax(0, 1fr); }
 
@@ -271,6 +295,16 @@
   .w360[data-rail='hidden'] .nav { padding: var(--space-md) 0.5rem; }
   .w360[data-rail='hidden'] .nav a { justify-content: center; gap: 0; padding: 0.5625rem; }
   .w360[data-rail='hidden'] .nav .lbl { display: none; }
+  /* A four-rem rail has no room for "MONEY & HELP", and a truncated eyebrow is
+     worse than none. The groups keep their shape as a rule between them
+     instead, and each group's accessible name is on the group itself rather
+     than in this text, so hiding it costs a screen reader nothing. */
+  .w360[data-rail='hidden'] .nav .navsec-t { display: none; }
+  .w360[data-rail='hidden'] .nav .navsec + .navsec {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--w-line);
+  }
   .w360[data-rail='hidden'] .nav .count {
     position: absolute;
     top: 0.125rem;
@@ -298,6 +332,31 @@
   top: 3.5rem;
   height: calc(100vh - 3.5rem);
   overflow-y: auto;
+}
+
+/* The rail is four named groups now, not one column of fifteen. The gap
+   between groups is what does the work — it is wider than the 0.125rem between
+   two entries of the same group, so the grouping reads before the labels are
+   read. */
+.w360 .navsec { display: flex; flex-direction: column; gap: 0.125rem; }
+.w360 .navsec + .navsec { margin-top: var(--space-md); }
+
+/* Same eyebrow the account menu's own headings use (`.menu-list .menuhead`):
+   mono, small, wide-tracked, quiet ink. A rail heading that competes with the
+   entries under it turns four labels into nineteen. The 0.75rem of padding is
+   the entries' own horizontal padding, so the heading starts on the same
+   vertical line their icons do. */
+.w360 .navsec-t {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+  margin: 0 0 0.25rem;
+  padding: 0 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .w360 .nav a {
@@ -363,7 +422,14 @@
 /* On a wide page the actions hold their size; on a phone three buttons are
    wider than the screen, so below the breakpoint they wrap onto their own row
    instead of pushing the document sideways. */
-.w360 .pagehead .actions { display: flex; gap: var(--space-xs); flex-shrink: 0; flex-wrap: wrap; }
+.w360 .pagehead .actions {
+  display: flex; gap: var(--space-xs); flex-shrink: 0; flex-wrap: wrap;
+  /* flex-shrink:0 with flex-wrap does nothing on its own — the block simply
+     takes its content width and runs off the page. W04 grew to seven actions
+     and "Order a survey" was clipped by the rail. Capping the block at the
+     container is what actually lets it wrap onto a second row. */
+  max-width: 100%;
+}
 
 @media (max-width: 700px) {
   .w360 .pagehead .actions { flex: 1 1 100%; flex-shrink: 1; }
@@ -479,6 +545,10 @@
 .w360 .pill.flat,
 .w360 .pill.open_plot { background: color-mix(in oklab, var(--w-info) 20%, transparent); color: var(--w-info); }
 .w360 .pill.shop { background: var(--w-danger-wash); color: var(--w-danger); }
+/* Watch is the third stake, and it had no rule — a watched record drew the
+   default grey capsule, which reads as "no state" rather than "keeping an eye
+   on this one". */
+.w360 .pill.watch { background: color-mix(in oklab, var(--w-warn) 18%, transparent); color: var(--w-warn); }
 /* Archived is a shelf, not a state of alarm — it reads in quiet ink. */
 .w360 .pill.archived { background: var(--w-surface-2); color: var(--w-ink-3); }
 
@@ -488,6 +558,11 @@
 .w360 .state.good { color: var(--w-ok); }
 .w360 .state.warn { color: var(--w-warn); }
 .w360 .state.bad { color: var(--w-danger); }
+/* Filed, but nobody has looked at it yet. Deliberately colourless: green
+   would be the app vouching for a thing it has never seen, and amber would
+   raise an alarm nobody has grounds for. */
+.w360 .state.unknown { color: var(--w-ink-3); }
+.w360 .state.unknown::before { background: none; box-shadow: inset 0 0 0 1px currentColor; }
 
 /* ── Cards + rules ──────────────────────────────────────────────────── */
 
@@ -500,6 +575,18 @@
 .w360 .card.pad-lg { padding: var(--space-lg); }
 .w360 .card.flat { background: none; }
 .w360 .card.dashed { border-style: dashed; background: none; }
+/* A card that IS the control — the "Add a feature" tile at the end of the
+   features grid. It was an <article> holding a live chip row and a form; now it
+   is one button that opens the drawer, so it needs a button's reset and the
+   dashed tile's hover, which is `.droptile`'s language further down this file. */
+.w360 button.card.addcard {
+  display: grid; gap: 0.375rem; align-content: start;
+  text-align: left; font: inherit; color: inherit; cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out);
+}
+.w360 button.card.addcard:hover { border-color: var(--w-accent); background: var(--w-accent-wash); }
+.w360 button.card.addcard:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .w360 .card.alert { border-color: color-mix(in oklab, var(--w-danger) 35%, transparent); background: var(--w-danger-wash); }
 .w360 .card.accent { border-color: color-mix(in oklab, var(--w-accent) 35%, transparent); }
 
@@ -563,7 +650,13 @@
   margin-bottom: var(--space-md);
   overflow-x: auto;
 }
-.w360 .tabs a, .w360 .tabs button {
+/* `.sk-tab` is the loading stand-in (skeletons.tsx): while a record's query
+   is in flight the six hangers are printed for real — they are a constant,
+   not server data — as inert spans. They join this rule rather than restate
+   its metrics next door, so the placeholder is the same 36px tall as the link
+   that replaces it. Not a bare `span` selector: that would also catch the
+   count badge inside each real tab. */
+.w360 .tabs a, .w360 .tabs button, .w360 .tabs .sk-tab {
   border: 0;
   background: none;
   font: inherit;
@@ -583,14 +676,151 @@
   font-weight: 600;
 }
 .w360 .tabs .n { font-family: var(--font-mono); font-size: 0.8125rem; margin-left: 0.3125rem; opacity: 0.85; }
+/* An empty hanger says 0 rather than hiding the number — see RecordTabs. It is
+   dimmed so the strip still reads as "what this record has" at a glance
+   instead of a row of equally-weighted digits. */
+.w360 .tabs .n.zero { color: var(--w-ink-3); opacity: 0.6; }
 
-/* Segmented control — FMB sketch | Satellite | Both */
+/* ── The record fill meter (RecordHead.tsx, recordFill.ts) ───────────────
+   "5 of 9 parts of this record are filled in", the three most pressing gaps,
+   one button for the next of them, and a segment per part.
+
+   No box. This was a bordered, 16px-padded card spending 88px of a 950px
+   window on one line of text and a 4px bar — and it sits directly above the
+   Location hanger's map, which was already hanging past the fold. The segment
+   bar is the only container the sentence needs: it is a rule under it, 16px
+   above the hanger strip's own rule, and it says the same thing the border
+   said about where the meter ends. */
+.w360 .fill {
+  margin-bottom: var(--space-md);
+  display: grid;
+  gap: 0.375rem;
+}
+.w360 .fill .top {
+  display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap;
+}
+.w360 .fill .top .grow { flex: 1 1 18rem; min-width: 0; }
+/* The gap words trail the sentence rather than starting a line of their own —
+   they are an aside to it, and a second line here pushed the bar out of the
+   viewport on a laptop. */
+.w360 .fill .note { margin-left: 0.5rem; }
+/* On a phone the words are a second line of their own, and the strip 16px
+   below already prints a count against every hanger they name — "Media 0" IS
+   "no photos". The count and the one action survive; the aside is what a
+   narrow screen can least afford and least needs. */
+@media (max-width: 700px) {
+  .w360 .fill .note { display: none; }
+}
+/* One column per part, so nine parts and six parts both fill the width. */
+.w360 .fill .segs {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 0.3125rem;
+}
+.w360 .fill .segs span {
+  height: 0.25rem; border-radius: var(--radius-pill); background: var(--w-surface-2);
+}
+.w360 .fill .segs span.on { background: var(--w-accent); }
+
+/* ── A hanger's own heading (SectionHead in RecordHead.tsx) ──────────────
+   The record owns the <h1>; this is the question the hanger answers, its one
+   line of counts, and the actions that belong to it rather than to the record. */
+.w360 .sechead {
+  display: flex; align-items: flex-start; gap: var(--space-md);
+  flex-wrap: wrap; margin-bottom: var(--space-md);
+}
+.w360 .sechead .grow { flex: 1 1 18rem; min-width: 0; }
+.w360 .sechead h2 { font-size: 1.375rem; }
+.w360 .sechead .actions {
+  display: flex; gap: var(--space-xs); flex-shrink: 0; flex-wrap: wrap; max-width: 100%;
+}
+@media (max-width: 700px) {
+  .w360 .sechead .actions { flex: 1 1 100%; flex-shrink: 1; }
+}
+
+/* ── Drop tiles (the Media hanger with nothing filed) ────────────────────
+   Six dashed targets instead of one grey sentence. Dashed is this system's
+   placeholder language (see .frame), and the tile is the target and the
+   invitation at once — a record with no photographs is exactly the one that
+   needs the shortest path from a camera roll to a filed, dated photograph. */
+.w360 .droptiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: var(--space-sm);
+}
+.w360 .droptile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 8.5rem; padding: var(--space-md);
+  border: 1px dashed var(--w-line-strong); border-radius: var(--radius-md);
+  background: none; color: var(--w-ink-3); font: inherit; cursor: pointer; text-align: center;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out);
+}
+.w360 .droptile:hover:not(:disabled) { border-color: var(--w-accent); color: var(--w-ink-2); }
+/* While a file is over it. A drop target that does not react is one a reader
+   lets go of somewhere else. */
+.w360 .droptile.over {
+  border-color: var(--w-accent); border-style: solid; background: var(--w-accent-wash);
+}
+.w360 .droptile:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.w360 .droptile:disabled { cursor: progress; opacity: 0.6; }
+
+/* ── Rail cards ─────────────────────────────────────────────────────────
+   The cards down the right of a hanger are captioned, not titled: they are
+   notes ABOUT the thing on the left, and a run of display-weight headings
+   beside the section's own made the rail compete with it. Same Card, mono
+   eyebrow.
+
+   `railcard`, not `rail`: `.rail` is already the stage indicator further down
+   this file (`display: inline-flex`), and a card wearing that class became a
+   flex row — which is how a phone-width record page grew 58px of sideways
+   scroll out of a caption change. */
+.w360 .card.railcard .cardhead h2 {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+}
+/* A bulleted list of gaps or advice — the rail's most common shape. The dot is
+   drawn rather than a list marker so it can carry a state colour. */
+.w360 .railnotes { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.w360 .railnotes li {
+  display: grid; grid-template-columns: 0.5rem minmax(0, 1fr); gap: 0.5rem;
+  align-items: baseline; font-size: 0.8125rem; line-height: 1.5; color: var(--w-ink-2);
+}
+.w360 .railnotes li::before {
+  content: ''; width: 0.3125rem; height: 0.3125rem; border-radius: 50%;
+  background: var(--w-accent); transform: translateY(-0.15rem);
+}
+.w360 .railnotes.ok li::before { background: var(--w-ok); }
+/* A numbered rail list — "how a pin is placed". The counter rides in the same
+   0.5rem column the dots use so the two shapes line up down the rail. */
+.w360 .railsteps { counter-reset: railstep; }
+.w360 .railsteps li::before {
+  counter-increment: railstep; content: counter(railstep);
+  width: auto; height: auto; border-radius: 0; background: none;
+  font-family: var(--font-mono); font-size: 0.6875rem; color: var(--w-accent);
+  transform: none;
+}
+
+/* Segmented control — still used by other screens' facet strips. */
 .w360 .segmented { display: inline-flex; border: 1px solid var(--w-line); border-radius: var(--radius-pill); padding: 0.1875rem; }
 .w360 .segmented button {
   border: 0; background: none; font: inherit; font-size: 0.8125rem;
   color: var(--w-ink-2); padding: 0.3125rem 0.875rem; border-radius: var(--radius-pill); cursor: pointer;
 }
 .w360 .segmented button[aria-pressed='true'] { background: var(--w-accent-wash); color: var(--w-accent); font-weight: 600; }
+/* A control with nothing to switch between must not look switchable. Dashed
+   is this system's placeholder language (see .frame), and the pressed segment
+   drops its accent so the group reads as inert rather than broken — clicking
+   a live-looking "Satellite" and getting nothing is the worse failure. */
+.w360 .segmented:has(button:disabled) { border-style: dashed; }
+.w360 .segmented button:disabled { cursor: not-allowed; color: var(--w-ink-3); }
+.w360 .segmented button:disabled[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--w-ink-3) 14%, transparent);
+  color: var(--w-ink-2);
+}
 
 /* ── Layout helpers ─────────────────────────────────────────────────── */
 
@@ -648,7 +878,10 @@
    with them the bar was 411px wide on a 390px screen. */
 @media (max-width: 640px) {
   .w360 .topbar { padding: var(--space-sm) var(--space-md); gap: var(--space-xs); }
-  .w360 .lang, .w360 .assistant-btn { display: none; }
+  /* `.assistant-btn` was hidden here too. Now that the button actually opens
+     the assistant, hiding it left phone users — most of this product's users —
+     with no route to it at all. The drawer is full-height and works on a
+     phone, so it stays. */
 }
 
 /* ── Record cards (W02) ─────────────────────────────────────────────── */
@@ -696,7 +929,11 @@
 
 /* The card's checkbox: invisible until the pointer is over the card or a
    selection is under way, so the resting grid stays exactly the mock. */
-.w360 .rec .sel { display: flex; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+/* Visible at rest, not on hover. Hidden until hover meant a touch device had
+   no way to select anything at all, and the bulk bar's Delete — which only
+   appears once something is selected — could never be reached. It stays muted
+   so a grid of nine records is not nine loud checkboxes. */
+.w360 .rec .sel { display: flex; opacity: 0.45; transition: opacity var(--dur-fast) var(--ease-out); }
 .w360 .rec:hover .sel,
 .w360 .rec.selected .sel,
 .w360 .cards.selecting .sel,
@@ -790,6 +1027,11 @@
 /* ── Filter rail (W02) ──────────────────────────────────────────────── */
 
 .w360 .withrail { display: grid; grid-template-columns: 14rem minmax(0, 1fr); }
+/* The rail dropped. A screen with nothing to narrow has no business drawing
+   six facet headings down the left of an empty column — and the sentence that
+   IS worth reading belongs in the middle of the page, not beside a 14rem
+   gutter of nothing. */
+.w360 .withrail.solo { grid-template-columns: minmax(0, 1fr); }
 .w360 .filters {
   border-right: 1px solid var(--w-line);
   padding: var(--space-lg) var(--space-md);
@@ -821,7 +1063,264 @@
   .w360 .filters { position: static; border-right: 0; border-bottom: 1px solid var(--w-line); max-height: none; }
 }
 
+/* ── W02 content area: filter row, popover, selection bar ───────────── */
+
+/* The rail is gone from THIS screen. Its groups now open from one
+   "+ Filter" chip and what is on reads back as removable chips in the row,
+   so the narrowing state is legible in one line instead of down a 14rem
+   gutter — and a group the server sends no options for can no longer draw a
+   heading over nothing, which is what "DERIVED" and "YOUR TAGS" were doing.
+
+   `.filters` / `.withrail` above stay exactly where they are: Shared.tsx is
+   still built on them. Only W02 stopped using them. */
+.w360 .filterbar {
+  position: relative;                 /* anchors the popover */
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--w-line);
+  border-bottom: 1px solid var(--w-line);
+}
+
+/* Dashed, because it adds something rather than doing something. */
+.w360 .filterbar .addfilter {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.3125rem 0.75rem;
+  border-radius: var(--radius-pill);
+  border: 1px dashed var(--w-line-strong);
+  background: none;
+  color: var(--w-ink-2);
+  font: inherit; font-size: 0.78125rem;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.w360 .filterbar .addfilter:hover,
+.w360 .filterbar .addfilter[aria-expanded='true'] {
+  border-color: var(--w-accent); color: var(--w-accent);
+}
+
+/* One active filter, and the control that takes it off. The group name rides
+   in mono above the value so two chips reading "Owned" and "Owned" — one a
+   status, one a stake — are told apart without opening the popover. */
+.w360 .fchip {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.3125rem 0.375rem 0.3125rem 0.6875rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in oklab, var(--w-accent) 30%, transparent);
+  background: var(--w-accent-wash);
+  color: var(--w-accent);
+  font-size: 0.78125rem; font-weight: 500;
+  max-width: 18rem;
+}
+.w360 .fchip .grp {
+  font-family: var(--font-mono); font-size: 0.625rem;
+  letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75;
+  flex: none;
+}
+.w360 .fchip .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w360 .fchip button {
+  border: 0; background: none; color: inherit; font: inherit;
+  font-size: 0.875rem; line-height: 1; cursor: pointer;
+  padding: 0 0.25rem; opacity: 0.8; flex: none;
+}
+.w360 .fchip button:hover { opacity: 1; }
+
+/* Not scoped to `.filterbar`: the selection pill ends with the same control,
+   doing the same thing to a different kind of "what is on". Scoped, the pill's
+   Clear fell back to the browser's own grey button in the middle of a row of
+   ghost pills. */
+.w360 .clearall {
+  border: 0; background: none; color: var(--w-ink-3);
+  font: inherit; font-size: 0.78125rem; cursor: pointer;
+  padding: 0.375rem 0.5rem;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.w360 .clearall:hover { color: var(--w-ink); }
+/* In the row it sits among chips and needs no padding of its own. */
+.w360 .filterbar .clearall { padding: 0; }
+
+.w360 .filterbar .tally {
+  font-family: var(--font-mono); font-size: 0.75rem; color: var(--w-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.w360 .filterbar .vrule { width: 1px; height: 1.125rem; background: var(--w-line); flex: none; }
+
+/* Not `.sortbtn` — that name already belongs to the table's column headings
+   and this is a different control with different metrics. */
+.w360 .sortcycle {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.3125rem 0.75rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--w-line);
+  background: none; color: var(--w-ink-2);
+  font: inherit; font-size: 0.78125rem; cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.w360 .sortcycle:hover { border-color: var(--w-line-strong); color: var(--w-ink); }
+
+/* The popover. Absolute inside `.filterbar`, not fixed: it is anchored to a
+   row that scrolls with the page, and z-index 30 keeps it over the grid and
+   under the record drawer (40) and the confirm scrim (39) — both of which
+   this screen can open while it is up. */
+.w360 .fpop {
+  position: absolute; top: calc(100% + 0.5rem); left: 0; z-index: 30;
+  background: var(--w-bg);
+  border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1.5rem 3rem -1rem rgb(0 0 0 / 0.55);
+  padding: var(--space-md) 1.125rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 1.375rem;
+  width: min(47.5rem, 80vw);
+  max-height: min(26rem, 70vh);
+  overflow-y: auto;
+  animation: w-rise var(--dur-fast) var(--ease-out) both;
+}
+.w360 .fpop .fgrp { display: grid; gap: 0.125rem; align-content: start; min-width: 0; }
+.w360 .fpop .fgrp > .eyebrow { margin: 0 0 0.375rem; }
+.w360 .fpop .opt {
+  display: flex; align-items: center; gap: var(--space-xs);
+  width: 100%; text-align: left;
+  border: 0; background: none; color: var(--w-ink);
+  font: inherit; font-size: 0.8125rem;
+  padding: 0.3125rem var(--space-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.w360 .fpop .opt:hover { background: var(--w-surface-2); }
+.w360 .fpop .opt[aria-pressed='true'] { background: var(--w-accent-wash); color: var(--w-accent); }
+.w360 .fpop .opt .box {
+  width: 0.8125rem; height: 0.8125rem; border-radius: var(--radius-xs);
+  border: 1px solid var(--w-line-strong); flex: none;
+  display: grid; place-items: center;
+  font-size: 0.5625rem; line-height: 1; color: var(--w-accent-ink);
+}
+.w360 .fpop .opt[aria-pressed='true'] .box {
+  background: var(--w-accent); border-color: var(--w-accent);
+}
+.w360 .fpop .opt .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w360 .fpop .opt .n {
+  font-family: var(--font-mono); font-size: 0.71875rem; color: var(--w-ink-3);
+  font-variant-numeric: tabular-nums; flex: none;
+}
+.w360 .fpop .opt[aria-pressed='true'] .n { color: var(--w-accent); }
+
+/* The selection bar. Nothing about it exists until something is selected —
+   no resting strip, and no button that quietly acts on records nobody picked.
+
+   The outer row is the full width and ignores the pointer; only the pill
+   itself takes clicks, so a grid under it stays reachable. This is the
+   toast stack's pattern, for the same reason. */
+.w360 .selbar {
+  position: fixed; left: 0; right: 0; bottom: var(--space-lg); z-index: 30;
+  display: flex; justify-content: center;
+  padding: 0 var(--space-md);
+  pointer-events: none;
+}
+.w360 .selbar .bulkbar {
+  display: flex; align-items: center; gap: 0.875rem; flex-wrap: wrap;
+  padding: 0.625rem 0.75rem 0.625rem 1.125rem;
+  border-radius: var(--radius-pill);
+  background: var(--w-surface-2);
+  border: 1px solid var(--w-line-strong);
+  box-shadow: 0 1.25rem 2.75rem -0.875rem rgb(0 0 0 / 0.6);
+  max-width: 100%;
+  pointer-events: auto;
+  /* Opacity only. A transform keyframe here would overwrite the centring the
+     flex row above is doing and the pill would land off to one side. */
+  animation: w-fade-in var(--dur-fast) var(--ease-out) both;
+}
+.w360 .selbar .count {
+  font-family: var(--font-mono); font-size: 0.8125rem; color: var(--w-ink);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.w360 .selbar .vrule { width: 1px; height: 1.25rem; background: var(--w-line-strong); flex: none; }
+.w360 .selbar .acts { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+
+/* The load-more divider: a hairline, the button, a hairline. */
+.w360 .loadmore {
+  display: flex; align-items: center; gap: var(--space-md);
+  padding-top: 0.375rem;
+}
+.w360 .loadmore .hair { height: 1px; flex: 1; background: var(--w-line); }
+
+/* The rail-less column. `.withrail` still means "a rail beside a main"; this
+   screen no longer has one, so it says so in its own name rather than
+   borrowing a class whose word is now false. */
+.w360 .onecol { display: grid; grid-template-columns: minmax(0, 1fr); }
+
+/* `main` is a flex column with no gap, so the new blocks carry their own. */
+.w360 main > .filterbar { margin-bottom: var(--space-md); }
+.w360 main > .loadmore { margin-top: var(--space-md); }
+
+/* The coordinate and the kebab, together at the top-right of a card's band.
+   `.more` pinned itself to that corner on its own; with a coordinate beside it
+   they need one row to share, and z-index 1 lifts them over the photo scrim
+   exactly as `.badges` and `.more` are lifted. */
+.w360 .rec .art .bandright {
+  position: absolute; top: 0.375rem; right: 0.375rem; z-index: 1;
+  display: flex; align-items: center; gap: 0.25rem;
+}
+.w360 .rec .art .bandright .coord {
+  font-family: var(--font-mono); font-size: 0.65625rem; line-height: 1;
+  letter-spacing: 0.02em; white-space: nowrap; color: var(--w-ink-2);
+}
+/* Over a photograph the coordinate needs its own ground, for the same reason
+   the map's chips do: bare soil at midday is near-white. */
+.w360 .rec .art:has(.mapart, .cardphoto) .bandright .coord {
+  padding: 0.125rem 0.3125rem; border-radius: var(--radius-xs);
+  background: color-mix(in oklab, var(--w-bg) 72%, transparent);
+  color: var(--w-ink);
+}
+
+/* A dashed single panel for both empty answers — see Empty in ui.tsx for the
+   furniture; this only holds the shape the redesign asks for. */
+.w360 .emptypanel {
+  border: 1px dashed var(--w-line-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-2xl) 1.75rem;
+  display: grid; justify-items: center; gap: 0.625rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  /* On a phone the pill is the whole width and its buttons wrap; bottom-left
+     alignment keeps them off the browser's own gesture bar. */
+  .w360 .selbar { bottom: var(--space-xs); padding: 0 var(--space-xs); }
+  .w360 .selbar .bulkbar { border-radius: var(--radius-lg); padding: 0.625rem 0.75rem; }
+  .w360 .fpop { width: calc(100vw - 2rem); }
+}
+
 /* ── Map surfaces (W04, W06) ────────────────────────────────────────── */
+
+/* A live map is an instrument, not a column that grows to match the list
+   beside it. `.split` stretches its children to the tallest, so opening the
+   Measurements card — eleven rows in the rail — took the panel from 821px to
+   1522px, and Leaflet, which keeps its top-left origin through a resize,
+   slid the parcel off centre. Switching basemap looked like the culprit; the
+   height was. The map now sizes itself from the viewport and ignores the rail,
+   which is free to be as long as it likes.
+
+   13rem is NOT the chrome above the map, and deliberately is not. On a
+   1512×950 window the crumbs, the record header, the fill meter, the hanger
+   strip and this hanger's own heading come to 434px, so this draws a 742px map
+   into 492px of remaining screen and the last 246px of it is under the fold on
+   arrival. That was measured and then left alone, because sizing the panel to
+   the fold instead makes it a worse map: everything this map draws ON itself is
+   pixel-sized — the edit bar, the corner hint, the caption, Leaflet's own scale
+   — and at ~490px they own the bottom third. Fitting the fold put the fourth
+   corner of a drawn boundary INTO the edit bar (three registered, not four),
+   and fitting the same village into a shorter panel dropped Leaflet a zoom
+   level, so a scale bar that read in metres started reading in kilometres. The
+   way to get more of this map onto the first screen is to spend fewer of those
+   434px above it, which is why the fill meter no longer wears a box. */
+.w360 .split > .plot.live {
+  align-self: start;
+  height: clamp(24rem, calc(100vh - 13rem), 52rem);
+}
 
 .w360 .plot {
   position: relative;
@@ -833,7 +1332,13 @@
   overflow: hidden;
   min-height: 24rem;
 }
-.w360 .plot svg { display: block; width: 100%; height: 100%; }
+/* A *sketch* svg fills its panel — and only a sketch. This used to be
+   `.plot svg`, which also caught every SVG Leaflet puts inside the map: the
+   vector overlay, and the attribution's Ukrainian flag, which duly stretched
+   to 317x212 and covered the map it was sitting on. The child combinator is
+   the whole fix, and it does not depend on any Leaflet class surviving a
+   React re-render. */
+.w360 .plot > svg { display: block; width: 100%; height: 100%; }
 .w360 .plot .hint {
   position: absolute; top: var(--space-md); left: var(--space-md);
   max-width: 18rem; padding: var(--space-sm) var(--space-md);
@@ -882,6 +1387,9 @@
 .w360 .lightbox .side { padding: var(--space-lg); overflow-y: auto; }
 .w360 .frame {
   position: relative;
+  /* the photo fills the frame edge to edge, so the corners must be clipped by
+     the frame or they square off its rounded border */
+  overflow: hidden;
   width: min(100%, 44rem);
   aspect-ratio: 4 / 3;
   border: 1px dashed var(--w-line-strong);
@@ -892,6 +1400,28 @@
     color-mix(in oklab, var(--w-accent) 10%, var(--w-surface)), var(--w-surface));
   color: var(--w-ink-3);
 }
+/* Every one of these boxes is `display:grid; place-items:center`, which does
+   NOT stretch its child — so an in-flow `height:100%` has no resolved height
+   to measure against and the image falls back to its intrinsic ratio, growing
+   the box. A 471x1024 phone screenshot became 741x1611 inside a 743x666
+   frame. Taking the image out of flow makes the box the authority on its own
+   size, and the aspect-ratio rules finally hold. */
+.w360 .frame img,
+.w360 .thumb img,
+.w360 .tiles .t img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; display: block;
+}
+/* The frame shows the whole photo; the small boxes crop to fill. The frame
+   clips its own corners, so the photo needs no radius of its own. */
+.w360 .frame img { object-fit: contain; }
+
+/* A real photo earns a solid edge: the dashed border and the accent wash are
+   placeholder language, and leaving them under an actual image reads as
+   "still loading". :has() rather than a class the component toggles — whether
+   bytes arrived is already visible in the DOM, and threading that back up to
+   the frame would mean fetching the photo twice to learn it. */
+.w360 .frame:has(img), .w360 .frame:has(video) { border-style: solid; background: var(--w-surface-2); }
 .w360 .frame .stamp {
   position: absolute; left: var(--space-md); bottom: var(--space-md);
   font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.5;
@@ -899,19 +1429,41 @@
   color: white; /* over arbitrary user media — neutral, never a palette tint */
   padding: 0.375rem 0.5rem; border-radius: var(--radius-xs);
 }
-.w360 .thumbs { display: flex; gap: 0.5rem; padding: var(--space-sm) var(--space-lg); border-top: 1px solid var(--w-line); overflow-x: auto; }
+/* min-width:0 is load-bearing: as a grid item this defaults to min-width:auto,
+   so 18 thumbnails would set its minimum size and push the whole page sideways.
+   The old `overflow-x:auto` here was supplying that 0 as a side effect; the
+   scrolling now lives on .photostrip, so the constraint has to be stated outright. */
+.w360 .thumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; min-width: 0; padding: var(--space-sm) var(--space-lg); border-top: 1px solid var(--w-line); }
+/* The thumbnails scroll inside their own track so the visit summary beside
+   them stays put; minWidth:0 is what lets a flex child actually shrink and
+   scroll rather than stretching its parent. */
+.w360 .photostrip {
+  display: flex; gap: 0.5rem; align-items: center;
+  /* basis 12rem, not auto: an auto basis is the full content width, which
+     claims the whole row and pushes the summary onto a second line even
+     on a wide screen. This keeps them side by side until the row is
+     genuinely too tight, and only then wraps. */
+  flex: 1 1 12rem; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; padding-bottom: 0.125rem;
+}
 .w360 .thumb {
-  width: 3.5rem; height: 3.5rem; flex: none;
+  width: 3.5rem; height: 3.5rem; flex: none; overflow: hidden;
   border-radius: var(--radius-sm); border: 1px solid var(--w-line);
   background: var(--w-surface-2); display: grid; place-items: center;
   color: var(--w-ink-3); cursor: pointer; position: relative; font: inherit;
 }
 .w360 .thumb[aria-current='true'] { border-color: var(--w-accent); }
+/* Tiles crop, the frame contains — a square thumbnail of a tall photo should
+   fill its box, not sit letterboxed inside it. */
+.w360 .thumb img, .w360 .tiles .t img { object-fit: cover; }
 .w360 .thumb .src { position: absolute; right: 0.1875rem; bottom: 0.1875rem; width: 0.375rem; height: 0.375rem; border-radius: var(--radius-pill); background: var(--w-ok); }
 .w360 .thumb .src.no { background: var(--w-danger); }
 
 .w360 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.375rem; }
 .w360 .tiles .t {
+  /* relative + hidden so the absolutely-placed photo above fills the square
+     instead of setting its height. */
+  position: relative; overflow: hidden;
   aspect-ratio: 1; border-radius: var(--radius-sm); border: 1px solid var(--w-line);
   background: var(--w-surface-2); display: grid; place-items: center;
   color: var(--w-ink-3); text-decoration: none; font-family: var(--font-mono); font-size: 0.75rem;
@@ -938,14 +1490,146 @@
 
 /* ── Drawer (W11 "Add an expense") ──────────────────────────────────── */
 
+/* The drawers are programmatically focused when they open (tabIndex={-1}), so
+   without this they draw the browser's default ring around the whole panel. The
+   ring belongs on what a keyboard actually moved to, which `:focus-visible`
+   handles — same pair `.dlg` already carries. */
+.w360 .drawer:focus { outline: none; }
+.w360 .drawer:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+
+/* A panel showing the last good answer while a new one is in flight. Dimmed
+   rather than replaced: the numbers stay readable and stay in place, which is
+   the whole point of holding them. */
+.w360 [aria-busy='true'] {
+  opacity: 0.55;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .w360 [aria-busy='true'] { transition: none; }
+}
+
 .w360 .drawer {
   position: fixed; top: 0; right: 0; bottom: 0; width: min(26rem, 100vw);
   background: var(--w-bg); border-left: 1px solid var(--w-line);
-  padding: var(--space-lg); overflow-y: auto; z-index: 40;
-  display: grid; gap: var(--space-md); align-content: start;
+  z-index: 40;
   box-shadow: -1.5rem 0 3rem -1.5rem rgb(0 0 0 / 0.5);
+  /* The panel itself no longer scrolls — its body does (below), so the footer
+     can be pinned. It used to be one `overflow-y: auto` box with the actions as
+     its last grid row, which meant the primary button on a long form scrolled
+     off the bottom and the way to save was to scroll looking for it. */
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }
+
+/* Head, scrolling body, pinned foot. A separate element from `.drawer` because
+   it is also the <form> when the drawer files something, and a form cannot be
+   the fixed panel without taking its own scroll containment with it. */
+.w360 .drawerin {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.w360 .drawerhead {
+  display: flex; align-items: flex-start; gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .drawerhead .grow { flex: 1 1 auto; min-width: 0; }
+.w360 .drawerbody {
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  overflow-y: auto;
+  display: grid; gap: var(--space-md); align-content: start;
+}
+/* Nowrap on purpose: the primary grows and Cancel keeps its label's width, so
+   a long primary label ("Waiting for the network…") shortens Cancel's row
+   rather than dropping it to a second line under the fold. */
+.w360 .drawerfoot {
+  display: flex; gap: var(--space-sm); flex-wrap: nowrap; align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--w-line);
+  background: var(--w-bg);
+}
+
 .w360 .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); z-index: 39; border: 0; }
+
+/* ── Dialog (Dialog.tsx) ────────────────────────────────────────────────
+   The scrim doubles as the centring layout when it holds a dialog rather
+   than a drawer; `:has` keeps the drawer's own full-bleed scrim untouched. */
+.w360 .scrim:has(> .dlg) { display: grid; place-items: center; padding: var(--space-lg); }
+.w360 .dlg {
+  width: min(30rem, 100%);
+  max-height: calc(100vh - 2 * var(--space-lg));
+  overflow-y: auto;
+  background: var(--w-surface);
+  border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+.w360 .dlg.wide { width: min(44rem, 100%); }
+.w360 .dlg:focus { outline: none; }
+.w360 .dlg:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.w360 .dlg .dlg-t {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Actions sit right, and the row wraps rather than crushing a long label. */
+.w360 .dlg .dlg-f {
+  display: flex; flex-wrap: wrap; gap: var(--space-xs);
+  justify-content: flex-end; align-items: center;
+  margin-top: var(--space-xs);
+}
+
+/* ── Toasts (Toast.tsx) ─────────────────────────────────────────────────
+   Above the dialog scrim: a write refused FROM a dialog must be readable
+   while that dialog is still open, which is exactly when it matters. */
+.w360 .toasts {
+  position: fixed;
+  right: var(--space-md);
+  bottom: var(--space-md);
+  z-index: 60;
+  display: grid;
+  gap: var(--space-xs);
+  width: min(24rem, calc(100vw - 2 * var(--space-md)));
+  pointer-events: none;
+}
+.w360 .toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
+  background: var(--w-surface);
+  border: 1px solid var(--w-line-strong);
+  border-left: 3px solid var(--w-ink-3);
+  border-radius: var(--radius-sm);
+  animation: w-toast var(--dur-base) var(--ease-out) both;
+}
+.w360 .toast.ok  { border-left-color: var(--w-ok); }
+.w360 .toast.bad { border-left-color: var(--w-danger); }
+.w360 .toast .toast-i { display: flex; padding-top: 0.0625rem; color: var(--w-ink-3); }
+.w360 .toast.ok .toast-i  { color: var(--w-ok); }
+.w360 .toast.bad .toast-i { color: var(--w-danger); }
+.w360 .toast .toast-t { display: block; font-size: 0.8125rem; line-height: 1.45; }
+/* The server's own words. Mono and small: it is for reading out, not for
+   reading — but a failure with no reason cannot be supported at all. */
+.w360 .toast .toast-d {
+  display: block;
+  margin-top: 0.1875rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--w-ink-3);
+  overflow-wrap: anywhere;
+}
+@keyframes w-toast { from { opacity: 0; transform: translateY(0.375rem); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .w360 .toast { animation: none; }
+}
 
 /* ── Kebab menus and small dialogs ──────────────────────────────────── */
 
@@ -955,20 +1639,86 @@
    .hovercard). On --w-surface the menu was the card's own fill over the
    card's own border colour, so it had no edge at all. */
 .w360 .menu-list {
+  /* `width: max-content` is load-bearing, not tidying.
+     The list is position:fixed at the trigger's RIGHT edge and then pulled
+     back with translateX(-100%). A fixed box with no width shrink-to-fits
+     into the space from its `left` to the viewport edge — which for the
+     topbar account menu is about 24px — so every label wrapped and the list
+     collapsed onto its min-width. Card kebabs sit far enough from the right
+     edge that they never showed it. Sizing to the content instead makes the
+     placement independent of how much room happens to be to the RIGHT of a
+     list that opens to the LEFT; the max-width keeps a long label from
+     running off a phone. */
   position: fixed; z-index: 60; min-width: 10.5rem;
+  width: max-content; max-width: min(20rem, calc(100vw - 2rem));
   background: var(--w-bg); border: 1px solid var(--w-line-strong);
   border-radius: var(--radius-md); padding: 0.25rem;
   box-shadow: 0 1rem 3rem -1rem rgb(0 0 0 / 0.55);
   display: grid;
 }
-.w360 .menu-list button {
+.w360 .menu-list button,
+.w360 .menu-list a {
+  display: flex; align-items: center; gap: var(--space-sm);
+  text-decoration: none;
   text-align: left; padding: 0.4375rem 0.625rem; border: 0; background: none;
   color: var(--w-ink); font: inherit; font-size: 0.8125rem;
   border-radius: var(--radius-sm); cursor: pointer;
 }
-.w360 .menu-list button:hover { background: var(--w-surface-2); }
+/* The glyph names the action; the words say it. Recessive, so a column of
+   four icons does not read as four colours. */
+.w360 .menu-list button svg,
+.w360 .menu-list a svg { color: var(--w-ink-3); flex: none; }
+.w360 .menu-list button:hover svg,
+.w360 .menu-list a:hover svg { color: var(--w-ink-2); }
+.w360 .menu-list button.danger svg { color: inherit; }
+.w360 .menu-list button:hover,
+.w360 .menu-list a:hover { background: var(--w-surface-2); }
+.w360 .menu-list [role='menuitemradio'][aria-checked='true'] {
+  background: var(--w-accent-wash);
+  box-shadow: inset 0 0 0 2px var(--w-line-strong);
+  color: var(--w-ink);
+  font-weight: 700;
+}
+.w360 .menu-list [role='menuitemradio'][aria-checked='true']::after {
+  content: '✓';
+  margin-left: auto;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.w360 .menu-list [role='menuitemradio'][aria-checked='true']:hover {
+  background: var(--w-accent-wash);
+}
+.w360 .menu-list button:focus-visible,
+.w360 .menu-list a:focus-visible,
+.w360 .iconbtn:focus-visible,
+.w360 button.avatar:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.w360 .menu-list a { color: var(--w-ink); }
 .w360 .menu-list button.danger { color: var(--w-danger); }
 .w360 .menu-list button.danger:hover { background: var(--w-danger-wash); }
+
+/* The menu says which record it will act on. Without it a kebab opened low in
+   a long grid is six verbs with no subject — and Delete… is one of them. */
+.w360 .menu-list .menuhead {
+  font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--w-ink-3);
+  padding: 0.375rem 0.625rem 0.4375rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 15rem;
+}
+/* A rule ABOVE an item, so the separator belongs to the group it opens rather
+   than being a node of its own that arrow-key roving would have to skip. */
+.w360 .menu-list button.ruled,
+.w360 .menu-list a.ruled {
+  border-top: 1px solid var(--w-line);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  margin-top: 0.1875rem; padding-top: 0.5625rem;
+}
+/* The list is the menu now; the wrapper only positions. */
+.w360 .menu-list > [role='menu'] { display: grid; }
 
 .w360 .overlay {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
@@ -979,12 +1729,6 @@
   border: 1px solid var(--w-line); border-radius: var(--radius-lg);
   padding: var(--space-lg); display: grid; gap: var(--space-md);
   box-shadow: 0 2rem 4rem -1.5rem rgb(0 0 0 / 0.6);
-}
-
-/* The bulk bar wakes up when a selection exists. */
-.w360 .bulkbar.on {
-  border-color: color-mix(in oklab, var(--w-accent) 45%, transparent);
-  background: var(--w-accent-wash);
 }
 
 .w360 .field { display: grid; gap: 0.375rem; }
@@ -1007,6 +1751,78 @@
 }
 .w360 .choice button[aria-pressed='true'] { border-color: var(--w-accent); background: var(--w-accent-wash); }
 .w360 .choice small { display: block; color: var(--w-ink-3); font-size: 0.6875rem; margin-top: 0.1875rem; line-height: 1.4; }
+
+/* ── Scan first (W02 "Add a record") ────────────────────────────────────
+   The add drawer opens on the document, not on the form. This is the
+   document's half: a drop target, what the reader made of it, and the quiet
+   link to the form underneath. It has to read as ONE surface with a clear
+   inside edge — a dashed rule is the only affordance a browser gives for
+   "you may drop a file here", and the accent wash on drag-over is the only
+   confirmation the pointer gets that the drop will land. */
+.w360 .scanbox {
+  display: grid; gap: var(--space-sm); padding: var(--space-md);
+  border: 1px dashed var(--w-line-strong); border-radius: var(--radius-md);
+  background: var(--w-surface);
+}
+.w360 .scanbox.over {
+  border-style: solid; border-color: var(--w-accent); background: var(--w-accent-wash);
+}
+.w360 .scanbox.bad { border-style: solid; border-color: color-mix(in oklab, var(--w-danger) 40%, transparent); }
+.w360 .scanhead {
+  display: flex; align-items: center; gap: 0.375rem; margin: 0;
+  font-size: 0.8125rem; font-weight: 600; color: var(--w-ink);
+}
+.w360 .scanhead svg { color: var(--w-accent); flex: none; }
+.w360 .scanhead.bad { color: var(--w-danger); }
+.w360 .scanhead.bad svg { color: var(--w-danger); }
+.w360 .scanbox .btn { flex: none; }
+.w360 .dropline { margin: 0; font-size: 0.75rem; color: var(--w-ink-3); }
+
+.w360 .scanwait { display: flex; align-items: flex-start; gap: var(--space-sm); margin: 0; font-size: 0.8125rem; }
+/* A pulsing dot, not a spinner: design.md's motion rule allows `rise` and
+   `pulse` and names border-spin as one of the things it does not want. The
+   seconds counter beside it is what actually reports progress; this only has
+   to say the wait is alive. */
+.w360 .spin {
+  width: 0.5rem; height: 0.5rem; flex: none; margin-top: 0.375rem;
+  border-radius: 50%; background: var(--w-accent);
+  animation: w-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .w360 .spin { animation: none; opacity: 0.7; }
+}
+
+/* What the machine says it read, before any box is checked. Bordered, not
+   filled: it is a quotation from the document, not a control. */
+.w360 .readout {
+  display: grid; gap: var(--space-sm); padding: var(--space-md);
+  border: 1px solid var(--w-line); border-radius: var(--radius-md);
+}
+.w360 .caveats {
+  display: grid; gap: 0.375rem; padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-sm); background: var(--w-surface-2);
+}
+.w360 .caveats ul { margin: 0; padding-left: 1.125rem; display: grid; gap: 0.25rem; }
+.w360 .caveats li { font-size: 0.8125rem; line-height: 1.5; color: var(--w-ink-2); }
+
+/* The seam between the two halves once both are open. */
+.w360 .orrule {
+  display: flex; align-items: center; gap: var(--space-sm); margin: 0;
+  font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--w-ink-3);
+}
+.w360 .orrule::before, .w360 .orrule::after {
+  content: ''; flex: 1; height: 1px; background: var(--w-line);
+}
+
+/* One quiet link, not a second primary action competing with the scan. */
+.w360 .linkbtn {
+  justify-self: start; padding: 0.25rem 0; border: 0; background: none;
+  font: inherit; font-size: 0.8125rem; color: var(--w-accent); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 0.2em;
+}
+.w360 .linkbtn:hover { text-decoration-thickness: 2px; }
+.w360 .linkbtn:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
 
 .w360 .switch { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); }
 .w360 .switch button {
@@ -1036,8 +1852,106 @@
 }
 .w360 .shelf:hover { transform: translateY(-2px); }
 
+/* ── Nothing, and nothing-went-wrong ────────────────────────────────────
+ *
+ * A screen with no rows and a screen whose query failed used to look the same
+ * as a screen still loading: a pulsing grey block, held forever. They are
+ * three different sentences and each one now gets said.
+ *
+ * `.blank` is the unboxed form — it sits inside a card that already has a rule
+ * around it. `.blank.boxed` draws its own dashed rule and is what a whole
+ * empty screen uses, so the region reads as deliberately empty rather than as
+ * a panel that failed to paint. */
+.w360 .blank {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--space-xs);
+  text-align: center;
+  padding: var(--space-xl) var(--space-lg);
+  color: var(--w-ink-2);
+}
+.w360 .blank.boxed {
+  border: 1px dashed var(--w-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-2xl) var(--space-lg);
+}
+/* The glyph is a marker, not an illustration: one weight down from the ink so
+   it never competes with the sentence under it. */
+.w360 .blank .blank-i {
+  display: flex;
+  color: var(--w-ink-3);
+  margin-bottom: var(--space-2xs);
+}
+.w360 .blank .blank-t {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--w-ink);
+}
+/* Prose that wraps at a readable measure instead of running the full width of
+   a 1600px main column. */
+.w360 .blank .note { margin: 0; max-width: 34rem; }
+.w360 .blank .blank-do { margin-top: var(--space-sm); }
+
+/* The failure variant. Red is carried by the glyph and the machine-readable
+   reason only — a whole panel washed in danger colour for a dropped request
+   reads as data loss, which it is not. */
+.w360 .blank.bad .blank-i { color: var(--w-danger); }
+.w360 .blank .blank-why {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--w-ink-3);
+  overflow-wrap: anywhere;
+  max-width: 34rem;
+}
+
+/* A file that exists and would not load, in place of a photo. Small, quiet and
+   inside whatever tile it was going to fill — it must not push a grid around. */
+.w360 .photo-failed {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.25rem;
+  min-height: 100%;
+  padding: var(--space-sm);
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--w-ink-3);
+  background: var(--w-surface-2);
+}
+.w360 .photo-failed > svg { color: var(--w-danger); }
+.w360 .photo-failed button {
+  border: 0; background: none; font: inherit; font-size: 0.75rem;
+  color: var(--w-accent); cursor: pointer; padding: 0; text-decoration: underline;
+}
+.w360 .photo-failed button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+
 .w360 .skeleton { border-radius: var(--radius-sm); background: var(--w-surface-2); animation: w-pulse 1.4s var(--ease-in-out) infinite; }
 @keyframes w-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* ── Content-shaped skeletons ───────────────────────────────────────────
+ *
+ * The screens never spin; while a query is in flight they hold the shape of
+ * its answer. The placeholders in skeletons.tsx are assembled from the REAL
+ * layout classes above — .cards, .rec, .rectable, .strip, .rows, .split — so
+ * a card that grows a line grows its own skeleton with it. Only the few rules
+ * that cannot be borrowed live here.
+ */
+
+/* A line of text that has not arrived. Height in em so one class serves an h1
+   and a footnote; the pill radius is what stops a column of them reading as a
+   bar chart. */
+.w360 .skeleton.line { display: block; height: 0.72em; border-radius: var(--radius-pill); }
+
+/* A skeleton card must not answer the pointer like a real one — the lift and
+   the pointer cursor both promise a destination that does not exist yet. */
+.w360 .rec.sk, .w360 .rec.sk:hover { transform: none; border-color: var(--w-line); cursor: default; }
+/* The cover is the block itself rather than a child, so it keeps .art's own
+   height and clipped top corners for free. */
+.w360 .rec.sk .art { background: var(--w-surface-2); animation: w-pulse 1.4s var(--ease-in-out) infinite; }
 
 .w360 .rise { animation: w-rise var(--dur-slow) var(--ease-out) both; }
 @keyframes w-rise { from { opacity: 0; transform: translateY(0.5rem); } to { opacity: 1; transform: none; } }
@@ -1048,5 +1962,1740 @@
     transition-duration: 0.15s !important;
   }
   .w360 .rise { animation: none; }
+  /* The clamp above would turn the 1.4s skeleton breath into a 0.15s
+     strobe — the exact opposite of what the reader asked for. A
+     placeholder that simply holds still is still a placeholder. */
+  .w360 .skeleton, .w360 .rec.sk .art { animation-name: none; }
   .w360 .rec:hover, .w360 .shelf:hover { transform: none; }
 }
+
+/* ── The real map ───────────────────────────────────────────────────────────
+ *
+ * Leaflet over OpenStreetMap (street) and Esri World Imagery (satellite).
+ * Both are key-free, which is the whole reason they are here: a land record
+ * must still open in ten years without anyone renewing a contract.
+ *
+ * Leaflet ships a light theme in leaflet.css and paints its vector layers with
+ * SVG *presentation attributes*. Presentation attributes lose to any CSS rule,
+ * so every colour below still resolves through a --w-* token and follows the
+ * active renderer scheme, including High Contrast, inside a third-party map.
+ */
+
+.w360 .plot.live { padding: 0; overflow: hidden; }
+.w360 .plot .map { position: absolute; inset: 0; }
+
+/* The panel's own furniture — hint, caption, zoom cluster — is positioned
+   absolutely with no z-index, which put all three UNDER a Leaflet pane the
+   moment one existed (panes start at 400), so they need one.
+
+   Be clear about what 500 buys, because it is less than it looks. Leaflet
+   transforms .leaflet-map-pane, which makes it a stacking context, and its
+   own z-index is 400 — so the tooltip pane's 650 and the popup pane's 700 are
+   local to that group and cannot outrank anything outside it. Any value that
+   clears the tiles also covers tooltips and popups. There is no number that
+   sits between them; the fit padding in MapCanvas keeps corners out of the
+   furniture's footprint instead.
+
+   The bottom row also has to be shared: Leaflet puts its scale bar bottom-left
+   and its attribution bottom-right, which is exactly where .cap and .zoom sit.
+   Both move up a row rather than overlapping — attribution is a licence
+   condition and cannot be the thing that gets covered. */
+.w360 .plot.live .hint,
+.w360 .plot.live .cap,
+.w360 .plot.live .zoom,
+.w360 .plot.live .nogeo { z-index: 500; }
+.w360 .plot.live .cap,
+.w360 .plot.live .zoom { bottom: 2.25rem; }
+/* Over a sketch the caption sits on the panel's own dark surface. Over Esri
+   imagery it sits on whatever colour that field happens to be — bare soil at
+   midday is near-white — so it carries its own ground with it. */
+.w360 .plot.live .cap {
+  padding: 0.1875rem 0.4375rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 78%, transparent);
+  color: var(--w-ink-2);
+}
+
+/* Belt and braces for the rule above. Leaflet has
+   SVGs of its own that size themselves by attribute, and inheriting
+   width:100% ruins each one differently: the overlay pane collapses every
+   boundary onto a few pixels, and the 12x8 flag in the attribution line
+   inflates into a 200px block that covers the zoom cluster. One un-inherit
+   for everything Leaflet draws, kept next to the rule it is undoing. */
+.w360 .plot .leaflet-container svg { width: auto; height: auto; }
+
+.w360 .leaflet-container {
+  background: var(--w-surface-2);
+  font-family: var(--font-body);
+  color: var(--w-ink);
+}
+.w360 .leaflet-container a { color: var(--w-accent); }
+
+/* Street tiles are drawn for white paper. Re-tone them only for the dark
+   scheme rather than swapping in a keyed dark-tile service — Light and High
+   Contrast keep the source treatment. Imagery is dimmed only in dark mode;
+   inverting a satellite photo of a field would make it a lie. */
+.w360[data-scheme='dark'] .leaflet-tile-pane .w-tiles-street {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.92) saturate(0.75);
+}
+.w360[data-scheme='dark'] .leaflet-tile-pane .w-tiles-imagery {
+  filter: brightness(0.82) saturate(0.9);
+}
+
+/* Everything that is not this parcel, while the tape is out. A boundary is
+   read against its own ground, and at village zoom the neighbours are the
+   larger part of the picture. */
+.w360 .leaflet-pane > svg path.w-dim {
+  fill: #000;
+  /* Leaflet writes fill-opacity="0.2" on a path unless told otherwise, and a
+     presentation attribute only loses to a property the CSS actually declares
+     — the same trap as .w-mark below. Left alone, a 42% mask arrives at 8%
+     and the "dim" is invisible. */
+  fill-opacity: 0.42;
+  /* The parcel is the second ring: even-odd is what makes it a hole rather
+     than a second dark shape on top of the first. */
+  fill-rule: evenodd;
+  stroke: none;
+  pointer-events: none;
+}
+
+/* Boundary, marks and the moved edge. Class names, not colours, cross the
+   Leaflet boundary — the token resolves here. */
+.w360 .leaflet-pane > svg path.w-ring {
+  stroke: var(--w-accent);
+  fill: var(--w-accent);
+  fill-opacity: 0.14;
+  stroke-width: 2;
+}
+.w360 .leaflet-pane > svg path.w-mark {
+  stroke: var(--w-bg);
+  fill: var(--w-accent);
+  /* Leaflet writes fill-opacity="0.2" on a circleMarker unless told otherwise,
+     and a presentation attribute only loses to a property the CSS actually
+     declares. Without this line the alarm hue on a moved stone is a 20% wash
+     — the colour is right and nobody can see it. */
+  fill-opacity: 1;
+  stroke-width: 2;
+}
+.w360 .leaflet-pane > svg path.w-mark.moved { fill: var(--w-danger); }
+.w360 .leaflet-pane > svg path.w-mark.active { stroke: var(--w-ink); stroke-width: 3; }
+
+/* A numbered corner. The number rides beside the dot the way it does on the
+   sheet, so the map and the mark list can be read against each other. */
+/* A survey plot's own number, written in the middle of it — and its extent
+   too, where the plot is wide enough on screen to hold both. Same trick as the
+   corner discs: the icon element is a zero-sized anchor so Leaflet keeps its
+   own transform for positioning, and the chip inside centres itself on it.
+
+   The backdrop is not decoration. These sit on aerial imagery, where a bare
+   glyph lands on whatever colour the field happens to be. */
+.w360 .w-plot-no { width: 0; height: 0; overflow: visible; }
+.w360 .w-plot-no > span {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  /* Two lines: the plot number, and its extent under it. `pre` because the
+     label is one text node with a newline in it — a divIcon's html is set as
+     text on purpose (a plot number comes out of a KMZ somebody uploaded), and
+     one node keeps that guarantee simple. */
+  white-space: pre;
+  text-align: center;
+  line-height: 1.2;
+  color: var(--w-ink);
+  background: color-mix(in oklab, var(--w-bg) 74%, transparent);
+  border-radius: var(--radius-xs);
+  padding: 0.09375rem 0.25rem;
+  pointer-events: none;
+}
+
+.w360 .w-mark-no {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--w-ink);
+  background: color-mix(in oklab, var(--w-bg) 78%, transparent);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-pill);
+  padding: 0.125rem 0.3125rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.w360 .w-mark-no.moved { color: var(--w-danger); border-color: var(--w-danger); }
+
+/* Leaflet's own chrome: hairline, not shadow — design.md, same as every card. */
+.w360 .leaflet-bar,
+.w360 .leaflet-control-layers,
+.w360 .leaflet-touch .leaflet-bar,
+.w360 .leaflet-touch .leaflet-control-layers {
+  box-shadow: none;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm);
+  background: var(--w-surface);
+}
+.w360 .leaflet-bar a,
+.w360 .leaflet-bar a:hover {
+  background: var(--w-surface);
+  border-bottom-color: var(--w-line);
+  color: var(--w-ink-2);
+}
+.w360 .leaflet-bar a:hover { background: var(--w-surface-2); color: var(--w-ink); }
+
+/* Attribution is a licence condition, not decoration: it is restyled to fit
+   and never hidden. */
+.w360 .leaflet-container .leaflet-control-attribution {
+  background: color-mix(in oklab, var(--w-bg) 82%, transparent);
+  color: var(--w-ink-3);
+  font-size: 0.625rem;
+  padding: 0.125rem 0.375rem;
+}
+.w360 .leaflet-container .leaflet-control-attribution a { color: var(--w-ink-2); }
+
+.w360 .leaflet-control-scale-line {
+  background: color-mix(in oklab, var(--w-bg) 82%, transparent);
+  border-color: var(--w-line-strong);
+  color: var(--w-ink-2);
+  text-shadow: none;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+}
+
+.w360 .leaflet-popup-content-wrapper,
+.w360 .leaflet-popup-tip,
+.w360 .leaflet-tooltip {
+  background: var(--w-surface);
+  color: var(--w-ink);
+  border: 1px solid var(--w-line);
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+}
+.w360 .leaflet-tooltip::before { border-top-color: var(--w-line); }
+.w360 .leaflet-container a.leaflet-popup-close-button { color: var(--w-ink-3); }
+
+/* Bottom-left is a COLUMN, not a pile: the caption sits on the floor and any
+   notice stacks above it. Both used to be anchored at var(--space-md) and the
+   notice — near-opaque, bordered, three lines tall — simply painted over the
+   caption, which on a live map is where the tile attribution rides. The two
+   offsets differ because .plot.live already lifts the caption clear of
+   Leaflet's own scale bar. */
+.w360 .plot .nogeo.low { top: auto; bottom: 2.75rem; }
+.w360 .plot.live .nogeo.low { bottom: 4.5rem; }
+
+/* Furniture that only reads must not also catch the pointer. The hint alone is
+   18rem wide in the top-left corner, and over a live map that is a dead zone
+   where dragging does nothing — the map is right there under it, and grabbing
+   it fails for no visible reason. The zoom cluster keeps its clicks. */
+.w360 .plot.live .hint,
+.w360 .plot.live .cap,
+.w360 .plot.live .nogeo { pointer-events: none; }
+
+/* The record front page's location card. `.map` is positioned by the .plot
+   rule, which does not reach here, so the thumbnail supplies its own box —
+   at the aspect ratio the sketch it replaced occupied, so the rail's rhythm
+   is unchanged.
+
+   `isolation: isolate` earns its place: it makes the thumbnail a stacking
+   context, so Leaflet's z-400 map pane is contained and the caption band that
+   follows paints over it without anyone having to guess a z-index. */
+.w360 .mapthumb {
+  display: block;
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 100 / 62;
+  overflow: hidden;
+  background: var(--w-surface-2);
+}
+.w360 .mapthumb .map { position: absolute; inset: 0; }
+
+/* North, top-right — clear of the hint (top-left), the caption and scale
+   (bottom-left) and the zoom cluster (bottom-right). */
+.w360 .plot .northrose {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  z-index: 500;
+  display: grid;
+  justify-items: center;
+  gap: 0.0625rem;
+  padding: 0.3125rem 0.4375rem 0.25rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 80%, transparent);
+  backdrop-filter: blur(4px);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--w-ink-2);
+  pointer-events: none;
+}
+.w360 .plot .northrose svg { fill: var(--w-accent); }
+
+/* The selected side, and the one-time reveal.
+
+   Both are stroke animations on a path Leaflet owns, which is why they are
+   CSS rather than JS: Leaflet redraws its paths on every pan and zoom, and an
+   animation driven from React would be interrupted by the first mouse move. */
+/* The selected side: a bold, softly glowing line that stays put, with a
+   spark that runs from its first corner to its second.
+
+   Marching ants were the first attempt and they are visual noise — the whole
+   edge crawls, forever, in the corner of your eye. A single spark reads as
+   direction (1 → 2, the way the table names it) and then gets out of the way. */
+.w360 .leaflet-pane > svg path.w-side-lit {
+  stroke: var(--w-accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  fill: none;
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--w-accent) 70%, transparent));
+}
+.w360 .leaflet-pane > svg path.w-side-spark {
+  stroke: #fff;
+  stroke-width: 6;
+  stroke-linecap: round;
+  fill: none;
+  /* pathLength=1 is set on the element, so these are fractions of the side:
+     an 8% bright head with a soft tail, wherever the side is long or short. */
+  stroke-dasharray: 0.08 0.92;
+  filter: drop-shadow(0 0 7px #fff);
+  animation: w-spark 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+/* Runs, then rests. A spark that never pauses is a strobe. */
+@keyframes w-spark {
+  0%   { stroke-dashoffset: 1;   opacity: 0; }
+  8%   { opacity: 0.95; }
+  55%  { stroke-dashoffset: 0;   opacity: 0.95; }
+  70%  { stroke-dashoffset: 0;   opacity: 0; }
+  100% { stroke-dashoffset: 0;   opacity: 0; }
+}
+
+/* Drawn on, once. The dash pattern is the path's own length, so the offset
+   sweeps exactly one lap and leaves the stroke solid. */
+.w360 .leaflet-pane > svg path.w-ring.drawing {
+  stroke-dasharray: var(--w-ring-len);
+  stroke-dashoffset: var(--w-ring-len);
+  animation: w-draw-on 1.5s var(--ease-out) forwards;
+}
+@keyframes w-draw-on { to { stroke-dashoffset: 0; } }
+
+/* The ambient light. Once, on landing, behind the line as it draws: a scatter
+   of points along the boundary and one soft head that travels it, then both
+   gone. A car's headliner, not a barber's pole — it runs a single lap and does
+   not come back, because a boundary that pulses forever is a screen nobody can
+   read a number off.
+
+   pathLength="1" is set on the elements, so every value here is a FRACTION of
+   the parcel's own perimeter and the lap takes the same time whatever its
+   size. */
+.w360 .leaflet-pane > svg path.w-ring-stars {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  /* A point every fiftieth of the way round, each one almost nothing wide. */
+  stroke-dasharray: 0.0016 0.0184;
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--w-accent) 85%, #fff));
+  opacity: 0;
+  pointer-events: none;
+  animation: w-stars 2.6s var(--ease-out) 0.55s both;
+}
+@keyframes w-stars {
+  0%   { opacity: 0; stroke-dashoffset: 0.02; }
+  22%  { opacity: 0.95; }
+  70%  { opacity: 0.7; }
+  100% { opacity: 0; stroke-dashoffset: 0; }
+}
+
+.w360 .leaflet-pane > svg path.w-ring-glow {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 5;
+  stroke-linecap: round;
+  /* A 6% head with the rest of the lap empty, so one light travels the line. */
+  stroke-dasharray: 0.06 0.94;
+  filter: drop-shadow(0 0 9px var(--w-accent)) drop-shadow(0 0 3px #fff);
+  opacity: 0;
+  pointer-events: none;
+  animation: w-lap 2.1s cubic-bezier(0.33, 0, 0.2, 1) 0.5s both;
+}
+@keyframes w-lap {
+  0%   { stroke-dashoffset: 1; opacity: 0; }
+  12%  { opacity: 0.9; }
+  80%  { opacity: 0.9; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* Everything the reveal writes on top fades in behind it, so the numbers
+   arrive as the line reaches them rather than all at once. */
+.w360 .plot .w-corner-no, .w360 .plot .w-side { animation: w-fade-in 600ms var(--ease-out) both; }
+@keyframes w-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .w360 .leaflet-pane > svg path.w-side-spark,
+  .w360 .leaflet-pane > svg path.w-ring-stars,
+  .w360 .leaflet-pane > svg path.w-ring-glow { display: none; }
+  .w360 .leaflet-pane > svg path.w-ring.drawing { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
+  .w360 .plot .w-corner-no, .w360 .plot .w-side { animation: none; }
+}
+
+/* The tip on a selected side: coordinates a surveyor can copy and walk to.
+
+   Absolutely positioned inside the panel and clamped by MapCanvas, so it
+   follows its side while it can and never leaves the map when it cannot. */
+.w360 .plot .w-tip {
+  position: absolute;
+  /* Bolted to the top-left. Same corner every time, whichever side is picked
+     and wherever the map is panned to — the one thing that must not move on a
+     screen whose whole job is showing you where something is. */
+  top: var(--space-md);
+  left: var(--space-md);
+  z-index: 501;
+  width: max-content;
+  max-width: min(24rem, calc(100% - 1.5rem));
+  /* Room on the right for the close control, which used to sit on top of the
+     first coordinate — the one line most likely to be read out loud. */
+  padding: 0.625rem 2rem 0.625rem 0.75rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+  animation: w-tip-in 160ms var(--ease-out) both;
+}
+@keyframes w-tip-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; } }
+
+/* The hint and the tip want the same corner. The tip wins: it is the answer
+   to something the owner just asked for, and the hint is standing advice. */
+.w360 .plot:has(.w-tip) .hint { opacity: 0; pointer-events: none; }
+
+.w360 .plot .w-tip dl {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; margin: 0 0 0.625rem;
+}
+.w360 .plot .w-tip dt {
+  font-family: var(--font-mono); font-size: 0.5625rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--w-ink-3); align-self: center;
+}
+/* The coordinates are the point of this card — they get read down a phone to
+   someone standing in a field — so they are the largest thing on it.
+   `tabular-nums` keeps the two corners' digits in column, which is what makes
+   a difference in the fifth decimal visible at a glance. */
+.w360 .plot .w-tip dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--w-ink-1);
+  white-space: nowrap;
+}
+
+/* Below roughly a phone's width the two columns stop fitting, and a wrapped
+   coordinate is worse than a stacked one: the label goes above its value. */
+@media (max-width: 30rem) {
+  .w360 .plot .w-tip { max-width: calc(100% - 1rem); }
+  .w360 .plot .w-tip dl { grid-template-columns: 1fr; gap: 0 0; }
+  .w360 .plot .w-tip dt { margin-top: 0.25rem; }
+  .w360 .plot .w-tip dd { font-size: 0.875rem; }
+}
+.w360 .plot .w-tip .row { display: flex; gap: 0.375rem; flex-wrap: wrap; }
+.w360 .plot .w-tip button, .w360 .plot .w-tip a {
+  font: inherit; font-size: 0.8125rem; line-height: 1.7; cursor: pointer; text-decoration: none;
+  padding: 0.1875rem 0.625rem; border-radius: var(--radius-pill);
+  border: 1px solid var(--w-line); background: var(--w-surface-2); color: var(--w-ink-1);
+}
+.w360 .plot .w-tip button:hover, .w360 .plot .w-tip a:hover {
+  border-color: var(--w-accent); color: var(--w-accent);
+}
+/* The close control sits in the corner and never crowds the coordinates,
+   which is what the popup's own X did to the first line. */
+.w360 .plot .w-tip .close {
+  position: absolute; top: 0.1875rem; right: 0.25rem;
+  border: 0; background: none; padding: 0.1875rem 0.375rem;
+  color: var(--w-ink-3); font-size: 1rem; line-height: 1;
+}
+.w360 .plot .w-tip .close:hover { color: var(--w-ink-1); background: none; border: 0; }
+
+/* A side length, written along the boundary. Mono because it is a figure to
+   be read against the sheet, not prose; shadowed because it sits on imagery. */
+/* The hairline from a cramped label back to the edge it measures. Drawn only
+   when the label had to travel to find room. */
+.w360 .leaflet-pane > svg path.w-side-leader {
+  stroke: var(--w-ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  fill: none;
+  opacity: 0.7;
+}
+
+/* A length: a pill, off the line. The --ox/--oy nudge is set per label by
+   MapCanvas and points away from the middle of the parcel, so a length never
+   lands on a corner disc however the shape is drawn. */
+.w360 .w-side > span {
+  position: absolute;
+  display: block;
+  width: max-content;
+  padding: 0.0625rem 0.3125rem;
+  border: 1px solid color-mix(in oklab, var(--w-ink-3) 45%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--w-bg) 82%, transparent);
+  backdrop-filter: blur(3px);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--w-ink-2);
+  white-space: nowrap;
+  transform: translate(-50%, -50%) translate(var(--ox, 0), var(--oy, 0));
+}
+.w360 .w-side.active > span {
+  border-color: var(--w-accent);
+  background: var(--w-accent);
+  color: var(--w-bg);
+  font-weight: 700;
+}
+
+/* Corners and lengths are two different KINDS of number, and they used to be
+   the same grey mono text sitting a few pixels apart — "446 ft13" beside
+   "446 ft" and "13". Nobody could tell which was an identity and which was a
+   measurement.
+
+   So they are now different objects entirely:
+
+     a CORNER is a filled disc with its number inside, centred ON the boundary
+     a LENGTH is a bordered pill, pushed just OUTSIDE the boundary
+
+   Round versus rectangular, solid versus outlined, on the line versus off it.
+   Three cues, none of which needs reading to work. */
+/* The visual lives on the INNER SPAN, never on Leaflet's marker container.
+   Leaflet writes its own inline `transform` on that container to position it,
+   which silently overrides any transform set from CSS — so a disc styled on
+   the container is never actually centred on its corner, and a --ox nudge set
+   there is never applied. The span is ours; Leaflet does not touch it. */
+.w360 .w-corner-no, .w360 .w-side { width: 0; height: 0; overflow: visible; }
+
+.w360 .w-corner-no > span {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 50%;
+  background: var(--w-accent);
+  color: var(--w-bg);
+  border: 2px solid var(--w-bg);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
+  /* Centred on its own box, so the disc sits exactly on the corner. */
+  transform: translate(-50%, -50%);
+}
+/* An endpoint of the picked SIDE: hollowed out, so it is clear which two
+   corners the side runs between. */
+.w360 .w-corner-no.active > span {
+  background: var(--w-bg);
+  color: var(--w-accent);
+  border-color: var(--w-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--w-accent) 35%, transparent);
+}
+/* The corner picked ON ITS OWN: bigger, ringed, unmistakably the subject. A
+   node and an edge are different questions, so they must not look alike. */
+.w360 .w-corner-no.picked > span {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.6875rem;
+  background: var(--w-ink-1);
+  color: var(--w-bg);
+  border-color: var(--w-accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--w-accent) 45%, transparent),
+              0 2px 8px rgb(0 0 0 / 0.5);
+}
+.w360 .w-corner-no > span { cursor: pointer; }
+
+/* The little form for naming a mark. Lives inside the marks card rather than
+   in a modal: you are looking at the map to decide what to call the stone, and
+   a dialog over the map would hide the thing being named. */
+.w360 .marknote {
+  display: grid;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  padding: var(--space-sm);
+  border: 1px solid var(--w-accent);
+  border-radius: var(--radius-md);
+  background: var(--w-accent-wash);
+}
+.w360 .marknote label { display: grid; gap: 0.1875rem; }
+.w360 .marknote input {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.3125rem 0.5rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm);
+  background: var(--w-bg);
+  color: var(--w-ink-1);
+}
+.w360 .marknote input:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
+
+/* Find a plot by its number. Sits under the north rose, top-right, because
+   the village map's own note holds the top-centre. */
+.w360 .plot .plotfind {
+  position: absolute;
+  top: 3.5rem;
+  right: var(--space-md);
+  z-index: 501;
+  display: grid;
+  gap: 0.1875rem;
+  justify-items: end;
+  padding: 0.4375rem 0.5rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+.w360 .plot .plotfind input {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  width: 6rem;
+  text-align: right;
+  padding: 0.1875rem 0.375rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm);
+  background: var(--w-bg);
+  color: var(--w-ink-1);
+}
+.w360 .plot .plotfind input:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
+
+/* The plot picked out of the village map, waiting to be adopted. Sits over
+   the map bottom-left, above the caption, because the decision is made by
+   looking at the shape it is offering. */
+.w360 .plot .plotpick {
+  position: absolute;
+  left: var(--space-md);
+  bottom: 4.5rem;
+  z-index: 501;
+  display: grid;
+  gap: var(--space-sm);
+  max-width: min(22rem, calc(100% - 1.5rem));
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--w-accent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+}
+
+/* How many plots are on screen, and whose village they are. */
+.w360 .plot .vmnote {
+  position: absolute;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--w-bg) 86%, transparent);
+  backdrop-filter: blur(4px);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--w-ink-2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* A row in the village list, and in the "give it to" list beside a plot. */
+.w360 .villagerow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--w-ink-1);
+  cursor: pointer;
+}
+.w360 .villagerow:hover { border-color: var(--w-line); background: var(--w-surface-2); }
+.w360 .villagerow[aria-pressed='true'] {
+  background: var(--w-accent-wash);
+  color: var(--w-accent);
+  border-color: var(--w-accent);
+  font-weight: 600;
+}
+.w360 .villagerow:disabled { opacity: 0.5; cursor: default; }
+
+/* A card's own dismiss control. Quiet until reached for — it is a way out,
+   not something to draw the eye away from what the card says. */
+.w360 .cardx {
+  border: 1px solid transparent;
+  background: none;
+  color: var(--w-ink-3);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0 0.375rem;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+.w360 .cardx:hover { color: var(--w-ink-1); border-color: var(--w-line); }
+
+/* The measurements table: hovering a row lights its side on the map. */
+.w360 .sidetable { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.w360 .sidetable th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--w-ink-3);
+  font-weight: 500;
+  padding: 0 0 0.25rem;
+}
+.w360 .sidetable td { padding: 0.1875rem 0; border-top: 1px solid var(--w-line); }
+.w360 .sidetable td + td, .w360 .sidetable th + th { text-align: right; }
+.w360 .sidetable tr:hover td { background: var(--w-accent-wash); color: var(--w-accent); }
+/* A pinned row stays lit after the pointer leaves — reading the tip on the
+   map means moving away from the row that opened it. */
+/* A pinned row stays lit after the pointer leaves — reading the tip means
+   moving away from the row that opened it. Tint and colour only: an inset
+   shadow on `td` drew a bar down the left of EVERY cell, which read as three
+   stray rules through the middle of the table. */
+.w360 .sidetable tr.lit td {
+  background: var(--w-accent-wash);
+  color: var(--w-accent);
+}
+.w360 .sidetable .num { font-family: var(--font-mono); }
+
+/* The bar that appears only while something is being edited. It sits under
+   the hint, above the map's own furniture, and never takes the pointer away
+   from the map except on its own controls. */
+.w360 .plot .editbar {
+  position: absolute;
+  left: var(--space-md);
+  top: 5.25rem;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  max-width: calc(100% - 2 * var(--space-md));
+  padding: 0.4375rem var(--space-sm);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+/* The outline being drawn, before it is saved: dashed, so it never reads as a
+   surveyed boundary while it is still a guess. */
+.w360 .leaflet-pane > svg path.w-draft {
+  stroke: var(--w-info);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  fill: var(--w-info);
+  fill-opacity: 0.10;
+}
+.w360 .leaflet-pane > svg path.w-draft-dot {
+  stroke: var(--w-bg);
+  stroke-width: 2;
+  fill: var(--w-info);
+  fill-opacity: 1;
+}
+.w360 .w-draft-no {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--w-info);
+  text-shadow: 0 1px 2px var(--w-bg), 0 0 3px var(--w-bg);
+  cursor: grab;
+}
+.w360 .w-draft-no:active { cursor: grabbing; }
+
+/* Armed to place a pin. The crosshair is the whole affordance — the button
+   says what it is waiting for, and the cursor says where. */
+.w360 .plot .map.picking,
+.w360 .plot .map.picking .leaflet-grab,
+.w360 .plot .map.picking .leaflet-interactive { cursor: crosshair; }
+
+/* When a record has no surveyed shape the map still draws — the parcel just
+   has a pin and this line says so, instead of an invented boundary. */
+.w360 .plot .nogeo {
+  position: absolute; left: var(--space-md); top: var(--space-md); z-index: 500;
+  max-width: 22rem; padding: var(--space-sm) var(--space-md);
+  background: color-mix(in oklab, var(--w-bg) 88%, transparent);
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  color: var(--w-ink-3); font-size: 0.8125rem; line-height: 1.5;
+}
+
+/* Where "Add a feature" sends you. A scroll that lands on a card already in
+   view looks like nothing happened, so the destination says so itself. */
+.w360 .card.flash {
+  border-color: var(--w-accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--w-accent) 35%, transparent);
+}
+
+/* ── Village maps (W16) ─────────────────────────────────────────────────
+   The map is the screen, not a panel on it: a cadastre is read by moving
+   around it, and every control here is furniture ON the map rather than a
+   column beside it. The inspector is the one column, because what it answers
+   — which of these thousands is mine, and what touches it — is a single
+   train of thought. */
+
+.w360 .vm-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24.75rem;
+  gap: var(--space-lg);
+  align-items: stretch;
+  margin-top: var(--space-md);
+}
+.w360 .vm-stage {
+  position: relative;
+  min-width: 0;
+  height: clamp(28rem, calc(100vh - 12rem), 60rem);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--w-surface);
+}
+.w360 .vc-map { position: absolute; inset: 0; }
+.w360 .vm-stage .hint {
+  position: absolute; top: var(--space-md); left: var(--space-md); z-index: 600;
+  max-width: 18rem; padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: var(--w-bg); font-size: 0.75rem; color: var(--w-ink-2);
+}
+.w360 .vm-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-md);
+  align-content: start;
+  min-width: 0;
+  max-height: clamp(28rem, calc(100vh - 12rem), 60rem);
+  overflow-y: auto;
+}
+
+/* Map furniture. 600 clears Leaflet's own panes (see the note above .plot.live
+   — the map pane is a stacking context at 400, so one number covers the lot). */
+.w360 .vc-tl, .w360 .vc-tr, .w360 .vc-badge {
+  position: absolute; z-index: 600;
+}
+.w360 .vc-tl { top: var(--space-sm); left: var(--space-sm); right: 18rem; display: grid; gap: var(--space-sm); justify-items: start; pointer-events: none; }
+.w360 .vc-tl > * { pointer-events: auto; }
+/* Each control row keeps its own line. Inside a grid item a .row is free to
+   wrap at whatever width the grid hands it, which folded "Plot size" and
+   "Boundaries" down on top of the row beneath. */
+.w360 .vc-tl > .row { flex-wrap: wrap; }
+.w360 .vc-tr {
+  top: var(--space-sm); right: var(--space-sm); display: grid; gap: 0.25rem;
+  padding: var(--space-sm); width: 16.5rem;
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 88%, transparent);
+}
+.w360 .vc-tr .row { flex-wrap: nowrap; }
+/* Left-aligned, because the placeholder is now a sentence: right-aligned it
+   would be clipped at its start, which is the half that says what to do. */
+.w360 .vc-tr input { width: 100%; min-width: 0; }
+.w360 .vc-tr .btn { flex: none; }
+.w360 .vc-badge {
+  bottom: var(--space-sm); left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--w-ink-2);
+  padding: 0.25rem 0.625rem; border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--w-bg) 82%, transparent);
+  pointer-events: none;
+}
+.w360 .vm-stage { container-type: inline-size; }
+@container (max-width: 42rem) {
+  .w360 .vc-tl { right: var(--space-sm); }
+  .w360 .vc-tr { top: auto; bottom: 3.5rem; left: var(--space-sm); right: 3.5rem; width: auto; }
+  .w360 .vc-badge { display: none; }
+}
+.w360 .vc-legend {
+  display: grid; gap: 0.25rem; min-width: 11.5rem;
+  padding: var(--space-sm); border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 88%, transparent);
+}
+.w360 .vc-legend i {
+  width: 0.625rem; height: 0.625rem; border-radius: 0.1875rem; flex: none;
+}
+.w360 .vc-measure { width: min(20rem, 100%); }
+.w360 .vc-measuring { cursor: crosshair; }
+
+/* Controls that stand ON the imagery carry their own ground.
+   `.chip` is `background: none`, which is right in a panel and wrong over a
+   photograph: bare soil at midday is near-white and a field in shade is
+   near-black, so an unselected mode was a thin outline over whichever, and in
+   the light scheme it disappeared. Same reasoning as `.plot.live .cap`. */
+.w360 .vc-tl .chip,
+.w360 .vc-tl .btn {
+  background: color-mix(in oklab, var(--w-bg) 88%, transparent);
+  border-color: var(--w-line-strong);
+  color: var(--w-ink);
+  backdrop-filter: blur(3px);
+}
+.w360 .vc-tl .chip:hover,
+.w360 .vc-tl .btn:hover { border-color: var(--w-accent); }
+/* The one that is on stays the accent it is everywhere else. */
+.w360 .vc-tl .chip[aria-pressed='true'],
+.w360 .vc-tl .btn.primary {
+  background: var(--w-accent);
+  border-color: var(--w-accent);
+  color: var(--w-accent-ink);
+}
+.w360 .vc-tl .chip:disabled,
+
+/* The plot numbers. Their own overlay rather than a Leaflet pane: they are
+   wanted above everything, they must never take a click, and they are hidden
+   wholesale during a pan instead of being recomputed frame by frame. */
+.w360 .vc-labels {
+  position: absolute; inset: 0; z-index: 520;
+  pointer-events: none;
+  transition: opacity 120ms var(--ease-out);
+}
+.w360 .vc-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600;
+  line-height: 1.2; white-space: pre; text-align: center;
+  color: var(--w-ink);
+  background: color-mix(in oklab, var(--w-bg) 74%, transparent);
+  border-radius: var(--radius-xs);
+  padding: 0.09375rem 0.25rem;
+}
+.w360 .vc-label.on {
+  color: var(--w-bg); background: var(--w-accent); font-weight: 700;
+}
+
+/* The inspector */
+.w360 .vm-switch {
+  display: flex; align-items: center; gap: var(--space-sm); width: 100%;
+  padding: 0.5rem 0.625rem; border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm); background: var(--w-surface-2);
+  color: var(--w-ink); font: inherit; font-weight: 600; cursor: pointer;
+  text-align: left;
+}
+.w360 .vm-switch .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w360 .vm-switch .note, .w360 .vm-switch svg { flex-shrink: 0; }
+.w360 .vm-plot { display: flex; align-items: center; gap: var(--space-md); }
+.w360 .vm-plotno {
+  display: grid; place-items: center; width: 3.25rem; height: 3.25rem; flex: none;
+  border-radius: var(--radius-sm); background: var(--w-accent); color: var(--w-bg);
+  font-family: var(--font-mono); font-size: 1.125rem; font-weight: 700; line-height: 1;
+}
+.w360 .vm-plotno small {
+  font-size: 0.5rem; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.75;
+}
+.w360 .vm-acres { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700; }
+.w360 .vm-facts {
+  display: grid; grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 0.375rem var(--space-sm); margin: var(--space-sm) 0 0;
+}
+.w360 .vm-facts dt {
+  font-family: var(--font-mono); font-size: 0.5625rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--w-ink-3); padding-top: 0.1875rem;
+}
+.w360 .vm-facts dd { margin: 0; font-size: 0.8125rem; min-width: 0; overflow-wrap: anywhere; }
+.w360 .vm-more {
+  display: flex; align-items: center; gap: 0.25rem; margin-top: var(--space-sm);
+  border: 0; background: none; color: var(--w-ink-3); font: inherit;
+  font-size: 0.75rem; cursor: pointer; padding: 0;
+}
+.w360 .vm-more[aria-expanded='true'] svg { transform: rotate(180deg); }
+.w360 .vm-list { max-height: 22rem; overflow-y: auto; }
+
+@media (max-width: 60rem) {
+  /* Stacked, and the map keeps a fixed share of the viewport rather than
+     collapsing to nothing inside a scrolling column. */
+  .w360 .vm-body { grid-template-columns: minmax(0, 1fr); }
+  .w360 .vm-stage { height: 56vh; }
+  .w360 .vm-side { max-height: none; overflow: visible; }
+  .w360 .vm-list { max-height: 26rem; }
+}
+
+/* The printed estimate. Hidden on screen; in print it is the only thing on the
+   page. Black on white on purpose — this is the one artefact that leaves the
+   app, and a dark theme on paper is a cartridge of ink and a grey sheet. */
+.w360 .fs-sheet { display: none; }
+.w360 .fs-sheet h2 { font-size: 1.25rem; margin: 0; }
+.w360 .fs-sheet h3 {
+  font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.12em;
+  text-transform: uppercase; margin: 0.75rem 0 0.25rem;
+}
+.w360 .fs-sheet table { width: 100%; border-collapse: collapse; }
+.w360 .fs-sheet th { text-align: left; font-weight: 400; padding: 0.1rem 0; }
+.w360 .fs-sheet td { padding: 0.1rem 0 0.1rem 0.5rem; }
+.w360 .fs-sheet td.num { text-align: right; font-family: var(--font-mono); }
+.w360 .fs-sheet tr.skip { opacity: 0.45; text-decoration: line-through; }
+.w360 .fs-sheet tr.fs-sum th, .w360 .fs-sheet tr.fs-sum td { font-weight: 700; }
+.w360 .fs-sheet tr.fs-sum { border-top: 1px solid currentColor; }
+.w360 .fs-sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.w360 .fs-sheet-money { margin-top: 1rem; }
+.w360 .fs-sheet-foot { font-size: 0.6875rem; margin-top: 1rem; }
+.w360 .fs-plan { width: 100%; max-height: 8cm; display: block; margin: 0.5rem 0; }
+.w360 .fs-plan line { stroke: currentColor; fill: none; }
+.w360 .fs-plan line.skip { stroke-dasharray: 6 5; opacity: 0.4; }
+.w360 .fs-plan text { fill: currentColor; font-family: var(--font-mono); font-weight: 700; }
+.w360 .fs-plan text.len { font-weight: 400; }
+
+@media print {
+  /* Two things print from this screen, and only ever one of them: the village
+     map, or — when the fence calculator has the stage — its estimate. Neither
+     wants the rail, the inspector or a row of input boxes.
+
+     The rail is `.nav`. It was listed here as `.rail`, which is why it printed
+     over every sheet: a class that does not exist hides nothing. */
+  .w360 .nav, .w360 .topbar, .w360 .nav-scrim, .w360 .vm-side,
+  .w360 .vc-tl, .w360 .vc-tr, .w360 .leaflet-control-zoom,
+  .w360 .pagehead .actions { display: none !important; }
+  /* The rail is hidden but its COLUMN is not: the shell is a two-column grid
+     and a `display: none` child still leaves its track behind, which squeezed
+     the whole sheet into 340px down the left of the page. */
+  .w360 .body { grid-template-columns: minmax(0, 1fr) !important; }
+  .w360 main { padding: 0 !important; }
+  .w360 .vm-body { grid-template-columns: minmax(0, 1fr); }
+  .w360 .vm-stage { height: 88vh; border: 0; }
+
+  /* With the calculator open the interactive half goes and the sheet arrives. */
+  .w360 .fs-bar, .w360 .fs-body { display: none !important; }
+  .w360 .fs { position: static; display: block; }
+  .w360 .vm-body.solo .vm-stage { height: auto; overflow: visible; background: none; }
+  .w360 .fs-sheet { display: block; }
+
+  /* Paper is white. The app is a dark theme, and printing it as one is a
+     cartridge of ink and a grey sheet — so the page, and only in print, is
+     turned back the right way up. */
+  .w360, .w360 .body, .w360 main, .w360 .vm-stage, .w360 .fs,
+  .w360 .fs-sheet { background: #fff !important; }
+  .w360 .fs-sheet, .w360 .fs-sheet *, .w360 .pagehead, .w360 .pagehead * {
+    color: #000 !important;
+  }
+  .w360 .fs-sheet tr.skip { opacity: 1; color: #666 !important; }
+  .w360 .fs-sheet tr.skip th, .w360 .fs-sheet tr.skip td { color: #666 !important; }
+
+  /* Everything above is the village map and the fence estimate. This block is
+     every OTHER screen, which until now printed as unreadable dark-on-white
+     with its two-column bodies crushed into a strip and its wide tables cut
+     off at the edge of the sheet. Ctrl-P on a cost sheet or a ledger is a
+     thing people actually do — an advocate asks for it on paper. */
+  .w360, .w360 * { color: #000 !important; }
+  .w360 .note, .w360 .eyebrow, .w360 .k, .w360 .s { color: #444 !important; }
+  .w360 .card, .w360 .rows > *, .w360 .kv > * {
+    background: #fff !important;
+    border-color: #bbb !important;
+  }
+  /* A column layout is for a screen with a side to put things on. On paper the
+     panels simply follow one another. */
+  .w360 .split, .w360 .two, .w360 .withrail, .w360 .stack, .w360 .orderflow {
+    grid-template-columns: minmax(0, 1fr) !important;
+    display: block !important;
+  }
+  /* Sticky is a screen idea. Left on, the land rail prints at the top of every
+     sheet — the same failure `.rail`/`.nav` cost this block once already. */
+  .w360 .orderflow > .landrail {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  /* A table inside a horizontal scroller loses everything past the fold — the
+     scrollbar does not exist on paper, so the overflow is simply gone. */
+  .w360 .scroll-x { overflow: visible !important; }
+  .w360 .rectable { min-width: 0 !important; }
+  /* Controls, toasts and skeletons are not information. */
+  .w360 .btn, .w360 .iconbtn, .w360 .segmented, .w360 .chip button,
+  .w360 .toasts, .w360 .skeleton, .w360 .filters, .w360 .bulkbar,
+  .w360 .selbar, .w360 .fpop, .w360 .loadmore,
+  .w360 .menu, .w360 .scrim, .w360 .sel {
+    display: none !important;
+  }
+  /* The filter row prints as the list's provenance — which filters were on
+     when this page was made — so its chips and count stay and only the
+     controls inside it go. */
+  .w360 .filterbar .addfilter,
+  .w360 .filterbar .clearall,
+  .w360 .filterbar .sortcycle,
+  .w360 .filterbar .fchip button { display: none !important; }
+  /* Keep a card whole rather than splitting one across two sheets. */
+  .w360 .card, .w360 .rec { break-inside: avoid; }
+  @page { margin: 14mm; }
+}
+
+/* Fence estimator: four small inputs, two across, so spacing sits beside
+   strands and the two rates sit beside each other. */
+.w360 .vm-fence-in {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+.w360 .vm-total {
+  border-top: 1px solid var(--w-line);
+  margin-top: 0.25rem;
+  padding-top: 0.375rem;
+  font-weight: 700;
+}
+
+/* A village on the mandal map: its name over its own ground. Never dropped
+   for want of room — eight names is not a crowd, and a shape with no name on
+   it is one nobody can act on. */
+.w360 .vc-village {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 0.0625rem;
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.85);
+}
+.w360 .vc-village strong {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fff;
+}
+.w360 .vc-village span {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  color: color-mix(in oklab, #fff 78%, transparent);
+}
+
+/* ── Fence calculator ───────────────────────────────────────────────────
+   A tool that takes the map's place, because fencing is a job you do to a
+   shape and the shape has to be in view while you price it. The panel can sit
+   on either hand: which one is right depends on the plot, not on us. */
+.w360 .fs { position: absolute; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.w360 .fs-bar {
+  display: flex; align-items: center; gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--w-line);
+  background: var(--w-surface-2);
+}
+.w360 .fs-bar .eyebrow { display: block; }
+.w360 .fs-body { display: grid; grid-template-columns: minmax(0, 1fr) 26rem; min-height: 0; }
+.w360 .fs.flip .fs-body { grid-template-columns: 26rem minmax(0, 1fr); }
+.w360 .fs.flip .fs-map { order: 2; }
+.w360 .fs.flip .fs-panel { order: 1; border-left: 0; border-right: 1px solid var(--w-line); }
+.w360 .fs-map {
+  position: relative; min-width: 0; min-height: 0;
+  border: 0; border-radius: 0;
+}
+.w360 .fs-panel {
+  border-left: 1px solid var(--w-line);
+  background: var(--w-bg);
+  overflow-y: auto;
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-lg);
+  align-content: start;
+}
+.w360 .fs-panel section { display: grid; gap: var(--space-xs); }
+
+/* Every side, with the letters it wears on the map. Skipping one is the most
+   used control here: a fence rarely goes all the way round. */
+.w360 .fs-sides { max-height: 13rem; overflow-y: auto; margin-top: var(--space-xs); }
+.w360 .fs-side {
+  display: flex; align-items: center; gap: var(--space-sm); width: 100%;
+  padding: 0.3125rem 0.5rem; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: none; color: var(--w-ink-3); font: inherit; font-size: 0.8125rem;
+  cursor: pointer; text-align: left;
+}
+.w360 .fs-side.on { color: var(--w-ink); border-color: var(--w-line); background: var(--w-surface); }
+.w360 .fs-side:hover { border-color: var(--w-accent); }
+.w360 .fs-letters {
+  font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 700;
+  min-width: 2.75rem; color: var(--w-accent);
+}
+.w360 .fs-side:not(.on) .fs-letters { color: var(--w-ink-3); }
+
+.w360 .fs-in { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
+
+.w360 .fs-bill { width: 100%; border-collapse: collapse; margin-top: var(--space-xs); }
+.w360 .fs-bill th {
+  text-align: left; font-weight: 500; font-size: 0.8125rem; color: var(--w-ink-2);
+  padding: 0.25rem 0; white-space: nowrap;
+}
+.w360 .fs-bill td { padding: 0.25rem 0 0.25rem var(--space-sm); font-size: 0.8125rem; }
+.w360 .fs-bill td.num { text-align: right; width: 5rem; white-space: nowrap; }
+.w360 .fs-bill tr.fs-sum th { color: var(--w-ink); font-weight: 700; }
+.w360 .fs-bill tr.fs-sum { border-top: 1px solid var(--w-line); }
+.w360 .fs-total {
+  display: flex; align-items: baseline; gap: var(--space-sm);
+  margin-top: var(--space-sm); padding-top: var(--space-sm);
+  border-top: 1px solid var(--w-accent);
+  font-size: 1.0625rem;
+}
+
+@media (max-width: 72rem) {
+  /* Panel under the map: side by side, neither would be readable. */
+  .w360 .fs-body,
+  .w360 .fs.flip .fs-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 22rem auto; }
+  .w360 .fs.flip .fs-map, .w360 .fs.flip .fs-panel { order: 0; }
+  .w360 .fs-panel { border-left: 0; border-top: 1px solid var(--w-line); }
+}
+
+/* The fence calculator has the whole width: the inspector beside it was
+   answering the same question its own bar answers, and the tool would rather
+   have the room. */
+.w360 .vm-body.solo { grid-template-columns: minmax(0, 1fr); }
+.w360 .vm-body.solo .vm-stage { height: clamp(32rem, calc(100vh - 10rem), 68rem); }
+
+/* ── Tools that live on the record's map ────────────────────────────────
+   The layers are chips and the writing tools are a panel, stacked at the top
+   left of the map they act on. 500 clears Leaflet's panes for the same reason
+   the hint and the caption need it (see .plot.live above). */
+.w360 .plot.live .maptools {
+  position: absolute; top: var(--space-sm); left: var(--space-sm); z-index: 500;
+  display: grid; gap: var(--space-sm); justify-items: start;
+}
+.w360 .plot.live .maptools > .row { flex-wrap: nowrap; }
+/* The hint, the draft bar and the location error all used to be pinned to the
+   same top-left corner as each other. Inside the stack they take their turn
+   instead of covering the tools they are explaining. */
+/* What the map is saying, along the bottom — clear of the tools above it and
+   of the ground between them. */
+.w360 .plot.live .mapsays {
+  position: absolute; left: var(--space-md); right: var(--space-md);
+  bottom: 3.5rem; z-index: 500;
+  display: grid; gap: var(--space-sm); justify-items: start;
+}
+/* The portfolio map alone sits a notch higher. Its band carries a single
+   bordered sentence whose box reaches lower than W04's bare hint, and at
+   3.5rem its last few pixels rested on the top of the "OpenStreetMap"
+   caption. Scoped rather than raised for every map: W04's `.nogeo.low` is
+   pinned at bottom 4.5rem and already crowds this band, so lifting the band
+   there would push the two further into each other, not apart. */
+.w360 .plot.live.pf-stage .mapsays { bottom: 4rem; }
+.w360 .plot.live .mapsays .hint,
+.w360 .plot.live .mapsays > .note,
+.w360 .plot.live .mapsays .nogeo,
+.w360 .plot.live .mapsays .editbar,
+.w360 .plot.live .mapsays .plotfind,
+.w360 .plot.live .mapsays .plotpick {
+  position: static; max-width: min(38rem, 100%); margin: 0;
+}
+/* The sentence explaining the two greyed chips has to carry its own ground
+   like everything else standing on a photograph. It went out once as bare
+   `.note low` text and landed as grey-on-grey over bare soil — which is the
+   same failure as an unreadable chip, in the one line whose whole job is to
+   stop a greyed chip reading as a broken one. */
+.w360 .plot.live .mapsays > .note {
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 92%, transparent);
+  backdrop-filter: blur(3px);
+  font-size: 0.6875rem; line-height: 1.5; color: var(--w-ink-2);
+  pointer-events: none;
+}
+/* Chips on a photograph carry their own ground — bare soil at midday is
+   near-white and a field in shade is near-black. */
+.w360 .plot.live .maptools .chip {
+  background: color-mix(in oklab, var(--w-bg) 88%, transparent);
+  border-color: var(--w-line-strong);
+  color: var(--w-ink);
+  backdrop-filter: blur(3px);
+}
+.w360 .plot.live .maptools .chip[aria-pressed='true'] {
+  background: var(--w-accent); border-color: var(--w-accent); color: var(--w-accent-ink);
+}
+/* While the tape is out, two chips stop being switches — but they stop for two
+   different reasons and must not look the same. Satellite is HELD ON: it states
+   a true fact about the screen, so it stays fully legible and only loses its
+   pointer. Village map is OUT OF REACH: it states nothing, so it recedes. Both
+   at one opacity was the first attempt, and a dimmed orange chip over imagery
+   read as a rendering fault rather than a locked control. */
+.w360 .plot.live .maptools .chip:disabled { cursor: default; }
+.w360 .plot.live .maptools .chip:disabled[aria-pressed='false'] { opacity: 0.5; }
+.w360 .plot.live .maptools .chip:disabled[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--w-accent-ink) 35%, transparent);
+}
+
+.w360 .plot.live .tools {
+  display: grid; gap: 0.125rem; min-width: 12.5rem; padding: var(--space-sm);
+  border: 1px solid var(--w-line); border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 90%, transparent);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0.75rem 2rem -1rem rgb(0 0 0 / 0.5);
+}
+.w360 .plot.live .tools .eyebrow { margin-bottom: 0.25rem; }
+/* Armed, only the armed tool is drawn, so the panel stops covering the ground
+   it is about to be used on. */
+.w360 .plot.live .tools.armed button:not(.on) { display: none; }
+.w360 .plot.live .tools button {
+  display: flex; align-items: center; gap: var(--space-sm);
+  padding: 0.375rem 0.5rem; border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--w-ink); font: inherit; font-size: 0.8125rem;
+  text-align: left; cursor: pointer;
+}
+.w360 .plot.live .tools button svg { color: var(--w-ink-3); flex: none; }
+.w360 .plot.live .tools button:hover { background: var(--w-surface-2); }
+.w360 .plot.live .tools button.on,
+.w360 .plot.live .tools button.on svg { color: var(--w-accent); }
+.w360 .plot.live .tools button.on { background: var(--w-accent-wash); font-weight: 600; }
+.w360 .plot.live .tools button:disabled { opacity: 0.55; cursor: default; }
+
+@media (max-width: 60rem) {
+  /* On a phone the panel would cover the parcel it is about. */
+  .w360 .plot.live .tools { min-width: 0; }
+  .w360 .plot.live .maptools { right: var(--space-sm); }
+  .w360 .plot.live:not(.pf-stage) .mapsays { right: 3.5rem; bottom: 5rem; }
+}
+
+/* ── The portfolio map — Properties' third view ───────────────────────────
+   Everything you own on one map. The panel follows the same idiom as every
+   other map surface here (a relative, clipped box with an explicit height, and
+   an absolutely-positioned Leaflet host inside it) rather than flex-filling
+   its column: `.split > .plot.live` has the comment explaining why a live map
+   that grows to match the list beside it slides its subject off centre. */
+.w360 .pf {
+  /* The map takes the room; the caption under it takes its own line. */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-md);
+  min-width: 0;
+  min-height: 0;
+}
+/* `main` is a flex column whose height is already definite — its grid row is
+   sized by the nav rail beside it, not by this page's content — so the map
+   view can simply take whatever the page does not use. Same idiom as
+   `main > .split` above, and it lands the stage on main's own bottom padding,
+   which is where the page's margin already lives. */
+.w360 main > .pf { flex: 1 1 auto; }
+.w360 .pf-search .search { flex: 1 1 18rem; min-width: 0; width: auto; }
+.w360 .pf-search input { min-width: 0; width: 100%; }
+.w360 .pf-body { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: var(--space-md); min-height: 0; }
+.w360 .pf-results { min-width: 0; max-height: 65vh; overflow-y: auto; border: 1px solid var(--w-line); border-radius: var(--radius-sm); padding: var(--space-sm); }
+.w360 .pf-results > .eyebrow { padding: var(--space-sm); }
+.w360 .pf-result { border-top: 1px solid var(--w-line); padding: var(--space-sm); }
+.w360 .pf-result.on { background: var(--w-accent-wash); }
+.w360 .pf-result-pick { display: grid; gap: 0.25rem; width: 100%; min-height: 2.75rem; padding: 0.375rem 0; border: 0; text-align: left; background: none; color: var(--w-ink); font: inherit; cursor: pointer; }
+.w360 .pf-result-pick strong { font-size: 0.875rem; }
+.w360 .pf-result .link { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: 0.75rem; color: var(--w-accent); }
+.w360 .pf-stage {
+  /* No fixed height. It used to be clamped from the viewport, and on any
+     window taller than about 1000px the 44rem ceiling won: the map stopped
+     two-thirds down and the rest of the screen was a band of empty page. A
+     1fr row has the same intent — fit the window, never push the page — but
+     measures the chrome instead of guessing 20rem of it.
+     The floor keeps it a map rather than a letterbox on a short window; below
+     that the page scrolls, which is the honest outcome. */
+  min-height: 22rem;
+  min-width: 0;
+}
+.w360 .pf-map { position: absolute; inset: 0; }
+
+/* Colour is status, the same encoding the cards use. Declared as CSS
+   PROPERTIES and not passed as Leaflet path options: Leaflet writes its
+   defaults as presentation attributes, and a presentation attribute only
+   loses to a property the stylesheet actually declares — the trap `.w-mark`
+   and `path.w-dim` have each paid for once already. */
+.w360 .leaflet-pane > svg path.pf-shape {
+  stroke: var(--w-ok); fill: var(--w-ok); fill-opacity: 0.16;
+  stroke-width: 2; stroke-opacity: 1; cursor: pointer;
+  transition: fill-opacity 0.15s var(--ease-out), stroke-width 0.15s var(--ease-out);
+}
+.w360 .leaflet-pane > svg path.pf-pin {
+  stroke: var(--w-bg); fill: var(--w-ok);
+  /* circleMarker ships fill-opacity="0.2"; without this line every pin is a
+     20% wash of the right colour. */
+  fill-opacity: 1; stroke-width: 2; cursor: pointer;
+}
+.w360 .leaflet-pane > svg path.pf-sale { stroke: var(--w-accent); fill: var(--w-accent); }
+.w360 .leaflet-pane > svg path.pf-disputed { stroke: var(--w-danger); fill: var(--w-danger); }
+.w360 .leaflet-pane > svg path.pf-shape.lit { fill-opacity: 0.3; stroke-width: 3; }
+.w360 .leaflet-pane > svg path.pf-shape.on { fill-opacity: 0.36; stroke-width: 4; }
+.w360 .leaflet-pane > svg path.pf-pin.lit { stroke-width: 4; }
+.w360 .leaflet-pane > svg path.pf-pin.on { stroke: var(--w-ink); stroke-width: 4; }
+
+/* Names, as an overlay rather than N Leaflet markers: a label that would land
+   on one already placed is dropped, and deciding that needs every label's box
+   at once. Hidden wholesale during a pan — recomputing them frame by frame
+   costs more than the pan is worth, and a label mid-flight is unreadable. */
+.w360 .pf-labels {
+  position: absolute; inset: 0; z-index: 450; pointer-events: none;
+  transition: opacity 0.12s linear;
+}
+.w360 .pf-labels.moving { opacity: 0; }
+.w360 .pf-label {
+  position: absolute; transform: translate(-50%, -50%);
+  padding: 0.0625rem 0.375rem; border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 86%, transparent);
+  border: 1px solid var(--w-line);
+  font-family: var(--font-mono); font-size: 0.625rem; line-height: 1.6;
+  color: var(--w-ink-2); white-space: nowrap;
+}
+.w360 .pf-label.lit { color: var(--w-ink); border-color: var(--w-line-strong); }
+.w360 .pf-label.on {
+  background: var(--w-accent); border-color: var(--w-accent);
+  color: var(--w-accent-ink); font-weight: 600;
+}
+
+/* What you picked, and the way on to it. Bottom-left, above the caption. */
+.w360 .pf-pick {
+  position: absolute; left: var(--space-md); bottom: 4.5rem; z-index: 500;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm);
+  max-width: min(26rem, calc(100% - 2 * var(--space-md)));
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--w-bg) 94%, transparent);
+  backdrop-filter: blur(4px);
+}
+.w360 .pf-pick > div { display: grid; min-width: 0; }
+.w360 .pf-pick strong { font-size: 0.875rem; }
+.w360 .pf-pick .note { font-size: 0.6875rem; }
+
+@media (max-width: 60rem) {
+  /* On a phone the pick panel would cover the land it is about. */
+  .w360 .pf-stage { min-height: 18rem; }
+  .w360 .pf-pick { left: var(--space-sm); right: var(--space-sm); max-width: none; }
+  .w360 .pf-body { grid-template-columns: minmax(0, 1fr); }
+  .w360 .pf-body .pf-stage { height: 55vh; min-height: 22rem; }
+  .w360 .pf-results { max-height: 25rem; }
+}
+
+/* ── A card's own artwork ─────────────────────────────────────────────────
+   In order: the photograph the owner took, the ground the record sits on, the
+   illustration for what kind of thing it is. The icon stays in the markup
+   underneath the whole stack and is simply painted over, so no arrangement of
+   failures — no bytes, no session, no tiles, no location — leaves a card
+   blank. */
+.w360 .rec .art .cardphoto,
+.w360 .rec .art .mapart {
+  position: absolute; inset: 0;
+  /* `.rec` is deliberately not overflow:hidden — the kebab opens a menu that
+     has to escape the card — so the art's children clip themselves. Inherited
+     rather than restated: the radius is the card's, and two places to change
+     it is one place to forget. */
+  border-radius: inherit;
+  overflow: hidden;
+}
+.w360 .rec .art .cardphoto { width: 100%; height: 100%; object-fit: cover; }
+
+/* The tiles. `max-width: none` is load-bearing next to any img reset — a tile
+   is 256 px and must stay 256 px, or the mosaic shrinks to fit and the
+   boundary drawn over it lands in a field it does not own. */
+.w360 .mapart img {
+  position: absolute;
+  width: 256px; height: 256px; max-width: none;
+}
+.w360 .mapart svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* The boundary wears the same class it wears on the real map, so the active
+   scheme follows it onto the card. Heavier here on purpose: at this size a
+   2px hairline over imagery is a smudge. */
+.w360 .mapart path.w-ring {
+  stroke: var(--w-accent); fill: var(--w-accent); fill-opacity: 0.2;
+  stroke-width: 2.5; stroke-linejoin: round;
+  paint-order: stroke;
+}
+.w360 .mapart circle.pf-pin {
+  stroke: var(--w-bg); fill: var(--w-accent); fill-opacity: 1; stroke-width: 2.5;
+}
+/* A scrim, once there is a photograph under the controls.
+   The status pills, the select box and the kebab were drawn for a flat tinted
+   gradient. Over real ground they are drawn for nothing in particular: bare
+   soil at midday is near-white and a field in shade is near-black, so any one
+   fixed colour is unreadable somewhere. The same problem the on-map chips have,
+   and the same answer — except that a chip can carry its own ground while a
+   row of pills cannot without looking like a toolbar, so the ground goes under
+   all of them at once.
+
+   Only where there IS artwork: over the illustration the gradient is already
+   quiet and a second one would just dim it. */
+.w360 .rec .art:has(.mapart, .cardphoto)::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(to bottom,
+    rgb(0 0 0 / 0.45), rgb(0 0 0 / 0.12) 42%, transparent 62%);
+  pointer-events: none;
+}
+/* Above the scrim. Without this they sit under it and the fix darkens the very
+   things it was added to rescue. */
+.w360 .rec .art .badges,
+.w360 .rec .art .more,
+.w360 .rec .art .photo-failed { z-index: 1; }
+/* An unchecked box is a thin outline, and a thin outline is the first thing a
+   photograph swallows. */
+.w360 .rec .art:has(.mapart, .cardphoto) .sel input {
+  background: rgb(0 0 0 / 0.35);
+  border-radius: 3px;
+  outline: 1px solid rgb(255 255 255 / 0.5);
+}
+
+/* ── W16 · tickets ─────────────────────────────────────────────────── */
+
+/* The stage rail. It was inline styles inside Orders.tsx, so the ticket page
+   could not have the same one without copying them. */
+.w360 .rail { display: inline-flex; align-items: center; gap: 0.1875rem; }
+.w360 .rail i {
+  width: 1.75rem;
+  height: 0.25rem;
+  border-radius: var(--radius-pill);
+  background: var(--w-surface-2);
+}
+.w360 .rail i.on { background: var(--w-accent); }
+.w360 .rail .w {
+  margin-left: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--w-ink-3);
+}
+
+/* A figure the system has recorded and not collected. Deliberately
+   colourless: green would vouch for a payment that did not happen, and amber
+   would raise an alarm nobody has grounds for — the same reasoning that
+   makes .state.unknown a hollow ring. */
+.w360 .pill.sim {
+  background: var(--w-surface-2);
+  color: var(--w-ink-3);
+  border-color: var(--w-line);
+}
+
+/* High Contrast strengthens every keyboard focus ring. These declarations
+   are authoritative because several component selectors above are more
+   specific and must not reduce the accessibility treatment back to 2px. */
+.w360[data-scheme='highContrast'] :focus-visible {
+  outline: 3px solid var(--color-focus) !important;
+  outline-offset: 2px !important;
+}
+/* ── Ordering a service (W17) ──────────────────────────────────────────
+   The order flow is the one screen in this module where money is committed,
+   so three of the rules below are module-wide repairs it cannot ship without
+   and the rest are its own two-column body. */
+
+/* Money is committed on this screen, and in 3,200 lines there was no
+   `.btn:disabled` rule outside `.vc-tl`. So a disabled primary kept its full
+   accent fill, kept `cursor: pointer`, and still brightened under
+   `.btn.primary:hover { filter: brightness(1.06) }` — a button that lies about
+   being pressable, on the screen that can least afford one. `filter: none` is
+   what cancels the hover; opacity alone loses to it. Ticket.tsx wrote this
+   exact rule inline thirteen times and its comment asked for it here. */
+.w360 .btn:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
+
+/* `.btn.sm` is 0.3125rem/0.75rem — about 26px, well under any touch floor —
+   and this flow leans on it for Change, Clear, Show all and every Empty
+   action. The module already knows 2.75rem is the floor; it just applies it in
+   only two places. Scoped to coarse pointers so no desktop layout moves. */
+@media (pointer: coarse) {
+  .w360 .btn, .w360 .btn.sm { min-height: 2.75rem; }
+}
+
+/* `.link` was defined only as `.cardhead .link` and `.pf-result .link`, so
+   className="link" anywhere else was unstyled and fell to the user agent's
+   blue underline — inside a warm amber dark theme. This flow adds several
+   (Locate / draw boundary, Open the job, Open Papers); promoting the rule also
+   styles the call sites already shipping unstyled. */
+.w360 .link { color: var(--w-accent); text-decoration: none; }
+.w360 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* The flow's own body. `.split` cannot be reused: it is minmax(0,1fr) + 22rem
+   with the rail LAST, so below its breakpoint the rail falls underneath the
+   content — which is precisely the defect being fixed here, where the land has
+   to lead the page at every width. 20rem rather than 22rem because the right
+   column at 1201px is then ~525px and it holds the answer sheet.
+   minmax(0, 1fr), never a bare fr: one long answer would otherwise floor the
+   track at min-content and scroll the whole page sideways. */
+.w360 .orderflow {
+  display: grid;
+  grid-template-columns: 20rem minmax(0, 1fr);
+  gap: var(--space-lg);
+}
+
+/* `main` is a flex column and only `.split`/`.two` claim the page's leftover
+   height. Without this the last step — one card — collapses the grid row to
+   content height and the sticky rail has no distance to stick over. */
+.w360 main > .orderflow { flex: 1 1 auto; }
+
+/* The land stays on screen while the answers are typed. `align-self: start` is
+   load-bearing rather than taste: a grid item stretches by default and a
+   stretched item cannot stick, the same collision `.split > .plot.live`
+   already carries this fix for. `top: 3.5rem` is the topbar height that `.nav`
+   and `.filters` already use. The max-height/overflow pair is what stops a
+   rail taller than the viewport pinning its own foot off-screen. */
+.w360 .orderflow > .landrail {
+  position: sticky;
+  top: 3.5rem;
+  align-self: start;
+  max-height: calc(100vh - 4.5rem);
+  overflow-y: auto;
+}
+
+/* At the shell's own breakpoint the rail becomes a full-width block, and
+   sticky there pins it over the content beneath. 1200px is a 13" laptop and a
+   half-screen window, not an edge case. */
+@media (max-width: 1200px) {
+  .w360 .orderflow { grid-template-columns: minmax(0, 1fr); }
+  .w360 .orderflow > .landrail { position: static; max-height: none; overflow: visible; }
+}
+
+/* MapThumb positions itself `inset: 0` and returns null when the record is not
+   located, so it needs a parent with a real height that shows its own artwork
+   through. A zero-height parent leaves its measured `size` null and draws an
+   empty box — and the unlocated record is exactly the case this flow is about.
+   `.rec .art` is the wrong host here: 6.5rem tall, a card gradient, and top-
+   only radii meant for a card's head. */
+.w360 .landart {
+  position: relative;
+  height: 7.5rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--w-surface-2);
+  color: color-mix(in oklab, var(--w-accent) 45%, transparent);
+}
+
+/* The compact land row for the later steps, and for every width at or below
+   1200px. 48px against the full card's ~400px — this is what stops the land
+   becoming a preamble the owner scrolls past four times to place one order. */
+.w360 .landbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .landbar .thumb {
+  position: relative;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  background: var(--w-surface-2);
+}
+
+/* The one that would have bitten. The positioning rule for a map thumb is
+   scoped `.w360 .rec .art .mapart`, while `.w360 .mapart img` is global and
+   absolute — so a MapThumb outside a record card does not merely look wrong:
+   its 256px tiles position against the nearest positioned ancestor and scatter
+   across the page. */
+.w360 .landart .mapart,
+.w360 .landbar .thumb .mapart { position: absolute; inset: 0; }
+/* MapThumb renders nothing at all for a record with no ring and no pin, which
+   is the case this whole flow exists to notice — so the thumb keeps its own
+   illustration underneath, and an unlocated parcel is a picture of land rather
+   than an empty grey square. */
+.w360 .landbar .thumb { display: grid; place-items: center;
+                        color: color-mix(in oklab, var(--w-accent) 45%, transparent); }
+
+/* `.choice` already IS this module's selectable-tile primitive — aria-pressed
+   buttons, hairline at rest, accent border and wash when on, a <small> sub-line
+   in ink-3. Only its fixed two columns are wrong inside a main that is 20rem
+   narrower than the record grid's. One line, one property. */
+.w360 .choice.svc { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+
+/* `.kv > div` is flex/space-between with no wrap and `.kv .v` is right-aligned
+   mono. The server's own field labels are sentences — "Is a neighbour disputing
+   it?" — and at 375px the review card leaves about 271px for both columns, so a
+   three-word answer ends up right-aligned in 125px against a three-line label.
+   This is the one screen that must be readable before money moves. */
+@media (max-width: 700px) {
+  .w360 .kv > div { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+  .w360 .kv dd, .w360 .kv .v { text-align: left; }
+}
+
+/* The rail is only a rail on the step that is still a decision. From the answer
+   sheet onwards the land is a hairline bar, and a 20rem column holding a 48px
+   bar is 320px of dead page beside the form somebody is filling in. */
+.w360 .orderflow.solo { grid-template-columns: minmax(0, 1fr); }
+.w360 .orderflow.solo > .landrail { position: static; max-height: none; overflow: visible; }
+/* `flex: 1 1 auto` above gives the two-column form room for a sticky rail. In
+   one column it has nothing to stick and the rows simply share the leftover
+   height between them — which put a quarter of a screen of nothing between the
+   land bar and the receipt, the shortest step there is. */
+.w360 .orderflow.solo { align-content: start; }
+
+/* `.row` wraps by default, which is right nearly everywhere and wrong here:
+   "Mutation / name transfer" pushed its own price onto a second line, so one
+   tile in six read as though it had no price until you looked twice. The label
+   wraps inside itself instead, and the chip never leaves the line. */
+.w360 .svchead { flex-wrap: nowrap; align-items: baseline; gap: var(--space-sm); }
+.w360 .svchead > strong { min-width: 0; }
+.w360 .svchead > .chip { flex: none; }
+
+/* An answer sheet is reading, and a 1,140px-wide select holding five options
+   is not. The module caps the routed area at 80rem for the same reason; this
+   is the same rule one level down, on the only screen whose whole job is a
+   handful of short answers. The textarea is capped with them deliberately —
+   a note to a surveyor is three lines, not a column of newsprint. */
+.w360 .qsheet { max-width: 42rem; }
+
+/* ── W18 · associates ──────────────────────────────────────────────────
+   The desk (docs/specs/2026-09-13-associates-marketplace.md) is six operator
+   screens and one rebuilt card on the owner's ticket, and it is drawn almost
+   entirely out of what is already here: `.strip` for its figures, `.card
+   padding:0` around `.rows.boxed` for its job and roster lists, `.avatarlg`
+   for the person, `.kv` for one associate's facts, `.field`/`.check`/`.choice`
+   for enrolling somebody, `.rectable` for the coverage grid, `.card.alert` for
+   a job nobody can take. The one thing none of them has a notion of is the
+   number below. */
+
+/* The number of the person who is actually on your job — the one contact this
+   module ever prints in full, on the one page whose owner is allowed to see
+   it (Ticket.tsx, "Who is on it"; the server decides, and every other contact
+   in Pattadar stays masked).
+   It is a `tel:` link, and it is read on a phone by somebody who wants to
+   press it, so it takes the 2.75rem touch floor this file already applies to
+   `.btn` under a coarse pointer instead of being a 13px line of mono a thumb
+   cannot hit. `.link` is the wrong host for that: it is an inline word inside
+   a sentence and sizing it up would move every other link in the module. The
+   digits never wrap — a number broken across two lines is one somebody
+   mis-dials. */
+.w360 .telnum {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.0625rem;
+  color: var(--w-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.w360 .telnum:hover { text-decoration: underline; text-underline-offset: 3px; }
+.w360 .telnum svg { color: var(--w-ink-3); flex: none; }
+
+/* The same contact when it is an email address — `channel_for` accepts both,
+   and an address is not a number: it has to be allowed to wrap inside a 22rem
+   aside instead of running out of it, and tabular figures do nothing for it. */
+.w360 .telnum.addr {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.9375rem;
+}
+
+/* ── One ordered service (W18) ─────────────────────────────────────────── */
+
+/* Two columns of different heights. `.split` stretches its children, and the
+   `.stack` inside them sets `align-content: start`, so every pixel one column
+   runs longer than the other is drawn as blank canvas inside the shorter one —
+   measured at 1224 x 852 = 1,042,848px² on a freshly placed job, 78% of the
+   column an owner actually reads, and it can only get worse on a wider
+   display. `align-content: start` is the second half, because
+   `main > .split { flex: 1 1 auto }` would otherwise spread the single grid
+   row over the page's leftover height. `.orderflow.solo` carries the identical
+   pairing for the identical reason. Opt-in by modifier only: eight screens
+   share `.split` and none of the others is touched. */
+.w360 .split.loose { align-items: start; align-content: start; }
+
+/* A measure cap for the server's own sentences, now that they live in a
+   full-width column instead of a 22rem rail. `money.honesty`, the
+   nothing-came-back promise and the roster's intro run about 150 characters to
+   a line in an 816px column and 190 in a 1224px one — twice the measure prose
+   is legible at. 42rem is `.qsheet`'s figure, taken for exactly this reason,
+   so the number is the module's own and not a new one. */
+.w360 .svc-say { max-width: 42rem; }
+
+/* The same problem for the tabular blocks, which want more room than prose and
+   less than the page. `.kv > div` is a flex row with space-between and a mono
+   right-aligned value, so an uncapped answer row draws "Copies" at x=0 and "2"
+   at x=1200 with eleven hundred pixels of nothing between them. Deliverable
+   rows and the dispatch body are deliberately NOT capped — a scan thumbnail
+   and a sent message want the room. */
+.w360 .svc-rows { max-width: 48rem; }

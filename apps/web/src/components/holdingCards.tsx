@@ -1,5 +1,5 @@
 /**
- * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ * Pattadar Bloom · Material 3-guided application surface
  *
  * Card building blocks for the Passbooks and Land & Properties grids —
  * functional port of the rhub pattadar app's ParcelGallery helpers
@@ -11,7 +11,7 @@
  * #cf1322 red) and a blue media gradient with the two mixing endpoints
  * hardcoded to #FFFFFF / #16191c.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -52,34 +52,93 @@ export function stakePill(stake?: string): Pill | undefined {
   return undefined;
 }
 
-/** Fetch a My-Drive fileRef's bytes into an object URL (card cover photos). */
-export function useBlobUrl(fileRef?: string): string {
-  const [url, setUrl] = useState('');
+/** What a stored-file read is doing, and how it ended.
+ *
+ *  `idle` means there is nothing to fetch (no fileRef); `error` means there
+ *  were bytes to fetch and we did not get them. Keeping those apart is the
+ *  whole point of this type. */
+export type BlobStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+export interface BlobFetch {
+  url?: string;
+  status: BlobStatus;
+  /** The store's response code when it refused — absent when the request
+   *  never got an answer at all (offline, DNS, a dropped connection). */
+  httpStatus?: number;
+  retry: () => void;
+}
+
+/** Fetch a My-Drive fileRef's bytes into an object URL, reporting which of
+ *  four things happened.
+ *
+ *  `useBlobUrl` below returns only a URL or the empty string, which collapses
+ *  three different outcomes into one: still fetching, fetched fine, and
+ *  REFUSED. Callers therefore dressed a failed storage read as an unfiled
+ *  photo — a photo that exists and could not be loaded was drawn as a photo
+ *  that was never taken, with nothing on screen saying the read failed and no
+ *  way to ask again. This hook is that same fetch with its outcome kept, so a
+ *  screen can say "could not load" and offer `retry` instead of lying.
+ *
+ *  `format=web` is not optional: an iPhone's HEIC is undecodable in every
+ *  browser, and the gateway transcodes it server-side. `thumb` asks the same
+ *  endpoint to downscale before sending — a 4032px original behind a 3.5rem
+ *  tile is bytes nobody sees.
+ *
+ *  The request goes through `apiFetch` because the storage gateway wants a
+ *  real Bearer token on every read; a plain <img src> gets a 401. */
+export function useBlobFetch(fileRef?: string, thumb?: number): BlobFetch {
+  const [nonce, setNonce] = useState(0);
+  const [state, setState] = useState<Omit<BlobFetch, 'retry'>>({ status: 'idle' });
+
   useEffect(() => {
     if (!fileRef) {
-      setUrl('');
+      setState({ status: 'idle' });
       return;
     }
     let revoke = '';
     let cancelled = false;
+    // Clearing the URL as the fetch starts is deliberate: the cleanup below
+    // revokes the previous object URL, so carrying it through a fileRef change
+    // would leave the <img> pointed at bytes the browser has already released.
+    setState({ status: 'loading' });
     (async () => {
       try {
-        const res = await apiFetch(`/api/gateway/storage/files/${fileRef}/content`);
-        if (!res.ok) return;
+        const q = thumb ? `?format=web&thumb=${thumb}` : '?format=web';
+        const res = await apiFetch(`/api/gateway/storage/files/${fileRef}/content${q}`);
+        if (!res.ok) {
+          if (!cancelled) setState({ status: 'error', httpStatus: res.status });
+          return;
+        }
         const blob = await res.blob();
         if (cancelled) return;
         revoke = URL.createObjectURL(blob);
-        setUrl(revoke);
+        setState({ url: revoke, status: 'ready' });
       } catch {
-        /* cover is decorative — ignore */
+        // A throw here is a network-level failure, so there is no response
+        // code to pass on — the caller gets `error` with no `httpStatus`.
+        if (!cancelled) setState({ status: 'error' });
       }
     })();
     return () => {
       cancelled = true;
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [fileRef]);
-  return url;
+  }, [fileRef, thumb, nonce]);
+
+  const retry = useCallback(() => setNonce((n) => n + 1), []);
+  return { ...state, retry };
+}
+
+/** The same fetch, for the callers that only want somewhere to point an <img>
+ *  (card covers, gallery frames, thumbnails). It is a thin read of
+ *  `useBlobFetch` rather than a second fetch path, so there is one request,
+ *  one cache of object URLs and one revoke rule to reason about.
+ *
+ *  A screen that should distinguish a refused read from an unfiled photo wants
+ *  `useBlobFetch` instead — this one deliberately still says nothing when the
+ *  read fails. */
+export function useBlobUrl(fileRef?: string, thumb?: number): string {
+  return useBlobFetch(fileRef, thumb).url ?? '';
 }
 
 /** Small TONAL overlay chip (M3): tinted container fill + readable on-colour.

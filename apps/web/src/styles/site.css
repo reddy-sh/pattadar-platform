@@ -1,16 +1,8 @@
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
- * genre: atmospheric · macrostructure: Marquee Hero · theme: studied-DNA (source: https://www.usehallmark.com/examples/hyperlane/ · Bloom)
- * nav: N10 scroll-morph (bar→pill · variation from source N5 — 7 links + brand + CTA) · footer: Ft5 Statement
- * accent: warm amber (≤5% page footprint) + secondary coral · enrichment: none — typography + ambient blooms
- * studied: yes · DNA-source: url · design-system: design.md · designed-as-app
- * observed-fonts: Inter Tight + Inter + JetBrains Mono + Instrument Serif (italic accent)
- * copy: BYTE-FROZEN (design.md § Copy freeze) — no CSS-generated visible words
- * contrast: pass (40–41) · nav: N10 · footer: Ft5 · slop: pass (42–45) · honest: pass (46)
- * chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30)
- * mobile: pass (34, 49, 50–57) · studied-DNA parity deviations (sanctioned by gate 57):
- *   gate 38a (italic serif em inside display headings — the source's signature move) ·
- *   gate 37 (4-family stack — the source's exact font system) ·
- *   gate 14 (nav morph transitions max-width/padding — the source's N-morph mechanic)
+/* Pattadar Bloom marketing surface.
+ * Material 3-guided hierarchy, adaptive layout, accessible interaction states,
+ * purposeful motion, and original Living Land Record illustration system.
+ * Copy remains byte-frozen; styles are scoped to `.site` and never leak into
+ * the authenticated application.
  *
  * Scope: everything lives under `.site` — this stylesheet must never leak
  * into the /app MUI surface. Marketing pages wrap themselves in
@@ -249,14 +241,42 @@ html:has(.site) body {
 .hero {
   position: relative;
   isolation: isolate;
-  /* bottom-heavier padding pulls the hero into the spec card's rhythm
-   * (slop-test gate 44a) */
   padding: var(--space-2xl) var(--page-gutter) var(--space-3xl);
   display: grid;
   gap: var(--space-xl);
-  text-align: center;
-  place-items: center;
   overflow: hidden;
+}
+
+.hero__stage {
+  width: min(100%, var(--max-width));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(24rem, 1.08fr);
+  align-items: center;
+  gap: clamp(var(--space-xl), 5vw, var(--space-3xl));
+}
+
+.hero__copy {
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-lg);
+  text-align: left;
+}
+
+.hero__copy .hero__rail { margin: 0; }
+.hero__copy .hero__display {
+  align-items: flex-start;
+  text-align: left;
+  margin: 0;
+  max-width: 10ch;
+  font-size: clamp(3.25rem, 5.4vw, 6rem);
+}
+.hero__copy .hero__lead { margin: 0; }
+.hero__copy .hero__ctas { justify-content: flex-start; }
+
+.hero__stage .hero-scene {
+  width: 100%;
 }
 
 .hero__rail {
@@ -376,7 +396,7 @@ html:has(.site) body {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   width: 100%;
-  max-width: 56rem;
+  max-width: var(--max-width);
   color: var(--color-ink-2);
   opacity: 0;
   animation: rise var(--dur-slow) var(--ease-out) 420ms forwards;
@@ -394,6 +414,185 @@ html:has(.site) body {
   height: 15px;
   color: var(--color-accent);
   flex: 0 0 auto;
+}
+
+/* ── hero story · scattered proof becoming one record ─────────────
+ * Motion narrative, lazily loaded behind a drawn silhouette so the hero copy
+ * never waits on it and the area is never blank. See HeroStory.tsx. */
+.hero-scene {
+  width: min(100%, 48rem);
+  min-width: 0;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.hero-scene__svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hero-scene { cursor: pointer; }
+}
+
+/* ── platform journey · the three-step story ──────────────────────
+ * Steps on one side, the stage on the other, so the picture is always beside
+ * the words it illustrates. Motion (motion.dev) plays one act at a time, once,
+ * and rests on the last step. Nothing loops, so no pause control is owed. The
+ * step list is the accessible source of truth and never depends on motion.
+ * `--journey-act` mirrors ACT_MS in PlatformJourney.tsx — keep them in step. */
+.journey {
+  --journey-act: 3400ms;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: clamp(var(--space-xl), 4vw, var(--space-3xl));
+  align-items: center;
+}
+
+.journey__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A hairline timetable, so the three steps read as a sequence rather than as
+ * three cards of equal weight. */
+.journey__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  column-gap: var(--space-md);
+  padding: var(--space-lg) 0 var(--space-lg) var(--space-md);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  border-left: var(--rule-bold) solid transparent;
+  transition:
+    border-color var(--dur-base) var(--ease-out),
+    background var(--dur-base) var(--ease-out);
+}
+
+.journey__step:last-child { border-bottom: var(--rule-hair) solid var(--color-rule); }
+
+.journey__step[data-state='active'] {
+  border-left-color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 5%, transparent);
+}
+
+/* The numeral becomes a filled marker on the step being told, so position in
+ * the story is carried by shape as well as colour. */
+.journey__step-num {
+  grid-row: 1 / span 2;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border: var(--rule-hair) solid var(--color-rule-strong);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--color-ink-3);
+  transition:
+    color var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out),
+    background var(--dur-base) var(--ease-out);
+}
+
+.journey__step[data-state='active'] .journey__step-num {
+  border-color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+}
+
+.journey__step[data-state='told'] .journey__step-num { color: var(--color-accent-soft); }
+
+.journey__step-h {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--color-ink-2);
+  margin: 0 0 var(--space-2xs);
+  overflow-wrap: anywhere;
+  min-width: 0;
+  transition: color var(--dur-base) var(--ease-out);
+}
+
+.journey__step[data-state='active'] .journey__step-h { color: var(--color-ink); }
+
+/* Every step is re-tellable, by pointer or by keyboard. */
+.journey__step-btn {
+  display: block;
+  text-align: left;
+  padding: 0;
+  border-radius: var(--radius-xs);
+}
+
+.journey__step-btn:focus-visible {
+  outline: var(--rule-bold) solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+/* Body copy stays at full reading contrast whichever act is on the stage —
+ * dimming it would make the story cost something to read. */
+.journey__step-b {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  margin: 0;
+  max-width: var(--measure);
+}
+
+/* How long this step holds the stage, drawn along its own baseline. Runs only
+ * while the story is telling itself; choosing a step ends it. */
+.journey__step-progress {
+  position: absolute;
+  inset-inline: -1px;
+  bottom: -1px;
+  height: var(--rule-bold);
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.journey[data-auto='true'] .journey__step[data-state='active'] .journey__step-progress {
+  animation: journey-progress var(--journey-act) linear both;
+}
+
+@keyframes journey-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.journey__figure {
+  width: 100%;
+  /* Held to roughly the height of the three steps beside it: the stage
+   * illustrates the story, it does not outsize it. */
+  max-width: 28rem;
+  min-width: 0;
+  margin: 0;
+  justify-self: end;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.journey__svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Reserves the scene's exact ratio while its chunk arrives, so the page never
+ * shifts under someone who is already reading the steps. */
+.journey__placeholder {
+  width: 100%;
+  aspect-ratio: 520 / 420;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--color-paper-2) 60%, transparent);
 }
 
 /* ── spec card (the portfolio sample, calmed) ────────────────────── */
@@ -522,6 +721,11 @@ html:has(.site) body {
   margin: 0 0 var(--space-2xl);
 }
 
+/* Sections whose body is two columns starting right under the heading. The
+ * full 2xl gap is sized for full-width content and reads as a void when the
+ * next thing is a narrow column of copy. */
+.section-head--tight { margin-bottom: var(--space-xl); }
+
 .section-eyebrow {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -540,6 +744,9 @@ html:has(.site) body {
   color: var(--color-ink);
   margin: 0;
   max-width: 22ch;
+  /* Two-line headings at this size leave ugly widows — "An assistant that knows
+   * your / land" was one word alone on the second line. */
+  text-wrap: balance;
   overflow-wrap: anywhere;
   min-width: 0;
 }
@@ -755,10 +962,24 @@ html:has(.site) body {
 
 .split {
   display: grid;
-  gap: var(--space-2xl);
-  align-items: center;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: clamp(var(--space-xl), 4vw, var(--space-3xl));
+  /* `center` used to float the three points against the tall visual column,
+   * leaving a large void under the section heading. They start at the top. */
+  align-items: start;
+  /* The copy leads. The panel used to take the wider half, which stretched the
+   * bubbles into banners and the action row into a rule across the page. */
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
 }
+
+/* The lead sits in this column rather than under the heading: full-width, it
+ * left a band of empty paper across the middle of the section. */
+.split__copy {
+  display: grid;
+  gap: var(--space-xl);
+  min-width: 0;
+}
+
+.split__copy .section-lead { margin: 0; }
 
 .split__points {
   display: flex;
@@ -797,29 +1018,73 @@ html:has(.site) body {
   max-width: var(--measure);
 }
 
-.convo {
+/* ── assistant · the sample conversation, told as a conversation ──
+ * Replaces a panel of abstract placeholder bars plus a separate chat card. One
+ * panel, real words, and the action the last answer promises. See
+ * AssistantConversation.tsx.
+ *
+ * The whole sequence is a CSS timeline keyed by position, because the
+ * conversation is byte-frozen at four messages. Everything is VISIBLE by
+ * default; the staged entrance is added only under [data-run='true'], so a
+ * failed observer or a dead script leaves the conversation readable. */
+.assistant {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-md);
   padding: var(--space-lg);
   background: color-mix(in oklch, var(--color-paper-2) 92%, transparent);
   border: var(--rule-hair) solid var(--color-rule);
   border-radius: var(--radius-lg);
 }
 
-.convo__thread {
-  margin-top: var(--space-md);
+.assistant__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.assistant__head svg {
+  width: 22px;
+  height: 22px;
+  color: var(--color-accent);
+}
+
+.assistant__live {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  animation: pulse 2.4s var(--ease-in-out) infinite;
+}
+
+.assistant__thread {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
+
+/* Each message keeps its space from the first paint, so the panel never
+ * resizes while the story tells itself. */
+.assistant__row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.assistant__row[data-role='user'] { justify-content: flex-end; }
 
 .bubble {
   max-width: 90%;
   padding: var(--space-sm) var(--space-md);
   font-size: var(--text-sm);
   line-height: var(--leading-snug);
+  margin: 0;
 }
 
 .bubble--user {
-  align-self: flex-end;
   max-width: 85%;
   color: var(--color-ink);
   background: color-mix(in oklch, var(--color-accent) 14%, var(--color-paper-2));
@@ -828,11 +1093,148 @@ html:has(.site) body {
 }
 
 .bubble--assistant {
-  align-self: flex-start;
   color: var(--color-ink-2);
   background: var(--color-paper-3);
   border: var(--rule-hair) solid var(--color-rule);
   border-radius: var(--radius-md) var(--radius-md) var(--radius-md) var(--radius-xs);
+}
+
+/* The pause before an answer. Absolute, so it costs no layout — the bubble
+ * behind it already holds the space — and never able to intercept a selection
+ * or a tap on the message it sits over. */
+.assistant__typing {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  pointer-events: none;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-paper-3);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-md);
+}
+
+.assistant__typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-ink-3);
+}
+
+/* "Acts, not just talks", shown: the record opens and the Files section is
+ * ready. Sized to its contents and left-aligned so it reads as something the
+ * last answer did, not as a footer rule across the panel. Decorative — the
+ * message above it already says so in words. */
+.assistant__act {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+  border: var(--rule-hair) solid color-mix(in oklch, var(--color-accent) 32%, var(--color-rule));
+  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
+  border-radius: var(--radius-pill);
+}
+
+.assistant__act svg {
+  width: 18px;
+  height: 18px;
+  color: var(--color-accent);
+  flex: 0 0 auto;
+}
+
+.assistant__act .assistant__done { color: var(--color-success); }
+
+.assistant__track {
+  width: 7rem;
+  height: 4px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+  background: var(--color-paper-4);
+  overflow: hidden;
+}
+
+.assistant__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transform-origin: left center;
+}
+
+/* ── assistant · the timeline ─────────────────────────────────────
+ * `both` fill mode is what makes the delays work as beats: during the delay the
+ * message holds the `from` frame, so it waits its turn instead of appearing and
+ * then animating. Runs once and rests. */
+.assistant[data-run='true'] .bubble {
+  animation: bubble-in var(--dur-slow) var(--ease-out) both;
+}
+
+.assistant[data-run='true'] .assistant__typing {
+  display: flex;
+  animation: typing-window 800ms linear both;
+}
+
+.assistant[data-run='true'] .assistant__typing i {
+  animation: typing-dot 280ms var(--ease-in-out) 3;
+}
+
+.assistant[data-run='true'] .assistant__row:nth-child(1) .bubble { animation-delay: 300ms; }
+
+.assistant[data-run='true'] .assistant__row:nth-child(2) .bubble { animation-delay: 1500ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(2) .assistant__typing { animation-delay: 700ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(2) .assistant__typing i { animation-delay: 700ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(2) .assistant__typing i:nth-child(2) { animation-delay: 800ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(2) .assistant__typing i:nth-child(3) { animation-delay: 900ms; }
+
+.assistant[data-run='true'] .assistant__row:nth-child(3) .bubble { animation-delay: 2000ms; }
+
+.assistant[data-run='true'] .assistant__row:nth-child(4) .bubble { animation-delay: 3300ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(4) .assistant__typing { animation-delay: 2500ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(4) .assistant__typing i { animation-delay: 2500ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(4) .assistant__typing i:nth-child(2) { animation-delay: 2600ms; }
+.assistant[data-run='true'] .assistant__row:nth-child(4) .assistant__typing i:nth-child(3) { animation-delay: 2700ms; }
+
+.assistant[data-run='true'] .assistant__act {
+  animation: bubble-in var(--dur-slow) var(--ease-out) 3500ms both;
+}
+
+.assistant[data-run='true'] .assistant__fill {
+  animation: assistant-open 900ms var(--ease-out) 3600ms both;
+}
+
+.assistant[data-run='true'] .assistant__done {
+  animation: assistant-arrive 300ms var(--ease-out) 4500ms both;
+}
+
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes typing-window {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes typing-dot {
+  0%, 100% { opacity: 0.4; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
+@keyframes assistant-open {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes assistant-arrive {
+  from { opacity: 0; transform: scale(0.4); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ── wallet band ─────────────────────────────────────────────────── */
@@ -1086,13 +1488,25 @@ html:has(.site) body {
 /* ── scroll reveal ───────────────────────────────────────────────── */
 
 .reveal {
-  opacity: 0;
-  transform: translateY(26px);
-  transition:
-    opacity 0.7s var(--ease-out),
-    transform 0.7s var(--ease-out);
+  opacity: 1;
+  transform: none;
 }
-.reveal.is-shown { opacity: 1; transform: none; }
+
+/* Content is never hidden behind JavaScript. Browsers that support a view
+ * timeline receive a subtle one-shot entrance; everyone else gets the fully
+ * readable static layout. */
+@supports (animation-timeline: view()) {
+  .reveal {
+    animation: reveal-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 34%;
+  }
+}
+
+@keyframes reveal-in {
+  from { opacity: 0.72; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ── auth / legal frames ─────────────────────────────────────────── */
 
@@ -1175,8 +1589,30 @@ html:has(.site) body {
   .nav__links { display: none; }
   .nav__cta { font-size: var(--text-xs); padding: var(--space-2xs) var(--space-md); }
 
-  .hero { padding: var(--space-2xl) var(--page-gutter); gap: var(--space-lg); }
-  .hero__display { letter-spacing: -0.035em; }
+  .hero {
+    padding: var(--space-2xl) var(--page-gutter);
+    gap: var(--space-lg);
+  }
+  .hero__stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-xl);
+  }
+  .hero__copy {
+    justify-items: center;
+    text-align: center;
+  }
+  .hero__copy .hero__rail { margin-inline: auto; }
+  .hero__copy .hero__display {
+    align-items: center;
+    text-align: center;
+    margin-inline: auto;
+    max-width: 16ch;
+    font-size: clamp(2.5rem, 7.5vw + 0.25rem, 6.25rem);
+    letter-spacing: -0.035em;
+  }
+  .hero__copy .hero__lead { margin-inline: auto; }
+  .hero__copy .hero__ctas { justify-content: center; }
+  .hero__stage .hero-scene { width: min(100%, 48rem); }
   .hero__meta {
     flex-direction: column;
     align-items: center;
@@ -1199,6 +1635,16 @@ html:has(.site) body {
   .rows__note { grid-area: note; }
 
   .split { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+
+  /* One column: the stage goes first and acts as the section's opening image,
+   * with the steps beneath it. */
+  .journey { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+  .journey__figure {
+    order: -1;
+    max-width: 30rem;
+    justify-self: center;
+  }
+  .journey__step { padding-block: var(--space-md); }
 
   .faq__item summary { font-size: var(--text-lg); padding: var(--space-md) 0; }
 
@@ -1235,4 +1681,24 @@ html:has(.site) body {
   .hero__rail-dot { animation: none; opacity: 1; }
   .reveal { opacity: 1; transform: none; }
   .bloom { opacity: 0.45; }
+
+  /* The journey mounts on its first step and never autoplays, so the progress
+   * line has nothing to draw. Steps remain choosable, and change instantly. */
+  .journey__step, .journey__step-num, .journey__step-h { transition: none; }
+  .journey__step-progress { animation: none !important; transform: scaleX(0); }
+
+  /* The conversation is complete on the page without its timeline. Animation
+   * DELAYS are not collapsed by the global duration guard, so the beats are
+   * removed outright — otherwise the last message would stay invisible for
+   * three seconds. `!important` because the running rules are more specific. */
+  .assistant .bubble,
+  .assistant .assistant__act,
+  .assistant .assistant__fill,
+  .assistant .assistant__done,
+  .assistant__live {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+  .assistant .assistant__typing { display: none !important; }
 }

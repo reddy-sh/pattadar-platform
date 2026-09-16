@@ -7,13 +7,17 @@ from the predecessor's OIDC provider to Amazon Cognito:
   opaque-token /userinfo fallback and userinfo enrichment paths from the
   predecessor are deliberately deleted, not disabled.
 - There is NO auth-disable knob. Auth is always on.
-- ``extract_user_id`` normalization is BYTE-IDENTICAL to the predecessor's
-  (email local-part, lowercased) — every DB row and S3 object key across
-  the platform is keyed by its output.
+- Authenticated principals are derived from immutable issuer + subject claims.
+  Explicit, operator-reviewed bindings retain legacy DB/S3 owner keys without
+  allowing email local parts to claim existing accounts.
 """
 
 import logging
 import os
+import hashlib
+import json
+import re
+from functools import lru_cache
 from typing import Any, Dict, Optional
 
 import httpx
@@ -38,6 +42,8 @@ jwks_cache: Optional[JWKSCache] = None
 #: there the pool IS the primary and nothing widens.
 pool_jwt_config: Optional[CognitoJWTConfig] = None
 pool_jwks_cache: Optional[JWKSCache] = None
+# Wired by application startup after the durable access-block table exists.
+account_access_check = None
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +130,8 @@ async def validate_bearer(request: Request, *, strict: bool = True) -> Optional[
             raise _auth_error(401, "Invalid token", str(err))
 
     request.state.token_claims = claims
+    if account_access_check is not None:
+        await account_access_check(request, claims)
     return claims
 
 
@@ -136,10 +144,8 @@ async def require_auth(request: Request) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # User identity extraction
 #
-# The normalization below is copied BYTE-IDENTICAL from the predecessor's
-# api/gateway/auth.py (extract_user_id / _looks_like_opaque_subject).
-# Do NOT "improve" it — the owner key of every row in every database and
-# every S3 object key is produced by this exact code.
+# Legacy normalization is retained ONLY for migration and the explicit local
+# trust root. Production ownership never derives from mutable email claims.
 # ---------------------------------------------------------------------------
 
 def _looks_like_opaque_subject(value: str) -> bool:
@@ -172,25 +178,58 @@ def _normalize_user_id(v: str) -> str:
     return s.lower() if s else ""
 
 
+def principal_id_from_claims(claims: Any) -> str:
+    """Stable, path-safe identity; subjects from different issuers never collide."""
+    if not isinstance(claims, dict):
+        raise _auth_error(401, "Missing authenticated subject")
+    issuer, subject = claims.get("iss"), claims.get("sub")
+    if not isinstance(issuer, str) or not issuer.strip() or not isinstance(subject, str) or not subject.strip():
+        raise _auth_error(401, "Missing authenticated subject")
+    encoded = json.dumps([issuer, subject], ensure_ascii=True, separators=(",", ":"))
+    return "subject_" + hashlib.sha256(encoded.encode()).hexdigest()
+
+
+@lru_cache(maxsize=8)
+def _parse_legacy_bindings(raw: str) -> dict:
+    try:
+        bindings = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError("IDENTITY_LEGACY_BINDINGS must be a reviewed JSON object") from exc
+    if not isinstance(bindings, dict):
+        raise RuntimeError("IDENTITY_LEGACY_BINDINGS must be a JSON object")
+    for principal, owner in bindings.items():
+        if not re.fullmatch(r"subject_[0-9a-f]{64}", principal):
+            raise RuntimeError("Legacy bindings must use immutable subject principal keys")
+        if (not isinstance(owner, str) or not owner or owner != owner.strip()
+                or owner in {"local", "system", "guest", "anonymous"}
+                or owner.startswith("subject_") or any(c in owner for c in "/\\\x00\r\n")):
+            raise RuntimeError("Invalid or reserved legacy owner key")
+    # Multiple principals may intentionally link to one existing account, but
+    # only by explicit operator review; the migration checker requires evidence.
+    return bindings
+
+
+def validate_identity_configuration() -> None:
+    """Fail deployment before login if the legacy account migration is omitted."""
+    from .local_issuer import LocalTrust
+    if isinstance(jwks_cache, LocalTrust):
+        _parse_legacy_bindings(os.getenv("IDENTITY_LEGACY_BINDINGS", "{}"))
+        return
+    raw = os.getenv("IDENTITY_LEGACY_BINDINGS")
+    if raw is None or not raw.strip():
+        raise RuntimeError("IDENTITY_LEGACY_BINDINGS is required: run the identity migration preflight before rollout; use {} only for an empty installation")
+    _parse_legacy_bindings(raw)
+
+
 def user_id_from_claims(claims: Any) -> str:
-    """The predecessor's extract_user_id claim-priority loop, operating on a claims dict."""
-    if isinstance(claims, dict):
-        # Prefer human-readable username claims over opaque uid/sub
-        for key in ("preferred_username", "email", "login"):
-            raw = str(claims.get(key) or "").strip()
-            if raw:
-                if _looks_like_okta_subject(raw):
-                    continue
-                val = _normalize_user_id(raw)
-                if val:
-                    return val
-        for key in ("sub", "uid", "user_id", "userId"):
-            raw = str(claims.get(key) or "").strip()
-            if raw:
-                val = _normalize_user_id(raw)
-                if val:
-                    return val
-    return "local"
+    principal = principal_id_from_claims(claims)
+    # Retain seeded laptop accounts only under an actually active local key.
+    # A Cognito-signed email cannot opt into this rule.
+    from .local_issuer import ISSUER, LocalTrust
+    if claims["iss"] == ISSUER and isinstance(jwks_cache, LocalTrust):
+        return _normalize_user_id(claims["sub"])
+    bindings = _parse_legacy_bindings(os.getenv("IDENTITY_LEGACY_BINDINGS", "{}"))
+    return bindings.get(principal, principal)
 
 
 def extract_user_id(request: Request) -> str:
@@ -227,8 +266,8 @@ def extract_user_name(request: Request) -> str:
 # ---------------------------------------------------------------------------
 
 def _admin_ids() -> set:
-    raw = os.getenv("ADMIN_USER_IDS", "sankara.telukutla")
-    return {s.strip() for s in str(raw).split(",") if s.strip()}
+    raw = os.getenv("ADMIN_SUBJECT_IDS", "")
+    return {s.strip() for s in raw.split(",") if re.fullmatch(r"subject_[0-9a-f]{64}", s.strip())}
 
 
 def is_admin(user_id: str) -> bool:
@@ -247,7 +286,7 @@ async def require_admin(request: Request) -> Optional[JSONResponse]:
     otherwise. Mirrors the predecessor's _require_admin call shape (deny-object or None)
     so routes_admin_models.py ports with minimal diff. FAILS CLOSED."""
     try:
-        if is_admin(extract_user_id(request)):
+        if is_admin(principal_id_from_claims(getattr(request.state, "token_claims", None))):
             return None
     except Exception:
         _log.exception("admin_gate.error — denying")

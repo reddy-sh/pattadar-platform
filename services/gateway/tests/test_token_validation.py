@@ -136,3 +136,10 @@ def test_rejects_unknown_kid(keypair, config, jwks_cache):
     # Cache refresh (no URL reachable) or kid miss → JWTError either way.
     with pytest.raises(Exception):
         verify(token, config, jwks_cache)
+
+
+def test_rejects_missing_immutable_subject(keypair, config, jwks_cache):
+    private_pem, _ = keypair
+    token = make_token(private_pem, config, sub=None)
+    with pytest.raises(JWTError, match="subject"):
+        verify(token, config, jwks_cache)

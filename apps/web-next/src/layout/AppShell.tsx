@@ -9,12 +9,12 @@
  *
  * Ported from apps/web/src/layout/AppShell.tsx (react-router NavLink/
  * useLocation/Outlet → next/link + usePathname + `children`). Behaviourally
- * unchanged — the nav e2e spec (tests/e2e-ux/specs/nav.spec.ts) was written
- * against that shell, so the DOM contract it asserts (a real
+ * unchanged: its DOM contract includes a real
  * `<Drawer variant="permanent">` producing `.MuiDrawer-docked`, MUI's native
- * `selected` prop producing `.Mui-selected`, an aria-label="Change theme"
- * button opening a Light/Dark/Match-device menu) is reproduced verbatim here
- * rather than through `src/layouts/dashboard/*` / `src/components/nav-section`.
+ * `selected` prop producing `.Mui-selected`, and an aria-label="Change theme"
+ * button opening a Light/Dark/High Contrast menu. Those details are preserved
+ * here rather than through `src/layouts/dashboard/*` /
+ * `src/components/nav-section`.
  *
  * Those kit files are a DONOR, not a drop-in, for this shell:
  *  - `layouts/dashboard/nav-vertical.js`'s desktop rail is a plain
@@ -51,10 +51,10 @@ import MenuItem from '@mui/material/MenuItem';
 import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { useColorScheme } from '@mui/material/styles';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
+import ContrastOutlinedIcon from '@mui/icons-material/ContrastOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
@@ -67,7 +67,6 @@ import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
-import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import { brand } from '@pattadar/tokens';
@@ -87,8 +86,8 @@ import { FileViewerHost } from 'src/components/FileViewer';
 // shell instead of via a lazy chunk — `next/dynamic(..., { ssr:false })` here
 // left a real gap: the CustomEvent `openFileViewer()` dispatches on `window`
 // is fire-and-forget with no queue, so any call landing before the lazily
-// loaded chunk finished mounting its listener was silently dropped (caught by
-// tests/e2e-ux/specs/viewer.spec.ts dispatching immediately after page load).
+// loaded chunk finished mounting its listener was silently dropped. The direct
+// import guarantees the viewer is ready for events dispatched after page load.
 const DRAWER_WIDTH = 252;
 
 interface NavItem {
@@ -116,40 +115,49 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 function ThemeToggle() {
-  // Mode lives in SettingsContext (persisted to localStorage) — ThemeProvider's
-  // ModeSync pushes it into MUI's own colour scheme, so writes go through
-  // settings.onUpdate rather than useColorScheme().setMode directly (a direct
-  // setMode would get overwritten right back by ModeSync on the next render).
+  // SettingsContext owns the canonical persisted choice; ThemeProvider maps it
+  // to MUI's mode and color scheme without maintaining a second user choice.
   const settings = useSettingsContext();
-  const { mode, systemMode } = useColorScheme();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
-  if (!mode) return null;
-  const isDark = mode === 'dark' || (mode === 'system' && systemMode === 'dark');
   const options = [
     { value: 'light' as const, label: 'Light', icon: <LightModeOutlinedIcon fontSize="small" /> },
     { value: 'dark' as const, label: 'Dark', icon: <DarkModeOutlinedIcon fontSize="small" /> },
-    { value: 'system' as const, label: 'Match device', icon: <SettingsBrightnessOutlinedIcon fontSize="small" /> },
+    {
+      value: 'highContrast' as const,
+      label: 'High Contrast',
+      icon: <ContrastOutlinedIcon fontSize="small" />,
+    },
   ];
+  const selectedOption = options.find((option) => option.value === settings.themeChoice) ?? options[0];
+
   return (
     <>
       <Tooltip title="Theme">
         <IconButton color="inherit" aria-label="Change theme" onClick={(e) => setAnchor(e.currentTarget)}>
-          {isDark ? <DarkModeOutlinedIcon /> : <LightModeOutlinedIcon />}
+          {selectedOption.value === 'dark' ? (
+            <DarkModeOutlinedIcon />
+          ) : selectedOption.value === 'highContrast' ? (
+            <ContrastOutlinedIcon />
+          ) : (
+            <LightModeOutlinedIcon />
+          )}
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
-        {options.map((o) => (
+        {options.map((option) => (
           <MenuItem
-            key={o.value}
-            selected={settings.themeMode === o.value}
+            key={option.value}
+            role="menuitemradio"
+            aria-checked={settings.themeChoice === option.value}
+            selected={settings.themeChoice === option.value}
             onClick={() => {
-              settings.onUpdate('themeMode', o.value);
+              settings.onUpdate('themeChoice', option.value);
               setAnchor(null);
             }}
           >
-            <ListItemIcon>{o.icon}</ListItemIcon>
-            <ListItemText>{o.label}</ListItemText>
-            {settings.themeMode === o.value && (
+            <ListItemIcon>{option.icon}</ListItemIcon>
+            <ListItemText>{option.label}</ListItemText>
+            {settings.themeChoice === option.value && (
               <CheckIcon fontSize="small" sx={{ ml: 1.5, color: 'primary.main' }} />
             )}
           </MenuItem>

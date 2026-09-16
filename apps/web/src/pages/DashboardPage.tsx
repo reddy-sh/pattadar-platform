@@ -1,5 +1,5 @@
 /**
- * Hallmark · design-system: design.md · theme: Bloom · designed-as-app
+ * Pattadar Bloom · Material 3-guided application surface
  *
  * "Land Portfolio" dashboard — founder-approved layout (26/07/2026 mock):
  *   greeting header (with Telugu line) · hero island (extent-led stats,
