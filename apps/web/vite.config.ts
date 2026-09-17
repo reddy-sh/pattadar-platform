@@ -39,7 +39,18 @@ const devProxy = {
   // unconditionally. Without this rule the request falls through to the
   // generic '/api' -> api:8080, which has no such endpoint, and mock-mode
   // sign-in silently gets no Bearer for storage.
-  '/api/gateway/local-auth': { target: gatewayTarget, changeOrigin: true },
+  // The mint is mounted at the gateway ROOT (/local-auth/token) — same path
+  // iOS and the e2e-app @live harness call directly — while the browser asks
+  // for it gateway-relative like every other call. Strip the /api/gateway
+  // prefix so the proxied request reaches the route that exists; without this
+  // rewrite the gateway 404s the mint, AuthProvider gets no Bearer, and every
+  // storage upload then fails with a 401 the user reads as "file could not be
+  // uploaded".
+  '/api/gateway/local-auth': {
+    target: gatewayTarget,
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/api\/gateway/, ''),
+  },
   '/api/gateway/storage': { target: gatewayTarget, changeOrigin: true },
   '/api/gateway/admin': { target: gatewayTarget, changeOrigin: true },
   '/api/gateway/capabilities': { target: gatewayTarget, changeOrigin: true },
