@@ -31,7 +31,10 @@ public content/legal before applying design rules.
 3. Decide whether the change also requires `backend-contract-change` or
    `sync-ios`. W360 `Query.web` work is normally NOTE, not automatic Swift.
 4. Read `references/test-routing.md`, add the narrowest behavior test, and keep
-   each suite's safety model intact.
+   each suite's safety model intact. When the surface creates, reads, updates,
+   deletes, or adds content, use `functional-acceptance` to exercise every one
+   of those operations end to end — including its failure path — rather than
+   treating a passing typecheck, build, or empty state as done.
 5. Finish with `verify-change`; use `security-review` for auth, sharing, storage,
    payments, identity, PII, or public routes.
 

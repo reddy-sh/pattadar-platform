@@ -11,6 +11,7 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 | `agent-skill-maintenance` | skill/steering/hook creation, discovery, evaluation and pruning |
 | `prioritize-tasks` | ordering/cutting constrained work |
 | `verify-change` | execution/reporting of smallest sufficient local checks |
+| `functional-acceptance` | exercising every create/read/update/delete/add-content operation of a mutating surface end to end, including its failure path |
 | `security-review` / `secret-scan` | threat analysis / actual redacted secret detection |
 | `cloud-cost-governance` | static/report-only spend, tags and Custodian findings |
 | `release-readiness` | release gaps and exact-SHA go/no-go |

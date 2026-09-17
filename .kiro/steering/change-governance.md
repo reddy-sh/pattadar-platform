@@ -18,8 +18,11 @@ Apply only the dimensions the change can affect, but never omit the assessment.
    Use `security-review`; use `secret-scan` before commit/push when applicable.
 4. **Testing/evidence:** Use the responsible delivery/governance skill to choose
    domain invariants and `verify-change` to run/report the smallest sufficient
-   checks. Do not claim CI, deployment, compliance, or live-state evidence that
-   was not obtained.
+   checks. When the change touches a create/read/update/delete/add-content
+   surface, use `functional-acceptance` to exercise every one of those
+   operations end to end, including its failure path — a passing typecheck,
+   build, or empty state is not functional proof. Do not claim CI, deployment,
+   compliance, or live-state evidence that was not obtained.
 5. **Clean up after use:** Stop every agent-started process; close its managed
    terminal when supported; remove temporary reports, screenshots, build/test
    output, caches, worktrees, and scratch files created for the task unless the
