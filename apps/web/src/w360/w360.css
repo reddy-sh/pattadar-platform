@@ -410,6 +410,39 @@
    scrolling bottom padding below it would be exactly the dead margin the
    fit is meant to remove. Every other tab keeps it. */
 .w360 main:has(> .lightbox) { padding-bottom: var(--space-lg); }
+/* The Location tab is a map instrument, like the photo viewer: the map fits
+   the window and its rail scrolls beside it, rather than the tall rail
+   stretching `main` 400px past the bottom of the window and dragging a dead
+   margin along under it. Scoped to a split that holds a live map, so every
+   other `.split` (Papers, Money, Features…) keeps its normal page scroll. */
+.w360 main:has(> .split > .plot.live) { padding-bottom: var(--space-lg); }
+/* Only where the two-column layout exists. Below the rail breakpoint the split
+   is already one column (see the 1200px rule); there the map and its rail stack
+   and scroll naturally, and forcing a viewport-bounded height would crush both
+   into slivers on a phone. */
+@media (min-width: 1201px) {
+  .w360 main > .split:has(> .plot.live) {
+    align-items: start;
+    max-height: calc(100vh - 28rem);
+    min-height: 24rem;
+  }
+  /* The inline min-height: 34rem on the map (a floor so its controls do not
+     cover the land on a normal-height window) is exactly what keeps the row
+     88px past the fold on a shorter one. Inside the viewport-bounded split it
+     yields to the fit; the clamp's own 24rem minimum still stops it collapsing
+     to a sliver. */
+  .w360 main > .split:has(> .plot.live) > .plot.live {
+    height: 100%;
+    /* `!important` because the floor is an inline style on the element, which a
+       plain class rule cannot beat. The 24rem min on the split above is the
+       real minimum here, so the map still never collapses. */
+    min-height: 0 !important;
+  }
+  .w360 main > .split:has(> .plot.live) > aside {
+    max-height: 100%;
+    overflow-y: auto;
+  }
+}
 .w360 main > .split,
 .w360 main > .two { flex: 1 1 auto; }
 
@@ -1320,7 +1353,13 @@
    434px above it, which is why the fill meter no longer wears a box. */
 .w360 .split > .plot.live {
   align-self: start;
-  height: clamp(24rem, calc(100vh - 13rem), 52rem);
+  /* Fits the window. The offset is everything stacked above the map inside
+     `main` — breadcrumb, record identity, fill meter, tab strip and the
+     section head — which measures ~26rem, not the 13rem this once guessed. At
+     13rem the map ran ~490px past the bottom of a 900px window and the page
+     scrolled with a dead margin under the rail. Clamped so a short window keeps
+     a usable minimum. */
+  height: clamp(24rem, calc(100vh - 26rem), 52rem);
 }
 
 .w360 .plot {
