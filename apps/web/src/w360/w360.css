@@ -1393,8 +1393,32 @@
 .w360 .lightbox .stage {
   position: relative; display: grid; place-items: center;
   padding: var(--space-lg); border-right: 1px solid var(--w-line);
+  /* The lightbox height is fixed, so the stage must CLIP its content, never
+     grow to it. Without this, on mount — before the photo's bytes and
+     dimensions arrive — the frame renders at an intrinsic size that briefly
+     overflowed the page to ~1879px and then snapped back to fit once the image
+     resolved: a full-window flicker every time Media opened. min-height:0 lets
+     the 1fr middle row actually shrink; overflow:hidden keeps the settling
+     transient inside the stage. */
+  min-height: 0;
+  overflow: hidden;
 }
 .w360 .lightbox .side { padding: var(--space-lg); overflow-y: auto; }
+/* Below the rail breakpoint the viewer and its detail panel stack: a 24rem
+   panel cannot sit beside a photo on a 390px screen — it lands on top of the
+   image, which is what the phone showed. One column, natural height (the fixed
+   viewport clamp would crush the stacked photo into a sliver), and the stage's
+   divider moves from its right edge to its bottom. */
+@media (max-width: 900px) {
+  .w360 .lightbox {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .w360 .lightbox .stage {
+    border-right: 0; border-bottom: 1px solid var(--w-line);
+    min-height: 60vh;
+  }
+}
 /* Theater view. The stage is promoted to the browser's fullscreen element, so
    it fills the window past all app chrome; the default fullscreen backdrop is
    white, so it is painted in the app's own paper and the photo gets the whole

@@ -683,9 +683,14 @@ export function RecordPhotos() {
             <div className="row"
                  style={{ flexWrap: 'nowrap', gap: 'var(--space-md)', alignItems: 'stretch',
                           justifyContent: 'center', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+              {/* Hidden, not disabled, at the ends — a greyed arrow on the
+                  first photo is a control that points at nothing. `visibility`
+                  rather than removing it, so the frame does not shift a pixel
+                  when the arrow comes and goes as you page. */}
               <button type="button" className="iconbtn" onClick={() => setI(Math.max(0, i - 1))}
-                      disabled={i === 0} aria-label="Previous photo"
-                      style={{ border: '1px solid var(--w-line)', alignSelf: 'center', flex: 'none' }}>
+                      aria-label="Previous photo"
+                      style={{ border: '1px solid var(--w-line)', alignSelf: 'center', flex: 'none',
+                               visibility: i === 0 ? 'hidden' : 'visible' }}>
                 <ChevronLeftOutlined sx={{ fontSize: 18 }} />
               </button>
               {/* The frame borrows the photo's own aspect ratio when we know it,
@@ -726,8 +731,9 @@ export function RecordPhotos() {
                 )}
               </div>
               <button type="button" className="iconbtn" onClick={() => setI(Math.min(shown.length - 1, i + 1))}
-                      disabled={i >= shown.length - 1} aria-label="Next photo"
-                      style={{ border: '1px solid var(--w-line)', alignSelf: 'center', flex: 'none' }}>
+                      aria-label="Next photo"
+                      style={{ border: '1px solid var(--w-line)', alignSelf: 'center', flex: 'none',
+                               visibility: i >= shown.length - 1 ? 'hidden' : 'visible' }}>
                 <ChevronRightOutlined sx={{ fontSize: 18 }} />
               </button>
             </div>
