@@ -22,6 +22,8 @@ import MyLocationOutlined from '@mui/icons-material/MyLocationOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import PhotoCameraOutlined from '@mui/icons-material/PhotoCameraOutlined';
+import FullscreenOutlined from '@mui/icons-material/FullscreenOutlined';
+import FullscreenExitOutlined from '@mui/icons-material/FullscreenExitOutlined';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import FingerprintOutlined from '@mui/icons-material/FingerprintOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
@@ -364,6 +366,19 @@ export function RecordPhotos() {
     file: onPick, busy, err, lastAdded, clearLastAdded, clearError,
   } = useFilePhotos(id);
   const currentThumb = useRef<HTMLButtonElement>(null);
+  // Theater view: the stage goes edge-to-edge through the browser's own
+  // Fullscreen API, so it is truly full-window (past the app chrome) and Esc
+  // exits it the way people already expect a full-screen photo to. `theater`
+  // tracks the browser's state rather than our intent, so pressing Esc or the
+  // OS control keeps the button's label honest.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [theater, setTheater] = useState(false);
+  const toggleTheater = () => {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void el.requestFullscreen?.().catch(() => {});
+  };
   // Null while closed; an array — usually empty, or the files a drop arrived
   // with — while the drawer is open. The hidden input and the pick itself live
   // in PhotoDrawer now; what stays here is the hook, because it owns `lastAdded`
@@ -436,6 +451,15 @@ export function RecordPhotos() {
     // upload that did nothing. Drop the query; the next pass finds it.
     if (photos.some((x) => x.id === lastAdded)) setQ('');
   }, [lastAdded, shown, photos]);
+
+  // The browser owns the fullscreen state; mirror it so Esc/OS exit updates
+  // the toggle. The stage carries a class while it is the fullscreen element
+  // so it can paint itself as a theater rather than a padded panel.
+  useEffect(() => {
+    const sync = () => setTheater(document.fullscreenElement === stageRef.current);
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -625,19 +649,33 @@ export function RecordPhotos() {
           behind an early return there was no way to add the first photo. */}
       {p ? (
         <div className="lightbox">
-          <div className="stage"
+          <div ref={stageRef} className={theater ? 'stage theater' : 'stage'}
                style={{ display: 'grid', gridTemplateRows: 'auto minmax(0,1fr) auto',
                         placeItems: 'stretch', gap: 'var(--space-md)' }}>
-            {!featureId && (
-              <div className="row tight">
-                <span className="chip static">
-                  <PlaceOutlined sx={{ fontSize: 13 }} /> geo-stamped
-                </span>
-                <span className="chip static">
-                  <GppGoodOutlined sx={{ fontSize: 13 }} /> from a Pattadar visit
-                </span>
-              </div>
-            )}
+            <div className="row tight" style={{ alignItems: 'center' }}>
+              {!featureId && (
+                <>
+                  <span className="chip static">
+                    <PlaceOutlined sx={{ fontSize: 13 }} /> geo-stamped
+                  </span>
+                  <span className="chip static">
+                    <GppGoodOutlined sx={{ fontSize: 13 }} /> from a Pattadar visit
+                  </span>
+                </>
+              )}
+              {/* Theater view: the stage fills the window so a photograph of a
+                  boundary stone or a bore can be read closely, then Esc brings
+                  the record back. Pushed to the right so it reads as "more
+                  room for this", not another fact about the photo. */}
+              <button type="button" className="iconbtn" onClick={toggleTheater}
+                      style={{ marginLeft: 'auto', border: '1px solid var(--w-line)', flex: 'none' }}
+                      aria-pressed={theater}
+                      aria-label={theater ? 'Exit full screen' : 'View full screen'}>
+                {theater
+                  ? <FullscreenExitOutlined sx={{ fontSize: 18 }} />
+                  : <FullscreenOutlined sx={{ fontSize: 18 }} />}
+              </button>
+            </div>
 
             {/* minWidth:0 + overflow:hidden is what actually clamps the frame: an
                 aspect-ratio box sized from its height will happily exceed its

@@ -406,6 +406,10 @@
   flex-direction: column;
 }
 .w360 main.flush { padding: 0; }
+/* A fit-to-window viewer owns the space to the window's edge: the large
+   scrolling bottom padding below it would be exactly the dead margin the
+   fit is meant to remove. Every other tab keeps it. */
+.w360 main:has(> .lightbox) { padding-bottom: var(--space-lg); }
 .w360 main > .split,
 .w360 main > .two { flex: 1 1 auto; }
 
@@ -1374,14 +1378,32 @@
 
 /* ── Photo surfaces (W05, W14) ──────────────────────────────────────── */
 
-/* Full height minus the app bar AND this screen's own sub-header, so the
-   filmstrip lands on the fold instead of just below it. */
-.w360 .lightbox { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; height: calc(100vh - 7.5rem); }
+/* Fits the window by default. The height is the viewport minus everything
+   stacked above the viewer inside `main`: the app bar, the record identity
+   block, the fill meter, the tab strip and this screen's own section head.
+   The old value guessed that whole stack at 7.5rem and the viewer overshot the
+   window by ~300px, leaving a page scroll and a dead margin below it; measured,
+   the stack is ~26rem. Clamped like the boundary map (`.plot.live`) so a very
+   short window still gets a usable minimum rather than a sliver. */
+.w360 .lightbox {
+  display: grid; grid-template-columns: minmax(0, 1fr) 24rem;
+  height: clamp(24rem, calc(100vh - 28rem), 60rem);
+  min-height: 0;
+}
 .w360 .lightbox .stage {
   position: relative; display: grid; place-items: center;
   padding: var(--space-lg); border-right: 1px solid var(--w-line);
 }
 .w360 .lightbox .side { padding: var(--space-lg); overflow-y: auto; }
+/* Theater view. The stage is promoted to the browser's fullscreen element, so
+   it fills the window past all app chrome; the default fullscreen backdrop is
+   white, so it is painted in the app's own paper and the photo gets the whole
+   surface. The navigation chevrons and the geo stamp come along because they
+   live inside the stage. */
+.w360 .stage.theater {
+  background: var(--w-bg);
+  padding: var(--space-lg) var(--space-xl);
+}
 .w360 .frame {
   position: relative;
   /* the photo fills the frame edge to edge, so the corners must be clipped by
