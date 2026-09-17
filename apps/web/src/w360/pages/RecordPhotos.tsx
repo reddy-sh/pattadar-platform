@@ -538,19 +538,23 @@ export function RecordPhotos() {
     </>
   );
 
-  /** A tile you can drop a file onto, or click to browse.
+  /** The empty state's dropzone: one target you can drop files onto, or click
+   *  to browse.
    *
-   *  Six of them stand in for the gallery on a record with nothing filed. The
-   *  empty state used to be one grey sentence — "No photos on this record yet" —
-   *  which says what is true and offers nothing to do about it. A tile is the
-   *  target and the invitation at once, and dropping onto it is the shortest
-   *  path there is from a phone's camera roll to a filed, dated photograph.
+   *  This used to be six near-identical tiles — five saying "Drop a photo" and
+   *  one "Drop a video" — laid out in a grid. They looked like a set of choices
+   *  but were not: every one opened the SAME drawer and filed to the SAME
+   *  place, so five of them were byte-for-byte repetition and the sixth differed
+   *  only in a label the drawer does not act on (it accepts stills and video
+   *  either way). Six copies of one action is noise pretending to be structure.
+   *  One zone is the whole invitation, and the shortest path there is from a
+   *  phone's camera roll to a filed, dated photograph.
    *
-   *  Both paths now land in the drawer rather than filing straight away, and a
-   *  DROP carries its files in with it — the point of dragging onto the tile is
-   *  that the choosing is already done, so being asked to choose again would
-   *  undo the whole gesture. */
-  const Tile = ({ video }: { video?: boolean }) => (
+   *  Both paths land in the drawer rather than filing straight away, and a DROP
+   *  carries its files in with it — the point of dragging onto the zone is that
+   *  the choosing is already done, so being asked to choose again would undo the
+   *  whole gesture. */
+  const DropZone = () => (
     <button
       type="button"
       className="droptile"
@@ -565,11 +569,11 @@ export function RecordPhotos() {
         setAdding(Array.from(e.dataTransfer.files ?? []));
       }}
     >
-      <Icon name={video ? 'video' : 'photos'} size={22} />
-      <span className="note" style={{ display: 'block', marginTop: '0.5rem' }}>
-        {video ? 'Drop a video' : 'Drop a photo'}
+      <Icon name="photos" size={26} />
+      <span style={{ display: 'block', marginTop: '0.5rem', fontWeight: 600 }}>
+        Drop photos or video here
       </span>
-      {!video && <span className="note">or <u>browse files</u></span>}
+      <span className="note">or <u>browse files</u></span>
     </button>
   );
 
@@ -1039,13 +1043,10 @@ export function RecordPhotos() {
       ) : (
         <div className="split">
           <div>
-            <div className="droptiles">
-              {[0, 1, 2, 3, 4].map((i) => <Tile key={i} />)}
-              <Tile video />
-            </div>
+            <DropZone />
             <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-              Drag files straight onto a tile. A photo taken on the land carries its date and
-              its coordinates — that is what makes the condition on the{' '}
+              Drag files straight onto the box, or browse for them. A photo taken on the land
+              carries its date and its coordinates — that is what makes the condition on the{' '}
               <Link className="accent" to={`/app/records/${id}/features`}>Features</Link>
               {' '}hanger checkable by somebody who was not there.
             </p>

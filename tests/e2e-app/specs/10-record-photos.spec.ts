@@ -19,8 +19,9 @@
  *    the photograph than next to a filename. `caption` is `''` at file time again
  *    — and `lastAdded` walks the gallery to the new photograph, whose Caption box
  *    is right there. The header control is "Add photos or video", relabelling to
- *    "Uploading…" while a pick goes up; the six `.droptile` buttons open the same
- *    picker, and a DROP onto one uploads what was dropped without asking again.
+ *    "Uploading…" while a pick goes up; the single `.droptile` drop zone opens
+ *    the same picker, and a DROP onto it uploads what was dropped without asking
+ *    again. It replaced six near-identical tiles that all opened this one drawer.
  *  · The seeded photos carry legacy `fileRef`s ('file-photo-cover'), which
  *    `isStorageRef` rejects, so nothing is fetched from storage and the frame
  *    draws its placeholder. Every test that needs real bytes — download, the
@@ -1126,17 +1127,18 @@ test.describe('adding a photo', () => {
       .toEqual(['gate.jpg', 'fence.jpg']);
   });
 
-  test('the tiles on a record with nothing filed open the same picker the header does', async ({ page }) => {
-    // Six drop targets stand in for the gallery on a record with nothing on it. A
-    // click fires the picker — a tile is the shortest path there is from a camera
-    // roll to a filed, dated photograph, and a panel in the middle of it was a
-    // press that bought nothing.
+  test('the drop zone on a record with nothing filed opens the same picker the header does', async ({ page }) => {
+    // One drop zone stands in for the gallery on a record with nothing on it —
+    // the shortest path there is from a camera roll to a filed, dated
+    // photograph. It replaced six near-identical tiles that all did this same
+    // thing; one action belongs on the screen once, not six times.
     await page.goto(`/app/records/${ID.plot}/photos`);
 
     const tiles = page.locator('.droptile');
-    await expect(tiles).toHaveCount(6);
-    // A tile opens the same panel the header does — it is the invitation, not a
-    // second way of filing — and the picker is in there with it.
+    // Exactly one drop zone — not six near-identical tiles that all did this
+    // same thing. It opens the same panel the header does (the invitation, not a
+    // second way of filing), and the picker is in there with it.
+    await expect(tiles).toHaveCount(1);
     await expect(tiles.first()).toHaveAttribute('aria-haspopup', 'dialog');
     await expect(page.getByLabel('Upload a photo or video to this record')).toHaveCount(0);
     await tiles.first().click();
@@ -1144,11 +1146,11 @@ test.describe('adding a photo', () => {
     await expect(page.getByLabel('Upload a photo or video to this record')).toHaveCount(1);
   });
 
-  test('files dropped onto a tile arrive in the panel already picked, not thrown away', async ({ page, world }) => {
-    // The point of dragging onto a tile is that the choosing is already done, so
-    // the drop carries its files INTO the panel rather than opening an empty one
-    // and asking again. What the panel is still for is the caption and the last
-    // look before any bytes leave.
+  test('files dropped onto the zone arrive in the panel already picked, not thrown away', async ({ page, world }) => {
+    // The point of dragging onto the zone is that the choosing is already done,
+    // so the drop carries its files INTO the panel rather than opening an empty
+    // one and asking again. What the panel is still for is the caption and the
+    // last look before any bytes leave.
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({
       json: { id: STORED, name: 'north-bund.jpg', sizeBytes: 2048, mimeType: 'image/jpeg' },
     }));
@@ -1331,9 +1333,10 @@ test.describe('adding a photo', () => {
       return 'w-photo-first';
     });
     await page.goto(`/app/records/${ID.plot}/photos`);
-    // Six dashed targets stand in for the gallery on a record with nothing filed
-    // — the empty state has not been a grey sentence since the drop tiles landed.
-    await expect(page.locator('.droptile')).toHaveCount(6);
+    // One dashed drop zone stands in for the gallery on a record with nothing
+    // filed — not a grey sentence, and not the six near-identical tiles it
+    // replaced, all of which opened this same drawer.
+    await expect(page.locator('.droptile')).toHaveCount(1);
 
     await upload(page, file('first.jpg', 'image/jpeg', 2048));
 

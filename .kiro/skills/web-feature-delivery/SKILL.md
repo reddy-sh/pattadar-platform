@@ -23,6 +23,11 @@ public content/legal before applying design rules.
    cross-client design changes.
 2. Trace route → page/component → data hook/core operation → API contract. Put
    reusable domain/format rules in `packages/core`, not UI components.
+   Reconstruct the user's task on the screen, not just its styling: name the
+   primary action and count how many controls expose it. A guard pass or a clean
+   token/contrast audit does not answer "does this screen offer one action six
+   ways?" — that is `design-system-governance` step 4 and it is mandatory on any
+   UX review, including empty states, rails, and headers.
 3. Decide whether the change also requires `backend-contract-change` or
    `sync-ios`. W360 `Query.web` work is normally NOTE, not automatic Swift.
 4. Read `references/test-routing.md`, add the narrowest behavior test, and keep

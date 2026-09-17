@@ -737,19 +737,16 @@
   .w360 .sechead .actions { flex: 1 1 100%; flex-shrink: 1; }
 }
 
-/* ── Drop tiles (the Media hanger with nothing filed) ────────────────────
-   Six dashed targets instead of one grey sentence. Dashed is this system's
-   placeholder language (see .frame), and the tile is the target and the
-   invitation at once — a record with no photographs is exactly the one that
-   needs the shortest path from a camera roll to a filed, dated photograph. */
-.w360 .droptiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-  gap: var(--space-sm);
-}
+/* ── Drop zone (the Media hanger with nothing filed) ─────────────────────
+   One dashed target instead of a grey sentence — and instead of the six
+   near-identical tiles it replaced, which looked like a set of choices but all
+   opened the same drawer and filed to the same place. Dashed is this system's
+   placeholder language (see .frame); the zone is the target and the invitation
+   at once, the shortest path from a camera roll to a filed, dated photograph.
+   It is rendered on its own (no grid wrapper), so it spans its column. */
 .w360 .droptile {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  min-height: 8.5rem; padding: var(--space-md);
+  width: 100%; min-height: 10rem; padding: var(--space-lg);
   border: 1px dashed var(--w-line-strong); border-radius: var(--radius-md);
   background: none; color: var(--w-ink-3); font: inherit; cursor: pointer; text-align: center;
   transition: border-color var(--dur-fast) var(--ease-out),

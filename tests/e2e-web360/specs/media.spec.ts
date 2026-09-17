@@ -93,8 +93,10 @@ test.describe('W05 · the Media hanger', () => {
       await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Photos and video');
       await expect(page.locator('.sechead')).toContainText('nothing filmed here yet');
 
-      // Six targets and the two rail cards, rather than one grey sentence.
-      await expect(page.locator('.droptile')).toHaveCount(6);
+      // One drop zone and the two rail cards, rather than a grey sentence. It
+      // used to be six near-identical tiles that all opened the same drawer;
+      // one action shown once, not six times.
+      await expect(page.locator('.droptile')).toHaveCount(1);
       await expect(page.getByRole('heading', { name: 'What to photograph' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Limits' })).toBeVisible();
 
@@ -113,10 +115,10 @@ test.describe('W05 · the Media hanger', () => {
       await page.goto(`/app/records/${id}/photos`);
       await expect(page.locator('.droptile').first()).toBeVisible();
 
-      // A tile opens the drawer rather than firing the picker, and the picker
-      // itself lives inside it — so nothing is uploaded until the panel's own
-      // primary is pressed. That moment is the whole point of the panel: the pick
-      // can be looked at and captioned before any bytes leave.
+      // The drop zone opens the drawer rather than firing the picker, and the
+      // picker itself lives inside it — so nothing is uploaded until the panel's
+      // own primary is pressed. That moment is the whole point of the panel: the
+      // pick can be looked at and captioned before any bytes leave.
       await page.locator('.droptile').first().click();
       const panel = page.getByRole('dialog', { name: /^Add (photos or video|\d+ files)$/ });
       await expect(panel).toBeVisible();

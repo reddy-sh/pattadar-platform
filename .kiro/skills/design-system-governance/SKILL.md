@@ -25,12 +25,21 @@ layouts, copy, or component stacks.
 3. Preserve subject-specific land-record vocabulary/content; avoid generic SaaS
    cards, invented metrics/copy, decorative icons, and visual enrichment on
    functional app pages.
-4. Audit accessibility first: semantics/focus, text/non-text contrast, dynamic
+4. Audit the interaction before the paint. Count how many times each primary
+   action appears on the screen: a control that opens one flow, files to one
+   place, or leads to one destination belongs on the screen ONCE. Repeated,
+   near-identical, or competing affordances for the same action (several drop
+   zones or buttons that open the same drawer, an inline card plus a header
+   button, an empty-state grid of identical tiles) are a defect even when every
+   token, contrast ratio, and role is correct — they read as a set of choices
+   that is not one. Confirm each visible control leads somewhere distinct, and
+   that repetition is real structure (categories, scopes) rather than filler.
+5. Audit accessibility: semantics/focus, text/non-text contrast, dynamic
    type/zoom, reduced motion, target size, keyboard/gesture alternatives,
    errors, safe areas, and responsive overflow.
-5. Check token ownership and cross-client obligations. Web macrostructures do
+6. Check token ownership and cross-client obligations. Web macrostructures do
    not cross to iOS; brand crossings are explicitly limited by iOS design.
-6. Produce a drift table or coherent token/component patch; hand feature code to
+7. Produce a drift table or coherent token/component patch; hand feature code to
    the relevant delivery skill and final checks to `verify-change`.
 
 Do not import UI UX Pro Max datasets/scripts/fonts, Tailwind/shadcn, generic

@@ -1,9 +1,9 @@
 /** Filing a photo against a record, in one place.
  *
- *  Its one consumer is the Media hanger, which offers three ways in — the header
- *  control, the six drop tiles, and a drop onto any of them — and all three are
- *  the same pick, so none of them can drift from the others. It was two consumers
- *  when the record's front page carried a Photos card of its own.
+ *  Its one consumer is the Media hanger, which offers two ways in — the header
+ *  control and the empty state's drop zone (click or drop) — and both are the
+ *  same pick, so neither can drift from the other. It was two consumers when the
+ *  record's front page carried a Photos card of its own.
  */
 import { useState } from 'react';
 
