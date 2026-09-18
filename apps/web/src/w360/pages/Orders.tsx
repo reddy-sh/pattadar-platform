@@ -11,7 +11,7 @@ import { Link } from 'react-router';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 
-import { useAssignRequest, useAssignable, useCorrections, useOrders } from '../api';
+import { useAssignRequest, useAssignable, useOrders, useRecordHistory } from '../api';
 import type { Order } from '../api';
 import {
   Card, Chip, Empty, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, inr, plural,
@@ -348,43 +348,60 @@ export function RecordServices() {
   );
 }
 
+/** The server logs a raw verb (`add_paper`, `set_pin`); this is the human
+ *  headline for it. An unmapped action falls back to its words spaced out, so a
+ *  new server-side action still reads sensibly here before this map catches up
+ *  rather than showing a bare snake_case token. */
+const HISTORY_PHRASES: Record<string, string> = {
+  add_person: 'Person added', update_person: 'Person edited', delete_person: 'Person removed',
+  add_feature: 'Feature added', update_feature: 'Feature edited', delete_feature: 'Feature removed',
+  add_expense: 'Cost recorded', delete_expense: 'Cost removed',
+  add_paper: 'Paper filed', update_paper: 'Paper updated', delete_paper: 'Paper removed',
+  add_photo: 'Photo added', set_pin: 'Pin moved', set_boundary: 'Boundary changed',
+  'record.corrected': 'Field corrected',
+};
+function historyPhrase(action: string): string {
+  return HISTORY_PHRASES[action] || action.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function RecordHistory() {
   const rec = useRecordCtx();
-  const { data, isLoading } = useCorrections(rec.id);
+  const { data, isLoading } = useRecordHistory(rec.id);
   return (
     <>
       <SectionHead
-        title="What has been changed"
-        sub={data && `${plural(data.length, 'correction')} · newest first · nothing here can be removed`}
+        title="What has happened here"
+        sub={data && `${plural(data.length, 'change')} · newest first · nothing here can be removed`}
       />
       <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-        Anything on this record can be corrected. Every correction is kept here
-        with what the value used to be.
+        Every change to this record is kept here — a paper filed, a cost recorded,
+        a person added, the pin moved. Nothing on this list can be edited or removed.
       </p>
       <div>
         {isLoading ? <Loading h="10rem" /> : (data ?? []).length === 0 ? (
           <div className="card">
             <p className="note">
-              Nothing has been corrected on this record yet. When a survey number, a
-              village or a value is changed, the old one appears here beside the new.
+              Nothing has been changed on this record yet. As you file papers, record
+              costs, add people or move the pin, each action is logged here with who
+              did it and when.
             </p>
           </div>
         ) : (
           <div className="card" style={{ padding: 0 }}>
             <div className="rows boxed">
-              {(data ?? []).map((c) => (
-                <div key={c.id}>
+              {(data ?? []).map((e) => (
+                <div key={e.id}>
                   <span className="grow">
-                    <strong style={{ fontSize: '0.9375rem' }}>{c.field}</strong>
-                    <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
-                      {/* The old value is the point of the line, so it is shown
-                          struck rather than dropped. */}
-                      <s>{c.was || '—'}</s> → <span className="accent">{c.now || '—'}</span>
-                    </span>
+                    <strong style={{ fontSize: '0.9375rem' }}>{historyPhrase(e.action)}</strong>
+                    {e.detail && (
+                      <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
+                        {e.detail}
+                      </span>
+                    )}
                   </span>
                   <span className="note" style={{ textAlign: 'right', flex: 'none' }}>
-                    {c.at.slice(0, 10)}
-                    <span style={{ display: 'block' }}>{c.by}</span>
+                    {e.at.slice(0, 10)}
+                    <span style={{ display: 'block' }}>{e.by}</span>
                   </span>
                 </div>
               ))}

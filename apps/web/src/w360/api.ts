@@ -1123,6 +1123,25 @@ export function useCorrections(id: string | undefined) {
   });
 }
 
+/** One audited change to a record — an add, an edit, a removal. Broader than a
+ *  Correction (which is only a changed field): every action filed against the
+ *  record shows here, newest first. `action` is the server's raw verb. */
+export interface HistoryEvent {
+  id: string; action: string; detail: string; at: string; by: string;
+}
+
+const Q_HISTORY = `query H($id:String!) { web { recordHistory(recordId:$id) {
+  id action detail at by } } }`;
+
+export function useRecordHistory(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'recordHistory', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'recordHistory', HistoryEvent[]>>(Q_HISTORY, { id })).web.recordHistory,
+  });
+}
+
 /** The service catalogue, searched server-side so the client never holds it all. */
 export function useServicesOffered(q: string, key = '', enabled = true) {
   return useQuery({

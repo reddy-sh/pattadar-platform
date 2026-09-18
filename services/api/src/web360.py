@@ -1075,6 +1075,21 @@ class Correction:
 
 
 @strawberry.type
+class HistoryEvent:
+    """One thing that happened to this record — an add, an edit, a removal.
+
+    Unlike a Correction (which is only a changed FIELD value), this is every
+    audited action on the record: a person filed, a cost recorded, a paper
+    added, a pin moved. `action` is the raw verb the server logged; the client
+    maps it to a human phrase. `detail` is the server's own short description."""
+    id: str
+    action: str
+    detail: str
+    at: str
+    by: str
+
+
+@strawberry.type
 class ServiceField:
     """One question a service asks before it can be worked on."""
     name: str
@@ -2937,6 +2952,26 @@ async def _desk_read(conn, uid: str, scope: str, detail: str = "") -> None:
     await _main.log_audit(conn, uid, "desk_read", scope, detail)
 
 
+async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "") -> None:
+    """Record one change to a record on the shared audit trail.
+
+    `target` is the record id, so the record's Audit tab can read every event
+    filed against it. Best-effort by construction: an audit write must never
+    be the reason a legitimate change fails, so a failure here is swallowed —
+    the change still stands, and the worst case is one missing history line.
+    `main.log_audit` is imported at call time for the same reason `_desk_read`
+    does it: main.py imports this module, and a module-level import would close
+    the circle."""
+    try:
+        try:                              # inside the `src` package
+            from . import main as _main
+        except ImportError:               # imported bare off src/
+            import main as _main          # type: ignore[no-redef]
+        await _main.log_audit(conn, uid, action, record_id, detail)
+    except Exception:                     # noqa: BLE001 — never block the write
+        pass
+
+
 # ── Reading the roster ────────────────────────────────────────────────
 
 async def _open_jobs_of(conn, ids: List[str]) -> dict:
@@ -4165,6 +4200,32 @@ class WebQuery:
                 out.append(Correction(
                     id=r["id"], field=str(d.get("field") or ""),
                     was=str(d.get("from") or ""), now=str(d.get("to") or ""),
+                    at=r.get("timestamp") or "", by=r.get("actor") or ""))
+            return out
+
+    @strawberry.field
+    async def record_history(self, info: strawberry.Info, record_id: str) -> List[HistoryEvent]:
+        """Every audited change to this record, newest first.
+
+        Broader than `corrections` (which is only field edits): this returns
+        every action filed against the record — a person added, a cost
+        recorded, a paper filed, a pin moved, a photo added or removed. Reads
+        are excluded so the log is a record of CHANGES, not of viewing. Scoped
+        to the caller's own record; `_record_kind` returns '' for anything not
+        theirs, so nothing another owner did can appear here."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            if not await _record_kind(conn, uid, record_id):
+                return []
+            cur = await conn.execute(
+                "SELECT * FROM audit_events WHERE actor=%s AND target=%s"
+                " AND action NOT LIKE '%%_read' ORDER BY timestamp DESC LIMIT 200",
+                (uid, record_id))
+            out: List[HistoryEvent] = []
+            for r in await cur.fetchall():
+                out.append(HistoryEvent(
+                    id=r["id"], action=r.get("action") or "",
+                    detail=str(r.get("details") or ""),
                     at=r.get("timestamp") or "", by=r.get("actor") or ""))
             return out
 
@@ -6031,10 +6092,13 @@ class WebMutation:
                 "(SELECT id FROM passbooks WHERE owner_user_id=%s)",
                 (geo, record_id, uid))
             if cur.rowcount:
+                await _audit(conn, uid, "set_pin", record_id, f"Moved the pin to {geo}")
                 return True
             cur = await conn.execute(
                 "UPDATE properties SET geo_point=%s WHERE id=%s AND owner_user_id=%s",
                 (geo, record_id, uid))
+            if cur.rowcount:
+                await _audit(conn, uid, "set_pin", record_id, f"Moved the pin to {geo}")
             return bool(cur.rowcount)
 
     @strawberry.mutation
@@ -6076,15 +6140,19 @@ class WebMutation:
                     return False
         text = ";".join(f"{lat:.6f},{lon:.6f}" for lat, lon in corners)
         async with _pool.connection() as conn:
+            _bmsg = f"Set a boundary · {len(corners)} corners" if corners else "Cleared the boundary"
             cur = await conn.execute(
                 "UPDATE parcels SET boundary=%s WHERE id=%s AND passbook_id IN "
                 "(SELECT id FROM passbooks WHERE owner_user_id=%s)",
                 (text, record_id, uid))
             if cur.rowcount:
+                await _audit(conn, uid, "set_boundary", record_id, _bmsg)
                 return True
             cur = await conn.execute(
                 "UPDATE properties SET boundary=%s WHERE id=%s AND owner_user_id=%s",
                 (text, record_id, uid))
+            if cur.rowcount:
+                await _audit(conn, uid, "set_boundary", record_id, _bmsg)
             return bool(cur.rowcount)
 
     @strawberry.mutation
@@ -6123,6 +6191,7 @@ class WebMutation:
                 " %s,'',%s,'',%s,%s,%s,'',false,%s)",
                 (eid, uid, record_id, category, title, amount, spent_on, kind,
                  on_label, feature_id, paid_by, recoverable, fiscal_year))
+            await _audit(conn, uid, "add_expense", record_id, f"Recorded a cost: {title}")
         return eid
 
     @strawberry.mutation
@@ -6338,6 +6407,8 @@ class WebMutation:
                 (pid, record_id, uid, file_ref.strip(), (category or "general"),
                  caption, when, "", _now_iso(), sha256,
                  (media_kind or "photo"), width, height, file_name, sort))
+            await _audit(conn, uid, "add_photo", record_id,
+                         f"Added a {media_kind or 'photo'}" + (f": {file_name}" if file_name else ""))
         return pid
 
     @strawberry.mutation
@@ -6375,6 +6446,7 @@ class WebMutation:
                 (did, uid, (name or "Paper"), subtitle, (shelf or "unsorted"),
                  page_count, record_id, record_id, (shelf or "unsorted"),
                  _now_iso(), size_bytes, file_ref.strip(), mime_type))
+            await _audit(conn, uid, "add_paper", record_id, f"Filed a paper: {name or 'Paper'}")
         return did
 
     @strawberry.mutation
@@ -6568,6 +6640,8 @@ class WebMutation:
                 " VALUES (%s,%s,%s,%s,%s,%s,'[]',%s,%s,%s,%s,'','','','[]',false,%s)",
                 (pid, uid, record_id, name, initials, role, summary,
                  arrangement, pay_label, pay_value, sort))
+            await _audit(conn, uid, "add_person", record_id,
+                         f"Added {name}" + (f" ({role})" if role else ""))
         return pid
 
     @strawberry.mutation
@@ -6594,8 +6668,13 @@ class WebMutation:
         async with _pool.connection() as conn:
             cur = await conn.execute(
                 f"UPDATE record_people SET {', '.join(sets)}"
-                " WHERE id=%s AND owner_user_id=%s RETURNING id", (*args, person_id, uid))
-            return bool(await cur.fetchone())
+                " WHERE id=%s AND owner_user_id=%s RETURNING id, record_id, person_name",
+                (*args, person_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_person", row["record_id"],
+                             f"Edited {row.get('person_name') or 'a person'}")
+            return bool(row)
 
     @strawberry.mutation
     async def delete_person(self, info: strawberry.Info, person_id: str) -> bool:
@@ -6604,9 +6683,14 @@ class WebMutation:
         uid = _uid(info)
         async with _pool.connection() as conn:
             cur = await conn.execute(
-                "DELETE FROM record_people WHERE id=%s AND owner_user_id=%s RETURNING id",
+                "DELETE FROM record_people WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, record_id, person_name",
                 (person_id, uid))
-            return bool(await cur.fetchone())
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "delete_person", row["record_id"],
+                             f"Removed {row.get('person_name') or 'a person'}")
+            return bool(row)
 
     @strawberry.mutation
     async def delete_photo(self, info: strawberry.Info, photo_id: str) -> bool:
@@ -6666,8 +6750,13 @@ class WebMutation:
         async with _pool.connection() as conn:
             cur = await conn.execute(
                 f"UPDATE documents SET {', '.join(sets)}"
-                " WHERE id=%s AND owner_user_id=%s RETURNING id", (*args, paper_id, uid))
-            return bool(await cur.fetchone())
+                " WHERE id=%s AND owner_user_id=%s RETURNING id, record_id, name",
+                (*args, paper_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_paper", row["record_id"],
+                             f"Updated a paper: {row.get('name') or ''}".strip())
+            return bool(row)
 
     @strawberry.mutation
     async def delete_expense(self, info: strawberry.Info, expense_id: str) -> bool:
@@ -6675,9 +6764,14 @@ class WebMutation:
         uid = _uid(info)
         async with _pool.connection() as conn:
             cur = await conn.execute(
-                "DELETE FROM land_expenses WHERE id=%s AND owner_user_id=%s RETURNING id",
+                "DELETE FROM land_expenses WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, entity_id, title",
                 (expense_id, uid))
-            return bool(await cur.fetchone())
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "delete_expense", row["entity_id"],
+                             f"Removed a cost: {row.get('title') or ''}".strip())
+            return bool(row)
 
     @strawberry.mutation
     async def add_feature(
@@ -6723,6 +6817,7 @@ class WebMutation:
                 (fid, uid, kind, record_id, (category or cat), label.strip(),
                  condition, (state or "unknown"), spec, note,
                  (icon or ico), _now_iso(), sort, "No pin yet"))
+            await _audit(conn, uid, "add_feature", record_id, f"Added a feature: {label.strip()}")
         return fid
 
     @strawberry.mutation
@@ -6772,9 +6867,13 @@ class WebMutation:
         async with _pool.connection() as conn:
             cur = await conn.execute(
                 f"UPDATE land_features SET {', '.join(sets)}"
-                " WHERE id=%s AND owner_user_id=%s RETURNING id",
+                " WHERE id=%s AND owner_user_id=%s RETURNING id, entity_id, label",
                 (*args, feature_id, uid))
-            return bool(await cur.fetchone())
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_feature", row["entity_id"],
+                             f"Edited a feature: {row.get('label') or ''}".strip())
+            return bool(row)
 
     @strawberry.mutation
     async def delete_feature(self, info: strawberry.Info, feature_id: str) -> bool:
@@ -6784,9 +6883,14 @@ class WebMutation:
         uid = _uid(info)
         async with _pool.connection() as conn:
             cur = await conn.execute(
-                "DELETE FROM land_features WHERE id=%s AND owner_user_id=%s RETURNING id",
+                "DELETE FROM land_features WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, entity_id, label",
                 (feature_id, uid))
-            return bool(await cur.fetchone())
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "delete_feature", row["entity_id"],
+                             f"Removed a feature: {row.get('label') or ''}".strip())
+            return bool(row)
 
     @strawberry.mutation
     async def delete_paper(self, info: strawberry.Info, paper_id: str) -> bool:
@@ -6796,13 +6900,16 @@ class WebMutation:
         uid = _uid(info)
         async with _pool.connection() as conn:
             cur = await conn.execute(
-                "DELETE FROM documents WHERE id=%s AND owner_user_id=%s RETURNING id",
+                "DELETE FROM documents WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, record_id, name",
                 (paper_id, uid))
             gone = await cur.fetchone()
             if gone:
                 await conn.execute(
                     "DELETE FROM share_links WHERE document_id=%s AND owner_user_id=%s",
                     (paper_id, uid))
+                await _audit(conn, uid, "delete_paper", gone["record_id"],
+                             f"Removed a paper: {gone.get('name') or ''}".strip())
         return bool(gone)
 
     # ── Service tickets (W16) ─────────────────────────────────────────
