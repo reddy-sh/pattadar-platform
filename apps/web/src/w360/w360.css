@@ -2815,6 +2815,17 @@
   color: var(--w-ink-3); font-size: 0.8125rem; line-height: 1.5;
 }
 
+/* The full Location map has a rail beside it that already says, in more words,
+   whatever this standalone notice would — "No marks recorded", "the sheet is
+   filed but its corners have never been placed on the ground". On that surface
+   the notice is pure duplication that lands on top of the top-left tools or the
+   bottom caption band whichever corner it takes, so it is dropped there. It
+   still shows on the small map surfaces (the record front-page card, the
+   portfolio) that have no rail to carry the same sentence.
+   `.nogeo.low` is a live status line (tiles failed, coordinates copied), not
+   the standing notice, so it is kept. */
+.w360 .plot.live .nogeo:not(.low) { display: none; }
+
 /* Where "Add a feature" sends you. A scroll that lands on a card already in
    view looks like nothing happened, so the destination says so itself. */
 .w360 .card.flash {
@@ -3242,19 +3253,23 @@
    same top-left corner as each other. Inside the stack they take their turn
    instead of covering the tools they are explaining. */
 /* What the map is saying, along the bottom — clear of the tools above it and
-   of the ground between them. */
+   of the ground between them.
+
+   The band's bottom edge sits above the caption row, not level with it. The
+   caption (`.cap`) is pinned at bottom 2.25rem and, with its padding and a
+   line of mono text, reaches to about 3.4rem — so a band floor of 3.5rem left
+   the wrapping instruction sentence resting on the caption's top edge (bare
+   "Add a named boundary mark…" wraps to two lines on a narrow panel and the
+   seam showed). Anchoring the floor at 4rem clears the caption in every wrap,
+   and since the band grows upward from that floor a longer sentence moves away
+   from the caption rather than into it. Applied to every live map, not just
+   the portfolio's `pf-stage`, because the same two boxes share this corner on
+   each of them. */
 .w360 .plot.live .mapsays {
   position: absolute; left: var(--space-md); right: var(--space-md);
-  bottom: 3.5rem; z-index: 500;
+  bottom: 4rem; z-index: 500;
   display: grid; gap: var(--space-sm); justify-items: start;
 }
-/* The portfolio map alone sits a notch higher. Its band carries a single
-   bordered sentence whose box reaches lower than W04's bare hint, and at
-   3.5rem its last few pixels rested on the top of the "OpenStreetMap"
-   caption. Scoped rather than raised for every map: W04's `.nogeo.low` is
-   pinned at bottom 4.5rem and already crowds this band, so lifting the band
-   there would push the two further into each other, not apart. */
-.w360 .plot.live.pf-stage .mapsays { bottom: 4rem; }
 .w360 .plot.live .mapsays .hint,
 .w360 .plot.live .mapsays > .note,
 .w360 .plot.live .mapsays .nogeo,
