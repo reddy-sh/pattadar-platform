@@ -811,6 +811,30 @@ export const useSaveExpense = (what = 'That expense') =>
     what,
   );
 
+/** Record one registration the land was bought in — the write the Money
+ *  hanger's "How you bought it" card was missing. `paid` is the only figure it
+ *  needs; the rest is optional. The rate is derived server-side from
+ *  paid / extent, so it is not sent. */
+export const useSavePurchase = () =>
+  useW360Mutation<{
+    recordId: string; boughtOn: string; paid: number; extent: number;
+    extentUnit: string; govtValue: number; seller: string; deedNo: string; sro: string;
+  }, Wrapped<'savePurchase', string>>(
+    `mutation SPu($recordId:String!,$boughtOn:String!,$paid:Float!,$extent:Float!,
+                  $extentUnit:String!,$govtValue:Float!,$seller:String!,$deedNo:String!,$sro:String!) {
+       web { savePurchase(recordId:$recordId,boughtOn:$boughtOn,paid:$paid,extent:$extent,
+                          extentUnit:$extentUnit,govtValue:$govtValue,seller:$seller,
+                          deedNo:$deedNo,sro:$sro) } }`,
+    'That purchase',
+  );
+
+export const useDeletePurchase = () =>
+  useW360Mutation<{ lotId: string }, Wrapped<'deletePurchase', boolean>>(
+    `mutation DPu($lotId:String!) { web { deletePurchase(lotId:$lotId) } }`,
+    'Removing that purchase',
+    false,
+  );
+
 export const useUpdateCaption = () =>
   useW360Mutation<{ photoId: string; caption: string }>(
     `mutation UC($photoId:String!,$caption:String!) {

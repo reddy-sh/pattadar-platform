@@ -12,13 +12,14 @@ import AddOutlined from '@mui/icons-material/AddOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 
-import { useMoney } from '../api';
+import { useMoney, useSavePurchase } from '../api';
 import { Card, Empty, Failed, Loading, csvCell, inr, num } from '../ui';
+import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
 import { ExpenseDrawerFor } from './RecordExpenses';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const RATES = [6, 10, 14];
 /** The server compounds whatever rate it is given over every year since the
@@ -57,6 +58,114 @@ function ValueChart({ series }: { series: { year: string; market: number; govern
   );
 }
 
+/**
+ * Recording a purchase — one registration the land was bought in.
+ *
+ * The write the "How you bought it" card was missing. Only the amount paid is
+ * required: it is what someone remembers first and it is all the figures above
+ * need. Everything else — the date, the extent, the government value, the
+ * seller and the deed reference — is optional, filled in as it is recalled. The
+ * rate is not asked for; the server derives it from paid ÷ extent so it can
+ * never disagree with the two numbers it comes from.
+ */
+function PurchaseDrawer({ recordId, recordTitle, onClose, returnFocus }: {
+  recordId: string;
+  recordTitle: string;
+  onClose: () => void;
+  returnFocus: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const save = useSavePurchase();
+  const [paid, setPaid] = useState('');
+  const [boughtOn, setBoughtOn] = useState('');
+  const [extent, setExtent] = useState('');
+  const [govt, setGovt] = useState('');
+  const [seller, setSeller] = useState('');
+  const [deedNo, setDeedNo] = useState('');
+  const [sro, setSro] = useState('');
+  const [err, setErr] = useState('');
+  const sent = useRef(false);
+
+  const paidNum = Number(paid);
+  const ready = paid.trim() !== '' && Number.isFinite(paidNum) && paidNum > 0 && !save.isPending;
+  const dirty = [paid, boughtOn, extent, govt, seller, deedNo, sro].some((v) => v.trim() !== '');
+
+  const commit = async () => {
+    if (!ready) return;
+    setErr('');
+    sent.current = true;
+    const res = await save.mutateAsync({
+      recordId, boughtOn: boughtOn.trim(), paid: paidNum,
+      extent: Number(extent) || 0, extentUnit: 'ac', govtValue: Number(govt) || 0,
+      seller: seller.trim(), deedNo: deedNo.trim(), sro: sro.trim(),
+    }).catch(() => null);
+    if (!res?.web.savePurchase) { sent.current = false; setErr('That purchase could not be saved. Nothing was recorded.'); }
+  };
+
+  // The mutation raises its own toast on failure; close only on a clean save.
+  useEffect(() => {
+    if (sent.current && !save.isPending && !err) onClose();
+  }, [save.isPending, err, onClose]);
+
+  return (
+    <Drawer
+      eyebrow={drawerEyebrow(recordTitle, 'Money')}
+      title="Record a purchase"
+      sub="What the land cost, and when. Only the amount is needed — the rest fills in as you remember it."
+      onClose={onClose}
+      onSubmit={() => void commit()}
+      busy={save.isPending}
+      dirty={dirty}
+      initialFocus="#pu-paid"
+      returnFocus={returnFocus}
+      primary={<DrawerAction label="Record it" working="Saving…" pending={save.isPending} disabled={!ready} />}
+    >
+      <div className="field">
+        <label htmlFor="pu-paid">What you paid</label>
+        <input id="pu-paid" type="text" inputMode="numeric" value={paid} placeholder="0"
+               onChange={(e) => setPaid(e.target.value.replace(/[^\d.]/g, ''))} />
+        <span className="note">{paid ? `₹${inr(paidNum || 0).replace('₹', '')}` : 'In rupees — the one figure this needs'}</span>
+      </div>
+      <div className="field">
+        <label htmlFor="pu-date">When (date on the deed)</label>
+        <input id="pu-date" type="date" value={boughtOn} onChange={(e) => setBoughtOn(e.target.value)} />
+        <span className="note">Optional.</span>
+      </div>
+      <div className="field">
+        <label htmlFor="pu-extent">Extent bought (acres)</label>
+        <input id="pu-extent" type="text" inputMode="decimal" value={extent} placeholder="0"
+               onChange={(e) => setExtent(e.target.value.replace(/[^\d.]/g, ''))} />
+        <span className="note">
+          {extent && paidNum > 0 && Number(extent) > 0
+            ? `${inr(Math.round(paidNum / Number(extent)))} per acre`
+            : 'Optional. Used to work out the rate per acre.'}
+        </span>
+      </div>
+      <div className="field">
+        <label htmlFor="pu-govt">Government value then</label>
+        <input id="pu-govt" type="text" inputMode="numeric" value={govt} placeholder="0"
+               onChange={(e) => setGovt(e.target.value.replace(/[^\d.]/g, ''))} />
+        <span className="note">Optional — the SRO rate on the deed.</span>
+      </div>
+      <div className="field">
+        <label htmlFor="pu-seller">Seller</label>
+        <input id="pu-seller" type="text" value={seller} placeholder="Who you bought from"
+               onChange={(e) => setSeller(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="pu-deed">Deed number &amp; SRO</label>
+        <div className="row tight" style={{ gap: 8, alignItems: 'flex-start' }}>
+          <input id="pu-deed" type="text" value={deedNo} placeholder="Deed no."
+                 onChange={(e) => setDeedNo(e.target.value)} style={{ flex: '1 1 0', minWidth: 0 }} />
+          <input aria-label="SRO" type="text" value={sro} placeholder="SRO"
+                 onChange={(e) => setSro(e.target.value)} style={{ flex: '1 1 0', minWidth: 0 }} />
+        </div>
+        <span className="note">Optional. The deed itself belongs under Papers.</span>
+      </div>
+      {err && <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>}
+    </Drawer>
+  );
+}
+
 export function RecordMoney() {
   const rec = useRecordCtx();
   const toast = useToast();
@@ -71,6 +180,11 @@ export function RecordMoney() {
   const cancelCustom = useRef(false);
   const [adding, setAdding] = useState(false);
   const addTrigger = useRef<HTMLButtonElement>(null);
+  // The purchase drawer — separate from the expense one above. Recording what
+  // the land COST is a different act from recording an ongoing cost, and it
+  // writes a different table (purchase_lots, not land_expenses).
+  const [buying, setBuying] = useState(false);
+  const buyTrigger = useRef<HTMLButtonElement>(null);
 
   const money = useMoney(rec.id, rate);
   const lastGood = useRef<NonNullable<typeof money.data> | undefined>(undefined);
@@ -224,19 +338,20 @@ export function RecordMoney() {
           <button type="button" className="btn" onClick={costSheet}>
             <FileDownloadOutlined sx={{ fontSize: 16 }} /> Cost sheet
           </button>
-          {/* This hanger was the only one of the nine with nothing to add.
-              "Add a purchase" used to stand here as an enabled primary with no
-              onClick, and it was removed rather than disabled, for a reason that
-              still holds: purchase lots are read-only everywhere — no resolver
-              for purchase_lots in web360.py, no mutation in api.ts — so there is
-              nothing for a purchase drawer to send.
-
-              A cost is different. `saveExpense` exists, and what this land has
-              cost to hold is half of what this hanger is about — the page already
-              ends with a link to that ledger. So the add here files a real row,
-              through the same drawer the ledger itself opens. A purchase still
-              needs the mutation, the resolver and the INSERT first. */}
-          <button ref={addTrigger} type="button" className="btn primary"
+          {/* Two adds, because this hanger holds two different things. "Record
+              a purchase" writes a registration lot (savePurchase → purchase_lots)
+              — what the land COST, the figures at the top of the page. "Record a
+              cost" writes an ongoing expense (saveExpense → land_expenses) — what
+              it costs to HOLD, the ledger the page links to. They were one
+              ambiguous button before the purchase mutation existed; now each
+              names the table it fills. `ghost`/`primary` keeps the purchase (the
+              thing the empty page is missing) as the lead action. */}
+          <button ref={buyTrigger} type="button" className="btn primary"
+                  aria-haspopup="dialog" aria-expanded={buying}
+                  onClick={() => setBuying(true)}>
+            <AddOutlined sx={{ fontSize: 16 }} /> Record a purchase
+          </button>
+          <button ref={addTrigger} type="button" className="btn"
                   aria-haspopup="dialog" aria-expanded={adding}
                   onClick={() => setAdding(true)}>
             <AddOutlined sx={{ fontSize: 16 }} /> Record a cost
@@ -251,6 +366,15 @@ export function RecordMoney() {
           recordTitle={rec.title}
           mode="expense"
           onClose={() => setAdding(false)}
+        />
+      )}
+
+      {buying && (
+        <PurchaseDrawer
+          recordId={rec.id}
+          recordTitle={rec.title}
+          returnFocus={buyTrigger}
+          onClose={() => setBuying(false)}
         />
       )}
 
@@ -369,13 +493,19 @@ export function RecordMoney() {
               <Empty title={paidKnown
                 ? 'The price is on the record, not broken into lots'
                 : 'No purchase recorded for this record'}
-                     action={<Link className="btn sm" to={`/app/records/${rec.id}`}>Papers ›</Link>}>
+                     action={(
+                       <button ref={buyTrigger} type="button" className="btn sm primary"
+                               aria-haspopup="dialog" aria-expanded={buying}
+                               onClick={() => setBuying(true)}>
+                         <AddOutlined sx={{ fontSize: 15 }} /> Record a purchase
+                       </button>
+                     )}>
                 {paidKnown
                   ? <>The record says you paid {inr(data.paidTotal)}, but no separate
-                      registration lots are filed. The deed behind that price belongs under Papers.</>
-                  : <>Entering one here is not something the app can do yet. The price typed when
-                      a record is added is kept with the record, and the deed it came from belongs
-                      under Papers.</>}
+                      registration lots are filed. Record one here, or the deed behind that
+                      price belongs under <Link className="accent" to={`/app/records/${rec.id}`}>Papers</Link>.</>
+                  : <>Record what you paid and when, and it fills the figures above. The deed it
+                      came from belongs under <Link className="accent" to={`/app/records/${rec.id}`}>Papers</Link>.</>}
               </Empty>
             )}
           </Card>

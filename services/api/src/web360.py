@@ -6195,6 +6195,75 @@ class WebMutation:
         return eid
 
     @strawberry.mutation
+    async def save_purchase(
+        self, info: strawberry.Info, record_id: str, bought_on: str, paid: float,
+        extent: float = 0, extent_unit: str = "ac", govt_value: float = 0,
+        seller: str = "", deed_no: str = "", sro: str = "",
+    ) -> str:
+        """Record one registration — a lot the land was bought in.
+
+        This is the write the Money hanger's "How you bought it" card was
+        missing: until now a purchase could only be captured at record creation
+        and never afterwards, so a record filed without a price showed ₹0
+        forever with no way to correct it. One row per registration, appended
+        in `sort` order, so a holding bought in two lots keeps both rates and
+        the blended one the view computes.
+
+        `paid` is the only figure the card truly needs; extent, rate, the
+        government value and the deed reference are all optional, because what
+        someone remembers first is what they paid. `rate` is derived from
+        paid / extent rather than asked for — one less field, and it cannot
+        disagree with the two numbers it comes from. Ownership is enforced by
+        `_record_kind`; a record that is not the caller's writes nothing."""
+        uid = _uid(info)
+        if paid < 0 or extent < 0 or govt_value < 0:
+            return ""
+        # Store DD/MM/YYYY — the shape everything that reads bought_on expects
+        # (the value view takes the last four chars as the year, and the built
+        # depreciation path parses day/month/year off `/` positions). The web
+        # date input hands over ISO YYYY-MM-DD, so an ISO value is converted
+        # here rather than left to break the money read as a stray '6-12'.
+        _b = (bought_on or "").strip()
+        if len(_b) == 10 and _b[4] == "-" and _b[7] == "-":
+            _b = f"{_b[8:10]}/{_b[5:7]}/{_b[0:4]}"
+        import uuid as _uuid
+        async with _pool.connection() as conn:
+            if not await _record_kind(conn, uid, record_id):
+                return ""
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM purchase_lots WHERE record_id=%s",
+                (record_id,))
+            sort = (await cur.fetchone() or {}).get("s", 1)
+            lid = f"lot-{_uuid.uuid4().hex[:12]}"
+            rate = (paid / extent) if extent > 0 else 0.0
+            await conn.execute(
+                "INSERT INTO purchase_lots (id, owner_user_id, record_id, bought_on, extent,"
+                " extent_unit, rate, paid, govt_value, seller, deed_no, sro, sort)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (lid, uid, record_id, _b, extent, (extent_unit or "ac"),
+                 rate, paid, govt_value, seller, deed_no, sro, sort))
+            await _audit(conn, uid, "add_purchase", record_id,
+                         f"Recorded a purchase" + (f" from {seller}" if seller else "")
+                         + (f" · {paid:,.0f}" if paid else ""))
+        return lid
+
+    @strawberry.mutation
+    async def delete_purchase(self, info: strawberry.Info, lot_id: str) -> bool:
+        """Removes one registration from "How you bought it". The blended rate
+        and totals recompute from whatever lots remain."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM purchase_lots WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, record_id, paid",
+                (lot_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "delete_purchase", row["record_id"],
+                             "Removed a purchase" + (f" · {_f(row.get('paid')):,.0f}" if row.get("paid") else ""))
+            return bool(row)
+
+    @strawberry.mutation
     async def update_caption(self, info: strawberry.Info, photo_id: str, caption: str) -> bool:
         uid = _uid(info)
         async with _pool.connection() as conn:
