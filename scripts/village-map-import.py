@@ -10,7 +10,7 @@ village up in (it cannot list a directory, and guessing the filename from the
 record's own spelling is exactly what broke).
 
 The reading, the label matching and the naming all live in
-`services/api/src/villagemap.py`, shared with the API's upload route so that a
+`services/api/src/village_map.py`, shared with the API's upload route so that a
 map built here and the same map uploaded through the app cannot come out
 different.  What is here is the bulk part: several files at once, grouped by
 village, with the duplicates called out.
@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # The parser is the API's, so that both ways of importing a village agree.
 sys.path.insert(0, str(ROOT / "services" / "api" / "src"))
-import villagemap as vm                                    # noqa: E402
+import village_map as vm                                    # noqa: E402
 
 OUT_DIR = ROOT / "apps" / "web" / "public" / "vm"
 

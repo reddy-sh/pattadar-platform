@@ -58,7 +58,12 @@ module "runtime" {
   payments_mode            = var.payments_mode
   razorpay_live_confirmed  = var.razorpay_live_confirmed
   payment_secret_arns      = var.payment_secret_arns
-  gateway_image_tag        = var.gateway_image_tag
+
+  # Aadhaar rollout starts as a dual-reader/no-new-write bridge. An approved
+  # environment-specific change must choose legacy bridge or KMS writes.
+  aadhaar_kms_writes_enabled   = false
+  enable_aadhaar_legacy_fernet = false
+  gateway_image_tag            = var.gateway_image_tag
 
   assistant_image_tag = var.assistant_image_tag
   api_image_tag       = var.api_image_tag

@@ -22,6 +22,12 @@ variable "noncurrent_version_expiration_days" {
   default     = 180
 }
 
+variable "enforce_documents_sse_kms_headers" {
+  description = "Deny document PutObject requests without the expected explicit SSE-KMS key. Enable only after every writer revision is deployed and verified."
+  type        = bool
+  default     = false
+}
+
 variable "parking_storage_class" {
   description = <<-EOT
     S3 storage class the documents bucket contents are transitioned to when the

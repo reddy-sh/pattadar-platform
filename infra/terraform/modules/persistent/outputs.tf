@@ -9,6 +9,11 @@ output "kms_key_arn" {
   value       = aws_kms_key.main.arn
 }
 
+output "aadhaar_kms_key_arn" {
+  description = "ARN of the dedicated single-Region Aadhaar field-encryption CMK."
+  value       = aws_kms_key.aadhaar.arn
+}
+
 # --- S3 ---
 
 output "documents_bucket_name" {

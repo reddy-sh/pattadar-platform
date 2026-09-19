@@ -42,6 +42,9 @@ module "persistent" {
 
   noncurrent_version_expiration_days = 30
   parking_storage_class              = var.parking_storage_class
+  # Phase 2 only: flip in a separately approved plan after gateway, assistant,
+  # and migration writers all prove explicit SSE-KMS headers.
+  enforce_documents_sse_kms_headers = false
 
   spa_callback_urls = ["http://localhost:5173/auth/callback", "http://127.0.0.1:5173/auth/callback",
   "http://localhost:5180/auth/callback", "http://127.0.0.1:5180/auth/callback"]

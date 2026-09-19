@@ -64,7 +64,9 @@ data "aws_iam_policy_document" "execution_secrets" {
       local.persistent.secret_arns["cron-secret"],
       aws_secretsmanager_secret.db_dsn.arn,
       aws_secretsmanager_secret.db_app_password.arn,
-    ], values(var.payment_secret_arns))
+      ], var.enable_aadhaar_legacy_fernet ? [
+      local.persistent.secret_arns["aadhaar-legacy-fernet-key"],
+    ] : [], values(var.payment_secret_arns))
   }
 
   statement {
@@ -135,12 +137,50 @@ resource "aws_iam_role_policy" "gateway_task" {
   policy = data.aws_iam_policy_document.gateway_task.json
 }
 
-# api: nothing beyond what the execution role already provides (logs). It
-# talks to RDS/Anthropic over the network with injected secrets, not AWS APIs.
+# api: direct field encryption only on the dedicated Aadhaar CMK. Network
+# access to RDS/providers remains separate from this task-role permission.
 resource "aws_iam_role" "api_task" {
   name               = "${local.prefix}-api-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
   tags               = local.tags
+}
+
+data "aws_iam_policy_document" "api_task" {
+  statement {
+    sid       = "AadhaarFieldEncryption"
+    actions   = ["kms:Encrypt", "kms:Decrypt"]
+    resources = [local.persistent.aadhaar_kms_key_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:EncryptionContext:app"
+      values   = [var.app_name]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:EncryptionContext:environment"
+      values   = [var.environment]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:EncryptionContext:schema"
+      values   = ["v1"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "kms:EncryptionContext:purpose"
+      values   = ["aadhaar-*"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "api_task" {
+  name   = "api-task"
+  role   = aws_iam_role.api_task.id
+  policy = data.aws_iam_policy_document.api_task.json
 }
 
 # --- Task definitions --------------------------------------------------------
@@ -178,7 +218,9 @@ resource "aws_ecs_task_definition" "gateway" {
       environment = [
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = data.aws_region.current.region },
+        { name = "APP_ENV", value = var.environment },
         { name = "STORAGE_BUCKET", value = local.persistent.documents_bucket_name },
+        { name = "STORAGE_KMS_KEY_ARN", value = local.persistent.kms_key_arn },
         { name = "STORAGE_MAX_UPLOAD_BYTES", value = "104857600" },
         { name = "PG_HOST", value = aws_db_instance.main.address },
         { name = "PG_PORT", value = "5432" },
@@ -250,6 +292,10 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = data.aws_region.current.region },
+        { name = "APP_ENV", value = var.environment },
+        { name = "AADHAAR_KMS_KEY_ARN", value = local.persistent.aadhaar_kms_key_arn },
+        { name = "AADHAAR_KMS_WRITES_ENABLED", value = var.aadhaar_kms_writes_enabled ? "1" : "0" },
+        { name = "AADHAAR_LEGACY_WRITE_BRIDGE", value = var.enable_aadhaar_legacy_fernet ? "1" : "0" },
         { name = "APP_PUBLIC_URL", value = "https://${var.web_domain}" },
         { name = "PAYMENTS_MODE", value = var.payments_mode },
         { name = "RAZORPAY_LIVE_CONFIRMED", value = var.razorpay_live_confirmed ? "1" : "0" },
@@ -261,7 +307,9 @@ resource "aws_ecs_task_definition" "api" {
         { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
         { name = "CRON_SECRET", valueFrom = local.persistent.secret_arns["cron-secret"] },
         { name = "APP_PG_DSN", valueFrom = aws_secretsmanager_secret.db_dsn.arn },
-      ], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }])
+        ], var.enable_aadhaar_legacy_fernet ? [
+        { name = "AADHAAR_ENC_KEY", valueFrom = local.persistent.secret_arns["aadhaar-legacy-fernet-key"] },
+      ] : [], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }])
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -413,6 +461,7 @@ resource "aws_ecs_task_definition" "assistant" {
         { name = "PUBLIC_RECORDS_SCHEMA", value = "land" },
         { name = "PUBLIC_RECORDS_EMBEDDINGS_ENABLED", value = "0" },
         { name = "ASSISTANT_ATTACHMENTS_BUCKET", value = local.persistent.documents_bucket_name },
+        { name = "ASSISTANT_ATTACHMENTS_KMS_KEY_ARN", value = local.persistent.kms_key_arn },
       ]
 
       secrets = [

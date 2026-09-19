@@ -4,6 +4,8 @@
 #
 #   anthropic-api-key — direct Anthropic API key for document extraction
 #   cron-secret       — shared secret validating /cron/* callers (x-cron-secret)
+#   aadhaar-legacy-fernet-key — bounded migration/rollback bridge; populate only
+#                       after count-only inventory and explicit approval
 #   cognito-config    — JSON: extra Cognito wiring the services need beyond the
 #                       Terraform outputs (e.g. server-side client settings)
 #   notify-providers  — JSON: email/WhatsApp/SMS provider credentials (env-gated stubs until live)
@@ -12,6 +14,7 @@ locals {
   secret_names = toset([
     "anthropic-api-key",
     "cron-secret",
+    "aadhaar-legacy-fernet-key", # temporary read/write bridge; value populated only after approved inventory
     "cognito-config",
     "notify-providers",
     "idp-social", # {google:{client_id,client_secret}, facebook:{app_id,app_secret}, apple:{services_id,team_id,key_id,private_key}}

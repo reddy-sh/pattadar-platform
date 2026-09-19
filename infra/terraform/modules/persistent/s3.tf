@@ -246,6 +246,50 @@ data "aws_iam_policy_document" "documents_bucket" {
       values   = ["false"]
     }
   }
+
+  dynamic "statement" {
+    for_each = var.enforce_documents_sse_kms_headers ? [1] : []
+
+    content {
+      sid       = "DenyUploadsWithoutKms"
+      effect    = "Deny"
+      actions   = ["s3:PutObject"]
+      resources = ["${aws_s3_bucket.documents.arn}/*"]
+
+      principals {
+        type        = "AWS"
+        identifiers = ["*"]
+      }
+
+      condition {
+        test     = "StringNotEquals"
+        variable = "s3:x-amz-server-side-encryption"
+        values   = ["aws:kms"]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enforce_documents_sse_kms_headers ? [1] : []
+
+    content {
+      sid       = "DenyUploadsWithWrongKmsKey"
+      effect    = "Deny"
+      actions   = ["s3:PutObject"]
+      resources = ["${aws_s3_bucket.documents.arn}/*"]
+
+      principals {
+        type        = "AWS"
+        identifiers = ["*"]
+      }
+
+      condition {
+        test     = "StringNotEquals"
+        variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+        values   = [aws_kms_key.main.arn]
+      }
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "documents" {

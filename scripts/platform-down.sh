@@ -106,6 +106,7 @@ terraform -chdir="$RUNTIME_DIR" destroy -input=false -auto-approve
 # --- 4. Park documents into the cold storage class -----------------------------
 terraform -chdir="$PERSISTENT_DIR" init -input=false >/dev/null
 docs_bucket="$(terraform -chdir="$PERSISTENT_DIR" output -raw documents_bucket_name)"
+documents_kms_key="$(terraform -chdir="$PERSISTENT_DIR" output -raw kms_key_arn)"
 parking_class="$(terraform -chdir="$PERSISTENT_DIR" output -raw parking_storage_class)"
 log "Parking s3://${docs_bucket} objects ({owner}/... keyspace) to ${parking_class}"
 
@@ -122,10 +123,11 @@ while :; do
   fi
   while IFS= read -r key; do
     [[ -z "$key" ]] && continue
-    # In-place copy re-writes the object into the parking class (new version;
-    # bucket-default SSE-KMS reapplies; GuardDuty rescans on un-park PUTs).
+    # In-place copy re-writes the object into the parking class (new version)
+    # while retaining the explicit documents-key contract required by policy.
     aws s3 cp "s3://${docs_bucket}/${key}" "s3://${docs_bucket}/${key}" \
-      --storage-class "$parking_class" --only-show-errors
+      --storage-class "$parking_class" --sse aws:kms \
+      --sse-kms-key-id "$documents_kms_key" --only-show-errors
     parked=$((parked + 1))
   done < <(jq -r --arg pc "$parking_class" \
     '.Contents[]? | select((.StorageClass // "STANDARD") != $pc) | .Key' <<<"$resp")

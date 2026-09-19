@@ -41,4 +41,7 @@ module "persistent" {
 
   noncurrent_version_expiration_days = var.noncurrent_version_expiration_days
   parking_storage_class              = var.parking_storage_class
+  # Phase 2 only: flip in a separately approved plan after gateway, assistant,
+  # and migration writers all prove explicit SSE-KMS headers.
+  enforce_documents_sse_kms_headers = false
 }

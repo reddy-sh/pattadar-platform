@@ -265,3 +265,17 @@ variable "payment_secret_arns" {
     error_message = "Only the four documented Razorpay secret names are supported."
   }
 }
+
+# --- Aadhaar field-encryption rollout ---------------------------------------
+
+variable "aadhaar_kms_writes_enabled" {
+  description = "Enable new direct-KMS Aadhaar/candidate writes. Keep false for the dual-reader bridge until rollback targets are KMS-capable."
+  type        = bool
+  default     = false
+}
+
+variable "enable_aadhaar_legacy_fernet" {
+  description = "Inject the approved legacy Fernet key and permit temporary bridge writes. Enable only while inventoried legacy ciphertext remains."
+  type        = bool
+  default     = false
+}

@@ -31,7 +31,7 @@
 # fail the allowlist again.
 #
 # Cognito is LOCAL by default: the gateway runs its unchanged validation
-# pipeline against a keypair on this laptop (services/gateway/app/
+# pipeline against a keypair on this laptop (services/gateway/src/
 # local_issuer.py) and mints tokens for any local user through the app's dev
 # door — the entire loop, sign-in included, works with NO internet. The real
 # pool is trusted ALONGSIDE it, so hosted-UI sign-in with your pattadar.com
@@ -328,12 +328,13 @@ PYEOF
     PG_HOST=localhost PG_PORT=5432 PG_USER=rhub PG_PASSWORD="$PGPASSWORD" PG_DATABASE="$GW_DB" \
     STORAGE_BUCKET="$STORAGE_BUCKET_LOCAL" \
     STORAGE_S3_ENDPOINT="http://127.0.0.1:9000" \
+    APP_ENV=local ALLOW_INSECURE_LOCAL=1 \
     AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin AWS_REGION=ap-south-1 \
     COGNITO_USER_POOL_ID="$COGNITO_USER_POOL_ID" COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
     LOCAL_AUTH_KEY_FILE="$GW_LOCAL_KEY" \
     API_BASE_URL="http://localhost:8080" \
     ASSISTANT_BASE_URL="http://localhost:8081" \
-    "$GW_VENV/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8082 --reload >"$GW_LOG" 2>&1
+    "$GW_VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8082 --reload >"$GW_LOG" 2>&1
   ) &
   GW_PID=$!
 
