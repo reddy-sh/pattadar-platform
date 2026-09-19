@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwk, jwt
 from jose.exceptions import JWTError
 
-from app.cognito_jwt import CognitoJWTConfig, JWKSCache, verify_token
+from src.cognito_jwt import CognitoJWTConfig, JWKSCache, verify_token
 
 KID = "test-kid-1"
 POOL_ID = "ap-south-1_TESTPOOL"

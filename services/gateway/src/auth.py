@@ -284,7 +284,7 @@ def is_admin(user_id: str) -> bool:
 async def require_admin(request: Request) -> Optional[JSONResponse]:
     """Gate for admin endpoints. Returns None when allowed, a 403 response
     otherwise. Mirrors the predecessor's _require_admin call shape (deny-object or None)
-    so routes_admin_models.py ports with minimal diff. FAILS CLOSED."""
+    so ai_catalog/routes.py ports with minimal diff. FAILS CLOSED."""
     try:
         if is_admin(principal_id_from_claims(getattr(request.state, "token_claims", None))):
             return None

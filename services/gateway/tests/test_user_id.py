@@ -5,7 +5,7 @@ import types
 import pytest
 from fastapi import HTTPException
 
-from app import auth
+from src import auth
 
 ISSUER = "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_POOL"
 

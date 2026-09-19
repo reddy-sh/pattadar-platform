@@ -2,7 +2,7 @@ import asyncio
 import time
 import httpx
 import pytest
-from app.cognito_jwt import JWKSCache
+from src.cognito_jwt import JWKSCache
 
 
 def test_new_kid_refreshes_fresh_cache_once_for_concurrent_sessions():

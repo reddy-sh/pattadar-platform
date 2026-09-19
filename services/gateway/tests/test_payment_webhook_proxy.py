@@ -4,7 +4,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from app import auth, proxy
+from src import auth
+from src.routes import proxy
 
 
 @pytest.fixture

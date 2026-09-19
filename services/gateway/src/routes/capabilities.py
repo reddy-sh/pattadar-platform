@@ -13,9 +13,9 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
-from . import auth
+from .. import auth
 from .proxy import _api_base_url
-from .routes_storage import MAX_UPLOAD_BYTES, _cd, _err, _scope, get_storage
+from .storage import MAX_UPLOAD_BYTES, _cd, _err, _scope, get_storage
 
 router = APIRouter(prefix="/api/gateway/capabilities", tags=["recipient access"])
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")

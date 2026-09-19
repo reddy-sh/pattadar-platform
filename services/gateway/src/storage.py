@@ -27,7 +27,7 @@ from typing import Any, Callable, Optional
 
 import psycopg
 
-from . import db
+from . import database as db
 
 _log = logging.getLogger("pattadar.gateway.storage")
 
@@ -137,10 +137,36 @@ def next_free_name(name: str, taken: Callable[[str], bool]) -> str:
 # ---------------------------------------------------------------------------
 
 class StorageService:
-    def __init__(self, s3_client: Any, bucket: str):
+    def __init__(
+        self,
+        s3_client: Any,
+        bucket: str,
+        kms_key_arn: str = "",
+        *,
+        allow_unencrypted_local: bool = False,
+    ):
         self._s3 = s3_client
         self._bucket = bucket
+        self._kms_key_arn = (kms_key_arn or "").strip()
+        self._allow_unencrypted_local = allow_unencrypted_local
+        if not self._kms_key_arn and not self._allow_unencrypted_local:
+            raise RuntimeError("STORAGE_KMS_KEY_ARN is required for deployed storage")
         self._ensure_bucket()
+
+    def _put_args(self, *, key: str, data: bytes, mime: str) -> dict[str, Any]:
+        args: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "Body": data,
+            "ContentType": mime,
+        }
+        if not self._allow_unencrypted_local:
+            args.update({
+                "ServerSideEncryption": "aws:kms",
+                "SSEKMSKeyId": self._kms_key_arn,
+                "BucketKeyEnabled": True,
+            })
+        return args
 
     def _ensure_bucket(self) -> None:
         """No-op existence check — the bucket is provisioned by Terraform;
@@ -390,7 +416,7 @@ class StorageService:
             nid = str(existing[0]["id"])
             vid = str(uuid.uuid4())
             key = self._key(owner, nid, vid)
-            self._s3.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=mime)
+            self._s3.put_object(**self._put_args(key=key, data=data, mime=mime))
             with db._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -412,7 +438,7 @@ class StorageService:
         vid = str(uuid.uuid4())
         key = self._key(owner, nid, vid)
         # Upload bytes first; if the DB insert conflicts we best-effort remove them.
-        self._s3.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=mime)
+        self._s3.put_object(**self._put_args(key=key, data=data, mime=mime))
         try:
             with db._get_conn() as conn:
                 with conn.cursor() as cur:

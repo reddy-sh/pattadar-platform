@@ -11,7 +11,7 @@ These cover the naming rule that lets both live. The database path around it
 """
 import pytest
 
-from app.storage_service import StorageConflict, next_free_name
+from src.storage import StorageConflict, next_free_name
 
 
 def test_first_duplicate_becomes_2():

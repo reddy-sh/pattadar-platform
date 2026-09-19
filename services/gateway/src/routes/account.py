@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from . import auth, db
+from .. import auth, database as db
 from .proxy import _api_base_url, _assistant_base_url
 
 router = APIRouter(prefix="/api/gateway/account", tags=["account"])
@@ -101,7 +101,7 @@ class ErasureConfirmation(BaseModel):
 
 
 def require_fresh_auth(claims):
-    from .local_issuer import ISSUER, LocalTrust
+    from ..local_issuer import ISSUER, LocalTrust
     timestamp = claims.get("auth_time")
     if claims.get("iss") == ISSUER and isinstance(auth.jwks_cache, LocalTrust):
         timestamp = claims.get("iat")

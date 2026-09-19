@@ -17,9 +17,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException, Request
 from jose import jwk, jwt
 
-from app import auth
-from app.cognito_jwt import CognitoJWTConfig, JWKSCache
-from app.local_issuer import ISSUER, LocalTrust
+from src import auth
+from src.cognito_jwt import CognitoJWTConfig, JWKSCache
+from src.local_issuer import ISSUER, LocalTrust
 
 POOL_ID = "ap-south-1_TESTPOOL"
 CLIENT_ID = "abc123clientid"

@@ -31,9 +31,9 @@ from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from .auth import extract_user_id, require_admin, require_auth
-from .db import _conninfo
-from . import model_providers as _providers
+from ..auth import extract_user_id, require_admin, require_auth
+from ..database import _conninfo
+from . import providers as _providers
 
 _log = logging.getLogger("pattadar.gateway.admin_models")
 

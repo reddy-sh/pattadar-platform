@@ -13,9 +13,9 @@ from fastapi import HTTPException
 from jose import jwk, jwt
 from jose.exceptions import JWTError
 
-from app import auth
-from app.cognito_jwt import CognitoJWTConfig, JWKSCache, verify_token
-from app.local_issuer import ISSUER, LocalTrust, local_token
+from src import auth
+from src.cognito_jwt import CognitoJWTConfig, JWKSCache, verify_token
+from src.local_issuer import ISSUER, LocalTrust, local_token
 
 POOL_ID = "ap-south-1_TESTPOOL"
 CLIENT_ID = "abc123clientid"

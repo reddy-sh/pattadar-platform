@@ -1,4 +1,4 @@
-"""Conservative AST policy for the bearer-token verification mutation."""
+"""Conservative AST policy for single-purpose public capability mutations."""
 import json
 
 from graphql import parse
@@ -52,7 +52,9 @@ def is_public_verification(body: bytes) -> bool:
                     raise ValueError("More than one root field")
             return fields
 
-        return roots(operation.selection_set) == ["verifyBeneficiary"]
+        public_roots = {"verifyBeneficiary", "acknowledgeInactivity"}
+        fields = roots(operation.selection_set)
+        return len(fields) == 1 and fields[0] in public_roots
     except (ValueError, TypeError, RecursionError):
         return False
     except Exception:

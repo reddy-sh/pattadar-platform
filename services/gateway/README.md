@@ -12,8 +12,18 @@ TODO(Phase 1): port the modules below from the predecessor platform.
 | --- | --- | --- |
 | Auth | `api/gateway/auth.py`, `api/common/auth0_jwt.py` | Port the JWKS-validation skeleton, rewired to **Amazon Cognito** (see claims contract below). Cognito issues only JWTs — DELETE the predecessor's opaque-token `/userinfo` fallback, do not port it. `extract_user_id` derives an immutable issuer/subject principal; reviewed legacy bindings retain existing DB and storage owner keys. See the identity migration runbook before rollout. |
 | Document storage | `api/gateway/routes_storage.py`, `api/gateway/storage_service.py` | PG tables `storage_nodes` / `storage_versions` / `storage_shares` / tags + object bytes in S3. Object keys are `{owner_id}/{node_id}/{version_id}` — migrate MinIO objects verbatim so metadata rows need zero changes. minio-py IS S3-compatible: endpoint swap + `MINIO_SECURE=true` + static keys works day one; rewriting the ~6 call sites to boto3 is a later cleanup. Keep the proxied-streaming model — no presigned URLs exist. |
-| Model admin | `api/gateway/routes_admin_models.py`, `api/gateway/model_providers/{base,anthropic}.py` | Super-admin model catalog. Gate is the `platform.manage` permission and MUST fail closed. |
+| Model admin | `api/gateway/routes_admin_models.py`, `api/gateway/model_providers/{base,anthropic}.py` | Super-admin model catalog. Gate is the `platform.manage` permission and MUST fail closed. Now lives in `app/ai_catalog/` — see below. |
 | RBAC | minimal port | `platform_admin` as the super-admin role; block deactivated users. |
+
+The table above maps **predecessor** paths. In this repository the model catalog
+is `src/ai_catalog/routes.py` (admin HTTP surface, fail closed) and
+`src/ai_catalog/providers/` (one adapter per provider). The `platform_models`
+table is authoritative for every consumer, including `services/assistant`, which
+only reads it. Platform-wide AI context is in
+[`docs/architecture/ai-system.md`](../../docs/architecture/ai-system.md).
+
+Note: `providers/` is the Python adapter package; `model_providers` in SQL is a
+different thing — the table of configured provider rows.
 
 ## Cognito claims contract
 

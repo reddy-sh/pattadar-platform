@@ -2,7 +2,7 @@
 import asyncio
 import json
 import types
-from app import auth
+from src import auth
 
 
 def request(claims):

@@ -10,7 +10,7 @@ decodes of forty full-size photographs.
 The tag is taken over the ORIGINAL bytes plus the transform that was asked for,
 so the 304 can be answered ABOVE the decode instead of below it.
 """
-from app.routes_storage import _CACHE, _content_etag
+from src.routes.storage import _CACHE, _content_etag
 
 JPEG = b"\xff\xd8\xff\xe0" + b"pretend this is a photograph" * 40
 

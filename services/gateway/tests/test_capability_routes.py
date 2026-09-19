@@ -3,7 +3,7 @@ import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app import routes_capabilities as r
+from src.routes import capabilities as r
 
 TOKEN = 'a' * 43
 

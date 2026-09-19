@@ -9,8 +9,8 @@ Covers both layers:
 from fastapi import FastAPI, Request
 from starlette.testclient import TestClient
 
-from app.main import StripIdentityHeadersMiddleware
-from app.proxy import is_public_verify, outbound_headers
+from src.main import StripIdentityHeadersMiddleware
+from src.routes.proxy import is_public_verify, outbound_headers
 
 
 def _echo_app():

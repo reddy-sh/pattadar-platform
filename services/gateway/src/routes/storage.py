@@ -26,8 +26,8 @@ from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
-from .auth import extract_user_id, require_auth
-from .storage_service import (
+from ..auth import extract_user_id, require_auth
+from ..storage import (
     ORG_ID,
     WORKSPACE_ID,
     StorageConflict,
@@ -46,6 +46,20 @@ MAX_UPLOAD_BYTES = int(os.getenv("STORAGE_MAX_UPLOAD_BYTES", str(100 * 1024 * 10
 _service: Optional[StorageService] = None
 
 
+def _allow_unencrypted_local(endpoint: str) -> bool:
+    if not endpoint:
+        return False
+    environment = os.getenv("APP_ENV", "local").strip().casefold()
+    if (
+        environment not in {"local", "test"}
+        or os.getenv("ALLOW_INSECURE_LOCAL", "") != "1"
+    ):
+        raise RuntimeError(
+            "STORAGE_S3_ENDPOINT requires APP_ENV=local/test and ALLOW_INSECURE_LOCAL=1"
+        )
+    return True
+
+
 def get_storage() -> StorageService:
     """Lazily build the S3-backed service singleton from env.
 
@@ -60,6 +74,7 @@ def get_storage() -> StorageService:
         import boto3
 
         endpoint = os.getenv("STORAGE_S3_ENDPOINT", "").strip()
+        local_endpoint = _allow_unencrypted_local(endpoint)
         if endpoint:
             from botocore.config import Config
 
@@ -71,7 +86,12 @@ def get_storage() -> StorageService:
             )
         else:
             client = boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-south-1"))
-        _service = StorageService(client, os.getenv("STORAGE_BUCKET", "pattadar-user-documents"))
+        _service = StorageService(
+            client,
+            os.getenv("STORAGE_BUCKET", "pattadar-user-documents"),
+            os.getenv("STORAGE_KMS_KEY_ARN", ""),
+            allow_unencrypted_local=local_endpoint,
+        )
     return _service
 
 
@@ -334,14 +354,14 @@ async def upload_file(
     an ordinary thing to hold.
     """
     owner = extract_user_id(request)
-    svc = get_storage()
-    data = await file.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        return JSONResponse(status_code=413, content={"error": "File too large"})
-    mime = file.content_type or "application/octet-stream"
-    name = file.filename or "document"
-    org_id, workspace_id = _scope(svc)
     try:
+        svc = get_storage()
+        data = await file.read()
+        if len(data) > MAX_UPLOAD_BYTES:
+            return JSONResponse(status_code=413, content={"error": "File too large"})
+        mime = file.content_type or "application/octet-stream"
+        name = file.filename or "document"
+        org_id, workspace_id = _scope(svc)
         node = await run_in_threadpool(
             functools.partial(
                 svc.create_file,

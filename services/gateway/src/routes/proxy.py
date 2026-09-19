@@ -21,8 +21,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import auth
-from .public_graphql import is_public_verification
+from .. import auth
+from ..public_graphql import is_public_verification
 
 _log = logging.getLogger("pattadar.gateway.proxy")
 
@@ -79,7 +79,7 @@ def _response_headers(upstream: httpx.Response) -> dict:
 
 
 def is_public_verify(path: str, method: str, body: bytes) -> bool:
-    """Only the parsed beneficiary verification mutation is anonymous."""
+    """Only one parsed, purpose-bound verification/ack mutation is anonymous."""
     return (method.upper() == "POST" and path.strip("/") == "graphql"
             and is_public_verification(body))
 

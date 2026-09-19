@@ -1,6 +1,6 @@
 import json
 import pytest
-from app.proxy import is_public_verify
+from src.routes.proxy import is_public_verify
 
 
 def allowed(query, **extra):
@@ -12,8 +12,10 @@ def allowed(query, **extra):
     'mutation Accept($token:String!) { accepted: verifyBeneficiary(token:$token) { id } }',
     'mutation { ...Verify } fragment Verify on Mutation { verifyBeneficiary(token:"t") { id } }',
     'mutation { ... on Mutation { verifyBeneficiary(token:"t") { id } } }',
+    'mutation { acknowledgeInactivity(token:"t") }',
+    'mutation Ack($token:String!,$withdraw:Boolean!){ acknowledgeInactivity(token:$token,withdraw:$withdraw) }',
 ])
-def test_real_verification_remains_public(query):
+def test_single_public_capability_mutation_remains_public(query):
     assert allowed(query)
 
 
@@ -28,6 +30,8 @@ def test_real_verification_remains_public(query):
     'mutation { ...Missing }',
     'mutation { verifyMember(token:"t") { id } }',
     'mutation { verifyBeneficiary(token:"t") { id } again:verifyBeneficiary(token:"x") { id } }',
+    'mutation { acknowledgeInactivity(token:"t") verifyBeneficiary(token:"x") { id } }',
+    'mutation { acknowledgeInactivity(token:"t") again:acknowledgeInactivity(token:"x") }',
 ])
 def test_other_operations_cannot_smuggle_through(query):
     assert not allowed(query)
@@ -44,6 +48,6 @@ def test_operation_name_must_match_and_batches_are_rejected():
 def test_internal_resolution_routes_are_never_generically_proxied(path):
     import asyncio
     import types
-    from app.proxy import proxy_pattadar
+    from src.routes.proxy import proxy_pattadar
     response = asyncio.run(proxy_pattadar(types.SimpleNamespace(), path))
     assert response.status_code == 403

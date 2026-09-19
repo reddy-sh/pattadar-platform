@@ -13,7 +13,7 @@ plus a percent-encoded `filename*=` that carries the true name.
 """
 import pytest
 
-from app.routes_storage import _cd
+from src.routes.storage import _cd
 
 MACOS_SCREENSHOT = "Screenshot iPhone 17 Pro 07-26-2026 at 10.37.49 AM (2).png"
 TELUGU_PAPER = "పహాణి-2025.pdf"
