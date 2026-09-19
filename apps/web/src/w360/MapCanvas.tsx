@@ -788,7 +788,19 @@ export default function MapCanvas({
           ? { latitude: boundsRef.current.getCenter().lat,
               longitude: boundsRef.current.getCenter().lng }
           : hasPin && pin ? { latitude: pin.lat, longitude: pin.lon } : null;
-        const verdict = checkLocation(mine, village, hit.label);
+        // A pin is only "suspect" against a reference precise enough to judge
+        // it. When every village and mandal name failed and the only thing
+        // that resolved was the bare STATE, `hit.center` is the centroid of a
+        // region hundreds of km across: a correct pin is routinely 400+ km
+        // from it, so measuring that distance and printing "…where you are
+        // standing, not where the land is" is a false alarm — the very thing
+        // this hanger opened on. `checkLocation` already refuses to call a pin
+        // wrong against an unknown reference; a state centroid is unknown
+        // enough for the same reason, so a state-only hit still frames the map
+        // but never accuses the pin.
+        const verdict = isStateOnly
+          ? { suspect: false, distanceKm: 0, message: '' }
+          : checkLocation(mine, village, hit.label);
 
         if (mine && !verdict.suspect) {
           // The record's own points agree with its village. They are more

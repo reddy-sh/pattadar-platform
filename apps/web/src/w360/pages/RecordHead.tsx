@@ -15,7 +15,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate, useSearchParams } from 'react-router';
 import type { ReactNode } from 'react';
-import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined';
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import IosShareOutlined from '@mui/icons-material/IosShareOutlined';
@@ -24,11 +23,10 @@ import {
   EMPTY_FILTER, useArchiveRecords, useCreateShareLink, useDeleteRecords, useNotes, useProperties,
 } from '../api';
 import type { RecordDetail } from '../api';
-import { Crumbs, Menu, Pill, num, statusWord } from '../ui';
+import { Crumbs, Icon, Menu, Pill, num, statusWord } from '../ui';
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { useToast } from '../Toast';
-import { recordFill } from '../recordFill';
 import { RecordDrawer } from './PropertyActions';
 
 /** The nine hangers, in the order the strip draws them.
@@ -122,59 +120,6 @@ export function RecordCrumbs({ rec, here }: { rec: RecordDetail; here?: string }
 }
 
 /**
- * "5 of 9 parts of this record are filled in", and the one thing to do next.
- *
- *  The count is the honest headline for a land record: every one of these
- *  starts as a title and a number and becomes useful only as the blanks close.
- *  The words beside it name the three most pressing blanks rather than making
- *  the reader open nine tabs to find the empty ones, and the button commits to
- *  a single next action so the answer to "what now" is never a menu.
- */
-export function RecordFillBar({ rec }: { rec: RecordDetail }) {
-  const fill = recordFill(rec);
-  // Three, then a count. All four of a bare record's gaps ran the line past
-  // the button and wrapped the header on a laptop.
-  const words = fill.gaps.slice(0, 3).map((g) => g.gap);
-  const rest = fill.gaps.length - words.length;
-
-  return (
-    <section className="fill" aria-label="How much of this record is filled in">
-      <div className="top">
-        <p className="grow" style={{ margin: 0, fontSize: '0.875rem' }}>
-          <strong>{fill.done} of {fill.total} parts</strong> of this record are filled in
-          {words.length > 0 && (
-            <span className="note">
-              {'  '}{words.join(' · ')}{rest > 0 && ` · and ${rest} more`}
-            </span>
-          )}
-        </p>
-        {/* Nothing to offer on a complete record — and an inert "Next" button
-            on the one record somebody finished would be the wrong reward.
-
-            `sm`, so the row is the height of the sentence it sits beside
-            rather than 10px taller than it. A full-size pill set the height of
-            the whole meter, and the meter sets how far down the page a map or
-            a paper list starts. Touch keeps its 44px floor either way — see
-            the `pointer: coarse` rule on `.btn`. */}
-        {fill.next && (
-          <Link
-            className="btn sm"
-            to={`/app/records/${rec.id}${fill.next.to ? `/${fill.next.to}` : ''}`}
-          >
-            Next: {fill.next.next} <ArrowForwardOutlined sx={{ fontSize: 15 }} aria-hidden />
-          </Link>
-        )}
-      </div>
-      {/* The sentence above already says it, so the bar is decoration to a
-          screen reader rather than nine unlabelled list items. */}
-      <div className="segs" aria-hidden>
-        {fill.parts.map((p) => <span key={p.key} className={p.done ? 'on' : undefined} />)}
-      </div>
-    </section>
-  );
-}
-
-/**
  * A tab's own heading: the question this hanger answers, what it holds, and
  * the actions that belong to it.
  *
@@ -258,9 +203,18 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
       <RecordCrumbs rec={rec} here={here} />
 
       <header className="pagehead">
-        <div className="grow">
-          <p className="eyebrow">{rec.eyebrow}</p>
-          <div className="row" style={{ gap: 'var(--space-sm)' }}>
+        {/* Redesigned identity block. The name is the line the eye lands on, so
+            it leads — with a kind glyph before it, the record-switcher chevron
+            after it, and the extent as a bordered pill at the end of the same
+            line. The classifying eyebrow ("LAND PARCEL · KHATA 2 · AGRI") moved
+            BELOW the name: it is what-kind-of-thing, a caption to the title
+            rather than a label above it, which is what let the extent stop
+            competing with the survey number for the top line. The place sits
+            last. `.rechead` carries the new three-row layout; see w360.css. */}
+        <div className="grow rechead">
+          <div className="rechead-name">
+            <Icon name={rec.kind === 'parcel' ? 'parcel' : (rec.classification || rec.kind)}
+                  size={26} className="rechead-glyph" />
             <h1>{rec.title}</h1>
             {siblings.length > 0 && (
               <Menu
@@ -281,16 +235,14 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
                 ]}
               />
             )}
-            {/* The extent belongs beside the name: it is half of how a parcel
-                is identified out loud ("Sy 120-2, two-eighty"). It was a body
-                stat three screens down, and only on Papers.
-
-                The long form — "3 Acres 9.6 Guntas · 324 Cents · 15,682 Sq.yd"
-                — rides along as the chip's title and its accessible name, so
-                the reading in the units a village actually argues in is not
-                lost with the strip it used to sit in. */}
+            {/* The extent is a fact about the parcel, not part of its name, so
+                it is a bordered pill set apart from the title rather than a
+                chip crowding it. The long form — "3 Acres 9.6 Guntas · 324
+                Cents · 15,682 Sq.yd" — rides along as the pill's title and its
+                accessible name, so the reading in the units a village actually
+                argues in is not lost. */}
             {rec.extent > 0 && (
-              <span className="chip static num" title={rec.extentDetail || undefined}
+              <span className="chip static num rechead-extent" title={rec.extentDetail || undefined}
                     aria-label={rec.extentDetail
                       ? `Extent ${rec.extentDetail}`
                       : `Extent ${rec.extent} ${rec.extentUnit}`}>
@@ -303,7 +255,8 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
             {rec.stake !== 'owned' && statusWord(rec.stake)
               && <Pill kind={rec.stake}>{statusWord(rec.stake)}</Pill>}
           </div>
-          <p className="lede" style={{ marginTop: '0.375rem' }}>
+          <p className="eyebrow rechead-kind">{rec.eyebrow}</p>
+          <p className="lede rechead-place">
             {rec.placeLine} — {rec.state}
             {rec.placeLineTe && <> · <span className="accent">{rec.placeLineTe}</span></>}
           </p>
@@ -514,7 +467,11 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
         </Dialog>
       )}
 
-      <RecordFillBar rec={rec} />
+      {/* The "N of 9 parts filled in" indicator used to sit here as a
+          full-width strip on every hanger, and briefly moved into the Papers
+          rail. It is gone entirely now — the tab strip already prints a count
+          against every hanger ("Media 0", "People 5"), which is the same
+          inventory said where the reader is already looking. */}
       <RecordTabs rec={rec} />
     </>
   );

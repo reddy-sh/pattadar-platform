@@ -34,7 +34,7 @@ import { Card, Chip, Empty, Failed, KV, Loading, Menu, SHELF_WORD, Tag, inrFull,
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { useToast } from '../Toast';
-import { apiFetch } from '../../api/client';
+import { ScanView, useScan } from '../paper/scan';
 import { downloadBlob, fetchFileBlob, isStorageRef } from '../../pages/documents/storage';
 
 /** The shelves a paper can be moved to, in the order the vault lists them. */
@@ -84,70 +84,6 @@ function fileNameFor(title: string, mime: string): string {
   // Slashes and colons are legal in a survey number and illegal in a filename.
   const base = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'document';
   return ext ? `${base}.${ext}` : base;
-}
-
-type ScanStatus = 'none' | 'legacy' | 'loading' | 'ready' | 'error' | 'gone';
-
-/**
- * The scan's bytes, and which of five things happened while fetching them.
- *
- * `useBlobUrl` in components/holdingCards.tsx returns a bare string and
- * swallows every failure — `if (!res.ok) return;` and a bare `catch {}` — so
- * a storage gateway that refused the file was indistinguishable from a paper
- * that has no file at all, and this screen drew the same fabricated page for
- * both. On a reading surface that is the worst confusion available: the owner
- * is looking at invented paper where their registered deed should be, with
- * nothing on screen saying the fetch failed.
- *
- * It is a local hook rather than a change to `useBlobUrl` because that hook's
- * other five callers — card covers, gallery frames, photo tiles — are
- * decorative and want exactly its old forgiving behaviour.
- *
- * A non-UUID `fileRef` is its own outcome, not an error: such a ref can never
- * resolve, so no request is made and no retry is offered.
- */
-function useScan(fileRef: string | undefined) {
-  const [nonce, setNonce] = useState(0);
-  const [state, setState] = useState<{ url: string; status: ScanStatus; error?: unknown }>(
-    { url: '', status: 'loading' });
-
-  useEffect(() => {
-    if (!fileRef) { setState({ url: '', status: 'none' }); return; }
-    if (!isStorageRef(fileRef)) { setState({ url: '', status: 'legacy' }); return; }
-
-    let revoke = '';
-    let cancelled = false;
-    setState({ url: '', status: 'loading' });
-    (async () => {
-      try {
-        // `format=web` is not optional: an iPhone's HEIC is undecodable in
-        // every browser and the gateway transcodes it server-side.
-        const res = await apiFetch(`/api/gateway/storage/files/${fileRef}/content?format=web`);
-        // A 404 or a 403 is a settled answer, not a bad moment on the network:
-        // the store resolved the reference and would not hand the bytes over.
-        // Offering "Try again" there re-asks a question already answered, and
-        // the shared Failed box swears "nothing has been lost" over the top of
-        // it. Those two outcomes get their own state, with no retry.
-        if (res.status === 404 || res.status === 403) {
-          if (!cancelled) setState({ url: '', status: 'gone' });
-          return;
-        }
-        if (!res.ok) throw new Error(`The file store answered ${res.status}.`);
-        const blob = await res.blob();
-        if (cancelled) return;
-        revoke = URL.createObjectURL(blob);
-        setState({ url: revoke, status: 'ready' });
-      } catch (e) {
-        if (!cancelled) setState({ url: '', status: 'error', error: e });
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (revoke) URL.revokeObjectURL(revoke);
-    };
-  }, [fileRef, nonce]);
-
-  return { ...state, retry: () => setNonce((n) => n + 1) };
 }
 
 export function Reader() {
@@ -214,7 +150,6 @@ export function Reader() {
   const hasFacts = !!(data.registeredOn || data.office || data.buyer
     || data.seller || data.consideration);
   const isImage = data.mimeType.startsWith('image/');
-  const quarter = turn === 90 || turn === 270;
 
   // Where this paper came from, written once because four places used to
   // write it themselves and three of them wrote it wrong. Those three pointed
@@ -353,22 +288,31 @@ export function Reader() {
               the metadata-only rows where every click was a no-op. */}
           {scan.status === 'ready' && (
             <>
-              <span className="segmented" role="group" aria-label="Zoom">
-                <button type="button" onClick={() => setZoom(Math.max(50, zoom - 12))} aria-label="Zoom out">−</button>
-                {/* The readout was a <button> held inert with pointer-events:
-                    none, so a mouse could not use it and a keyboard still
-                    stopped on it — a tab stop that led nowhere. It is a value,
-                    not a segment: an <output> carries the status role, so
-                    aria-live makes − and + actually speak the new percentage.
-                    The padding and size are inline because `.mono` alone is
-                    font-family, and the pill's metrics come from
-                    `.segmented button`, which this deliberately is not. */}
-                <output className="mono" aria-live="polite"
-                        style={{ display: 'inline-flex', alignItems: 'center', fontSize: '0.8125rem', color: 'var(--w-ink-2)', padding: '0.3125rem 0.875rem' }}>
-                  {zoom}%
-                </output>
-                <button type="button" onClick={() => setZoom(Math.min(400, zoom + 12))} aria-label="Zoom in">+</button>
-              </span>
+              {/* Zoom is for images only. On an image the percentage IS the
+                  render — it drives `maxWidth`/`maxHeight` on the <img>. On a
+                  PDF it only stretched the <iframe>'s outer box while the
+                  browser's own viewer, which has its own zoom, kept the
+                  document at its own scale: two zoom controls disagreeing over
+                  one page. The native viewer owns PDF zoom, so this pill is
+                  drawn only where it is the single source of truth. */}
+              {isImage && (
+                <span className="segmented" role="group" aria-label="Zoom">
+                  <button type="button" onClick={() => setZoom(Math.max(50, zoom - 12))} aria-label="Zoom out">−</button>
+                  {/* The readout was a <button> held inert with pointer-events:
+                      none, so a mouse could not use it and a keyboard still
+                      stopped on it — a tab stop that led nowhere. It is a value,
+                      not a segment: an <output> carries the status role, so
+                      aria-live makes − and + actually speak the new percentage.
+                      The padding and size are inline because `.mono` alone is
+                      font-family, and the pill's metrics come from
+                      `.segmented button`, which this deliberately is not. */}
+                  <output className="mono" aria-live="polite"
+                          style={{ display: 'inline-flex', alignItems: 'center', fontSize: '0.8125rem', color: 'var(--w-ink-2)', padding: '0.3125rem 0.875rem' }}>
+                    {zoom}%
+                  </output>
+                  <button type="button" onClick={() => setZoom(Math.min(400, zoom + 12))} aria-label="Zoom in">+</button>
+                </span>
+              )}
               {/* Rotate is for images only. A PDF is the browser's own viewer,
                   which already has a rotate control of its own, and a CSS
                   transform on the frame would turn that viewer's chrome with
@@ -471,101 +415,21 @@ export function Reader() {
         )}
 
         <section className="rd-sheet" style={{ display: 'grid', gridTemplateRows: showPages ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', placeItems: scan.status === 'ready' ? 'center' : 'start center', padding: 'var(--space-lg)', gap: 'var(--space-md)' }}>
-          {scan.status === 'loading' && (
-            <div style={{ width: 'min(100%, 34rem)' }}>
-              <Loading h="26rem" what="the scan" />
-            </div>
-          )}
-
-          {scan.status === 'ready' && (isImage ? (
-            // A quarter turn swaps the box the page has to fit: what was its
-            // height is its width on screen. The constraints are written
-            // against this wrapper in container units so a rotated scan still
-            // fits the reading pane instead of running out of the grid cell.
-            <div style={{
-              alignSelf: 'stretch', justifySelf: 'stretch', minWidth: 0, minHeight: 0,
-              display: 'grid', placeItems: 'center', containerType: 'size',
-            }}>
-              <img
-                src={scan.url}
-                alt={`${data.title}, page ${page} of ${pages}`}
-                style={quarter ? {
-                  width: '100cqh', height: 'auto', maxWidth: 'none',
-                  maxHeight: `min(${zoom}cqw, 44rem)`,
-                  transform: `rotate(${turn}deg)`,
-                  borderRadius: 'var(--radius-xs)', display: 'block',
-                } : {
-                  // Height-led, so a page always fits the reader; zoom then
-                  // scales it within that. Width-led at 124% ran the seal off
-                  // the screen.
-                  height: '100%', maxWidth: `min(${zoom}%, 44rem)`, maxHeight: '100%',
-                  objectFit: 'contain', transform: turn ? `rotate(${turn}deg)` : undefined,
-                  borderRadius: 'var(--radius-xs)', display: 'block',
-                }}
-              />
-            </div>
-          ) : (
-            // Browsers render PDFs natively, so the viewer costs nothing and
-            // brings its own scrolling, rotate and print. The rail hands it a
-            // `#page=` fragment and remounts the frame on a page change, which
-            // is what makes clicking page 7 move the document rather than only
-            // the readout beneath it.
-            <iframe
-              ref={frame}
-              key={page}
-              src={`${scan.url}#page=${page}`}
-              title={data.title}
-              style={{
-                height: '100%', width: `min(${zoom}%, 44rem)`, border: 0,
-                borderRadius: 'var(--radius-xs)', background: 'var(--w-surface-2)',
-              }}
-            />
-          ))}
-
-          {scan.status === 'error' && (
-            <div style={{ width: 'min(100%, 34rem)' }}>
-              <Failed what="This paper's scan" error={scan.error} onRetry={scan.retry} boxed />
-            </div>
-          )}
-
-          {/* Separate from `error` on purpose. The shared Failed box offers a
-              retry and swears "nothing has been lost — the app could not reach
-              the server", and over a refused read both halves are false: the
-              store answered, and it will answer the same way every time. */}
-          {scan.status === 'gone' && (
-            <div style={{ width: 'min(100%, 34rem)' }}>
-              <Empty boxed icon="paper" title="This scan cannot be opened from this account"
-                     action={data.recordId
-                       ? <Link className="btn sm" to={papersHome}>Open the record</Link>
-                       : undefined}>
-                The file store holds the reference on this row but will not release the file
-                to the account you are signed in as. Nothing has been deleted — the paper, the
-                record and the file are all still there. Asking again returns the same answer,
-                so there is no retry here.
-              </Empty>
-            </div>
-          )}
-
-          {scan.status === 'legacy' && (
-            <div style={{ width: 'min(100%, 34rem)' }}>
-              <Empty boxed icon="paper"
-                     title="This paper's file is filed under an old reference">
-                The reference on this row is not one the file store can resolve, so the scan
-                cannot be opened and asking again will not change that. Upload the scan again
-                to restore it.
-              </Empty>
-            </div>
-          )}
-
-          {scan.status === 'none' && (
-            <div style={{ width: 'min(100%, 34rem)' }}>
-              <Empty boxed icon="paper" title="No file is attached to this paper">
-                The record holds what was read off it — the registration facts and the reading
-                on the right — but the scan itself has never been filed. The page count below
-                comes from the filing, not from anything on this screen.
-              </Empty>
-            </div>
-          )}
+          {/* The scan itself, in whichever of five states the fetch landed
+              in. Both this screen and the preview drawer render it, so it
+              lives in ../paper/scan. The paging row below is this screen's
+              alone. */}
+          <ScanView
+            scan={scan}
+            title={data.title}
+            isImage={isImage}
+            recordHref={data.recordId ? papersHome : undefined}
+            page={page}
+            pages={pages}
+            zoom={zoom}
+            turn={turn}
+            frameRef={frame}
+          />
 
           {showPages && (
             <div className="row tight rd-paging" style={{ flexWrap: 'nowrap' }}>

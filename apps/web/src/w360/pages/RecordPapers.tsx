@@ -8,6 +8,7 @@
  *  the worth, the rate and the year are the Money hanger's subject, which is
  *  the point of Money being a hanger. */
 import { useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Link } from 'react-router';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import AddOutlined from '@mui/icons-material/AddOutlined';
@@ -34,6 +35,7 @@ import { SkRowItems } from '../skeletons';
 import { readDocument } from '../../pages/documents/upload';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { PaperPreview } from '../paper/PaperPreview';
 
 /** What a record of each kind is asked to produce, and why the asker wants it.
  *
@@ -380,6 +382,16 @@ export function RecordPapers() {
   const [adding, setAdding] = useState(false);
   const [paperErr, setPaperErr] = useState('');
   const [confirmId, setConfirmId] = useState('');
+  // The title opens the preview drawer on a plain click; a modified click and
+  // the deep link still route to the full Reader. Focus returns to the papers
+  // list when the drawer closes.
+  const [preview, setPreview] = useState('');
+  const openPreview = (e: MouseEvent, id: string) => {
+    if (e.defaultPrevented) return;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    setPreview(id);
+  };
   // The share panel, the edit drawer and the archive/delete confirmations all
   // hang off the record header, which is the shell's now — RecordHead.tsx. So
   // is `?share=1`, which the Properties kebab deep-links with.
@@ -483,6 +495,14 @@ export function RecordPapers() {
             />
           )}
 
+          {preview && (
+            <PaperPreview
+              paperId={preview}
+              onClose={() => setPreview('')}
+              returnFocus={paperList}
+            />
+          )}
+
           {/* The shelves this record's own papers fall in, as filters — and only
               when there are any. This row used to carry the upload size limit
               and the "filing…" progress line as well, both of which now belong
@@ -528,6 +548,7 @@ export function RecordPapers() {
                   </span>
                   <span className="grow">
                     <Link to={`/app/papers/${p.id}`}
+                          onClick={(e) => openPreview(e, p.id)}
                           style={{ color: 'inherit', textDecoration: 'none', fontWeight: 600, fontSize: '0.9375rem' }}>
                       {p.title}
                     </Link>
@@ -684,10 +705,10 @@ export function RecordPapers() {
         </div>
 
         <aside className="stack">
-          {/* First card in the rail, and only while it has something to say. A
-              record that can produce all four shelves should not carry an
-              empty box headed "what is missing" — the absence IS the answer,
-              and the papers list beside it already shows what is there. */}
+          {/* Only while it has something to say. A record that can produce all
+              four shelves should not carry an empty box headed "what is
+              missing" — the absence IS the answer, and the papers list beside
+              it already shows what is there. */}
           {missing.length > 0 && (
             <Card title="What is missing" className="railcard">
               <ul className="railnotes">

@@ -1629,7 +1629,7 @@ test.describe('W13 · sending it out', () => {
       .getByRole('button', { name: 'See what was sent' })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  test('what was sent can be read back, and the link copied when nothing else will send it', async ({ page, world }) => {
+  test('what was sent can be read back, and the link copied when nothing else will send it', async ({ page, world, baseURL }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
     await card(page, 'Sent out').getByRole('button', { name: 'See what was sent' }).click();
@@ -1637,8 +1637,14 @@ test.describe('W13 · sending it out', () => {
     const sent = card(page, 'Sent out');
     await expect(sent).toContainText('A job on Sy 214/2');
     await expect(sent).toContainText('Sy 214/2 at Katragunta needs 8 corners walked.');
+    // ShareResult builds the recipient link from `window.location.origin`, so
+    // its host follows wherever the app is actually served — 5180 under
+    // start-local.sh, whatever APP_WEB_URL points at otherwise. The SMS body
+    // above is fixture text and keeps its own literal; this input is the live
+    // origin, so it is asserted against the served baseURL rather than a
+    // hard-coded port that only held while the dev server ran on Vite's 5173.
     await expect(sent.getByLabel('Recipient link'))
-      .toHaveValue(`http://localhost:5173/work/${TOKEN}`);
+      .toHaveValue(`${baseURL}/work/${TOKEN}`);
     await expect(sent.getByRole('button', { name: 'Copy link' })).toBeVisible();
   });
 

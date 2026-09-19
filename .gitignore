@@ -75,3 +75,5 @@ tests/e2e-web360/results-*.json
 # a sweep that ran on this machine is not a fact about the repo.
 .parity/
 tests/e2e-app/results.json
+
+tests/*

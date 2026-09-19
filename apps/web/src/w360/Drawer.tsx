@@ -33,7 +33,7 @@
  * from "I lost twenty minutes".
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
 
 import { Dialog, useFocusTrap } from './Dialog';
@@ -145,7 +145,8 @@ function useSealedPage(
 
 export function Drawer({
   eyebrow, title, sub, onClose, onSubmit, busy, dirty, discardCopy,
-  primary, cancelLabel = 'Cancel', initialFocus, returnFocus, children,
+  primary, cancelLabel = 'Cancel', initialFocus, returnFocus,
+  panelClassName, panelStyle, children,
 }: {
   /** `SY 120-2 · PEOPLE` — see drawerEyebrow. */
   eyebrow?: ReactNode;
@@ -167,14 +168,25 @@ export function Drawer({
   discardCopy?: Partial<DiscardCopy>;
   /** The footer's primary button. It comes FIRST in the DOM and grows to fill
    *  the row, with Cancel beside it — the action the panel was opened for is
-   *  the one under the thumb. */
-  primary: ReactNode;
+   *  the one under the thumb. Omit it entirely for a drawer that is a look, not
+   *  a form: with no `primary` the whole footer is dropped, so a read-only
+   *  panel closes from its header X and the scrim rather than a pinned Close.
+   *  The paper preview is the one caller that does this. */
+  primary?: ReactNode;
   cancelLabel?: string;
   /** CSS selector, resolved inside the panel, for what should take focus. */
   initialFocus?: string;
   /** Where focus goes if the control that opened the drawer is gone by the time
    *  it closes — see the note in useSealedPage. */
   returnFocus?: React.RefObject<HTMLElement | null>;
+  /** Extra class and inline style for the panel `<aside>` itself. Every "add a
+   *  thing" drawer omits both and renders exactly as before; the paper preview
+   *  is the one caller that uses them, to widen the panel, round its outer
+   *  corners and carry the drag-to-resize handle. Kept as an opt-in seam rather
+   *  than baked in, so the shared modal contract is untouched for everyone
+   *  else. */
+  panelClassName?: string;
+  panelStyle?: CSSProperties;
   children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
@@ -223,12 +235,16 @@ export function Drawer({
     </div>
   );
 
-  const foot = (
+  // No primary, no footer. A read-only panel (the paper preview) closes from
+  // the header X and the scrim, so a pinned footer carrying a lone Close beside
+  // an empty slot would be furniture. Every form drawer passes a primary and
+  // keeps its footer exactly as before.
+  const foot = primary ? (
     <div className="drawerfoot">
       {primary}
       <button type="button" className="btn" onClick={onClose}>{cancelLabel}</button>
     </div>
-  );
+  ) : null;
 
   /** `tabIndex={-1}` so a caller can hand it the opening focus with
    *  `initialFocus=".drawerbody"`, which is how a drawer says "the panel, not a
@@ -247,7 +263,8 @@ export function Drawer({
       <div ref={scrim} className="scrim" aria-hidden="true" onClick={tryClose} />
       <aside
         ref={panel}
-        className="drawer"
+        className={panelClassName ? `drawer ${panelClassName}` : 'drawer'}
+        style={panelStyle}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

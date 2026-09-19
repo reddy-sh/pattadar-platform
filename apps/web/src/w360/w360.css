@@ -456,6 +456,34 @@
   flex-wrap: wrap;
 }
 .w360 .pagehead .grow { flex: 1 1 20rem; min-width: 0; }
+
+/* The record identity block, redesigned (RecordHead.tsx). Three rows: the name
+   line (a kind glyph, the title, the record-switcher chevron and the extent),
+   then the classifying eyebrow as a caption under it, then the place. The
+   eyebrow moving below the title is what let the extent stop competing with the
+   survey number for the top line. */
+.w360 .rechead { display: grid; gap: 0.125rem; }
+.w360 .rechead-name {
+  display: flex; align-items: center; gap: var(--space-sm);
+  flex-wrap: wrap; min-width: 0;
+}
+.w360 .rechead-name h1 { margin: 0; }
+/* The glyph sits on the name's baseline block, tinted so it reads as the
+   record's kind mark rather than a stray icon. It does not shrink when the
+   line wraps on a narrow screen. */
+.w360 .rechead-glyph { color: var(--w-accent); flex: none; }
+/* The eyebrow is a caption here, not a heading above the title, so it loses the
+   bottom margin `.eyebrow` carries and sits tight under the name. */
+.w360 .rechead-kind { margin: 0.125rem 0 0; }
+.w360 .rechead-place { margin: 0.25rem 0 0; }
+/* The extent is set apart from the name with a real border and a little breath
+   to its left, so "30.00 ac" reads as a fact ABOUT the parcel, not part of its
+   number. `.chip.static` already draws the pill; this only spaces and firms it
+   for the header. */
+.w360 .rechead-extent {
+  margin-left: 0.25rem;
+  border-color: var(--w-line-strong);
+}
 /* On a wide page the actions hold their size; on a phone three buttons are
    wider than the screen, so below the breakpoint they wrap onto their own row
    instead of pushing the document sideways. */
@@ -718,45 +746,11 @@
    instead of a row of equally-weighted digits. */
 .w360 .tabs .n.zero { color: var(--w-ink-3); opacity: 0.6; }
 
-/* ── The record fill meter (RecordHead.tsx, recordFill.ts) ───────────────
-   "5 of 9 parts of this record are filled in", the three most pressing gaps,
-   one button for the next of them, and a segment per part.
-
-   No box. This was a bordered, 16px-padded card spending 88px of a 950px
-   window on one line of text and a 4px bar — and it sits directly above the
-   Location hanger's map, which was already hanging past the fold. The segment
-   bar is the only container the sentence needs: it is a rule under it, 16px
-   above the hanger strip's own rule, and it says the same thing the border
-   said about where the meter ends. */
-.w360 .fill {
-  margin-bottom: var(--space-md);
-  display: grid;
-  gap: 0.375rem;
-}
-.w360 .fill .top {
-  display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap;
-}
-.w360 .fill .top .grow { flex: 1 1 18rem; min-width: 0; }
-/* The gap words trail the sentence rather than starting a line of their own —
-   they are an aside to it, and a second line here pushed the bar out of the
-   viewport on a laptop. */
-.w360 .fill .note { margin-left: 0.5rem; }
-/* On a phone the words are a second line of their own, and the strip 16px
-   below already prints a count against every hanger they name — "Media 0" IS
-   "no photos". The count and the one action survive; the aside is what a
-   narrow screen can least afford and least needs. */
-@media (max-width: 700px) {
-  .w360 .fill .note { display: none; }
-}
-/* One column per part, so nine parts and six parts both fill the width. */
-.w360 .fill .segs {
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
-  gap: 0.3125rem;
-}
-.w360 .fill .segs span {
-  height: 0.25rem; border-radius: var(--radius-pill); background: var(--w-surface-2);
-}
-.w360 .fill .segs span.on { background: var(--w-accent); }
+/* The record fill meter used to live here as a full-width strip with a
+   nine-segment bar, on every hanger. It moved into the Papers rail as a card
+   beside "What is missing" (RecordFillCard in RecordHead.tsx, rendered by
+   RecordPapers.tsx) and now uses the shared `.railcard` styling, so it needs
+   no rules of its own. The bar is gone — the sentence said the same thing. */
 
 /* ── A hanger's own heading (SectionHead in RecordHead.tsx) ──────────────
    The record owns the <h1>; this is the question the hanger answers, its one
@@ -1631,6 +1625,108 @@
   padding: var(--space-md) var(--space-lg);
   border-top: 1px solid var(--w-line);
   background: var(--w-bg);
+}
+
+/* The paper preview is the one drawer that opens as a reading surface rather
+   than a form, so it earns three things the shared panel does not give the
+   add-a-thing flows: it opens wide (width set inline by PaperPreview.tsx and
+   dragged from the grip below), its outer corners are rounded away from the
+   screen edge (also inline), and it carries a resize grip. Everything modal
+   about it — the focus trap, the scrim, the pinned footer — is still the shared
+   Drawer's, untouched. `min-width` is the floor a fast drag cannot undercut;
+   the panel's own inline width overrides `.drawer`'s 26rem. */
+.w360 .drawer.drawer-preview { min-width: 380px; }
+
+/* The preview sits over the scan's OWN toolbar — an embedded PDF viewer carries
+   its own page/zoom/print row, an image none — so the shared drawer head, with
+   its generous `space-lg` padding and its eyebrow-ABOVE-title stack, piled a
+   second header of chrome on top of the first and pushed the scan down the
+   panel. This is a look, not a form, so the head is compacted: the padding is
+   cut to a slim bar, the eyebrow rides on the title's baseline instead of a
+   line above it, and the title steps down a notch. The subtitle stays — it is
+   the paper's own registration line and the preview spec asserts it as part of
+   the panel's words — but sits tight under the title with no extra top margin.
+   Scoped to the preview so every add-a-thing drawer keeps its roomy head. */
+.w360 .drawer-preview .drawerhead {
+  padding: var(--space-sm) var(--space-md);
+  gap: var(--space-sm);
+}
+.w360 .drawer-preview .drawerhead .grow {
+  display: flex; align-items: baseline; gap: 0 var(--space-sm);
+  flex-wrap: wrap;
+}
+/* On the title's line, not above it, and without the block-level bottom margin
+   that made it a stacked caption. */
+.w360 .drawer-preview .drawerhead .eyebrow {
+  margin: 0; flex: none; align-self: baseline;
+}
+.w360 .drawer-preview .drawerhead h2 { font-size: 1rem; }
+/* The subtitle keeps its place but drops the 0.25rem top margin that pushed the
+   bar taller; on its own line (it takes the full row after the title/eyebrow
+   wrap) it reads as the caption it is. */
+.w360 .drawer-preview .drawerhead .note {
+  margin: 0; flex-basis: 100%;
+}
+
+/* The preview's body is a reading surface, not a scrolling form: its one child
+   is a full-height column whose scan flexes to fill. The shared `.drawerbody`
+   packs its content to the top (`align-content: start`) and scrolls, which
+   would leave the empty band under the scan the preview must not have — so for
+   this drawer the body stretches its child to full height and hands scrolling
+   to the scan's own viewer instead. */
+.w360 .drawer-preview .drawerbody {
+  align-content: stretch;
+  overflow: hidden;
+  /* Edge to edge. The shared body pads 1rem/1.5rem/1.5rem, which framed the
+     scan in cream and left the band under it that read as "not full height".
+     The preview's scan is the surface, so the body gives it every pixel and
+     lets the scan's own frame carry what little inset it wants. */
+  padding: 0;
+}
+
+/* The drag grip: a thin hit area riding the panel's left edge. The panel is
+   position:fixed and overflow:hidden, so this absolute child at left:0 sits on
+   that edge with no wrapper. The bar the eye sees is drawn by ::before and is
+   1px until hover/focus, so the grip is discoverable without drawing a rule
+   down the panel at rest. `touch-action: none` hands every pointer move to the
+   resize handler rather than letting a touch scroll the page behind. */
+.w360 .drawer-resize {
+  position: absolute; top: 0; left: 0; bottom: 0; width: 12px;
+  z-index: 2; cursor: col-resize; touch-action: none;
+  /* Lifted just off the very edge so the 1px border-left of `.drawer` is not
+     what the cursor lands on. */
+  display: grid; align-items: stretch; justify-items: start;
+}
+.w360 .drawer-resize::before {
+  content: ''; width: 1px; height: 100%;
+  background: var(--w-line);
+  transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.w360 .drawer-resize:hover::before,
+.w360 .drawer-resize:focus-visible::before { width: 3px; background: var(--w-accent); }
+/* The grip owns the focus ring, not the whole panel: a 2px inset outline on the
+   bar so a keyboard user sees exactly what the arrows will move. */
+.w360 .drawer-resize:focus { outline: none; }
+.w360 .drawer-resize:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+
+/* On a phone the drawer is the whole screen (width:100vw wins over the inline
+   width once the viewport is narrower than it), and a grip that resizes a
+   full-screen panel is a control with nowhere to go — so it is not shown, and
+   the rounded left corners are dropped because there is no page beside the
+   panel for them to round away from. */
+@media (max-width: 560px) {
+  /* Full-bleed on a phone: the inline width PaperPreview sets (e.g. 640px, a
+     saved desktop width) would otherwise run off a 390px screen, so it is
+     forced to the whole viewport here — `!important` because it is beating an
+     inline style. Rounding is dropped (no page beside it to round away from)
+     and the resize grip is hidden (nothing to resize when it is the whole
+     screen). */
+  .w360 .drawer.drawer-preview {
+    width: 100vw !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+  }
+  .w360 .drawer-resize { display: none; }
 }
 
 .w360 .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); z-index: 39; border: 0; }

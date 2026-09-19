@@ -491,7 +491,9 @@ test.describe('W03 · the record 360', () => {
     await expect(chip).toContainText('3.24');
     await expect(chip).toHaveAttribute('title', '3 Acres 9.6 Guntas · 324 Cents · 15,682 Sq.yd');
     // How much of the record is filled in, and the one thing to do next.
-    await expect(page.locator('.fill')).toContainText('of 9 parts');
+    // Moved from a full-width strip into the Papers right rail, beside "What is
+    // missing" — the segmented bar is gone, so it is asserted by its sentence.
+    await expect(page.getByText('of 9 parts')).toBeVisible();
 
     const tabs = page.locator('.tabs').first();
     await expect(tabs).toContainText('Papers');

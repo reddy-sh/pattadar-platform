@@ -81,12 +81,14 @@ test.describe('W05 · the Media hanger', () => {
       await expect(page).toHaveURL(new RegExp(`/app/records/${id}/photos$`));
 
       // The frame: the record is still the <h1>, the breadcrumb names the
-      // hanger, the strip is still there to leave by, and the fill meter still
-      // says how much of the record is done.
+      // hanger, and the tab strip is still there to leave by.
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy MEDIA-E2E');
       await expect(page.locator('.crumbs')).toContainText('Media');
       await expect(page.locator('.tabs')).toBeVisible();
-      await expect(page.locator('.fill')).toContainText('of 9 parts');
+      // The fill meter moved into the Papers rail, so it is NOT on the Media
+      // hanger any more — it lives beside "What is missing", the blanks it
+      // counts, rather than as chrome on every tab.
+      await expect(page.getByText('of 9 parts')).toHaveCount(0);
 
       // The hanger's own heading, and its counts — which must not claim a visit
       // on a record nothing has been filmed on.

@@ -10,13 +10,15 @@
  *  twelve title deeds" — and because a shelf is a thing you send someone the
  *  link to.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 
 import { useVaultPapers, useVault } from '../api';
 import { Crumbs, Empty, Failed, Icon, PageHead, Tag, plural } from '../ui';
 import { SkRowItems } from '../skeletons';
+import { PaperPreview } from '../paper/PaperPreview';
 
 /** The eight shelves, as `vault` in web360.py spells them. Kept here so an
  *  unknown key in the URL is refused by name rather than fetched. */
@@ -37,6 +39,23 @@ export function Shelf() {
   const papers = useVaultPapers(shelf ? key : undefined);
   const vault = useVault();
   const [q, setQ] = useState('');
+  // Which paper the preview drawer is showing, '' for none. A left-click on a
+  // row opens it here rather than routing to the full Reader; the row stays a
+  // real <Link> so cmd/middle-click, "open in new tab" and the deep link all
+  // keep working. Focus goes back to the shelf list when the drawer closes and
+  // the row that opened it has scrolled out of the (virtualised-feeling) list.
+  const [preview, setPreview] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Only a plain left-click is the preview. A modified click — new tab, new
+  // window, "copy link", or a middle-click — is someone deliberately asking
+  // for the full page or a second tab, and must fall through to the <Link>.
+  const openPreview = (e: MouseEvent, id: string) => {
+    if (e.defaultPrevented) return;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    setPreview(id);
+  };
 
   const rows = useMemo(() => {
     const all = papers.data ?? [];
@@ -130,9 +149,10 @@ export function Shelf() {
 
       {rows.length > 0 && (
         <div className="card" style={{ padding: 0 }}>
-          <div className="rows boxed">
+          <div className="rows boxed" ref={listRef}>
             {rows.map((p) => (
-              <Link key={p.id} to={`/app/papers/${p.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+              <Link key={p.id} to={`/app/papers/${p.id}`} style={{ color: 'inherit', textDecoration: 'none' }}
+                    onClick={(e) => openPreview(e, p.id)}>
                 <span className="muted" style={{ display: 'flex', color: 'var(--w-info)' }}>
                   <Icon name={p.icon || key} size={19} />
                 </span>
@@ -153,6 +173,14 @@ export function Shelf() {
             ))}
           </div>
         </div>
+      )}
+
+      {preview && (
+        <PaperPreview
+          paperId={preview}
+          onClose={() => setPreview('')}
+          returnFocus={listRef}
+        />
       )}
     </main>
   );

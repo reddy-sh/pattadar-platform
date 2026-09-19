@@ -4,7 +4,7 @@
  *  the only honest way to promise "nothing leaves this vault without appearing
  *  in this list" is to put the list where the papers are. */
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import type { FormEvent, RefObject } from 'react';
+import type { FormEvent, MouseEvent, RefObject } from 'react';
 import { Link, useNavigate } from 'react-router';
 import IosShareOutlined from '@mui/icons-material/IosShareOutlined';
 import FileUploadOutlined from '@mui/icons-material/FileUploadOutlined';
@@ -19,6 +19,7 @@ import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { useToast } from '../Toast';
 import { Chip, Empty, Eyebrow, Failed, Icon, Loading, PageHead, ddmmyyyy, plural } from '../ui';
+import { PaperPreview } from '../paper/PaperPreview';
 
 /** Each shelf gets its own edge colour so the wall reads as a wall, not a grid
  *  of identical cards. Hues are the Bloom slots, never literals. */
@@ -385,6 +386,17 @@ function ShareRecord({ onClose }: { onClose: () => void }) {
 export function Vault() {
   const { data, isLoading, error } = useVault();
   const [panel, setPanel] = useState<'' | 'add' | 'share'>('');
+  // A search hit opens in the preview drawer, the same as a shelf row. The row
+  // stays a real <Link to={h.route}> so a modified click still routes to the
+  // full Reader; only a plain left-click is intercepted.
+  const [preview, setPreview] = useState('');
+  const hitsRef = useRef<HTMLDivElement>(null);
+  const openPreview = (e: MouseEvent, id: string) => {
+    if (e.defaultPrevented) return;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    setPreview(id);
+  };
 
   // The box was decoration: no value, no onChange, nothing behind it. It is
   // the same `search` the jump box uses, deferred so typing stays smooth.
@@ -481,9 +493,10 @@ export function Vault() {
 
           {hits.length > 0 && (
             <div className="card" style={{ padding: 0 }}>
-              <div className="rows boxed">
+              <div className="rows boxed" ref={hitsRef}>
                 {hits.map((h) => (
-                  <Link key={h.id} to={h.route} style={{ color: 'inherit', textDecoration: 'none' }}>
+                  <Link key={h.id} to={h.route} style={{ color: 'inherit', textDecoration: 'none' }}
+                        onClick={(e) => openPreview(e, h.id)}>
                     <span className="muted" style={{ display: 'flex', color: 'var(--w-info)' }}>
                       <Icon name="paper" size={19} />
                     </span>
@@ -571,6 +584,9 @@ export function Vault() {
 
       {panel === 'add' && <AddPapers onClose={() => setPanel('')} />}
       {panel === 'share' && <ShareRecord onClose={() => setPanel('')} />}
+      {preview && (
+        <PaperPreview paperId={preview} onClose={() => setPreview('')} returnFocus={hitsRef} />
+      )}
     </main>
   );
 }

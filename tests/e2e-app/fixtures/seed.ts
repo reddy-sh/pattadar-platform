@@ -1151,6 +1151,20 @@ export function seedRest(world: World): void {
   world.route(/\/api\/gateway\/pattadar\/import-status\//, () => ({
     json: { state: 'failed', error: 'Nothing could be read from that file.' },
   }));
+
+  // The dev-only access-token seam. AuthProvider (import.meta.env.DEV only)
+  // POSTs this once on mount to mint a Bearer for the storage routes — on the
+  // laptop trust root it answers 200 with a token, on the real pool it 404s
+  // and the app falls back to no Bearer. Left unrouted it reached the seal's
+  // catch-all, which answers 501; a 501 is logged by Chromium as a failed
+  // resource, and the console-error guard then failed every test on a call the
+  // app already handles gracefully. Answer it the way the local stack does on a
+  // good day. The token is never verified here — the sealed session is a
+  // fakeJwt and GraphQL is answered off x-user-id — so any well-formed body
+  // will do.
+  world.route(/\/api\/gateway\/local-auth\/token/, () => ({
+    json: { access_token: 'sealed-local-token', expires_in: 3600 },
+  }));
 }
 
 export { PORTFOLIO, VAULT, WALLET, KITS, ORDERS, OFFERS, PAPERS, FEATURES, PEOPLE, PHOTOS, MAP_VIEW, TICKET_SHAPES, SHARE_LINKS, CORRECTIONS, RING };
