@@ -121,6 +121,7 @@ export interface GroupMember {
   inviteToken: string;
   phoneVerified: boolean;
   emailVerified: boolean;
+  inactivityEmailConsent: boolean;
   parcelId: string;
   presentAddress: string;
   aadhaarMasked: string;
@@ -164,14 +165,17 @@ export interface NotifierRow {
   memberId: string;
   name: string;
   relation: string;
+  contact: string;
   priority: number;
+  channel: string;
+  eligible: boolean;
 }
 
 // Exact field list the rhub UnifiedFamilyView queries.
 export const MEMBER_FIELDS =
   'id ownerUserId name relation gender dob phone email bio photo groupId role isSelf ' +
   'fatherId motherId spouseId isBeneficiary sharePct kind status inviteStatus inviteToken ' +
-  'phoneVerified emailVerified parcelId presentAddress aadhaarMasked isMinor guardianName ' +
+  'phoneVerified emailVerified inactivityEmailConsent parcelId presentAddress aadhaarMasked isMinor guardianName ' +
   'guardianContact maritalStatus spouseName spouseContact spouseStatus createdAt';
 
 export const GROUP_FIELDS =
@@ -180,7 +184,7 @@ export const GROUP_FIELDS =
 /** As above plus what the group actually HOLDS. Kept separate from
  *  GROUP_FIELDS so the legacy screen's query is untouched: `landCount` counts
  *  khatas, which is not the same number as the things in them. */
-export const GROUP_FIELDS_HOLDINGS = `${GROUP_FIELDS} parcelCount propertyCount`;
+export const GROUP_FIELDS_HOLDINGS = `${GROUP_FIELDS} parcelCount propertyCount headName lastActiveAt inactivityStage inactivityNextAt inactivityLastOutcome inactiveContactGaps`;
 
 /** Member status → the Invited / Active language (port of memberStatusTag). */
 export function memberStatusChip(r: {
@@ -276,6 +280,7 @@ function sampleGroupMembers(groupId: string): GroupMember[] {
     .map((m) => ({
       ownerUserId: '', bio: '', photo: '', fatherId: '', motherId: '', spouseId: '',
       kind: m.isBeneficiary ? 'legalheir' : '', inviteStatus: '', inviteToken: '',
+      inactivityEmailConsent: false,
       parcelId: '', presentAddress: '', isMinor: isMinorDob(m.dob), guardianName: '',
       guardianContact: '', maritalStatus: '', spouseName: '', spouseContact: '',
       spouseStatus: '', createdAt: '',
@@ -410,6 +415,7 @@ export interface MemberVars {
   parcelId: string;
   presentAddress: string;
   aadhaar: string;
+  aadhaarCandidateId?: string;
   guardianName: string;
   guardianContact: string;
   maritalStatus: string;
@@ -424,13 +430,13 @@ const MEMBER_ARG_DEF =
   '$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,' +
   '$email:String!,$bio:String!,$photo:String!,$fatherId:String!,$motherId:String!,$spouseId:String!,' +
   '$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String!,$parcelId:String!,$presentAddress:String!,' +
-  '$aadhaar:String!,$guardianName:String!,$guardianContact:String!,$maritalStatus:String!,' +
+  '$aadhaar:String!,$aadhaarCandidateId:String!,$guardianName:String!,$guardianContact:String!,$maritalStatus:String!,' +
   '$spouseName:String!,$spouseContact:String!,$spouseStatus:String!';
 const MEMBER_CALL =
   'name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,' +
   'bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,' +
   'isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,' +
-  'presentAddress:$presentAddress,aadhaar:$aadhaar,guardianName:$guardianName,' +
+  'presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId,guardianName:$guardianName,' +
   'guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,' +
   'spouseContact:$spouseContact,spouseStatus:$spouseStatus';
 
@@ -446,7 +452,7 @@ export interface SavedMember {
 export async function addMember(groupId: string, vars: MemberVars): Promise<SavedMember | null> {
   const d = await gql<{ addMember: SavedMember | null }>(
     `mutation($groupId:String!,${MEMBER_ARG_DEF}){ addMember(groupId:$groupId,${MEMBER_CALL}){ id inviteToken isMinor guardianContact phone email } }`,
-    { groupId, ...vars },
+    { groupId, ...vars, aadhaarCandidateId: vars.aadhaarCandidateId ?? '' },
   );
   return d.addMember;
 }
@@ -454,7 +460,7 @@ export async function addMember(groupId: string, vars: MemberVars): Promise<Save
 export async function updateMember(id: string, vars: MemberVars): Promise<SavedMember | null> {
   const d = await gql<{ updateMember: SavedMember | null }>(
     `mutation($id:String!,${MEMBER_ARG_DEF}){ updateMember(id:$id,${MEMBER_CALL}){ id inviteToken isMinor guardianContact phone email } }`,
-    { id, ...vars },
+    { id, ...vars, aadhaarCandidateId: vars.aadhaarCandidateId ?? '' },
   );
   return d.updateMember;
 }
@@ -521,7 +527,7 @@ export async function fetchNotifiers(
     notifiers: NotifierRow[];
     members: { id: string; name: string; relation: string; role: string; isSelf: boolean }[];
   }>(
-    `query($g:String!){ notifiers(groupId:$g){ memberId name relation priority } members(groupId:$g){ id name relation role isSelf } }`,
+    `query($g:String!){ notifiers(groupId:$g){ memberId name relation contact priority channel eligible } members(groupId:$g){ id name relation role isSelf } }`,
     { g: groupId },
   );
   return { notifiers: d.notifiers ?? [], members: d.members ?? [] };

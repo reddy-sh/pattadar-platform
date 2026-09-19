@@ -40,11 +40,8 @@ import { SheetDialog } from '@/components/SheetDialog';
 import { displayName } from '@/lib/family';
 import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
 import { choosePhotoSource, pickImage } from '@/lib/photoPicker';
-import { uploadToDrive } from '@/api/storage';
-import { saveLocalCopy } from '@/lib/localFiles';
-import { documentFileName } from '@pattadar/core';
 import { RequireSignIn } from '@/components/RequireSignIn';
-import { useDocumentActions, useGroups, useIdentity, useMemberActions } from '@/data/hooks';
+import { useGroups, useIdentity, useMemberActions } from '@/data/hooks';
 import { aadhaarPrefill, formatAadhaar, isValidAadhaar } from '@/lib/aadhaar';
 import { useAppTheme } from '@/theme/paper';
 import { dmyToIso, formatAadhaarMask, isValidDmy, isoToDmy, maskDmyInput } from '@pattadar/core';
@@ -71,7 +68,6 @@ export default function AddMemberScreen() {
     memberId?: string;
   }>();
   const { addMember, updateMember, removeMember, revealAadhaar } = useMemberActions();
-  const { fileDocument } = useDocumentActions();
   const { data: groupsResult } = useGroups();
   const existing = memberId
     ? (groupsResult?.data.members ?? []).find((m) => m.id === memberId)
@@ -87,6 +83,8 @@ export default function AddMemberScreen() {
   // Editing shows the masked number: the raw value never leaves the server, and
   // sending it back empty tells the API to keep what it already has.
   const [aadhaar, setAadhaar] = useState('');
+  const [aadhaarCandidateId, setAadhaarCandidateId] = useState('');
+  const [aadhaarMasked, setAadhaarMasked] = useState('');
   const [address, setAddress] = useState(existing?.presentAddress ?? '');
   const [notes, setNotes] = useState(existing?.bio ?? '');
   const [phone, setPhone] = useState(existing?.phone ?? '');
@@ -116,7 +114,10 @@ export default function AddMemberScreen() {
   const [confirmRemove, setConfirmRemove] = useState(false);
   // CL-449: back-navigation must not silently throw away edits.
   const initial = useRef('');
-  const snapshot = JSON.stringify({ name, relation, gender, dob, address, notes, phone, email, photo, photoConsent, aadhaar });
+  const snapshot = JSON.stringify({
+    name, relation, gender, dob, address, notes, phone, email, photo,
+    photoConsent, aadhaar, aadhaarCandidateId,
+  });
   useEffect(() => {
     if (!initial.current) initial.current = snapshot;
   }, [snapshot]);
@@ -126,17 +127,15 @@ export default function AddMemberScreen() {
   /** Read an Aadhaar card and fill what it could see. Never overwrites a field
    * the user already typed, and never invents digits the model couldn't read. */
   const scan = async (uri: string, fileName: string, mimeType: string) => {
-    // Captured from the extraction so the filed document can be named after
-    // the person on the card, not the empty form field.
-    let scannedName = '';
     setError('');
     setScanNote('');
     setScanWarn(false);
+    setAadhaarCandidateId('');
+    setAadhaarMasked('');
     setScanning(true);
     try {
       const fields = await extractAadhaar(uri, fileName, mimeType);
       const p = aadhaarPrefill(fields as Record<string, string>);
-      scannedName = p.name;
       if (!p.readAnything) {
         setScanWarn(true);
         setScanNote("That doesn't look like an Aadhaar card — nothing was filled in.");
@@ -145,20 +144,24 @@ export default function AddMemberScreen() {
       if (p.name) setName((v) => v || p.name);
       if (p.dob) setDob((v) => v || p.dob);
       if (p.gender) setGender((v) => v || p.gender);
-      if (p.aadhaar) setAadhaar((v) => v || p.aadhaar);
+      if (p.aadhaarCandidateId) {
+        setAadhaar('');
+        setAadhaarCandidateId(p.aadhaarCandidateId);
+        setAadhaarMasked(p.aadhaarMasked);
+      }
       if (p.address) setAddress((v) => v || p.address);
       const filled = [
         p.name && 'name',
         p.dob && 'date of birth',
         p.gender && 'gender',
-        p.aadhaar && 'Aadhaar number',
+        p.aadhaarCandidateId && 'masked Aadhaar',
         p.address && 'address',
       ].filter(Boolean);
-      setScanWarn(p.lowConfidence || !p.aadhaar);
+      setScanWarn(p.lowConfidence || !p.aadhaarCandidateId);
       setScanNote(
         p.lowConfidence
           ? `Read with low confidence — please check every field. Filled: ${filled.join(', ')}.`
-          : !p.aadhaar
+          : !p.aadhaarCandidateId
             ? `Filled ${filled.join(', ')}. The number wasn't clearly readable — type it in or rescan.`
             : `Filled ${filled.join(', ')}.`,
       );
@@ -168,27 +171,8 @@ export default function AddMemberScreen() {
       setScanWarn(true);
       setScanNote(e instanceof Error ? e.message : 'Could not read the Aadhaar');
     } finally {
-      // Keep the card as a document — it is a record of identity, not a
-      // throwaway. Uploaded first, then the cache copy is cleared.
-      try {
-        const person = scannedName || name || existing?.name || 'Member';
-        const node = await uploadToDrive(uri, fileName, mimeType).catch(() => null);
-        const filed = await fileDocument.mutateAsync({
-          doc_type: 'Aadhaar',
-          owner_name: person,
-          _fileRef: node?.id ?? '',
-        });
-        const docId = filed.createRegisteredDocument?.id;
-        if (docId) {
-          await saveLocalCopy(
-            docId,
-            uri,
-            documentFileName({ docType: 'Aadhaar', ownerName: person }, fileName),
-          ).catch(() => undefined);
-        }
-      } catch {
-        // Reading the card already succeeded; failing to file it must not undo that.
-      }
+      // The picker cache is transient. Aadhaar scans are not copied into Drive
+      // or the app's document directory from this member form.
       if (uri.startsWith(FileSystem.cacheDirectory ?? '###')) {
         await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
       }
@@ -268,6 +252,7 @@ export default function AddMemberScreen() {
           sharePct: Number(existing?.sharePct) || 0,
           presentAddress: address.trim(),
           aadhaar,
+          aadhaarCandidateId,
           photo: photoConsent ? photo : '',
         });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -287,6 +272,7 @@ export default function AddMemberScreen() {
         bio: notes.trim(),
         presentAddress: address.trim(),
         aadhaar,
+        aadhaarCandidateId,
         photo: photoConsent ? photo : '',
       });
       const saved = r.addMember;
@@ -359,12 +345,12 @@ export default function AddMemberScreen() {
               <Text variant="titleSmall">Scan Aadhaar</Text>
             </View>
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              Reads name, date of birth, gender, number and address.
+              Reads name, date of birth, gender and address. The Aadhaar number
+              returns only as a mask and is stored through a short-lived secure reading.
             </Text>
             <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              The card is saved to your documents so you can open it later. The
-              number is stored encrypted — only you can reveal or copy it, and
-              every time you do is recorded.
+              The card image is used for this reading and then removed from the
+              picker cache. It is not copied to Drive or local app storage.
             </Text>
             <View style={styles.buttons}>
               <Button mode="outlined" icon="camera" disabled={scanning} onPress={scanCamera}>
@@ -510,7 +496,11 @@ export default function AddMemberScreen() {
           <TextInput
             label="Aadhaar number"
             value={aadhaar}
-            onChangeText={(t) => setAadhaar(formatAadhaar(t))}
+            onChangeText={(t) => {
+              setAadhaar(formatAadhaar(t));
+              setAadhaarCandidateId('');
+              setAadhaarMasked('');
+            }}
             keyboardType="number-pad"
             inputAccessoryViewID={KEYBOARD_BAR}
             maxLength={14}
@@ -528,6 +518,11 @@ export default function AddMemberScreen() {
               ) : undefined
             }
           />
+        )}
+        {!!aadhaarCandidateId && !!aadhaarMasked && (
+          <HelperText type="info" visible>
+            Secure card reading ready: {aadhaarMasked}. Full digits were not returned to this form.
+          </HelperText>
         )}
         {aadhaarBad && (
           <HelperText type="error" visible>

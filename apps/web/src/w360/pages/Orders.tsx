@@ -14,7 +14,7 @@ import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import { useAssignRequest, useAssignable, useOrders, useRecordHistory } from '../api';
 import type { Order } from '../api';
 import {
-  Card, Chip, Empty, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, inr, plural,
+  Card, Chip, Empty, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, ddmmyyyy, inr, plural,
 } from '../ui';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
@@ -400,7 +400,7 @@ export function RecordHistory() {
                     )}
                   </span>
                   <span className="note" style={{ textAlign: 'right', flex: 'none' }}>
-                    {e.at.slice(0, 10)}
+                    {ddmmyyyy(e.at.slice(0, 10))}
                     <span style={{ display: 'block' }}>{e.by}</span>
                   </span>
                 </div>

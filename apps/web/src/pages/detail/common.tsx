@@ -23,9 +23,28 @@ import { fetchFileBlob } from '../documents/storage';
 
 // ── tiny display helpers (ported from source) ────────────────────────────
 
-/** ISO "YYYY-MM-DD" → "DD/MM/YYYY" (Indian convention); '—' when empty. */
-export const fmtDMY = (s?: string): string =>
-  s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—';
+/**
+ * A date field for the detail pages, in the Indian DD/MM/YYYY convention;
+ * '—' when empty.
+ *
+ * These fields arrive in more than one shape: `createdAt` is a naive-UTC ISO
+ * timestamp, while `purchaseDate`/`regDate`/`ecDate`/`taxPaidUpto` are
+ * free-text columns that may already be DD/MM/YYYY, be ISO, or be empty. The
+ * old implementation assumed ISO and did a blind `.split('-').reverse()`, so an
+ * already-DD/MM/YYYY value came out mangled and an empty value — the common
+ * case, since these columns default to '' — was the only branch handled. This
+ * accepts all three shapes and leaves anything it does not recognise intact
+ * rather than reordering it into nonsense.
+ */
+export const fmtDMY = (s?: string): string => {
+  const raw = String(s ?? '').trim();
+  if (!raw) return '—';
+  // ISO date or timestamp (YYYY-MM-DD…): take the date part, reorder to DMY.
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  // Already DD/MM/YYYY (or any other already-human form): leave it as is.
+  return raw;
+};
 
 export const money = (v?: number): string =>
   Number(v) > 0 ? `₹${Math.round(Number(v)).toLocaleString('en-IN')}` : '—';

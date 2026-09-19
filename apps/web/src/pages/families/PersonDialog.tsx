@@ -99,6 +99,9 @@ export function PersonDialog({
   const [phoneCc, setPhoneCc] = useState(DEFAULT_DIAL);
   const [photo, setPhoto] = useState('');
   const [aadhaarUploading, setAadhaarUploading] = useState(false);
+  const [aadhaarCandidateId, setAadhaarCandidateId] = useState('');
+  const [aadhaarMasked, setAadhaarMasked] = useState('');
+  const [retainAadhaarCard, setRetainAadhaarCard] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -127,6 +130,9 @@ export function PersonDialog({
     if (!open) return;
     setErrors({});
     setFormError('');
+    setAadhaarCandidateId('');
+    setAadhaarMasked('');
+    setRetainAadhaarCard(false);
     if (editing) {
       const { cc, national } = splitPhone(editing.phone);
       setPhoneCc(cc);
@@ -168,19 +174,11 @@ export function PersonDialog({
     }
   }, [open, editing, hasTree, groupType]);
 
-  // Aadhaar scan → best-effort My Drive mirror → AI extract → prefill
-  // (mirrors the deed/passbook importer flow).
+  // Aadhaar scan → masked KMS candidate → optional SSE-KMS Drive copy.
   const handleAadhaar = useCallback(
     async (file: File) => {
       setAadhaarUploading(true);
       try {
-        try {
-          const fd0 = new FormData();
-          fd0.append('file', file);
-          await apiFetch('/api/gateway/storage/files?appId=pattadar', { method: 'POST', body: fd0 });
-        } catch {
-          /* best-effort mirror */
-        }
         const fd = new FormData();
         fd.append('file', file);
         const res = await apiFetch('/api/gateway/pattadar/extract-aadhaar', {
@@ -197,24 +195,35 @@ export function PersonDialog({
           name: f.name || old.name,
           dob: f.dob || old.dob,
           gender: (f.gender || '').toLowerCase() || old.gender,
-          aadhaar: formatAadhaar(f.aadhaar) || old.aadhaar,
           presentAddress: f.address || old.presentAddress,
+          aadhaar: '',
         }));
-        if (file.type.startsWith('image/')) {
-          try {
-            setPhoto(await cropSquareDataUrl(file, 256));
-          } catch {
-            /* keep going without the photo */
-          }
+        const maskMatch = String(f.aadhaarMasked || '').trim()
+          .match(/^X{4}[-\s]X{4}[-\s]([0-9]{4})$/i);
+        const masked = maskMatch ? `XXXX-XXXX-${maskMatch[1]}` : '';
+        setAadhaarCandidateId(masked ? (f.aadhaarCandidateId || '') : '');
+        setAadhaarMasked(masked);
+
+        let cardSaved = false;
+        if (retainAadhaarCard) {
+          const drive = new FormData();
+          drive.append('file', file);
+          const saved = await apiFetch('/api/gateway/storage/files?appId=pattadar&onConflict=duplicate', {
+            method: 'POST', body: drive,
+          });
+          cardSaved = saved.ok;
+          if (!saved.ok) notify('The details were read, but the card was not saved to My Drive', 'warning');
         }
-        notify('Aadhaar read — fields filled and saved to My Drive');
+        notify(cardSaved
+          ? 'Aadhaar read securely — masked details filled and card saved to My Drive'
+          : 'Aadhaar read securely — masked details filled; the card was not retained');
       } catch {
         notify('Aadhaar extraction failed', 'error');
       } finally {
         setAadhaarUploading(false);
       }
     },
-    [notify],
+    [notify, retainAadhaarCard],
   );
 
   const pickPhoto = (file: File) => {
@@ -268,6 +277,7 @@ export function PersonDialog({
         parcelId: v.parcelId,
         presentAddress: v.sameAddress ? myAddress : v.presentAddress,
         aadhaar: aadDigits,
+        aadhaarCandidateId: aadhaarCandidateId,
         guardianName: v.guardianName,
         guardianContact: v.guardianContact,
         maritalStatus: v.maritalStatus,
@@ -280,7 +290,7 @@ export function PersonDialog({
     } finally {
       setSaving(false);
     }
-  }, [v, hasTree, minor, phoneCc, photo, myAddress, onSubmit]);
+  }, [v, hasTree, minor, phoneCc, photo, myAddress, onSubmit, aadhaarCandidateId]);
 
   const peopleOpts = people
     .filter((p) => p.id !== editing?.id)
@@ -322,8 +332,8 @@ export function PersonDialog({
               <UploadFileOutlinedIcon fontSize="small" /> Scan Aadhaar / ID (AI)
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Upload the Aadhaar (PDF or image). Name, DOB, gender &amp; number auto-fill on the
-              right; the card is also saved to My Drive.
+              Upload the Aadhaar (PDF or image). Name, DOB, gender and address can fill the
+              form; the number returns masked and the original is retained only if you choose it.
             </Typography>
             <Box sx={{ my: 1.5 }}>
               <Button
@@ -346,6 +356,20 @@ export function PersonDialog({
                 />
               </Button>
             </Box>
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={retainAadhaarCard}
+                  onChange={(e) => setRetainAadhaarCard(e.target.checked)}
+                />
+              )}
+              label="Also keep the original card in my encrypted Drive"
+            />
+            {aadhaarMasked && (
+              <Alert severity="success" sx={{ mb: 1 }}>
+                Read securely as {aadhaarMasked}. Full digits were not returned to this form.
+              </Alert>
+            )}
             {photo ? (
               <Box sx={{ textAlign: 'center' }}>
                 <Box
@@ -602,11 +626,17 @@ export function PersonDialog({
                 <TextField
                   size="small"
                   label="Aadhaar (KYC)"
-                  placeholder="1234 5678 9012 (auto-filled from scan)"
+                  placeholder="Enter 12 digits manually, or use the secure scan"
                   value={v.aadhaar}
-                  onChange={(e) => set('aadhaar', formatAadhaar(e.target.value))}
+                  onChange={(e) => {
+                    set('aadhaar', formatAadhaar(e.target.value));
+                    setAadhaarCandidateId('');
+                    setAadhaarMasked('');
+                  }}
                   error={!!errors.aadhaar}
-                  helperText={errors.aadhaar || 'Stored masked — only last 4 digits (DPDP-2023)'}
+                  helperText={errors.aadhaar || (aadhaarMasked
+                    ? `Secure scan ready: ${aadhaarMasked}`
+                    : 'Stored encrypted; lists show only the last 4 digits')}
                   slotProps={{ htmlInput: { maxLength: 14, inputMode: 'numeric' } }}
                 />
                 {minor && (

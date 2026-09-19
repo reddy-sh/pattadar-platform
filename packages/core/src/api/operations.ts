@@ -105,9 +105,9 @@ export const PROPERTY_DOCUMENTS_QUERY = `query($id:String!){ propertyDocuments(p
 /** My relationship to a holding: owned / managed / watch. */
 export const SET_STAKE_MUTATION = `mutation($k:String!,$id:String!,$s:String!){ setStake(kind:$k, id:$id, stake:$s) }`;
 
-/** Full 24-arg member write (every arg required by the schema; '' / false / 0
- * for unused). Server auto-creates the invite token when isBeneficiary. */
-export const ADD_MEMBER_MUTATION = `mutation($groupId:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$fatherId:String!,$motherId:String!,$spouseId:String!,$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String!,$parcelId:String!,$presentAddress:String!,$aadhaar:String!,$guardianName:String!,$guardianContact:String!,$maritalStatus:String!,$spouseName:String!,$spouseContact:String!,$spouseStatus:String!){ addMember(groupId:$groupId,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,presentAddress:$presentAddress,aadhaar:$aadhaar,guardianName:$guardianName,guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,spouseContact:$spouseContact,spouseStatus:$spouseStatus){ id inviteToken } }`;
+/** Full member write (every declared variable is required by this client
+ * document; the server keeps aadhaarCandidateId additive for older clients). */
+export const ADD_MEMBER_MUTATION = `mutation($groupId:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$fatherId:String!,$motherId:String!,$spouseId:String!,$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String!,$parcelId:String!,$presentAddress:String!,$aadhaar:String!,$aadhaarCandidateId:String!,$guardianName:String!,$guardianContact:String!,$maritalStatus:String!,$spouseName:String!,$spouseContact:String!,$spouseStatus:String!){ addMember(groupId:$groupId,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId,guardianName:$guardianName,guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,spouseContact:$spouseContact,spouseStatus:$spouseStatus){ id inviteToken } }`;
 
 export const REMOVE_MEMBER_MUTATION = `mutation($id:String!){ removeMember(id:$id) }`;
 
@@ -154,7 +154,7 @@ export const SET_MEMBER_SHARE_MUTATION = `mutation($id:String!,$pct:Float!){ set
 /** Full-field member edit. Every field must be supplied — the resolver writes
  * them all — so callers MUST send current values for anything unchanged.
  * (The API preserves the stored Aadhaar when `aadhaar` is sent empty.) */
-export const UPDATE_MEMBER_MUTATION = `mutation($id:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$isBeneficiary:Boolean!,$sharePct:Float!,$presentAddress:String!,$aadhaar:String!){ updateMember(id:$id,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,isBeneficiary:$isBeneficiary,sharePct:$sharePct,presentAddress:$presentAddress,aadhaar:$aadhaar){ id } }`;
+export const UPDATE_MEMBER_MUTATION = `mutation($id:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$isBeneficiary:Boolean!,$sharePct:Float!,$presentAddress:String!,$aadhaar:String!,$aadhaarCandidateId:String!){ updateMember(id:$id,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,isBeneficiary:$isBeneficiary,sharePct:$sharePct,presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId){ id } }`;
 
 export const REVEAL_AADHAAR_MUTATION = `mutation($id:String!){ revealMemberAadhaar(id:$id) }`;
 
@@ -163,7 +163,7 @@ export const REVEAL_MY_AADHAAR_MUTATION = `mutation { revealMyAadhaar }`;
 
 /** CL-545: the way back out of a wrong card — applyMyKyc only ever writes. */
 export const CLEAR_MY_KYC_MUTATION = `mutation { clearMyKyc { id name kycRefMasked } }`;
-export const APPLY_MY_KYC_MUTATION =`mutation($name:String!,$dob:String!,$gender:String!,$address:String!,$aadhaar:String!){ applyMyKyc(name:$name,dob:$dob,gender:$gender,address:$address,aadhaar:$aadhaar){ id name kycRefMasked } }`;
+export const APPLY_MY_KYC_MUTATION =`mutation($name:String!,$dob:String!,$gender:String!,$address:String!,$aadhaar:String!,$aadhaarCandidateId:String!){ applyMyKyc(name:$name,dob:$dob,gender:$gender,address:$address,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId){ id name kycRefMasked } }`;
 
 // --- parcel photos (CL-561..563/568) -----------------------------------------
 // Every field the record needs travels in one query: a photo without its

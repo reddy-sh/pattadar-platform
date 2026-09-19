@@ -738,7 +738,12 @@ export default function VillageCanvas({
       if (!map || !hit) return false;
       const b = L.latLngBounds(hit.ring as L.LatLngTuple[]);
       if (!b.isValid()) return false;
-      map.flyToBounds(b.pad(1.4), { maxZoom: 17.5, duration: 0.6 });
+      const framed = b.pad(1.4);
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        map.fitBounds(framed, { maxZoom: 17.5, animate: false });
+      } else {
+        map.flyToBounds(framed, { maxZoom: 17.5, duration: 0.6 });
+      }
       return true;
     },
   }), [plots]);

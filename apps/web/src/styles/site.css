@@ -203,8 +203,41 @@ html:has(.site) body {
   outline-offset: 2px;
 }
 
+.nav__actions {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+.nav__pricing {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.nav__pricing:hover,
+.nav__pricing[aria-current="page"] {
+  color: var(--color-ink);
+  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
+}
+.nav__pricing:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 /* nav CTA is the ghost pill — the hero owns the amber */
 .nav__cta {
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
@@ -1510,6 +1543,194 @@ html:has(.site) body {
 
 /* ── auth / legal frames ─────────────────────────────────────────── */
 
+/* ── pricing · public plan capacity ─────────────────────────────── */
+
+.pricing-main {
+  flex: 1;
+  width: min(100%, var(--max-width));
+  margin: 0 auto;
+  padding: var(--space-2xl) var(--page-gutter) var(--space-3xl);
+  display: grid;
+  gap: var(--space-3xl);
+}
+
+.pricing-hero {
+  max-width: 54rem;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-md);
+  padding-block: var(--space-xl);
+}
+
+.pricing-hero .overline,
+.pricing-section .overline { margin: 0; }
+
+.pricing-title {
+  max-width: 14ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2.75rem, 6vw, 5.5rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.98;
+}
+
+.pricing-lede,
+.pricing-availability,
+.pricing-section__body {
+  max-width: var(--measure);
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-lg);
+}
+
+.pricing-availability {
+  padding-left: var(--space-md);
+  border-left: var(--rule-bold) solid var(--color-accent);
+  font-size: var(--text-sm);
+}
+
+.pricing-section {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.pricing-section__head {
+  display: grid;
+  gap: var(--space-sm);
+  max-width: var(--measure);
+}
+
+.pricing-section__head .section-h,
+.pricing-section--ruled .section-h { margin: 0; }
+
+.pricing-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.pricing-card,
+.pricing-addon {
+  min-width: 0;
+  padding: var(--space-lg);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklch, var(--color-paper-2) 92%, transparent);
+}
+
+.pricing-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.pricing-card--free {
+  border-color: color-mix(in oklch, var(--color-accent) 56%, var(--color-rule));
+}
+
+.pricing-card__name,
+.pricing-addon h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+}
+
+.pricing-card__price {
+  margin: var(--space-sm) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  color: var(--color-ink);
+}
+
+.pricing-card__annual,
+.pricing-note,
+.pricing-addon p {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.pricing-card__limits {
+  list-style: none;
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-md) 0 0;
+  border-top: var(--rule-hair) solid var(--color-rule);
+  display: grid;
+  gap: var(--space-xs);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.pricing-card__limits li::before {
+  content: "—";
+  margin-right: var(--space-xs);
+  color: var(--color-accent);
+}
+
+.pricing-note--wide { max-width: var(--measure); }
+
+.pricing-section--ruled {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  padding-block: var(--space-xl);
+  border-block: var(--rule-hair) solid var(--color-rule);
+  align-items: start;
+}
+
+.pricing-addons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.pricing-addon {
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+}
+
+.pricing-addon dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.pricing-addon dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-md);
+  padding-block: var(--space-sm);
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+
+.pricing-addon dt { color: var(--color-ink-2); }
+.pricing-addon dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.pricing-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  text-align: left;
+}
+
+.pricing-foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+/* ── auth & legal frames ─────────────────────────────────────────── */
+
 .site-bar {
   position: sticky;
   top: 0;
@@ -1587,7 +1808,14 @@ html:has(.site) body {
 
 @media (max-width: 60rem) {
   .nav__links { display: none; }
-  .nav__cta { font-size: var(--text-xs); padding: var(--space-2xs) var(--space-md); }
+  .nav__actions { gap: var(--space-2xs); }
+  .nav__pricing,
+  .nav__cta { font-size: var(--text-xs); padding: var(--space-2xs) var(--space-sm); }
+
+  .pricing-main { padding-top: var(--space-xl); gap: var(--space-2xl); }
+  .pricing-hero { padding-block: var(--space-lg); }
+  .pricing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pricing-section--ruled { grid-template-columns: minmax(0, 1fr); }
 
   .hero {
     padding: var(--space-2xl) var(--page-gutter);
@@ -1653,6 +1881,11 @@ html:has(.site) body {
 }
 
 @media (max-width: 26rem) {
+  .pricing-grid,
+  .pricing-addons { grid-template-columns: minmax(0, 1fr); }
+  .pricing-foot { align-items: flex-start; flex-direction: column; }
+  .pricing-title { font-size: clamp(2.5rem, 12vw, 3.5rem); }
+
   .rows__row {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "num" "label" "note";

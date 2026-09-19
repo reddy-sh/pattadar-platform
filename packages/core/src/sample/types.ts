@@ -224,6 +224,28 @@ export interface AuditEvent {
   timestamp: string;
 }
 
+/**
+ * The centralized, classified audit envelope (audit_events_v2, phase 1).
+ * Separates who acted (actorPrincipal/actorKind) from whose data the event is
+ * about (affectedOwner), records the outcome and data class, and carries only
+ * allowlisted metadata (a JSON string) — never free-text PII.
+ */
+export interface AuditEventV2 {
+  id: string;
+  occurredAt: string;
+  sourceService: string;
+  actorPrincipal: string;
+  actorKind: string; // 'owner' | 'admin' | 'system' | 'recipient'
+  affectedOwner: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  outcome: string; // 'success' | 'failure' | 'denied'
+  dataClass: string; // 'security' | 'personal' | 'operational' | 'system'
+  requestId: string;
+  metadata: string; // JSON string of allowlisted keys only
+}
+
 export interface ServiceRequest {
   id: string;
   reqType: string;

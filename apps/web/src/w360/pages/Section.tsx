@@ -35,12 +35,10 @@ const SECTIONS: Record<string, { eyebrow: string; title: string; blurb: string; 
     blurb: 'Stamp duty, market value, unit conversion and the SRO directory.',
     legacy: '/legacy/tools',
   },
-  audit: {
-    eyebrow: 'Reference',
-    title: 'Audit Log',
-    blurb: 'Every link opened, every paper downloaded, every record changed — with who and when.',
-    legacy: '/legacy/audit',
-  },
+  // `audit` was here and is gone: the owner's audit trail is drawn in this
+  // design now (w360/pages/Audit.tsx) and routed at /app/audit, so a stub
+  // under that key would be an entry nothing routes to — the same reason
+  // `groups` and `admin` left.
   profile: {
     eyebrow: 'You',
     title: 'Profile',

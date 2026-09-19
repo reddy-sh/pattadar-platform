@@ -32,6 +32,8 @@ const ACTION_LABELS: Record<string, string> = {
   reclassify_document: 'Changed a document type',
   create_property: 'Added a property',
   delete_property: 'Deleted a property',
+  archive_record: 'Archived a record',
+  tag_record: 'Tagged a record',
   create_group: 'Created a group',
   delete_group: 'Deleted a group',
   add_member: 'Added a member',

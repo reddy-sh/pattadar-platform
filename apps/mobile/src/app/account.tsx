@@ -19,10 +19,7 @@ import { useAvatar, useSetAvatar } from '@/lib/avatar';
 import { choosePhotoSource, pickImage } from '@/lib/photoPicker';
 import { PhotoField } from '@/components/PhotoField';
 import { extractAadhaar } from '@/api/client';
-import { useDocumentActions, useGroups, useMyAadhaar } from '@/data/hooks';
-import { uploadToDrive } from '@/api/storage';
-import { saveLocalCopy } from '@/lib/localFiles';
-import { documentFileName } from '@pattadar/core';
+import { useGroups, useMyAadhaar } from '@/data/hooks';
 import { aadhaarPrefill } from '@/lib/aadhaar';
 import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
 import { isAllowedApiUrl } from '@/lib/urlScheme';
@@ -30,8 +27,6 @@ import { useAppTheme } from '@/theme/paper';
 import { formatAadhaarMask, isoToDmy } from '@pattadar/core';
 import { tokens } from '@pattadar/tokens';
 
-/** Local mirror of the server's mask, for the confirmation message only. */
-const maskFromDigits = (d: string) => `XXXX-XXXX-${d.replace(/\D/g, '').slice(-4)}`;
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
 /** Do two names share any meaningful token? Families share surnames, so a
@@ -87,11 +82,11 @@ export default function AccountScreen() {
   const [clearingCache, setClearingCache] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [review, setReview] = useState<{
-    name: string; dob: string; gender: string; address: string; aadhaar: string;
+    name: string; dob: string; gender: string; address: string;
+    aadhaarMasked: string; aadhaarCandidateId: string;
     accept: Record<'name' | 'dob' | 'gender' | 'address' | 'aadhaar', boolean>;
   } | null>(null);
   const myAadhaar = useMyAadhaar();
-  const { fileDocument } = useDocumentActions();
   const myMask = data?.data.me?.kycRefMasked ?? '';
   // The self member row carries the KYC detail; the account row shows it.
   const selfKyc = (groups?.data.members ?? []).find((m) => m.isSelf);
@@ -115,7 +110,7 @@ export default function AccountScreen() {
       setScanning(true);
       const fields = await extractAadhaar(a.uri, a.fileName ?? 'aadhaar.jpg', a.mimeType ?? 'image/jpeg');
       const p = aadhaarPrefill(fields as Record<string, string>);
-      if (!p.aadhaar) {
+      if (!p.aadhaarCandidateId) {
         setNote(
           p.readAnything
             ? "The number wasn't clearly readable — try a sharper photo."
@@ -123,49 +118,28 @@ export default function AccountScreen() {
         );
         return;
       }
-      // CL-509: never bulk-apply. Show what was read and let each field be
-      // accepted or skipped, with the current value shown where one exists.
       setReview({
         name: p.name,
         dob: p.dob,
         gender: p.gender,
         address: p.address,
-        aadhaar: p.aadhaar,
+        aadhaarMasked: p.aadhaarMasked,
+        aadhaarCandidateId: p.aadhaarCandidateId,
         accept: {
           name: !!p.name,
           dob: !!p.dob,
           gender: !!p.gender,
           address: !!p.address,
-          aadhaar: !!p.aadhaar,
+          aadhaar: !!p.aadhaarCandidateId,
         },
       });
-      // Keep the card in Documents, then clear the picker's cache copy.
-      try {
-        const node = await uploadToDrive(a.uri, a.fileName ?? 'aadhaar.jpg', a.mimeType ?? 'image/jpeg').catch(
-          () => null,
-        );
-        const filed = await fileDocument.mutateAsync({
-          doc_type: 'Aadhaar',
-          owner_name: p.name || data?.data.me?.name || 'Me',
-          _fileRef: node?.id ?? '',
-        });
-        const docId = filed.createRegisteredDocument?.id;
-        if (docId) {
-          await saveLocalCopy(
-            docId,
-            a.uri,
-            documentFileName({ docType: 'Aadhaar', ownerName: p.name || 'Me' }, a.fileName ?? 'aadhaar.jpg'),
-          ).catch(() => undefined);
-        }
-      } catch {
-        // The number is already read; failing to file the image must not undo it.
-      }
-      if (a.uri.startsWith(FileSystem.cacheDirectory ?? '###')) {
-        await FileSystem.deleteAsync(a.uri, { idempotent: true }).catch(() => undefined);
-      }
+      setNote('Aadhaar read securely. Full digits were not returned and the card was not retained.');
     } catch (e) {
       setNote(e instanceof Error ? e.message : "Couldn't read the card");
     } finally {
+      if (a.uri.startsWith(FileSystem.cacheDirectory ?? '###')) {
+        await FileSystem.deleteAsync(a.uri, { idempotent: true }).catch(() => undefined);
+      }
       setScanning(false);
     }
   };
@@ -573,7 +547,7 @@ export default function AccountScreen() {
                 ['name', 'Name', review?.name ?? '', data?.data.me?.name ?? ''],
                 ['dob', 'Date of birth', review?.dob ? isoToDmy(review.dob) : '', ''],
                 ['gender', 'Gender', review?.gender ?? '', ''],
-                ['aadhaar', 'Aadhaar number', review?.aadhaar ?? '', myMask ? formatAadhaarMask(myMask) : ''],
+                ['aadhaar', 'Aadhaar number', review?.aadhaarMasked ?? '', myMask ? formatAadhaarMask(myMask) : ''],
                 ['address', 'Address', review?.address ?? '', ''],
               ] as [keyof NonNullable<typeof review>['accept'], string, string, string][])
                 .filter(([, , value]) => !!value)
@@ -621,7 +595,8 @@ export default function AccountScreen() {
                     dob: pick('dob', review.dob),
                     gender: pick('gender', review.gender),
                     address: pick('address', review.address),
-                    aadhaar: pick('aadhaar', review.aadhaar),
+                    aadhaar: '',
+                    aadhaarCandidateId: review.accept.aadhaar ? review.aadhaarCandidateId : '',
                   });
                   setNote('Applied to your profile and your entry in every group.');
                 } catch (e) {

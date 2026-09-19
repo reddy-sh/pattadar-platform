@@ -584,12 +584,13 @@ export interface NewMember {
   email: string;
   isBeneficiary: boolean;
   sharePct: number;
-  /** KYC fields, typed or read from an Aadhaar scan. All optional. */
+  /** KYC fields, typed or accepted from a short-lived Aadhaar reading. */
   gender?: string;
   dob?: string;
   bio?: string;
   presentAddress?: string;
   aadhaar?: string;
+  aadhaarCandidateId?: string;
   photo?: string;
 }
 
@@ -608,8 +609,10 @@ export function useMemberActions() {
         kind: v.isBeneficiary ? 'legalheir' : '',
         parcelId: '',
         presentAddress: v.presentAddress ?? '',
-        // Digits only — the API stores it masked and returns aadhaarMasked.
+        // Manually entered digits and an opaque extraction candidate are
+        // mutually exclusive; the server consumes the candidate once.
         aadhaar: (v.aadhaar ?? '').replace(/\D/g, ''),
+        aadhaarCandidateId: v.aadhaarCandidateId ?? '',
         guardianName: '', guardianContact: '',
         maritalStatus: '', spouseName: '', spouseContact: '', spouseStatus: '',
       }),
@@ -649,11 +652,12 @@ export function useMemberActions() {
     mutationFn: (v: {
       id: string; name: string; relation: string; role: string; gender: string; dob: string;
       phone: string; email: string; bio: string; photo: string; isBeneficiary: boolean;
-      sharePct: number; presentAddress: string; aadhaar: string;
+      sharePct: number; presentAddress: string; aadhaar: string; aadhaarCandidateId?: string;
     }) =>
       api.gql<{ updateMember: { id: string } | null }>(UPDATE_MEMBER_MUTATION, {
         ...v,
         aadhaar: (v.aadhaar || '').replace(/\D/g, ''),
+        aadhaarCandidateId: v.aadhaarCandidateId ?? '',
       }),
     onSuccess: invalidate,
   });
@@ -697,10 +701,14 @@ export function useMyAadhaar() {
   });
   /** Apply chosen fields to the profile AND every self member row. */
   const apply = useMutation({
-    mutationFn: (v: { name: string; dob: string; gender: string; address: string; aadhaar: string }) =>
+    mutationFn: (v: {
+      name: string; dob: string; gender: string; address: string;
+      aadhaar: string; aadhaarCandidateId?: string;
+    }) =>
       api.gql<{ applyMyKyc: { name: string; kycRefMasked: string } }>(APPLY_MY_KYC_MUTATION, {
         ...v,
         aadhaar: v.aadhaar.replace(/\D/g, ''),
+        aadhaarCandidateId: v.aadhaarCandidateId ?? '',
       }),
     onSuccess: invalidate,
   });

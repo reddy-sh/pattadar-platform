@@ -5,7 +5,7 @@
  *  actually thinks: they know the village and they know their survey number,
  *  and what they want is the shape.
  *
- *  From a plot you can file it as a new property, or hand it to a record that
+ *  From a plot you can add it to Properties, or hand it to a record that
  *  already exists and has never had a boundary. Either way the geometry is the
  *  department's, not something traced over imagery.
  *
@@ -68,6 +68,12 @@ const UPLOADS = '/api/gateway/pattadar/village-maps';
  *  eight, an owner with fifteen parcels in one village simply could not hand
  *  the plot to seven of them. */
 const ADOPT_MAX = 40;
+const PAPER_MAX = 6;
+
+/** A finder is a way to reach one plot, not a second rendering of the village.
+ *  Keep enough prefix matches to disambiguate a survey number without bringing
+ *  the old hundreds-row plot column back over the map. */
+const PLOT_SUGGESTION_MAX = 8;
 
 /** `setBoundary` answers with a boolean and a REFUSED write is `false`, not a
  *  thrown error. Reading only the error path is what let a plot be filed as a
@@ -115,7 +121,8 @@ export function VillageMaps() {
   const [hovered, setHovered] = useState<string | null>(null);
   const [goto, setGoto] = useState('');
   const [gotoNote, setGotoNote] = useState('');
-  const [find, setFind] = useState('');
+  const [finderOpen, setFinderOpen] = useState(false);
+  const [activePlotOption, setActivePlotOption] = useState(0);
   const [openPlot, setOpenPlot] = useState(true);
   // Fencing. Three metres between posts and four strands is what the sheds
   // around here are built to — the seeded features say "620 m · 4 strand" —
@@ -138,10 +145,18 @@ export function VillageMaps() {
   const [skipped, setSkipped] = useState<Skipped[]>([]);
   const fileBox = useRef<HTMLInputElement>(null);
   const canvas = useRef<VillageCanvasHandle>(null);
+  const plotOptionsBox = useRef<HTMLDivElement>(null);
   const fenceTrigger = useRef<HTMLButtonElement>(null);
+  /** Measuring is a satellite-ground tool, not another display layer. Remember
+   *  what the reader was studying so putting the tape away takes them back to
+   *  that exact map rather than leaving a hidden mode change behind. */
+  const modeBeforeMeasure = useRef<VillageMode | null>(null);
   const resetTape = () => {
+    const restore = modeBeforeMeasure.current;
+    modeBeforeMeasure.current = null;
     setMeasuring(false);
     setTape(null);
+    if (restore) setMode(restore);
   };
 
   // Every record, unfiltered — the village sheets have to place all of them.
@@ -214,17 +229,27 @@ export function VillageMaps() {
     return () => { dropped = true; };
   }, [village, attempt]);
 
-  /** The same geographic points can be measured over imagery, roads or the
-   *  bare survey. Changing the background never changes the tape. */
+  /** Measurement depends on visible ground. Entering it keeps the current
+   *  display mode aside, switches to satellite imagery and locks the layer
+   *  controls; leaving restores the prior mode and clears the tape. */
   const toggleTape = () => {
-    setMeasuring((on) => !on);
+    if (measuring) {
+      resetTape();
+      return;
+    }
+    modeBeforeMeasure.current = mode;
+    setMode('satellite');
+    setTape(null);
+    setMeasuring(true);
   };
 
   /** A mode chip is a switch, not a radio button: clicking the one that is
    *  already on turns it off. "Off" for the imagery is the bare cadastre,
    *  which is what Boundaries is; off for anything else is back to the
-   *  imagery, which is where the screen starts. */
+   *  imagery, which is where the screen starts. Measuring owns Satellite, so
+   *  layer changes are refused defensively as well as disabled in the UI. */
   const pickMode = (m: VillageMode) => {
+    if (measuring) return;
     if (m !== mode) { setMode(m); return; }
     setMode(m === 'satellite' ? 'boundaries' : 'satellite');
   };
@@ -238,7 +263,12 @@ export function VillageMaps() {
         setFencing(false);
         requestAnimationFrame(() => fenceTrigger.current?.focus());
       } else if (measuring) toggleTape();
-      else setSelected(null);
+      else {
+        setSelected(null);
+        setGoto('');
+        setGotoNote('');
+        setFinderOpen(false);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -370,18 +400,35 @@ export function VillageMaps() {
   const papers = usePapers(record?.id);
   const neighbours = plot ? facts?.neighbours.get(plot.lp) ?? [] : [];
 
-  const listed = useMemo(() => {
-    const all = facts?.plots ?? [];
-    const needle = find.trim().toLowerCase();
-    const rows = !needle ? all : all.filter((p) => {
-      if (p.lp.toLowerCase().includes(needle)) return true;
-      const r = mine.get(p.lp);
-      return !!r && (r.ownerName.toLowerCase().includes(needle)
-                  || r.khataNo.toLowerCase().includes(needle)
-                  || r.title.toLowerCase().includes(needle));
-    });
-    return [...rows].sort((a, b) => naturalCompare(a.lp, b.lp));
-  }, [facts, find, mine]);
+  /** Plot-number suggestions are prefix-only. Typing `1` offers `1`, `10`,
+   *  `1234` and so on; it does not surface every number that happens to contain
+   *  a one. An exact whole survey number is ranked first, while subdivision
+   *  identity remains intact (`214` can suggest `214/2`, but never becomes it
+   *  until that full option is chosen). */
+  const plotMatches = useMemo(() => {
+    const prefix = surveyNumber(goto);
+    if (!prefix) return [];
+    return [...(facts?.plots ?? [])]
+      .filter((p) => surveyNumber(p.lp).startsWith(prefix))
+      .sort((a, b) => {
+        const aNo = surveyNumber(a.lp);
+        const bNo = surveyNumber(b.lp);
+        const exact = Number(aNo !== prefix) - Number(bNo !== prefix);
+        return exact || naturalCompare(aNo, bNo);
+      });
+  }, [facts, goto]);
+  const suggestedPlots = plotMatches.slice(0, PLOT_SUGGESTION_MAX);
+  const finderExpanded = finderOpen && goto.trim().length > 0 && suggestedPlots.length > 0;
+
+  // Active-descendant keeps keyboard focus in the input. Make its visual row
+  // follow the arrow keys too, including the seventh and eighth matches below
+  // the compact listbox's first screenful.
+  useEffect(() => {
+    if (!finderExpanded) return;
+    const i = Math.min(activePlotOption, suggestedPlots.length - 1);
+    plotOptionsBox.current?.querySelector<HTMLElement>(`#vm-plot-option-${i}`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [activePlotOption, finderExpanded, suggestedPlots.length]);
 
   /** Every village that can be drawn without being opened. This is the landing
    *  state: the question is "which village", and eight outlines on one map
@@ -398,7 +445,8 @@ export function VillageMaps() {
     setSelected(null);
     setGoto('');
     setGotoNote('');
-    setFind('');
+    setFinderOpen(false);
+    setActivePlotOption(0);
     setRmErr('');
     setOpenVillages(false);
   };
@@ -446,21 +494,55 @@ export function VillageMaps() {
     return null;
   }, [tape, plot, village]);
 
-  const flyTo = (lp: string) => {
-    const ok = canvas.current?.goTo(lp);
-    if (ok) { setSelected(lp); setOpenPlot(true); }
-    return ok;
+  const showPlot = (hit: PlotFacts, move: boolean) => {
+    if (move && !canvas.current?.goTo(hit.lp)) return false;
+    setSelected(hit.lp);
+    setOpenPlot(true);
+    setGoto(hit.lp);
+    setGotoNote(`Plot ${hit.lp} · ${hit.acres.toFixed(2)} ac`);
+    setFinderOpen(false);
+    setActivePlotOption(0);
+    setHovered(null);
+    return true;
   };
 
-  const goToPlot = () => {
+  const flyTo = (lp: string) => {
+    const hit = facts?.byLp.get(lp);
+    return hit ? showPlot(hit, true) : false;
+  };
+
+  /** Canvas polygons are pointer targets, while the finder is their keyboard
+   *  equivalent. Whichever one selects the plot updates the other, so a click
+   *  on an unfamiliar shape immediately names its survey number. */
+  const selectFromMap = (lp: string | null) => {
+    if (!lp) {
+      setSelected(null);
+      setGoto('');
+      setGotoNote('');
+      setFinderOpen(false);
+      return;
+    }
+    const hit = facts?.byLp.get(lp);
+    if (hit) showPlot(hit, false);
+  };
+
+  const goToPlot = (preferred?: PlotFacts) => {
     const wanted = goto.trim();
     if (!wanted) return;
     const number = surveyNumber(wanted);
-    const hit = facts?.byLp.get(wanted)
-      ?? (number ? facts?.plots.find((p) => surveyNumber(p.lp) === number) : undefined);
-    if (!hit) { setGotoNote(`No plot ${wanted} in this village.`); return; }
-    setGotoNote(`Plot ${hit.lp} · ${hit.acres.toFixed(2)} ac`);
-    flyTo(hit.lp);
+    if (!number) {
+      setGotoNote('Enter a survey number, for example 1234 or 1234/2.');
+      setFinderOpen(false);
+      return;
+    }
+    const exact = facts?.plots.find((p) => surveyNumber(p.lp) === number);
+    const hit = preferred ?? exact ?? plotMatches[0];
+    if (!hit) {
+      setGotoNote(`No plot starts with ${wanted} in this village.`);
+      setFinderOpen(false);
+      return;
+    }
+    showPlot(hit, true);
   };
 
   const fileNew = () => {
@@ -474,29 +556,28 @@ export function VillageMaps() {
     }, {
       onSuccess: (res) => {
         const id = (res as { web?: { saveRecord?: string } })?.web?.saveRecord;
-        if (!id) { setErr('That property could not be created.'); return; }
-        // The shape is the whole point of filing it from here, so it goes on
+        if (!id) { setErr('That plot could not be added to Properties.'); return; }
+        // The shape is the whole point of adding it from here, so it goes on
         // in the same breath rather than leaving a record with no boundary —
-        // and the map is only opened once the shape is actually on it. The
+        // and Properties opens only once that shape is actually on it. The
         // navigation used to hang off onSettled, which fires on failure too,
-        // so a refused boundary landed the owner on an empty outline with no
-        // word about it.
+        // so a refused boundary could look like a completed add.
         setBoundary.mutate({ recordId: id, ring: plot.ring.flat() }, {
           onSuccess: (r) => {
-            if (savedBoundary(r)) { setOrphan(null); nav(`/app/records/${id}/map`); return; }
+            if (savedBoundary(r)) { setOrphan(null); nav('/app/properties'); return; }
             setOrphan(id);
-            setErr(`${plot.lp} was filed as a property, but its boundary was refused. `
-                 + 'Try the boundary again, or open the record and draw the shape.');
+            setErr(`${plot.lp} was added to Properties, but its boundary was refused. `
+                 + 'Try the boundary again, or open Properties and draw the shape.');
           },
           onError: (e) => {
             setOrphan(id);
-            setErr(`${plot.lp} was filed as a property, but its boundary could not be saved`
+            setErr(`${plot.lp} was added to Properties, but its boundary could not be saved`
                  + `${e instanceof Error ? ` — ${e.message}` : ''}. `
-                 + 'Try the boundary again, or open the record and draw the shape.');
+                 + 'Try the boundary again, or open Properties and draw the shape.');
           },
         });
       },
-      onError: (e) => setErr(e instanceof Error ? e.message : 'That property could not be created.'),
+      onError: (e) => setErr(e instanceof Error ? e.message : 'That plot could not be added to Properties.'),
     });
   };
 
@@ -515,7 +596,7 @@ export function VillageMaps() {
           return;
         }
         setOrphan(null);
-        nav(`/app/records/${id}/map`);
+        nav('/app/properties');
       },
       onError: (e) => setErr(e instanceof Error ? e.message : 'That boundary could not be saved.'),
     });
@@ -553,10 +634,14 @@ export function VillageMaps() {
     const rows = records.data?.cards ?? [];
     if (!village) return [];
     const key = villageKey(village);
-    const wanted = Number(plot?.lp ?? '');
+    const leadingSurvey = (value: string) => {
+      const head = surveyNumber(value).split('/')[0];
+      const n = Number(head);
+      return Number.isFinite(n) ? n : Number.NaN;
+    };
+    const wanted = leadingSurvey(plot?.lp ?? '');
     const distance = (r: RecordCard) => {
-      const number = surveyNumber(r.title);
-      const n = number ? Number(number) : NaN;
+      const n = leadingSurvey(r.title);
       if (!Number.isFinite(n) || !Number.isFinite(wanted)) return Number.POSITIVE_INFINITY;
       return Math.abs(n - wanted);
     };
@@ -786,7 +871,7 @@ export function VillageMaps() {
                   selected={selected}
                   hovered={hovered}
                   measuring={measuring}
-                  onSelect={(lp) => { setSelected(lp); if (lp) setOpenPlot(true); }}
+                  onSelect={selectFromMap}
                   onHover={setHovered}
                   onZoom={setZoom}
                   onMeasure={setTape}
@@ -799,7 +884,10 @@ export function VillageMaps() {
                       <button key={m.key} type="button"
                               className="chip"
                               aria-pressed={mode === m.key}
-                              title={mode === m.key ? `Turn ${m.label.toLowerCase()} off` : ''}
+                              disabled={measuring}
+                              title={measuring
+                                ? 'Satellite is locked while measuring.'
+                                : mode === m.key ? `Turn ${m.label.toLowerCase()} off` : ''}
                               onClick={() => pickMode(m.key)}>
                         {m.label}
                       </button>
@@ -813,9 +901,12 @@ export function VillageMaps() {
                     </button>
                     <button type="button" className={`btn sm${measuring ? ' primary' : ''}`}
                             aria-pressed={measuring}
-                            title={measuring ? 'Put the tape away' : 'Measure on the ground'}
+                            aria-describedby={measuring ? 'vm-measure-ground' : undefined}
+                            title={measuring
+                              ? 'Put the tape away and return to the previous map.'
+                              : 'Switch to satellite imagery and measure on the ground.'}
                             onClick={toggleTape}>
-                      <StraightenOutlined sx={{ fontSize: 15 }} /> Measure
+                      <StraightenOutlined sx={{ fontSize: 15 }} /> Measure on satellite
                     </button>
                   </span>
                   {tileNotice}
@@ -833,8 +924,8 @@ export function VillageMaps() {
                   )}
                   {measuring && (
                     <div className="vc-legend vc-measure">
-                      <span className="eyebrow">Measure</span>
-                      <span className="note">
+                      <span className="eyebrow">Measure · Satellite locked</span>
+                      <span id="vm-measure-ground" className="note">
                         {tape && tape.points > 1
                           ? `${tape.points >= 3 ? 'Perimeter' : 'Distance'} ${num(tape.metres, 1)} m · ${tape.points} points`
                           : 'Tap each corner. Three points enclose an area.'}
@@ -858,21 +949,87 @@ export function VillageMaps() {
                 </span>
 
                 <div className="vc-tr">
-                  <label className="eyebrow" htmlFor="vm-goto">Go to plot no.</label>
+                  <label className="eyebrow" htmlFor="vm-goto">Find survey / plot no.</label>
                   <span className="row tight">
-                    <input id="vm-goto" value={goto}
-                           placeholder="Enter plot no. to fly there"
-                           onChange={(e) => { setGoto(e.target.value); setGotoNote(''); }}
-                           onKeyDown={(e) => { if (e.key === 'Enter') goToPlot(); }} />
-                    <button type="button" className="btn sm primary" aria-label="Go to plot"
-                            onClick={goToPlot}>
+                    <input
+                      id="vm-goto"
+                      value={goto}
+                      role="combobox"
+                      aria-label="Find survey or plot number"
+                      aria-autocomplete="list"
+                      aria-controls="vm-plot-options"
+                      aria-expanded={finderExpanded}
+                      aria-activedescendant={finderExpanded
+                        ? `vm-plot-option-${Math.min(activePlotOption, suggestedPlots.length - 1)}`
+                        : undefined}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="Start typing, e.g. 1234"
+                      onFocus={() => setFinderOpen(true)}
+                      onBlur={() => { setFinderOpen(false); setHovered(null); }}
+                      onChange={(e) => {
+                        setGoto(e.target.value);
+                        setGotoNote('');
+                        setFinderOpen(true);
+                        setActivePlotOption(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown' && suggestedPlots.length) {
+                          e.preventDefault();
+                          setFinderOpen(true);
+                          setActivePlotOption((i) => Math.min(i + 1, suggestedPlots.length - 1));
+                        } else if (e.key === 'ArrowUp' && suggestedPlots.length) {
+                          e.preventDefault();
+                          setFinderOpen(true);
+                          setActivePlotOption((i) => Math.max(i - 1, 0));
+                        } else if (e.key === 'Enter') {
+                          e.preventDefault();
+                          goToPlot(suggestedPlots[Math.min(activePlotOption, suggestedPlots.length - 1)]);
+                        } else if (e.key === 'Escape') {
+                          e.stopPropagation();
+                          setFinderOpen(false);
+                          setHovered(null);
+                        }
+                      }}
+                    />
+                    <button type="button" className="btn sm primary" aria-label="Find plot"
+                            onClick={() => goToPlot()}>
                       <ArrowForwardOutlined sx={{ fontSize: 15 }} />
                     </button>
                   </span>
-                  {/* The placeholder now says what the box is for, so this
-                      line is only ever the answer: the plot found, or that the
-                      village has no such number. */}
-                  {gotoNote && <span className="note">{gotoNote}</span>}
+                  <span className="note" role="status" aria-live="polite">
+                    {gotoNote || (!goto.trim()
+                      ? 'Type the first digits to see matching plots.'
+                      : !surveyNumber(goto)
+                        ? 'Use a number such as 1234 or 1234/2.'
+                        : plotMatches.length
+                          ? `${plural(plotMatches.length, 'matching plot')}`
+                            + (plotMatches.length > PLOT_SUGGESTION_MAX
+                              ? ` · first ${PLOT_SUGGESTION_MAX} shown` : '')
+                          : `No plot starts with ${goto.trim()} in this village.`)}
+                  </span>
+                  {finderExpanded && (
+                    <div ref={plotOptionsBox} id="vm-plot-options" className="vc-plot-options"
+                         role="listbox" aria-label="Matching plots">
+                      {suggestedPlots.map((p, i) => (
+                        <button
+                          key={p.lp}
+                          id={`vm-plot-option-${i}`}
+                          type="button"
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={i === activePlotOption}
+                          className="vc-plot-option"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onMouseEnter={() => { setActivePlotOption(i); setHovered(p.lp); }}
+                          onMouseLeave={() => setHovered(null)}
+                          onClick={() => showPlot(p, true)}>
+                          <span>Plot <strong>{p.lp}</strong></span>
+                          <span className="note num">{p.acres.toFixed(2)} ac</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             ) : villageErr ? (
@@ -1122,14 +1279,21 @@ export function VillageMaps() {
                             )
                             : papers.data?.length
                               ? (
-                                <div className="rows">
-                                  {papers.data.slice(0, 6).map((p) => (
-                                    <span key={p.id} className="row between">
-                                      <span className="grow">{p.title}</span>
-                                      <span className="note">{p.pageCount || 0} pp</span>
-                                    </span>
-                                  ))}
-                                </div>
+                                <>
+                                  {papers.data.length > PAPER_MAX && (
+                                    <p className="note" style={{ margin: 'var(--space-2xs) 0 var(--space-xs)' }}>
+                                      first {PAPER_MAX} of {num(papers.data.length)}
+                                    </p>
+                                  )}
+                                  <div className="rows">
+                                    {papers.data.slice(0, PAPER_MAX).map((p) => (
+                                      <span key={p.id} className="row between">
+                                        <span className="grow">{p.title}</span>
+                                        <span className="note">{p.pageCount || 0} pp</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </>
                               )
                               : <p className="note">Nothing filed against {record.title} yet.</p>}
                       </>
@@ -1159,7 +1323,27 @@ export function VillageMaps() {
                   </button>
                 )}
 
-                <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
+                {!record && (
+                  <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
+                    Adds Sy {plot.lp} and this mapped boundary to Properties.
+                  </p>
+                )}
+                <div className="row tight" style={{ marginTop: 'var(--space-xs)' }}>
+                  {record ? (
+                    <button type="button" className="btn sm primary"
+                            onClick={() => nav(`/app/records/${record.id}/map`)}>
+                      Open {record.title}
+                    </button>
+                  ) : (
+                    // Adding waits for the records to answer. On unknown data
+                    // this button cannot tell a new plot from one the account
+                    // already holds, and the wrong guess is a duplicate record.
+                    <button type="button" className="btn sm primary"
+                            disabled={!answered || saveRecord.isPending || setBoundary.isPending}
+                            onClick={fileNew}>
+                      {saveRecord.isPending ? 'Adding…' : 'Add to Properties'}
+                    </button>
+                  )}
                   {/* Fencing is a job you do to a shape, so it opens over the
                       map rather than into this column — see FenceStudio. */}
                   <button ref={fenceTrigger} type="button" className="btn sm"
@@ -1167,21 +1351,6 @@ export function VillageMaps() {
                           onClick={() => setFencing(true)}>
                     <StraightenOutlined sx={{ fontSize: 15 }} /> Fence calculator
                   </button>
-                  {record ? (
-                    <button type="button" className="btn sm primary"
-                            onClick={() => nav(`/app/records/${record.id}/map`)}>
-                      Open {record.title}
-                    </button>
-                  ) : (
-                    // Filing waits for the records to answer. On unknown data
-                    // this button cannot tell a new plot from one the account
-                    // already holds, and the wrong guess is a duplicate record.
-                    <button type="button" className="btn sm primary"
-                            disabled={!answered || saveRecord.isPending || setBoundary.isPending}
-                            onClick={fileNew}>
-                      {saveRecord.isPending ? 'Filing…' : 'File this as a new property'}
-                    </button>
-                  )}
                 </div>
 
                 {/* Why filing is off, and why nothing is offered below it: the
@@ -1194,11 +1363,11 @@ export function VillageMaps() {
                     ...(recordsFailed ? { color: 'var(--w-danger)' } : {}),
                   }}>
                     {recordsFailed
-                      ? 'Your records could not be loaded, so filing is off and no record '
+                      ? 'Your records could not be loaded, so adding is off and no record '
                         + 'can be offered this plot — either would risk a second copy of '
                         + 'land you already hold.'
-                      : 'Your records have not answered yet. Filing waits for them, so this '
-                        + 'plot cannot be filed twice.'}
+                      : 'Your records have not answered yet. Adding waits for them, so this '
+                        + 'plot cannot be added twice.'}
                     {recordsFailed && (
                       <>
                         {' '}
@@ -1215,9 +1384,8 @@ export function VillageMaps() {
                   <>
                     <hr className="hr" style={{ margin: 'var(--space-md) 0 var(--space-sm)' }} />
                     <span className="eyebrow">Or give it to a record in this village</span>
-                    {/* Counted the way the All plots card counts, because a
-                        list that stops at eight with no total simply put the
-                        other seven out of reach. */}
+                    {/* Count what is cut: a list that stops at forty with no
+                        total simply puts the other records out of reach. */}
                     <p className="note" style={{ margin: 'var(--space-2xs) 0 var(--space-xs)' }}>
                       {adoptable.length > ADOPT_MAX
                         ? `first ${ADOPT_MAX} of ${num(adoptable.length)}`
@@ -1244,58 +1412,6 @@ export function VillageMaps() {
                     )}
                   </>
                 )}
-              </Card>
-            )}
-
-            {facts && (
-              <Card title="All plots">
-                <span className="search" style={{ width: '100%' }}>
-                  <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
-                  <input value={find} onChange={(e) => setFind(e.target.value)}
-                         placeholder="Plot no., owner or passbook…"
-                         aria-label="Find a plot" />
-                </span>
-                <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
-                  {listed.length > 140
-                    ? `first 140 of ${num(listed.length)}`
-                    : `${num(listed.length)} plots`}
-                </p>
-                {/* The owner column and the owner half of this search both come
-                    from the account's records. Until those answer, an empty
-                    column reads as "none of these are yours" and a search for
-                    an owner's name answers "No plot matches that" — both of
-                    which are statements this screen cannot yet make. */}
-                {!answered && (
-                  <p className="note"
-                     style={recordsFailed ? { color: 'var(--w-danger)' } : undefined}>
-                    {recordsFailed
-                      ? 'Owner and passbook could not be read from your records, so this '
-                        + 'list is plot numbers only.'
-                      : 'Owner and passbook are still coming from your records, so this '
-                        + 'list searches plot numbers until they do.'}
-                  </p>
-                )}
-                <div className="rows vm-list">
-                  {listed.slice(0, 140).map((p) => {
-                    const r = mine.get(p.lp);
-                    return (
-                      <button key={p.lp} type="button" className="villagerow"
-                              aria-pressed={selected === p.lp}
-                              onMouseEnter={() => setHovered(p.lp)}
-                              onMouseLeave={() => setHovered(null)}
-                              onClick={() => flyTo(p.lp)}>
-                        <span className="num" style={{ minWidth: '3.25rem' }}>{p.lp}</span>
-                        <span className="grow note">
-                          {answered
-                            ? (r ? r.ownerName || r.title : '')
-                            : (recordsFailed ? '' : '…')}
-                        </span>
-                        <span className="note num">{p.acres.toFixed(2)} ac</span>
-                      </button>
-                    );
-                  })}
-                  {listed.length === 0 && <p className="note">No plot matches that.</p>}
-                </div>
               </Card>
             )}
 

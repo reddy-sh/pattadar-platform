@@ -93,6 +93,12 @@ export interface GroupRow {
   parcelCount: number;
   /** Flats, shops and plots assigned to this group directly. */
   propertyCount: number;
+  headName: string;
+  lastActiveAt: string;
+  inactivityStage: string;
+  inactivityNextAt: string;
+  inactivityLastOutcome: string;
+  inactiveContactGaps: number;
 }
 
 /** Everything the group holds, however it is held. This is the number the
@@ -188,10 +194,20 @@ export function useNotifiers(groupId: string | undefined, enabled: boolean) {
     queryFn: async () => {
       const d = await gql<{
         notifiers: NotifierRow[];
-        members: { id: string; name: string; relation: string; role: string; isSelf: boolean }[];
+        members: {
+          id: string;
+          name: string;
+          relation: string;
+          role: string;
+          isSelf: boolean;
+          email: string;
+          emailVerified: boolean;
+          inactivityEmailConsent: boolean;
+          isMinor: boolean;
+        }[];
       }>(
-        `query($g:String!){ notifiers(groupId:$g){ memberId name relation priority }
-           members(groupId:$g){ id name relation role isSelf } }`,
+        `query($g:String!){ notifiers(groupId:$g){ memberId name relation contact priority channel eligible }
+           members(groupId:$g){ id name relation role isSelf email emailVerified inactivityEmailConsent isMinor } }`,
         { g: groupId },
       );
       return { notifiers: d.notifiers ?? [], members: d.members ?? [] };

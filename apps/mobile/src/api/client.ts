@@ -152,8 +152,15 @@ function requireFields(fields: Record<string, unknown> | undefined, what: string
   return f;
 }
 
+type ParsedBody = {
+  fields?: Record<string, unknown>;
+  error?: string;
+  job?: string;
+  state?: string;
+};
+
 /** The native upload returns a body string; a non-JSON body is a fault too. */
-function parseJson(body: string): { fields?: Record<string, unknown>; error?: string } {
+function parseJson(body: string): ParsedBody {
   try {
     return JSON.parse(body || '{}');
   } catch {
@@ -189,8 +196,9 @@ async function uploadDocument(
   label: string,
   timeoutMs: number,
   onProgress?: (p: UploadProgress) => void,
+  extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: string }> {
-  const headers = await apiHeaders();
+  const headers = { ...(await apiHeaders()), ...extraHeaders };
   const base = await apiBase();
   const url = `${base}${path}`;
   const host = (() => {
@@ -232,6 +240,116 @@ async function uploadDocument(
   } finally {
     clearTimeout(timer);
   }
+}
+
+const DURABLE_AADHAAR_RECEIPT = 'pattadar_pending_aadhaar_read';
+
+type DurableReadReceipt = {
+  path: string;
+  baseUrl: string;
+  requestKey: string;
+  job?: string;
+  createdAt: number;
+};
+
+async function loadReadReceipt(path: string, baseUrl: string): Promise<DurableReadReceipt | null> {
+  const raw = await SecureStore.getItemAsync(DURABLE_AADHAAR_RECEIPT).catch(() => null);
+  if (!raw) return null;
+  try {
+    const receipt = JSON.parse(raw) as DurableReadReceipt;
+    if (
+      receipt.path === path
+      && receipt.baseUrl === baseUrl
+      && typeof receipt.requestKey === 'string'
+      && Date.now() - receipt.createdAt < 24 * 60 * 60_000
+    ) return receipt;
+  } catch {
+    // Corrupt local receipt has no sensitive payload and cannot be resumed.
+  }
+  await SecureStore.deleteItemAsync(DURABLE_AADHAAR_RECEIPT).catch(() => undefined);
+  return null;
+}
+
+async function saveReadReceipt(receipt: DurableReadReceipt): Promise<void> {
+  await SecureStore.setItemAsync(DURABLE_AADHAAR_RECEIPT, JSON.stringify(receipt));
+}
+
+async function clearReadReceipt(): Promise<void> {
+  await SecureStore.deleteItemAsync(DURABLE_AADHAAR_RECEIPT).catch(() => undefined);
+}
+
+async function pollDocumentRead(receipt: DurableReadReceipt, label: string): Promise<Record<string, unknown>> {
+  if (!receipt.job) throw new Error(`${label} has no server receipt.`);
+  const deadline = Date.now() + 15 * 60_000;
+  const statusUrl = `${receipt.baseUrl}/import-status/${encodeURIComponent(receipt.job)}`;
+  let failures = 0;
+  while (Date.now() < deadline) {
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(
+        statusUrl,
+        { headers: await apiHeaders() },
+        30_000,
+        `${label} status`,
+      );
+      failures = 0;
+    } catch {
+      failures += 1;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, failures * 1_000)));
+      continue; // Status GET is idempotent; never repeat the paid POST here.
+    }
+    const body = parseJson(await response.text());
+    if (!response.ok || body.error) {
+      await clearReadReceipt();
+      throw new Error(body.error || `${label} failed (HTTP ${response.status})`);
+    }
+    if (body.state === 'running') {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
+    await clearReadReceipt();
+    if (body.state !== 'done') throw new Error(`${label} ended without a usable result.`);
+    return requireFields(body.fields, 'Aadhaar');
+  }
+  throw new Error(`${label} is still running. Open the scan again to resume it; do not send the card again.`);
+}
+
+async function readDocumentAsync(
+  path: string,
+  uri: string,
+  name: string,
+  mimeType: string,
+  label: string,
+): Promise<Record<string, unknown>> {
+  const baseUrl = await apiBase();
+  let receipt = await loadReadReceipt(path, baseUrl);
+  if (receipt?.job) return pollDocumentRead(receipt, label);
+
+  receipt = receipt ?? {
+    path,
+    baseUrl,
+    requestKey: `mobile-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    createdAt: Date.now(),
+  };
+  await saveReadReceipt(receipt); // preserves the key across an ambiguous POST response
+  const submitted = await uploadDocument(
+    `${path}-async`,
+    uri,
+    name,
+    mimeType,
+    label,
+    120_000,
+    undefined,
+    { 'Idempotency-Key': receipt.requestKey },
+  );
+  const body = parseJson(submitted.body);
+  if (submitted.status >= 400 || body.error || !body.job) {
+    await clearReadReceipt();
+    throw new Error(body.error || `${label} could not be queued (HTTP ${submitted.status})`);
+  }
+  receipt = { ...receipt, job: body.job };
+  await saveReadReceipt(receipt);
+  return pollDocumentRead(receipt, label);
 }
 
 /**
@@ -312,10 +430,7 @@ export async function extractAadhaar(
   name: string,
   mimeType: string,
 ): Promise<Record<string, unknown>> {
-  const res = await uploadDocument('/extract-aadhaar', uri, name, mimeType, 'Reading the Aadhaar', 120_000);
-  const body = parseJson(res.body);
-  if (res.status >= 400 || body.error) throw new Error(body.error || `Could not read the Aadhaar (HTTP ${res.status})`);
-  return requireFields(body.fields, 'Aadhaar');
+  return readDocumentAsync('/extract-aadhaar', uri, name, mimeType, 'Reading the Aadhaar');
 }
 
 /**

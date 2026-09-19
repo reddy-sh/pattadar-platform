@@ -40,6 +40,7 @@ import { isAuthMocked, useAuth } from '../../auth/AuthProvider';
 import '../../styles/site.css';
 import { AssistantConversation } from './AssistantConversation';
 import { HeroStory } from './HeroStory';
+import { MarketingNav } from './MarketingNav';
 import { PlatformJourney } from './PlatformJourney';
 import {
   AI,
@@ -50,7 +51,6 @@ import {
   FOOTER,
   HERO,
   HOW,
-  NAV_CTA,
   NAV_LINKS,
   PILLARS,
   PRODUCT_FRAME,
@@ -59,7 +59,6 @@ import {
   STORY,
   TRUST_ITEMS,
   WALLET,
-  WORDMARK,
 } from './landingContent';
 
 /* Icons stay page-side, keyed by the content module's names — the content
@@ -171,24 +170,12 @@ export function LandingPage() {
       </div>
 
       {/* ── nav · N10 scroll-morph ─────────────────────────────────── */}
-      <header className="nav" data-state={scrolled ? 'scrolled' : 'rest'}>
-        <div className="nav__inner">
-          <span className="nav__brand">
-            {WORDMARK.name}
-            <span className="nav__brand-dot">{WORDMARK.dot}</span>
-          </span>
-          <nav className="nav__links" aria-label="Primary">
-            {NAV_LINKS.map(([label, id]) => (
-              <button key={id} type="button" onClick={() => scrollToId(id)}>
-                {label}
-              </button>
-            ))}
-          </nav>
-          <button type="button" className="nav__cta" onClick={startSignIn}>
-            {NAV_CTA}
-          </button>
-        </div>
-      </header>
+      <MarketingNav
+        sectionLinks={NAV_LINKS}
+        scrolled={scrolled}
+        onSection={scrollToId}
+        onSignIn={startSignIn}
+      />
 
       <main>
         {/* ── hero · Marquee ─────────────────────────────────────────── */}

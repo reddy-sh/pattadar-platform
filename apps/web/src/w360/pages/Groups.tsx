@@ -44,7 +44,6 @@ import EmailOutlined from '@mui/icons-material/EmailOutlined';
 import GavelOutlined from '@mui/icons-material/GavelOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
-import NotificationsActiveOutlined from '@mui/icons-material/NotificationsActiveOutlined';
 import PersonAddAltOutlined from '@mui/icons-material/PersonAddAltOutlined';
 import SmsOutlined from '@mui/icons-material/SmsOutlined';
 import WhatsApp from '@mui/icons-material/WhatsApp';
@@ -83,7 +82,7 @@ import {
 } from '../groupsData';
 import type { GroupRow } from '../groupsData';
 import {
-  Card, Chip, Empty, Failed, Icon, Loading, Menu, PageHead, State, num, plural, statusWord,
+  Card, Chip, Empty, Failed, Icon, Loading, Menu, PageHead, State, ddmmyyyy, num, plural, statusWord,
 } from '../ui';
 
 /**
@@ -360,6 +359,19 @@ export function Groups() {
 
 // ── Detail panel ───────────────────────────────────────────────────────
 
+const SAFEGUARD_STAGE: Record<string, string> = {
+  active: 'Active',
+  reminder_1: 'First reminder sent',
+  reminder_2: 'Second reminder sent',
+  final_reminder: 'Final reminder sent',
+  family_selected: 'Notifying selected family',
+  family_all: 'Family email complete',
+  family_exhausted: 'Notifier order complete',
+  delivery_attention: 'Delivery needs review',
+  closed_head: 'Confirmed by the head',
+  closed_family: 'Acknowledged by family',
+};
+
 type TabId = 'members' | 'holdings' | 'activity';
 
 function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => void }) {
@@ -385,16 +397,6 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
       icon: <EditOutlined sx={{ fontSize: 16 }} />,
       onClick: () => setEditing(true),
     },
-    // Only family groups run the inactivity safeguard, so only they have an
-    // escalation order to configure. Offering it on a company would open a
-    // dialog that writes to something nothing reads.
-    ...(def.hasTree
-      ? [{
-        label: 'Configure notifiers',
-        icon: <NotificationsActiveOutlined sx={{ fontSize: 16 }} />,
-        onClick: () => setNotifiers(true),
-      }]
-      : []),
     {
       label: 'Delete this group',
       icon: <DeleteOutlineOutlined sx={{ fontSize: 16 }} />,
@@ -415,9 +417,10 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
           <div style={{ minWidth: 0 }}>
             <h2 style={{ margin: 0 }}>{group.name}</h2>
             <p className="note" style={{ margin: '0.125rem 0 0' }}>
-              {def.label} · Your role: {group.myRole || def.primaryRole} ·{' '}
+              {def.label} · Head: {group.headName || 'You'} · Your role: {group.myRole || def.primaryRole} ·{' '}
               {peopleWord(group.memberCount)} · {holdingWord(group)}
               {group.totalExtent > 0 ? ` · ${formatArea(group.totalExtent)}` : ''}
+              {def.hasTree && group.lastActiveAt ? ` · Last active ${ddmmyyyy(group.lastActiveAt)}` : ''}
             </p>
             {group.description && (
               <p className="note" style={{ margin: '0.375rem 0 0', maxWidth: '44rem' }}>
@@ -448,12 +451,34 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
           className="card accent"
           style={{ marginBottom: 'var(--space-md)', display: 'grid', gap: 'var(--space-sm)' }}
         >
-          <strong style={{ fontSize: '0.875rem' }}>Inactivity safeguard</strong>
+          <div className="row tight" style={{ flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: '0.875rem' }}>Inactivity safeguard</strong>
+            <Chip tone={group.inactivityStage === 'active' ? undefined : 'alert'}>
+              {SAFEGUARD_STAGE[group.inactivityStage] || 'Monitoring'}
+            </Chip>
+          </div>
           <p className="note" style={{ margin: 0, maxWidth: '46rem' }}>
-            If the head of household is inactive for six months, every family member is told
-            automatically. Set an ordered notifier list instead and Priority 1 is alerted
-            first, then Priority 2 if there is no answer, and so on.
+            After six months without activity, the head is reminded on days 1, 7 and 15.
+            If the final reminder is unanswered, verified family emails are contacted together,
+            or one at a time when you set an order. Alerts never transfer account or property control.
           </p>
+          {group.inactivityNextAt && (
+            <p className="note" style={{ margin: 0 }}>
+              Next check: {ddmmyyyy(group.inactivityNextAt)}
+              {group.inactivityLastOutcome ? ` · Last outcome: ${group.inactivityLastOutcome.replaceAll('_', ' ')}` : ''}
+            </p>
+          )}
+          {group.inactivityStage === 'delivery_attention' && (
+            <p className="note accent" style={{ margin: 0 }}>
+              A provider outcome could not be confirmed. Pattadar will not resend automatically;
+              contact support before any new attempt.
+            </p>
+          )}
+          {group.inactiveContactGaps > 0 && (
+            <p className="note accent" style={{ margin: 0 }}>
+              {plural(group.inactiveContactGaps, 'member needs', 'members need')} a verified email before everyone can be contacted.
+            </p>
+          )}
           <button
             type="button"
             className="btn sm"
@@ -946,18 +971,11 @@ function HoldingsTab({ group }: { group: GroupRow }) {
               acres > 0 ? formatArea(acres) : '',
             ].filter(Boolean).join(' · ')}
         </p>
-        <div className="row tight">
+        {held.length > 0 && (
           <button type="button" className="btn" onClick={() => setAdding(true)}>
             <AddOutlined sx={{ fontSize: 16 }} /> Add a holding
           </button>
-          {/* The whole point of the group facet: the real screen, already
-              filtered, rather than a second list living in here. */}
-          {held.length > 0 && (
-            <Link className="btn primary" to={`/app/properties?group=${group.id}`}>
-              Open in Properties
-            </Link>
-          )}
-        </div>
+        )}
       </div>
 
       {held.length === 0 ? (
@@ -1375,36 +1393,31 @@ function DeleteGroupDialog({
 
 // ── Notifier priority ──────────────────────────────────────────────────
 
-/**
- * The escalation order for the inactivity safeguard.
- *
- * An empty list is a real, meaningful setting — everybody is told at once —
- * so "Reset to everyone" is a separate action from Save rather than something
- * you achieve by emptying the list and guessing.
- */
 function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => void }) {
   const q = useNotifiers(group.id, true);
   const save = useSetNotifiers();
   const toast = useToast();
 
-  const [order, setOrder] = useState<{ id: string; name: string; relation: string }[] | null>(null);
-
-  // The server's answer is the starting point exactly once; after that the
-  // list is whatever the person has dragged it into. Deriving it on every
-  // render would undo each edit as the query settled.
+  type Pick = { id: string; name: string; relation: string; email: string };
+  const [order, setOrder] = useState<Pick[] | null>(null);
+  const [mode, setMode] = useState<'all' | 'selected' | null>(null);
   const loaded = q.data;
+  const configured = loaded?.notifiers.some((n) => n.priority > 0) ?? false;
+  const currentMode = mode ?? (configured ? 'selected' : 'all');
   const current = useMemo(() => {
     if (order) return order;
-    if (!loaded) return [];
-    const configured = loaded.notifiers.some((n) => n.priority > 0);
-    return configured
-      ? loaded.notifiers.map((n) => ({ id: n.memberId, name: n.name, relation: n.relation }))
-      : [];
-  }, [loaded, order]);
+    if (!loaded || !configured) return [];
+    return loaded.notifiers
+      .filter((n) => n.eligible)
+      .map((n) => ({ id: n.memberId, name: n.name, relation: n.relation, email: n.contact }));
+  }, [configured, loaded, order]);
 
   const eligible = (loaded?.members ?? [])
-    .filter((m) => !m.isSelf)
-    .map((m) => ({ id: m.id, name: m.name, relation: m.relation || m.role }));
+    .filter((m) => !m.isSelf && !m.isMinor && m.emailVerified && m.inactivityEmailConsent && !!m.email)
+    .map((m) => ({ id: m.id, name: m.name, relation: m.relation || m.role, email: m.email }));
+  const unready = (loaded?.members ?? [])
+    .filter((m) => !m.isSelf && !m.isMinor
+      && (!m.emailVerified || !m.inactivityEmailConsent || !m.email));
   const outside = eligible.filter((m) => !current.some((o) => o.id === m.id));
 
   const move = (at: number, by: number) => {
@@ -1415,10 +1428,11 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
     setOrder(next);
   };
 
-  const persist = async (ids: string[], word: string) => {
+  const persist = async () => {
+    const ids = currentMode === 'all' ? [] : current.map((o) => o.id);
     try {
       await save.mutateAsync({ groupId: group.id, memberIds: ids });
-      toast.ok(word);
+      toast.ok(currentMode === 'all' ? 'All verified family emails will be contacted together' : 'Notifier order saved');
       onClose();
     } catch {
       /* the write raised it */
@@ -1427,123 +1441,146 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
 
   return (
     <Dialog
-      title="Notifier priority"
+      title="Family notification settings"
       onClose={onClose}
       busy={save.isPending}
       wide
       footer={
         <>
-          <button
-            type="button"
-            className="btn"
-            disabled={save.isPending || q.isPending}
-            onClick={() => void persist([], 'Everyone will be told at once')}
-          >
-            Reset to everyone
-          </button>
           <button type="button" className="btn" disabled={save.isPending} onClick={onClose}>
             Cancel
           </button>
           <button
             type="button"
             className="btn primary"
-            disabled={save.isPending || q.isPending}
-            onClick={() => void persist(current.map((o) => o.id), 'Notifier order saved')}
+            disabled={save.isPending || !loaded || q.isError || (currentMode === 'selected' && current.length === 0)}
+            onClick={() => void persist()}
           >
-            {save.isPending ? 'Saving…' : 'Save this order'}
+            {save.isPending ? 'Saving…' : 'Save notification settings'}
           </button>
         </>
       }
     >
-      <p className="note" style={{ marginTop: 0, maxWidth: '38rem' }}>
-        Priority 1 is alerted first. If there is no answer within a week, Priority 2 is told,
-        then 3, and so on. An empty list means everyone is told at the same time.
+      <p className="note" style={{ marginTop: 0, maxWidth: '40rem' }}>
+        These contacts are used only after the head misses the first, second and final activity reminders.
+        A family acknowledgement stops later contacts but never transfers account or property control.
       </p>
 
-      {q.isPending && <Loading h="8rem" what="the current order" />}
+      {q.isPending && <Loading h="8rem" what="the current notification settings" />}
       {q.isError && (
-        <Failed what="The notifier list" error={q.error} onRetry={() => q.refetch()} h="8rem" />
+        <Failed what="The notification settings" error={q.error} onRetry={() => q.refetch()} h="8rem" />
       )}
 
       {loaded && (
         <>
-          {current.length === 0 ? (
+          <fieldset className="field" style={{ maxWidth: '40rem' }}>
+            <legend>Who should be contacted?</legend>
+            <label className="row tight">
+              <input
+                type="radio"
+                name="notifier-mode"
+                checked={currentMode === 'all'}
+                onChange={() => setMode('all')}
+              />
+              Email all family members with a verified email together
+            </label>
+            <label className="row tight">
+              <input
+                type="radio"
+                name="notifier-mode"
+                checked={currentMode === 'selected'}
+                onChange={() => setMode('selected')}
+              />
+              Email selected family members in order
+            </label>
+          </fieldset>
+
+          {unready.length > 0 && (
+            <p className="note accent" style={{ margin: 'var(--space-md) 0' }}>
+              {plural(unready.length, 'member is', 'members are')} excluded until their email is verified and they consent to safeguard email.
+            </p>
+          )}
+
+          {currentMode === 'all' ? (
             <p className="note" style={{ margin: 'var(--space-md) 0' }}>
-              No order is set, so every member is told at once. Add someone below to stagger it.
+              {eligible.length === 0
+                ? 'No family member has a verified email yet.'
+                : `${plural(eligible.length, 'verified family email')} will be contacted together.`}
             </p>
           ) : (
-            <div className="rows boxed" style={{ margin: 'var(--space-md) 0' }}>
-              {current.map((m, i) => (
-                <div key={m.id}>
-                  <span className="avatarlg" style={{ width: '1.75rem', height: '1.75rem', fontSize: '0.6875rem' }}>
-                    {i + 1}
-                  </span>
-                  <span className="grow">
-                    <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>
-                      {m.name}
-                    </span>
-                    {m.relation && (
-                      <span className="note" style={{ display: 'block' }}>{relMeta(m.relation).label}</span>
-                    )}
-                  </span>
-                  <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                    <button
-                      type="button"
-                      className="iconbtn"
-                      aria-label={`Move ${m.name} up`}
-                      disabled={i === 0}
-                      onClick={() => move(i, -1)}
-                    >
-                      <ArrowUpwardOutlined sx={{ fontSize: 16 }} />
-                    </button>
-                    <button
-                      type="button"
-                      className="iconbtn"
-                      aria-label={`Move ${m.name} down`}
-                      disabled={i === current.length - 1}
-                      onClick={() => move(i, 1)}
-                    >
-                      <ArrowDownwardOutlined sx={{ fontSize: 16 }} />
-                    </button>
-                    <button
-                      type="button"
-                      className="btn sm"
-                      onClick={() => setOrder(current.filter((_x, x) => x !== i))}
-                    >
-                      Take out
-                    </button>
-                  </span>
+            <>
+              {current.length === 0 ? (
+                <p className="note" style={{ margin: 'var(--space-md) 0' }}>
+                  Add at least one verified family email to create an order.
+                </p>
+              ) : (
+                <div className="rows boxed" style={{ margin: 'var(--space-md) 0' }}>
+                  {current.map((m, i) => (
+                    <div key={m.id}>
+                      <span className="avatarlg" style={{ width: '1.75rem', height: '1.75rem', fontSize: '0.6875rem' }}>
+                        {i + 1}
+                      </span>
+                      <span className="grow">
+                        <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>{m.name}</span>
+                        <span className="note" style={{ display: 'block' }}>
+                          {[m.relation ? relMeta(m.relation).label : '', m.email].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                      <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+                        <button
+                          type="button"
+                          className="iconbtn"
+                          style={{ minWidth: '2.75rem', minHeight: '2.75rem' }}
+                          aria-label={`Move ${m.name} up`}
+                          disabled={i === 0}
+                          onClick={() => move(i, -1)}
+                        >
+                          <ArrowUpwardOutlined sx={{ fontSize: 16 }} />
+                        </button>
+                        <button
+                          type="button"
+                          className="iconbtn"
+                          style={{ minWidth: '2.75rem', minHeight: '2.75rem' }}
+                          aria-label={`Move ${m.name} down`}
+                          disabled={i === current.length - 1}
+                          onClick={() => move(i, 1)}
+                        >
+                          <ArrowDownwardOutlined sx={{ fontSize: 16 }} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() => setOrder(current.filter((_x, x) => x !== i))}
+                        >
+                          Take out
+                        </button>
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
 
-          {outside.length > 0 && (
-            <div className="field" style={{ maxWidth: '26rem' }}>
-              <label htmlFor="notif-add">Add someone to the order</label>
-              <select
-                id="notif-add"
-                value=""
-                onChange={(e) => {
-                  const m = eligible.find((x) => x.id === e.target.value);
-                  if (m) setOrder([...current, m]);
-                }}
-              >
-                <option value="">Choose a member…</option>
-                {outside.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.relation ? `${m.name} — ${relMeta(m.relation).label}` : m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {eligible.length === 0 && (
-            <p className="note">
-              There is nobody else in this group yet, so there is no order to set. Add members
-              first.
-            </p>
+              {outside.length > 0 && (
+                <div className="field" style={{ maxWidth: '28rem' }}>
+                  <label htmlFor="notif-add">Add a verified family email</label>
+                  <select
+                    id="notif-add"
+                    value=""
+                    onChange={(e) => {
+                      const member = eligible.find((x) => x.id === e.target.value);
+                      if (member) setOrder([...current, member]);
+                    }}
+                  >
+                    <option value="">Choose a member…</option>
+                    {outside.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.relation ? `${member.name} — ${relMeta(member.relation).label}` : member.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

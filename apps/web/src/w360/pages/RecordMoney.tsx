@@ -13,7 +13,7 @@ import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 
 import { useMoney, useSavePurchase } from '../api';
-import { Card, Empty, Failed, Loading, csvCell, inr, num } from '../ui';
+import { Card, Empty, Failed, Loading, csvCell, ddmmyyyy, inr, num } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { useRecordCtx } from './Record';
@@ -450,7 +450,7 @@ export function RecordMoney() {
                 <tbody>
                   {data.lots.map((l) => (
                     <tr key={l.id}>
-                      <td className="num">{l.boughtOn}</td>
+                      <td className="num">{ddmmyyyy(l.boughtOn)}</td>
                       <td className="right num">
                         {num(l.extent, l.extentUnit === 'ac' ? 2 : 0)} {l.extentUnit}
                       </td>

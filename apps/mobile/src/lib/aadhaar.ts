@@ -35,18 +35,20 @@ export interface AadhaarFields {
   name?: string;
   dob?: string;
   gender?: string;
-  aadhaar?: string;
+  aadhaarMasked?: string;
+  aadhaarCandidateId?: string;
   address?: string;
   confidence?: string;
 }
 
-/** What the scan produced, in the form the member form consumes. Fields the
- * model couldn't read stay empty so they never overwrite typed input. */
+/** What the scan produced. The API returns only a mask and an opaque,
+ * owner-scoped candidate id; full extracted digits never enter app state. */
 export function aadhaarPrefill(f: AadhaarFields): {
   name: string;
   dob: string;
   gender: string;
-  aadhaar: string;
+  aadhaarMasked: string;
+  aadhaarCandidateId: string;
   address: string;
   lowConfidence: boolean;
   readAnything: boolean;
@@ -55,16 +57,20 @@ export function aadhaarPrefill(f: AadhaarFields): {
   const dob = /^\d{4}-\d{2}-\d{2}$/.test(String(f.dob ?? '').trim()) ? String(f.dob).trim() : '';
   const genderRaw = String(f.gender ?? '').trim().toLowerCase();
   const gender = ['male', 'female', 'other'].includes(genderRaw) ? genderRaw : '';
-  const digits = aadhaarDigits(f.aadhaar);
-  const aadhaar = digits.length === 12 ? formatAadhaar(digits) : '';
+  const maskRaw = String(f.aadhaarMasked ?? '').trim();
+  const maskMatch = maskRaw.match(/^X{4}[-\s]X{4}[-\s]([0-9]{4})$/i);
+  const aadhaarMasked = maskMatch ? `XXXX-XXXX-${maskMatch[1]}` : '';
+  const candidateRaw = String(f.aadhaarCandidateId ?? '').trim();
+  const aadhaarCandidateId = aadhaarMasked ? candidateRaw : '';
   const address = String(f.address ?? '').trim();
   return {
     name,
     dob,
     gender,
-    aadhaar,
+    aadhaarMasked,
+    aadhaarCandidateId,
     address,
     lowConfidence: String(f.confidence ?? '').toLowerCase() === 'low',
-    readAnything: Boolean(name || dob || gender || aadhaar || address),
+    readAnything: Boolean(name || dob || gender || aadhaarMasked || address),
   };
 }

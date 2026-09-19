@@ -40,6 +40,9 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 const LandingPage = lazy(() =>
   import('./pages/landing/LandingPage').then((m) => ({ default: m.LandingPage })),
 );
+const PricingPage = lazy(() =>
+  import('./pages/pricing/PricingPage').then((m) => ({ default: m.PricingPage })),
+);
 const PrivacyPage = lazy(() =>
   import('./pages/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })),
 );
@@ -55,6 +58,7 @@ const ForgotPasswordPage = lazy(() =>
   import('./pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })),
 );
 const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ default: m.VerifyPage })));
+const ActivePage = lazy(() => import('./pages/ActivePage').then((m) => ({ default: m.ActivePage })));
 const RecipientAccess = lazy(() => import('./w360/pages/RecipientAccess'));
 const AccountDataPage = lazy(() => import('./pages/AccountDataPage').then(m=>({default:m.AccountDataPage})));
 const PaymentsCheckout = lazy(() => import('./pages/PaymentsCheckout').then(m=>({default:m.PaymentsCheckout})));
@@ -87,6 +91,7 @@ const W360RecordHistory = lazy(() => import('./w360/pages/Orders').then((m) => (
 const W360Assigned = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.Assigned })));
 const W360Services = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.Services })));
 const W360Section = lazy(() => import('./w360/pages/Section').then((m) => ({ default: m.Section })));
+const W360Audit = lazy(() => import('./w360/pages/Audit').then((m) => ({ default: m.Audit })));
 const W360Groups = lazy(() => import('./w360/pages/Groups').then((m) => ({ default: m.Groups })));
 const W360Ticket = lazy(() => import('./w360/pages/Ticket').then((m) => ({ default: m.Ticket })));
 const W360Wallet = lazy(() => import('./w360/pages/Wallet').then((m) => ({ default: m.Wallet })));
@@ -283,10 +288,11 @@ function NotFound({ home = '/app', label = 'your dashboard' }: { home?: string; 
  *  different rail, and an address bar that suddenly said /legacy. It is drawn
  *  at /app/groups now (w360/pages/Groups.tsx). /legacy/groups still exists and
  *  still works; nothing in /app points at it any more. */
-const UNDRAWN = ['invitations', 'notifications', 'tools', 'audit', 'profile'] as const;
+const UNDRAWN = ['invitations', 'notifications', 'tools', 'profile'] as const;
 
 export const router = createBrowserRouter([
   { path: '/', element: suspended(LandingPage) },
+  { path: '/pricing', element: suspended(PricingPage) },
   { path: '/login', element: suspended(LoginPage) },
   { path: '/signup', element: suspended(SignupPage) },
   { path: '/forgot-password', element: suspended(ForgotPasswordPage) },
@@ -294,7 +300,7 @@ export const router = createBrowserRouter([
   { path: '/terms', element: suspended(TermsPage) },
   { path: '/auth/callback', element: suspended(AuthCallbackPage) },
   { path: '/verify/:token', element: suspended(VerifyPage) },
-  { path: '/active/:token', element: suspended(VerifyPage) },
+  { path: '/active/:token', element: suspended(ActivePage) },
   { path: '/share/:token', element: suspended(RecipientAccess) },
   { path: '/work/:token', element: suspended(RecipientAccess) },
   {
@@ -361,6 +367,10 @@ export const router = createBrowserRouter([
       // selected group rides in `?g=<id>` rather than a `:id` child route, so
       // there is one read behind the whole screen and a linkable group.
       { path: 'groups', element: suspended(W360Groups) },
+      // Audit is drawn in this design now (w360/pages/Audit.tsx) — the owner's
+      // centralized trail — so it left UNDRAWN the same way `groups` and
+      // `admin` did. /legacy/audit stays reachable for the old export view.
+      { path: 'audit', element: suspended(W360Audit) },
       ...UNDRAWN.map((id) => ({ path: id, element: suspendedWith(W360Section, { id }) })),
       // The old vocabulary still resolves: a bookmarked parcel or document URL
       // lands on the same thing under its new name.

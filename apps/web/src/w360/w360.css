@@ -2989,8 +2989,33 @@
 .w360 .vc-tr .row { flex-wrap: nowrap; }
 /* Left-aligned, because the placeholder is now a sentence: right-aligned it
    would be clipped at its start, which is the half that says what to do. */
-.w360 .vc-tr input { width: 100%; min-width: 0; }
-.w360 .vc-tr .btn { flex: none; }
+.w360 .vc-tr { position: absolute; }
+.w360 .vc-tr input {
+  width: 100%; min-width: 0; min-height: 2.75rem;
+  font-family: var(--font-mono);
+}
+.w360 .vc-tr .btn { flex: none; min-width: 2.75rem; min-height: 2.75rem; }
+.w360 .vc-plot-options {
+  position: absolute; top: calc(100% + var(--space-xs)); left: 0; right: 0;
+  display: grid; max-height: 17rem; overflow-y: auto;
+  padding: var(--space-2xs); border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-sm); background: var(--w-bg);
+  box-shadow: 0 1rem 3rem -1rem rgb(0 0 0 / 0.55);
+}
+.w360 .vc-plot-option {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-sm); min-height: 2.75rem; width: 100%;
+  padding: var(--space-xs) var(--space-sm); border: 0;
+  border-radius: var(--radius-xs); background: transparent;
+  color: var(--w-ink); font: inherit; text-align: left; cursor: pointer;
+}
+.w360 .vc-plot-option:hover,
+.w360 .vc-plot-option[aria-selected='true'] { background: var(--w-surface-2); }
+.w360 .vc-plot-option:focus-visible {
+  outline: 2px solid var(--color-focus); outline-offset: -2px;
+}
+.w360 .vc-tl .chip,
+.w360 .vc-tl .btn { min-height: 2.75rem; }
 .w360 .vc-badge {
   bottom: var(--space-sm); left: 50%; transform: translateX(-50%);
   font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
@@ -3003,6 +3028,7 @@
 @container (max-width: 42rem) {
   .w360 .vc-tl { right: var(--space-sm); }
   .w360 .vc-tr { top: auto; bottom: 3.5rem; left: var(--space-sm); right: 3.5rem; width: auto; }
+  .w360 .vc-plot-options { top: auto; bottom: calc(100% + var(--space-xs)); }
   .w360 .vc-badge { display: none; }
 }
 .w360 .vc-legend {
@@ -3039,6 +3065,10 @@
   color: var(--w-accent-ink);
 }
 .w360 .vc-tl .chip:disabled,
+.w360 .vc-tl .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Satellite remains visibly selected while its siblings are unavailable: the
+   layer is locked by Measure, not disabled because it failed. */
+.w360 .vc-tl .chip[aria-pressed='true']:disabled { opacity: 1; }
 
 /* The plot numbers. Their own overlay rather than a Leaflet pane: they are
    wanted above everything, they must never take a click, and they are hidden
@@ -3065,6 +3095,7 @@
 /* The inspector */
 .w360 .vm-switch {
   display: flex; align-items: center; gap: var(--space-sm); width: 100%;
+  min-height: 2.75rem;
   padding: 0.5rem 0.625rem; border: 1px solid var(--w-line);
   border-radius: var(--radius-sm); background: var(--w-surface-2);
   color: var(--w-ink); font: inherit; font-weight: 600; cursor: pointer;
@@ -3092,11 +3123,16 @@
 }
 .w360 .vm-facts dd { margin: 0; font-size: 0.8125rem; min-width: 0; overflow-wrap: anywhere; }
 .w360 .vm-more {
-  display: flex; align-items: center; gap: 0.25rem; margin-top: var(--space-sm);
+  display: flex; align-items: center; gap: 0.25rem; min-height: 2.75rem;
+  margin-top: var(--space-sm);
   border: 0; background: none; color: var(--w-ink-3); font: inherit;
   font-size: 0.75rem; cursor: pointer; padding: 0;
 }
 .w360 .vm-more[aria-expanded='true'] svg { transform: rotate(180deg); }
+.w360 .vm-side .btn,
+.w360 .vm-side .chip,
+.w360 .vm-side .iconbtn { min-height: 2.75rem; }
+.w360 .vm-side .iconbtn { min-width: 2.75rem; }
 .w360 .vm-list { max-height: 22rem; overflow-y: auto; }
 
 @media (max-width: 60rem) {
@@ -3106,6 +3142,11 @@
   .w360 .vm-stage { height: 56vh; }
   .w360 .vm-side { max-height: none; overflow: visible; }
   .w360 .vm-list { max-height: 26rem; }
+}
+@media (max-width: 42rem) {
+  /* Four 44px mode controls, the tile-retry notice and the finder need two
+     honest bands. A 56vh stage made those bands collide on a 390px phone. */
+  .w360 .vm-stage { height: clamp(36rem, 72vh, 44rem); }
 }
 
 /* The printed estimate. Hidden on screen; in print it is the only thing on the

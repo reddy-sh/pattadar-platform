@@ -24,6 +24,7 @@ import {
 } from '@pattadar/core';
 import type {
   AuditEvent,
+  AuditEventV2,
   DashboardStats,
   DocumentRecord,
   FeeScheduleRow,
@@ -386,6 +387,26 @@ export function useAuditEvents() {
         )
       ).auditEvents ?? [],
     sampleAuditEvents,
+  );
+}
+
+/**
+ * The centralized owner audit trail (audit_events_v2). Scoped server-side by
+ * affectedOwner, so it includes access to the owner's data by an admin,
+ * recipient or the system — not just the owner's own actions. No bundled
+ * sample fallback: an empty trail is a truthful answer, and this surface must
+ * never paint fabricated audit rows.
+ */
+export function useAuditTrail() {
+  return useLiveOrSample<AuditEventV2[]>(
+    'auditTrail',
+    async () =>
+      (
+        await gql<{ auditTrail: AuditEventV2[] }>(
+          `query { auditTrail { id occurredAt sourceService actorPrincipal actorKind affectedOwner action resourceType resourceId outcome dataClass requestId metadata } }`,
+        )
+      ).auditTrail ?? [],
+    [],
   );
 }
 
