@@ -16,6 +16,7 @@ Env (all optional; absent → stub):
 import logging
 import os
 import uuid
+import hashlib
 from datetime import datetime, timezone
 
 _log = logging.getLogger("pattadar.notify")
@@ -34,30 +35,44 @@ async def _record(conn, channel: str, to: str, subject: str, body: str,
          provider, status, (error or "")[:500], datetime.now(timezone.utc).isoformat()))
 
 
-async def send_email(conn, to: str, subject: str, html: str, owner: str = "") -> dict:
+async def send_email(conn, to: str, subject: str, html: str, owner: str = "", *,
+                     idempotency_key: str = "", minimize_log: bool = False) -> dict:
     to = (to or "").strip()
     if not to:
-        return {"ok": False, "error": "no recipient"}
+        return {"ok": False, "error": "no recipient", "error_code": "no_recipient"}
     provider = _env("NOTIFY_EMAIL_PROVIDER", "stub")
+    audit_to = (f"recipient-{hashlib.sha256(f'{owner}:{to}'.encode()).hexdigest()[:12]}"
+                if minimize_log else to)
+    audit_subject = "Pattadar safeguard notification" if minimize_log else subject
+    audit_body = "[minimized inactivity notification]" if minimize_log else html
     if provider == "resend" and _env("RESEND_API_KEY"):
         try:
             import httpx
+            headers = {"Authorization": f"Bearer {_env('RESEND_API_KEY')}"}
+            if idempotency_key:
+                headers["Idempotency-Key"] = idempotency_key
             async with httpx.AsyncClient(timeout=15.0) as c:
                 r = await c.post(
                     "https://api.resend.com/emails",
-                    headers={"Authorization": f"Bearer {_env('RESEND_API_KEY')}"},
+                    headers=headers,
                     json={"from": _env("NOTIFY_EMAIL_FROM", "Pattadar <no-reply@pattadar.com>"),
                           "to": [to], "subject": subject, "html": html})
             ok = r.status_code < 300
-            await _record(conn, "email", to, subject, html, "resend", "sent" if ok else "failed",
-                          "" if ok else r.text, owner)
-            return {"ok": ok, "provider": "resend"}
+            await _record(conn, "email", audit_to, audit_subject, audit_body, "resend",
+                          "sent" if ok else "failed", "" if ok else f"http_{r.status_code}", owner)
+            return {"ok": ok, "provider": "resend",
+                    "error_code": "" if ok else f"http_{r.status_code}"}
         except Exception as exc:  # noqa: BLE001
-            await _record(conn, "email", to, subject, html, "resend", "failed", str(exc), owner)
-            return {"ok": False, "provider": "resend", "error": str(exc)}
-    _log.info("[notify:stub] EMAIL to=%s subject=%r", to, subject)
-    await _record(conn, "email", to, subject, html, "stub", "logged", "", owner)
-    return {"ok": True, "provider": "stub"}
+            # A transport exception can happen after the provider accepted the
+            # request but before its response arrived. Automatic retry would
+            # risk a duplicate; mark it ambiguous for explicit reconciliation.
+            code = type(exc).__name__
+            await _record(conn, "email", audit_to, audit_subject, audit_body, "resend", "unknown", code, owner)
+            return {"ok": False, "provider": "resend", "error": "delivery outcome unknown",
+                    "error_code": code, "ambiguous": True}
+    _log.info("[notify:stub] EMAIL recipient=%s subject=%r", audit_to, audit_subject)
+    await _record(conn, "email", audit_to, audit_subject, audit_body, "stub", "logged", "", owner)
+    return {"ok": True, "provider": "stub", "error_code": ""}
 
 
 async def send_sms(conn, to: str, text: str, owner: str = "") -> dict:

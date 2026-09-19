@@ -69,7 +69,7 @@ def isolated_postgres():
 SCHEMA = """
 DROP SCHEMA public CASCADE; CREATE SCHEMA public;
 CREATE TABLE invitations (id text primary key,scope_type text,scope_id text,role text default 'view',invitee_contact text default '',token text,expiry text,status text,created_at text default '');
-CREATE TABLE family_members (id text primary key,owner_user_id text,legacy_beneficiary_id text default '',status text,invite_token text,invite_channel text default 'email',email_verified boolean default false,phone_verified boolean default false,name text default 'Person',phone text default '',email text default '',relation text default '',parcel_id text default '',share_pct float default 0,kind text default 'nominee');
+CREATE TABLE family_members (id text primary key,owner_user_id text,legacy_beneficiary_id text default '',status text,invite_token text,invite_channel text default 'email',email_verified boolean default false,phone_verified boolean default false,inactivity_email_consent boolean default false,inactivity_email_consent_at text default '',name text default 'Person',phone text default '',email text default '',guardian_contact text default '',is_minor boolean default false,relation text default '',parcel_id text default '',share_pct float default 0,kind text default 'nominee');
 CREATE TABLE beneficiaries (id text primary key,owner_user_id text,parcel_id text default '',status text,invite_token text,person_name text default 'Person',person_contact text default '',relationship text default '',share_pct float default 0,kind text default 'nominee');
 CREATE TABLE passbooks (id text primary key,owner_user_id text);
 CREATE TABLE parcels (id text primary key,passbook_id text);
@@ -93,8 +93,8 @@ def db(isolated_postgres, monkeypatch):
 
 def seed(db, *, expiry="2999-01-01", member_status="pending", invitation_status="pending"):
     with psycopg.connect(db, autocommit=True) as conn:
-        conn.execute("INSERT INTO family_members (id,owner_user_id,status,invite_token) VALUES ('member','owner',%s,'secret')", (member_status,))
-        conn.execute("INSERT INTO invitations (id,scope_type,scope_id,token,expiry,status) VALUES ('invite','family','member','secret',%s,%s)", (expiry,invitation_status))
+        conn.execute("INSERT INTO family_members (id,owner_user_id,status,invite_token,email) VALUES ('member','owner',%s,'secret','member@example.com')", (member_status,))
+        conn.execute("INSERT INTO invitations (id,scope_type,scope_id,invitee_contact,token,expiry,status) VALUES ('invite','family','member','member@example.com','secret',%s,%s)", (expiry,invitation_status))
 
 
 def state(db):
@@ -117,7 +117,7 @@ def test_pending_tokens_are_owner_scoped(db):
 def test_valid_public_acceptance_consumes_credential_and_replay_fails(db):
     seed(db)
     async def run():
-        query = 'mutation { verifyBeneficiary(token:"secret") { id status inviteToken } }'
+        query = 'mutation { verifyBeneficiary(token:"secret", inactivityEmailConsent:true) { id status inviteToken } }'
         result = await main.schema.execute(query, context_value=info().context)
         assert result.errors is None
         assert result.data["verifyBeneficiary"] == {"id": "member", "status": "verified", "inviteToken": ""}
@@ -125,6 +125,10 @@ def test_valid_public_acceptance_consumes_credential_and_replay_fails(db):
         assert replay.errors
     asyncio.run(run())
     assert state(db) == {"status": "verified", "invite_token": ""}
+    with psycopg.connect(db) as conn:
+        assert conn.execute(
+            "SELECT email_verified,inactivity_email_consent FROM family_members WHERE id='member'"
+        ).fetchone() == (True, True)
 
 
 @pytest.mark.parametrize("expiry,member_status,invitation_status", [

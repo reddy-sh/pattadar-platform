@@ -122,6 +122,25 @@ def purge_api(conn, owner, job_id, retention_days):
             conn.execute("""INSERT INTO account_retained_audits(id,request_id,action,occurred_at,expires_at)
                 SELECT id,%s,action,timestamp,now()+(%s * interval '1 day') FROM audit_events WHERE actor=%s
                 ON CONFLICT(id) DO NOTHING""", (job_id, retention_days, owner))
+        # The centralized v2 trail is REDACTED IN PLACE, never deleted.
+        #
+        # Deleting the owner's events would remove rows from the middle of the
+        # tamper-evident hash chain, and a hole in that chain is indistinguishable
+        # from somebody quietly destroying evidence — every later verification
+        # would report tampering that never happened. Clearing the content instead
+        # erases the personal data while keeping each event's position and seal.
+        # `integrity_hash` is preserved deliberately: it commits to what the event
+        # said without disclosing it.
+        if "audit_events_v2" in targets:
+            conn.execute("SET LOCAL pattadar.audit_maintenance = 'on'")
+            conn.execute("""UPDATE audit_events_v2 SET
+                    actor_principal='erased', affected_owner='erased', resource_id='',
+                    request_id=%s, metadata='{}'::jsonb, redacted_at=now()
+                WHERE affected_owner=%s AND redacted_at IS NULL""", (job_id, owner))
+            # `targets` drove a DELETE sweep below; the audit trail must not be
+            # part of it now that redaction is the mechanism.
+            targets.pop("audit_events_v2", None)
+            targets.pop("audit_outbox", None)
         # Known non-FK links first; database FKs are respected by topological
         # ordering too. Unsupported cyclic constraints fail and roll back.
         children = {child: {parent for _, parent in links} for child, links in CHILD_LINKS.items()}

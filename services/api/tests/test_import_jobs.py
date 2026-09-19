@@ -15,7 +15,8 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from starlette.datastructures import Headers
 
-from src import account, import_jobs as jobs
+from src import account
+from src.ai_reading import jobs
 
 
 @asynccontextmanager

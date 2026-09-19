@@ -8,15 +8,18 @@ import json
 import base64
 import asyncio
 import hashlib
+import hmac
 import logging
 import httpx
 import strawberry
+from . import aadhaar as aadhaar_security
 from . import notify
 from . import fmb_geometry
+from . import audit
 # Record-360 surface for the web app (screens W01–W15). Its eleven tables and
 # six column additions live in their own module so this file — the iOS-facing
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
-from . import villagemap, web360
+from . import village_map, web360
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -85,6 +88,7 @@ pool = AsyncConnectionPool(
     open=False,
     kwargs={"row_factory": dict_row, "autocommit": True},
 )
+aadhaar_security.bind(pool)
 
 
 def to_type(cls, row):
@@ -197,6 +201,7 @@ class UserType:
     mfa_enabled: bool
     address: str = ""
     last_active_at: str = ""
+    inactivity_email_enabled: bool = True
 
 
 @strawberry.type
@@ -522,6 +527,14 @@ class GroupType:
     #: Built property — flats, shops, plots — assigned to this group directly.
     #: These have no passbook, which is why they are invisible to `land_count`.
     property_count: int = 0
+    #: Account activity belongs to the owner/head. It is deliberately named
+    #: "active", not "login": Query.me records an authenticated heartbeat.
+    head_name: str = ""
+    last_active_at: str = ""
+    inactivity_stage: str = "active"
+    inactivity_next_at: str = ""
+    inactivity_last_outcome: str = ""
+    inactive_contact_gaps: int = 0
 
 
 @strawberry.type
@@ -609,6 +622,7 @@ class PersonType:
     invite_token: str
     phone_verified: bool = False
     email_verified: bool = False
+    inactivity_email_consent: bool = False
     parcel_id: str
     present_address: str
     aadhaar_masked: str
@@ -643,6 +657,8 @@ class NotifierType:
     relation: str
     contact: str
     priority: int
+    channel: str = "email"
+    eligible: bool = False
 
 
 @strawberry.type
@@ -821,6 +837,49 @@ class AuditEventType:
     target: str
     details: str
     timestamp: str
+
+
+@strawberry.type
+class AuditEventV2Type:
+    """The centralized, classified audit envelope (audit_events_v2).
+
+    Distinct from the legacy AuditEventType: it separates who acted
+    (actorPrincipal/actorKind) from whose data it concerns (affectedOwner),
+    records the outcome, data class and which service emitted it, and carries
+    only allowlisted metadata as a JSON string. No free-text PII column."""
+    id: str
+    occurredAt: str
+    sourceService: str
+    actorPrincipal: str
+    actorKind: str
+    affectedOwner: str
+    action: str
+    resourceType: str
+    resourceId: str
+    outcome: str
+    dataClass: str
+    requestId: str
+    metadata: str
+
+
+def _audit_v2_row(row) -> AuditEventV2Type:
+    """Map an audit_events_v2 row to its GraphQL type. metadata is already
+    allowlisted at write time, so serializing it here cannot leak PII."""
+    return AuditEventV2Type(
+        id=row["event_id"],
+        occurredAt=str(row["occurred_at"]),
+        sourceService=row["source_service"],
+        actorPrincipal=row["actor_principal"],
+        actorKind=row["actor_kind"],
+        affectedOwner=row["affected_owner"],
+        action=row["action"],
+        resourceType=row["resource_type"],
+        resourceId=row["resource_id"],
+        outcome=row["outcome"],
+        dataClass=row["data_class"],
+        requestId=row["request_id"],
+        metadata=json.dumps(row["metadata"] or {}, ensure_ascii=False),
+    )
 
 
 @strawberry.type
@@ -1020,14 +1079,15 @@ def _uid_from_info(info) -> str:
 
 
 class RequireAuthenticatedRoot(SchemaExtension):
-    """API defense in depth: all root fields except token verification need a user.
+    """API defense in depth: only purpose-bound capability mutations are public.
 
     The API is private behind the gateway; only its stripped/injected identity
-    header is trusted. This also protects roots without an explicit info arg.
+    header is trusted. Public roots validate and consume their own scoped token.
     """
     def resolve(self, next_, root, info, *args, **kwargs):
         if info.parent_type.name in {"Query", "Mutation"}:
-            if not (info.parent_type.name == "Mutation" and info.field_name == "verifyBeneficiary"):
+            public_mutations = {"verifyBeneficiary", "acknowledgeInactivity"}
+            if not (info.parent_type.name == "Mutation" and info.field_name in public_mutations):
                 _uid_from_info(info)
         if info.parent_type.name == "Mutation" and info.field_name in {
             "addDocument", "createDocument", "updateDocument", "createRegisteredDocument", "updateRegisteredDocument",
@@ -1092,62 +1152,18 @@ def _doc_owner_args(uid: str) -> tuple:
 
 
 def _mask_aadhaar(raw: str) -> str:
-    """Masked reference token (last 4 digits) — the only form ever shown in a
-    list, an export, or to anyone but the owner. If the input is already masked
-    / non-numeric, pass through."""
-    digits = "".join(c for c in (raw or "") if c.isdigit())
-    if len(digits) >= 8:
-        return "XXXX-XXXX-" + digits[-4:]
-    return (raw or "").strip()
+    """Strict masked display; malformed input never passes through."""
+    return aadhaar_security.mask(raw)
 
 
-# ── Aadhaar number at rest ────────────────────────────────────────────────
-# The full number is retained at the owner's explicit instruction (27 Jul 2026)
-# so it can be copied into government portals. It is ALWAYS encrypted at rest
-# and is never returned by any list query — only by an explicit single-record
-# lookup by the owner, which is audited.
-#
-# Key: AADHAAR_ENC_KEY, a urlsafe-base64 32-byte Fernet key. If it is absent we
-# refuse to store the number rather than fall back to plaintext.
-def _aadhaar_cipher():
-    key = os.getenv("AADHAAR_ENC_KEY", "").strip()
-    if not key:
-        return None
-    try:
-        from cryptography.fernet import Fernet
-
-        return Fernet(key.encode())
-    except Exception as exc:  # noqa: BLE001
-        _log.error("aadhaar.key_invalid: %r", exc)
-        return None
+async def encrypt_aadhaar(raw: str, owner: str, subject_kind: str, subject_id: str) -> str:
+    """Versioned KMS ciphertext, with a local-only/legacy Fernet bridge."""
+    _masked, token = await aadhaar_security.encrypt_number(raw, owner, subject_kind, subject_id)
+    return token
 
 
-def encrypt_aadhaar(raw: str) -> str:
-    """Ciphertext for storage, or '' when there is nothing to store. Raises if
-    a number was supplied but no key is configured — failing closed beats
-    silently writing an identity number in the clear."""
-    digits = "".join(c for c in (raw or "") if c.isdigit())
-    if len(digits) != 12:
-        return ""
-    cipher = _aadhaar_cipher()
-    if cipher is None:
-        raise ValueError(
-            "Aadhaar storage is not configured on this server (AADHAAR_ENC_KEY missing)"
-        )
-    return cipher.encrypt(digits.encode()).decode()
-
-
-def decrypt_aadhaar(token: str) -> str:
-    if not (token or "").strip():
-        return ""
-    cipher = _aadhaar_cipher()
-    if cipher is None:
-        return ""
-    try:
-        return cipher.decrypt(token.encode()).decode()
-    except Exception as exc:  # noqa: BLE001
-        _log.warning("aadhaar.decrypt_failed: %r", exc)
-        return ""
+async def decrypt_aadhaar(token: str, owner: str, subject_kind: str, subject_id: str) -> str:
+    return await aadhaar_security.decrypt_number(token, owner, subject_kind, subject_id)
 
 
 def _is_minor(dob: str) -> bool:
@@ -1205,11 +1221,46 @@ async def _assert_owns_scope(conn, uid: str, scope_id: str) -> None:
 
 # ── Audit helper ──────────────────────────────────────────────────────
 
-async def log_audit(conn, actor: str, action: str, target: str, details: str = ""):
+async def log_audit(conn, actor: str, action: str, target: str, details: str = "",
+                    *, affected_owner: str = "", actor_kind: str = "",
+                    metadata: Optional[dict] = None, outcome: str = "success",
+                    request_id: str = ""):
+    """Record one audited action.
+
+    Dual-writes for the phase-1 audit migration:
+      1. The legacy `audit_events` row (unchanged shape) so the existing
+         /legacy/audit view and every downstream reader keep working.
+      2. A classified envelope event onto the centralized transactional outbox
+         (`audit.enqueue`) on THIS connection, so the audit record commits with
+         the business change instead of best-effort after it.
+
+    `actor` is who acted. For an owner acting on their own data that is also the
+    affected owner, which is the default; callers that act across owners
+    (desk_read) or as system/recipient pass `affected_owner`/`actor_kind`
+    explicitly. `metadata` is filtered against the action's allowlist inside the
+    audit module, so a caller cannot leak free-text PII through it — the legacy
+    `details` string is intentionally NOT copied into the envelope.
+
+    The envelope enqueue honors the fail-closed policy: a critical action
+    (e.g. reveal_aadhaar, desk_read) that cannot be recorded raises and rolls
+    back the caller's transaction; a non-critical one degrades to a logged
+    warning so a routine write is never blocked by the audit subsystem.
+    """
     await conn.execute(
         "INSERT INTO audit_events (id, actor, action, target, details, timestamp) "
         "VALUES (%s, %s, %s, %s, %s, %s)",
         (new_id(), actor, action, target, details, datetime.utcnow().isoformat()),
+    )
+    await audit.record(
+        conn,
+        action=action,
+        actor_principal=actor,
+        affected_owner=affected_owner or actor,
+        resource_id=target,
+        outcome=outcome,
+        actor_kind=actor_kind or audit.ACTOR_OWNER,
+        metadata=metadata,
+        request_id=request_id,
     )
 
 
@@ -1364,11 +1415,31 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
     myrole = (await (await conn.execute(
         "SELECT role FROM family_members WHERE group_id=%s AND owner_user_id=%s AND is_self=true LIMIT 1",
         (gid, uid))).fetchone() or {}).get("role", "")
+    head = await (await conn.execute(
+        "SELECT COALESCE(NULLIF(f.name,''), NULLIF(u.name,''), 'You') AS name, "
+        "COALESCE(u.last_active_at,'') AS last_active_at "
+        "FROM users u LEFT JOIN family_members f ON f.owner_user_id=u.id "
+        "AND f.group_id=%s AND f.is_self=true WHERE u.id=%s LIMIT 1", (gid, uid))).fetchone() or {}
+    esc = await (await conn.execute(
+        "SELECT stage, next_action_at, last_outcome FROM inactivity_escalations "
+        "WHERE owner_user_id=%s AND group_id=%s", (uid, gid))).fetchone() or {}
+    contact_gaps = 0
+    if g["type"] == "family":
+        contact_gaps = int((await (await conn.execute(
+            "SELECT count(*) AS c FROM family_members WHERE owner_user_id=%s AND group_id=%s "
+            "AND is_self=false AND is_minor=false AND (COALESCE(email,'')='' OR email_verified=false "
+            "OR inactivity_email_consent=false)",
+            (uid, gid))).fetchone())["c"])
     return GroupType(id=gid, owner_user_id=g["owner_user_id"], type=g["type"], name=g["name"],
                      description=g.get("description", ""), my_role=myrole or _group_primary_role(g["type"]),
                      member_count=int(mc), land_count=int(lc), total_extent=float(ext or 0),
                      total_share=float(sh or 0), created_at=g.get("created_at", ""),
-                     parcel_count=int(pc), property_count=int(prc))
+                     parcel_count=int(pc), property_count=int(prc),
+                     head_name=head.get("name", ""), last_active_at=head.get("last_active_at", ""),
+                     inactivity_stage=esc.get("stage") or "active",
+                     inactivity_next_at=esc.get("next_action_at", ""),
+                     inactivity_last_outcome=esc.get("last_outcome", ""),
+                     inactive_contact_gaps=contact_gaps)
 
 
 # ── Query ─────────────────────────────────────────────────────────────
@@ -1848,30 +1919,37 @@ class Query:
 
     @strawberry.field
     async def notifiers(self, info: strawberry.Info, group_id: str) -> List[NotifierType]:
-        """The ordered inactivity-notifier list for a group. If none is configured,
-        returns every member at priority 0 (meaning: all notified at once)."""
-        uid = _uid_from_info(info) or "system"
+        """Return the ordered inactivity list. With no configured order, every
+        non-self member is returned at priority 0 so clients can explain the
+        email-all default. Eligibility is computed server-side from a verified
+        email; phone contacts are never silently included in that broadcast."""
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
-                "SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
-            if not own:
+                "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
+            if not own or own["type"] != "family":
                 return []
             members = {m["id"]: m for m in await (await conn.execute(
-                "SELECT id, name, relation, role, phone, email FROM family_members "
-                "WHERE owner_user_id=%s AND group_id=%s AND is_self=false", (uid, group_id))).fetchall()}
+                "SELECT id, name, relation, role, email, email_verified, inactivity_email_consent, is_minor "
+                "FROM family_members WHERE owner_user_id=%s AND group_id=%s AND is_self=false", (uid, group_id))).fetchall()}
             rows = await (await conn.execute(
-                "SELECT member_id, priority FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s "
-                "ORDER BY priority", (uid, group_id))).fetchall()
-            def _mk(mid, prio):
+                "SELECT member_id, priority, channel FROM family_notifiers "
+                "WHERE owner_user_id=%s AND group_id=%s ORDER BY priority", (uid, group_id))).fetchall()
+
+            def _mk(mid, prio, channel="email"):
                 m = members.get(mid)
                 if not m:
                     return None
-                return NotifierType(member_id=mid, name=m["name"] or "", relation=m["relation"] or m["role"] or "",
-                                    contact=(m["email"] or m["phone"] or ""), priority=prio)
+                email = (m.get("email") or "").strip()
+                eligible = bool(email and not m.get("is_minor") and m.get("email_verified")
+                                and m.get("inactivity_email_consent") and channel == "email")
+                return NotifierType(member_id=mid, name=m["name"] or "",
+                                    relation=m["relation"] or m["role"] or "",
+                                    contact=email, priority=prio, channel=channel,
+                                    eligible=eligible)
             if rows:
-                out = [_mk(r["member_id"], r["priority"]) for r in rows]
+                out = [_mk(r["member_id"], r["priority"], r.get("channel") or "email") for r in rows]
                 return [n for n in out if n]
-            # Default: everyone, priority 0 (all-at-once).
             return [n for n in (_mk(mid, 0) for mid in members) if n]
 
     @strawberry.field
@@ -1909,6 +1987,95 @@ class Query:
                 "SELECT * FROM audit_events WHERE actor=%s ORDER BY timestamp DESC LIMIT 10", (uid,)
             )
             return [to_type(AuditEventType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def audit_trail(
+        self, info: strawberry.Info, action: str = "", since: str = "",
+        limit: int = 200,
+    ) -> List[AuditEventV2Type]:
+        """The centralized owner audit trail (audit_events_v2), phase 1.
+
+        Scoped by `affected_owner`, NOT by actor: this is the query that lets an
+        owner see access to their own data by an admin, a recipient or the
+        system — the thing the legacy actor-only view could never show. Optional
+        `action` and `since` (ISO-8601) filters, newest first, hard-capped.
+        """
+        uid = _uid_from_info(info)
+        # The owner view is what happened to the owner AS A DATA SUBJECT. An
+        # account that is also a platform admin generates a `desk_read` every
+        # time it opens the desk; those are the admin acting across owners, not
+        # anything about this owner's own records, and they belong to the
+        # security view, not here. Excluding admin/system actor rows keeps the
+        # owner's trail to their own actions plus recipient access to their
+        # data, instead of drowning it in the admin's own desk browsing.
+        clauses = ["affected_owner = %s", "actor_kind NOT IN ('admin','system')"]
+        args: list = [uid]
+        if action:
+            clauses.append("action = %s")
+            args.append(action)
+        if since:
+            clauses.append("occurred_at >= %s")
+            args.append(since)
+        args.append(max(1, min(500, limit)))
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM audit_events_v2 WHERE " + " AND ".join(clauses)
+                + " ORDER BY occurred_at DESC LIMIT %s", tuple(args))
+            return [_audit_v2_row(r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def security_audit_trail(
+        self, info: strawberry.Info, affected_owner: str = "", action: str = "",
+        since: str = "", limit: int = 200,
+    ) -> List[AuditEventV2Type]:
+        """Cross-owner security/compliance view of the audit trail.
+
+        FAILS CLOSED: only a platform admin (web360._is_admin) or a designated
+        read-only auditor (audit.is_auditor) gets rows; everyone else gets [].
+        Returns security-class events across all owners so the desk/compliance
+        role can review Aadhaar reveals, cross-owner reads, share grants and
+        account-rights exercises. This authorization is deliberately separate
+        from the owner view above — removing the affected_owner scope must never
+        be reachable without one of those two gates.
+
+        An AUDITOR is not an admin: the allowlist is separate (AUDIT_READER_UIDS)
+        precisely so an external reviewer can read the evidence without holding
+        the role that writes records and runs the desk. Every auditor read is
+        itself recorded as a critical `auditor.read` event — if that cannot be
+        written the read does not happen, because an unrecorded review of every
+        owner's security events is the hole this role exists to close.
+        """
+        uid = _uid_from_info(info)
+        async with pool.connection() as conn:
+            from . import web360
+            auditor = audit.is_auditor(uid)
+            if not auditor and not await web360._is_admin(conn, uid):
+                return []
+            if auditor:
+                async with conn.transaction():
+                    await audit.record(
+                        conn, action="auditor.read", actor_principal=uid,
+                        affected_owner=affected_owner or uid,
+                        actor_kind=audit.ACTOR_ADMIN,
+                        metadata={"scope": "security_audit_trail",
+                                  "affected_owner": affected_owner or "all",
+                                  "action_filter": action or "all"})
+            clauses = ["data_class = %s"]
+            args: list = [audit.CLASS_SECURITY]
+            if affected_owner:
+                clauses.append("affected_owner = %s")
+                args.append(affected_owner)
+            if action:
+                clauses.append("action = %s")
+                args.append(action)
+            if since:
+                clauses.append("occurred_at >= %s")
+                args.append(since)
+            args.append(max(1, min(500, limit)))
+            cur = await conn.execute(
+                "SELECT * FROM audit_events_v2 WHERE " + " AND ".join(clauses)
+                + " ORDER BY occurred_at DESC LIMIT %s", tuple(args))
+            return [_audit_v2_row(r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def service_requests(self) -> List[ServiceRequestType]:
@@ -2022,6 +2189,11 @@ class Query:
 
 # ── Mutation ──────────────────────────────────────────────────────────
 
+def _contact_key(value: str) -> str:
+    value = (value or "").strip()
+    return value.casefold() if "@" in value else "".join(ch for ch in value if ch.isdigit())
+
+
 async def _write_person(conn, uid, pid, v, is_update):
     """Insert/update a person row from validated args `v` (a dict). Enforces the
     per-parcel/per-group ≤100% share guard, masks Aadhaar, derives is_minor, and
@@ -2035,8 +2207,11 @@ async def _write_person(conn, uid, pid, v, is_update):
             raise ValueError("A minor needs a guardian to verify on their behalf")
         if (v["marital_status"] or "").lower() == "married" and not (v["spouse_name"] or "").strip():
             raise ValueError("Please add the spouse for a married beneficiary")
-    aad = _mask_aadhaar(v["aadhaar"]) if (v["aadhaar"] or "").strip() else ""
-    aad_enc = encrypt_aadhaar(v["aadhaar"]) if (v["aadhaar"] or "").strip() else ""
+    aad, aad_enc = await aadhaar_security.resolve_for_storage(
+        conn, owner=uid, raw=v.get("aadhaar", ""),
+        candidate_id=v.get("aadhaar_candidate_id", ""),
+        subject_kind="member", subject_id=pid,
+    )
     pcl = (v["parcel_id"] or "").strip()
     gid = (v.get("group_id") or "").strip()
     if v["is_beneficiary"]:
@@ -2068,17 +2243,44 @@ async def _write_person(conn, uid, pid, v, is_update):
     # edit can't round-trip the raw number). DPDP-2023.
     cols["aadhaar_enc"] = aad_enc
     # An empty submit means "keep what is stored" — never wipe by omission.
-    if is_update and not (v["aadhaar"] or "").strip():
+    if is_update and not (v.get("aadhaar") or "").strip() and not (v.get("aadhaar_candidate_id") or "").strip():
         cols.pop("aadhaar_masked", None)
         cols.pop("aadhaar_enc", None)
     if is_update:
-        _self = await (await conn.execute(
-            "SELECT is_self FROM family_members WHERE id=%s AND owner_user_id=%s", (pid, uid))).fetchone()
-        if _self and _self["is_self"]:
+        prior = await (await conn.execute(
+            "SELECT is_self,email,phone,group_id,guardian_contact,is_minor FROM family_members "
+            "WHERE id=%s AND owner_user_id=%s", (pid, uid))).fetchone()
+        if prior and prior["is_self"]:
             raise ValueError("Your own node can't be edited here")
+        email_changed = bool(prior and (prior.get("email") or "").strip().casefold()
+                             != (v["email"] or "").strip().casefold())
+        phone_changed = bool(prior and re.sub(r"\D", "", prior.get("phone") or "")
+                             != re.sub(r"\D", "", v["phone"] or ""))
+        prior_invitee = ((prior.get("guardian_contact") or "") if prior and prior.get("is_minor")
+                         else ((prior or {}).get("email") or (prior or {}).get("phone") or ""))
+        next_invitee = ((v.get("guardian_contact") or "") if minor else (v.get("email") or v.get("phone") or ""))
+        invite_contact_changed = bool(prior and _contact_key(prior_invitee) != _contact_key(next_invitee))
+        if email_changed:
+            cols["email_verified"] = False
+            cols["inactivity_email_consent"] = False
+            cols["inactivity_email_consent_at"] = ""
+        if invite_contact_changed:
+            cols["invite_token"] = ""
+            cols["invite_status"] = ""
+            cols["status"] = "pending"
+        if phone_changed:
+            cols["phone_verified"] = False
         sets = ", ".join(f"{k}=%s" for k in cols)
         cur = await conn.execute(f"UPDATE family_members SET {sets} WHERE id=%s AND owner_user_id=%s RETURNING *",
                                  (*cols.values(), pid, uid))
+        if invite_contact_changed and prior:
+            await conn.execute(
+                "UPDATE invitations SET status='revoked',token='' WHERE scope_id=%s "
+                "AND scope_type IN ('family','beneficiary') AND status='pending'", (pid,))
+        if email_changed and prior:
+            await conn.execute(
+                "DELETE FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s AND member_id=%s",
+                (uid, prior["group_id"], pid))
     else:
         cols2 = dict(id=pid, owner_user_id=uid, created_at=datetime.utcnow().isoformat(), invite_status="", **cols)
         keys = ", ".join(cols2); ph = ", ".join(["%s"] * len(cols2))
@@ -2100,48 +2302,69 @@ async def _write_person(conn, uid, pid, v, is_update):
     return to_type(PersonType, row)
 
 
-async def _verify_by_token(info, token: str) -> "BeneficiaryType":
-    """Consume one live invitation and update the matching pending person atomically."""
+async def _verify_by_token(info, token: str, inactivity_email_consent: bool = False) -> "BeneficiaryType":
+    """Consume one live invitation with member→invitation lock ordering."""
     token = (token or "").strip()
     if not token:
         raise ValueError("Invalid or expired verification link")
     async with pool.connection() as conn:
         async with conn.transaction():
+            hints = await (await conn.execute(
+                "SELECT * FROM invitations WHERE token=%s ORDER BY id", (token,))).fetchall()
+            hinted_live = [i for i in hints if _invitation_is_current(i)
+                           and i["scope_type"] in {"family", "beneficiary"}]
+            scope_ids = {i["scope_id"] for i in hinted_live}
+            if not hinted_live or len(scope_ids) != 1:
+                raise ValueError("Invalid or expired verification link")
+            scope_id = next(iter(scope_ids))
+
+            # Contact edits lock the member before revoking invitations. Public
+            # acceptance follows the same order to avoid an edit/accept deadlock.
+            member = await (await conn.execute(
+                "SELECT id,status,invite_token,invite_channel,email,phone,guardian_contact,is_minor "
+                "FROM family_members WHERE id=%s OR legacy_beneficiary_id=%s FOR UPDATE",
+                (scope_id, scope_id))).fetchone()
+            await conn.execute("SELECT id FROM beneficiaries WHERE id=%s FOR UPDATE", (scope_id,))
             invitations = await (await conn.execute(
                 "SELECT * FROM invitations WHERE token=%s ORDER BY id FOR UPDATE", (token,))).fetchall()
             live = [i for i in invitations if _invitation_is_current(i)
                     and i["scope_type"] in {"family", "beneficiary"}]
-            # Replays and old tokens cannot revive revoked/accepted credentials,
-            # even if a legacy resend accidentally inserted a duplicate token.
-            if not live or any(i["status"] != "pending" for i in invitations):
+            if (not live or any(i["status"] != "pending" for i in invitations)
+                    or {i["scope_id"] for i in live} != {scope_id}):
                 raise ValueError("Invalid or expired verification link")
-            scope_ids = {i["scope_id"] for i in live}
-            if len(scope_ids) != 1:
-                raise ValueError("Invalid or expired verification link")
-            scope_id = next(iter(scope_ids))
-            member = await (await conn.execute(
-                "SELECT id, status, invite_token FROM family_members WHERE id=%s OR legacy_beneficiary_id=%s FOR UPDATE",
-                (scope_id, scope_id))).fetchone()
-            if member and (member["status"] != "pending" or member["invite_token"] != token):
-                raise ValueError("Invalid or expired verification link")
+            if member:
+                if member["status"] != "pending" or member["invite_token"] != token:
+                    raise ValueError("Invalid or expired verification link")
+                expected = ((member.get("guardian_contact") or "") if member.get("is_minor") else
+                            (member.get("email") or "") if member.get("invite_channel") == "email" else
+                            (member.get("phone") or ""))
+                if not expected or any(_contact_key(i.get("invitee_contact") or "") != _contact_key(expected)
+                                       for i in live):
+                    raise ValueError("Invalid or expired verification link")
+
             row = await (await conn.execute(
-                "UPDATE family_members SET status='verified', invite_token='', "
-                "email_verified = (email_verified OR invite_channel='email'), "
-                "phone_verified = (phone_verified OR invite_channel='phone') "
+                "UPDATE family_members SET status='verified',invite_token='', "
+                "email_verified=(email_verified OR (NOT is_minor AND invite_channel='email')), "
+                "phone_verified=(phone_verified OR (NOT is_minor AND invite_channel='phone')), "
+                "inactivity_email_consent=(NOT is_minor AND invite_channel='email' AND %s), "
+                "inactivity_email_consent_at=CASE "
+                "WHEN NOT is_minor AND invite_channel='email' AND %s THEN %s ELSE '' END "
                 "WHERE invite_token=%s AND status='pending' "
-                "AND (id=%s OR legacy_beneficiary_id=%s) RETURNING *", (token, scope_id, scope_id))).fetchone()
+                "AND (id=%s OR legacy_beneficiary_id=%s) RETURNING *",
+                (inactivity_email_consent, inactivity_email_consent,
+                 datetime.now(timezone.utc).isoformat(), token, scope_id, scope_id))).fetchone()
             if row:
-                # The legacy compatibility row must not retain a live credential.
                 await conn.execute(
-                    "UPDATE beneficiaries SET status='verified', invite_token='' "
+                    "UPDATE beneficiaries SET status='verified',invite_token='' "
                     "WHERE invite_token=%s AND status='pending' AND id=%s", (token, scope_id))
             else:
                 row = await (await conn.execute(
-                    "UPDATE beneficiaries SET status='verified', invite_token='' "
-                    "WHERE invite_token=%s AND status='pending' AND id=%s RETURNING *", (token, scope_id))).fetchone()
+                    "UPDATE beneficiaries SET status='verified',invite_token='' "
+                    "WHERE invite_token=%s AND status='pending' AND id=%s RETURNING *",
+                    (token, scope_id))).fetchone()
             if not row:
                 raise ValueError("Invalid or expired verification link")
-            await conn.execute("UPDATE invitations SET status='accepted', token='' WHERE token=%s", (token,))
+            await conn.execute("UPDATE invitations SET status='accepted',token='' WHERE token=%s", (token,))
             out = dict(row)
             out.setdefault("person_name", out.get("name") or "")
             out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
@@ -2184,128 +2407,387 @@ async def _do_update_member_status(info, id: str, status: str) -> "BeneficiaryTy
             return to_type(BeneficiaryType, out)
 
 
-# ── Inactivity dead-man's-switch engine (Phase 3) ──────────────────────────
+# ── Inactivity household-safeguard engine ─────────────────────────────────
 
-def _inactivity_cfg():
-    """Thresholds in days (env-overridable for testing)."""
-    return (
-        int(os.getenv("INACTIVITY_CHECKIN_DAYS", "150")),    # start nudging the head
-        int(os.getenv("INACTIVITY_ESCALATE_DAYS", "180")),   # escalate to family
-        int(os.getenv("INACTIVITY_PRIORITY_GAP_DAYS", "7")),  # gap between priorities
-    )
+_INACTIVITY_DELIVERED = {"logged", "sent"}
+
+
+def _parse_utc(raw: str) -> Optional[datetime]:
+    """Parse stored ISO timestamps as aware UTC; malformed evidence fails safe."""
+    if not raw:
+        return None
+    try:
+        value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _utc(now: datetime) -> datetime:
+    return (now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc))
+
+
+def _inactivity_cfg() -> tuple[int, tuple[int, int, int], int]:
+    """Approved policy in elapsed days, with env overrides for isolated tests."""
+    threshold = int(os.getenv("INACTIVITY_DAYS", os.getenv("INACTIVITY_ESCALATE_DAYS", "180")))
+    raw = [p.strip() for p in os.getenv("INACTIVITY_REMINDER_DAYS", "1,7,15").split(",")]
+    offsets = tuple(int(p) for p in raw if p)
+    if len(offsets) != 3 or not (offsets[0] < offsets[1] < offsets[2]) or offsets[0] < 1:
+        raise RuntimeError("INACTIVITY_REMINDER_DAYS must contain three strictly increasing positive day offsets")
+    gap = int(os.getenv("INACTIVITY_PRIORITY_GAP_DAYS", "7"))
+    if threshold < 1 or gap < 1:
+        raise RuntimeError("Inactivity day settings must be positive")
+    return threshold, offsets, gap
 
 
 def _days_since(iso: str, now: datetime) -> float:
-    # Fail-safe: no recorded activity → treat as ACTIVE (0), never escalate on a
-    # missing/unparseable timestamp. The dead-man's-switch only fires on evidence
-    # of real inactivity — otherwise a fresh deploy (everyone's clock empty) would
-    # escalate every family at once.
-    if not iso:
-        return 0.0
-    try:
-        return (now - datetime.fromisoformat(iso)).total_seconds() / 86400.0
-    except Exception:
-        return 0.0
+    then = _parse_utc(iso)
+    return max(0.0, (_utc(now) - then).total_seconds() / 86400.0) if then else 0.0
 
 
-async def _alert_member(conn, member_id: str, subject: str, body: str, owner: str) -> bool:
-    m = await (await conn.execute(
-        "SELECT name, COALESCE(NULLIF(email,''), phone) AS contact FROM family_members WHERE id=%s",
-        (member_id,))).fetchone()
-    if not m or not (m.get("contact") or "").strip():
-        return False
-    await notify.notify_contact(conn, m["contact"], subject, body, owner=owner)
-    return True
+def _inactivity_cycle(owner: str, group_id: str, last_active: str) -> str:
+    return hashlib.sha256(f"{owner}\0{group_id}\0{last_active}".encode()).hexdigest()
+
+
+def _capability_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def _start_inactivity_delivery(
+    conn, *, owner: str, group_id: str, cycle: str, stage: str,
+    recipient_ref: str, actor_type: str, now: datetime,
+) -> dict:
+    """Claim one email delivery and mint a purpose-bound acknowledgement token.
+
+    The unique delivery key plus the provider idempotency key makes concurrent
+    scheduler/manual runs converge. Failed attempts may retry on a later day;
+    accepted/stub-logged attempts never send again.
+    """
+    current = await (await conn.execute(
+        "SELECT * FROM inactivity_deliveries WHERE cycle_key=%s AND stage=%s "
+        "AND recipient_ref=%s AND channel='email' FOR UPDATE",
+        (cycle, stage, recipient_ref))).fetchone()
+    if current and current["status"] in _INACTIVITY_DELIVERED:
+        return {"send": False, "ok": True, "status": current["status"], "existing": True}
+    if current and current["status"] == "unknown":
+        return {"send": False, "ok": False, "status": "unknown", "existing": True}
+    if current and current["status"] == "attempting":
+        # A process may have died after dispatch. Do not automatically repeat an
+        # unknown external side effect; leave it for explicit reconciliation.
+        if _days_since(current.get("attempted_at", ""), now) >= 1:
+            await conn.execute(
+                "UPDATE inactivity_deliveries SET status='unknown',error_code='outcome_unknown' WHERE id=%s",
+                (current["id"],))
+        return {"send": False, "ok": False, "status": "unknown", "existing": True}
+    if current and _days_since(current.get("attempted_at", ""), now) < 1:
+        return {"send": False, "ok": False, "status": current["status"], "existing": True}
+
+    delivery_id = current["id"] if current else new_id()
+    if current:
+        await conn.execute(
+            "UPDATE inactivity_deliveries SET status='attempting', attempts=attempts+1, "
+            "attempted_at=%s, provider='', error_code='' WHERE id=%s",
+            (_utc(now).isoformat(), delivery_id))
+    else:
+        await conn.execute(
+            "INSERT INTO inactivity_deliveries "
+            "(id,owner_user_id,group_id,cycle_key,stage,recipient_ref,channel,status,attempts,attempted_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,'email','attempting',1,%s)",
+            (delivery_id, owner, group_id, cycle, stage, recipient_ref, _utc(now).isoformat()))
+
+    # A failed attempt gets a fresh token; any prior token for this exact
+    # recipient/stage is revoked before the replacement is issued.
+    await conn.execute(
+        "UPDATE inactivity_capabilities SET consumed_at=%s WHERE cycle_key=%s AND stage=%s "
+        "AND recipient_ref=%s AND consumed_at=''",
+        (_utc(now).isoformat(), cycle, stage, recipient_ref))
+    token = str(uuid.uuid4())
+    await conn.execute(
+        "INSERT INTO inactivity_capabilities "
+        "(id,token_hash,owner_user_id,group_id,cycle_key,stage,actor_type,recipient_ref,expires_at,consumed_at,created_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'',%s)",
+        (new_id(), _capability_hash(token), owner, group_id, cycle, stage, actor_type,
+         recipient_ref, (_utc(now) + timedelta(days=30)).isoformat(), _utc(now).isoformat()))
+    return {"send": True, "ok": False, "status": "attempting", "existing": False,
+            "id": delivery_id, "token": token,
+            "idempotency_key": hashlib.sha256(
+                f"{cycle}\0{stage}\0{recipient_ref}\0email".encode()).hexdigest()}
+
+
+async def _send_inactivity_email(
+    _state_conn, *, owner: str, group_id: str, cycle: str, stage: str,
+    recipient_ref: str, actor_type: str, email: str, subject: str, body: str,
+    now: datetime,
+) -> dict:
+    """Commit the delivery intent before crossing the provider boundary.
+
+    The caller may still hold the household lock, but this separate autocommit
+    connection makes intent/capability durable first. If state persistence later
+    fails, the next run observes the delivered key and reconciles without resend.
+    """
+    async with pool.connection() as dispatch_conn:
+        async with dispatch_conn.transaction():
+            claim = await _start_inactivity_delivery(
+                dispatch_conn, owner=owner, group_id=group_id, cycle=cycle, stage=stage,
+                recipient_ref=recipient_ref, actor_type=actor_type, now=now)
+        if not claim["send"]:
+            return claim
+        link = f"{os.getenv('APP_PUBLIC_URL', '').rstrip('/')}/active/{claim['token']}"
+        result = await notify.send_email(
+            dispatch_conn, email, subject, f"{body} {link}", owner=owner,
+            idempotency_key=claim["idempotency_key"], minimize_log=True)
+        status = ("unknown" if result.get("ambiguous") else
+                  ("logged" if result.get("provider") == "stub" else "sent")
+                  if result.get("ok") else "failed")
+        await dispatch_conn.execute(
+            "UPDATE inactivity_deliveries SET status=%s,provider=%s,error_code=%s WHERE id=%s",
+            (status, result.get("provider", ""),
+             "" if result.get("ok") else result.get("error_code", "delivery_failed"), claim["id"]))
+        if not result.get("ok"):
+            await dispatch_conn.execute(
+                "UPDATE inactivity_capabilities SET consumed_at=%s WHERE token_hash=%s",
+                (_utc(now).isoformat(), _capability_hash(claim["token"])))
+        return {**claim, "ok": bool(result.get("ok")), "status": status}
+
+
+async def _set_inactivity_state(
+    conn, owner: str, group_id: str, *, stage: str, priority: int,
+    now: datetime, next_action_at: str, outcome: str,
+) -> None:
+    await conn.execute(
+        "UPDATE inactivity_escalations SET stage=%s,current_priority=%s,last_notified_at=%s,"
+        "next_action_at=%s,last_outcome=%s,updated_at=%s WHERE owner_user_id=%s AND group_id=%s",
+        (stage, priority, _utc(now).isoformat(), next_action_at, outcome,
+         _utc(now).isoformat(), owner, group_id))
 
 
 async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> dict:
-    """One pass of the dead-man's-switch. For each family group whose head (owner)
-    is inactive: nudge the head in the check-in window; past the escalate window,
-    alert the notifier list (staggered by priority) or everyone if no order is set.
-    Idempotent per run via stage + last_notified_at gating."""
-    checkin_days, escalate_days, gap_days = _inactivity_cfg()
-    summary = {"checked": 0, "nudged": 0, "escalated": 0}
-    base = os.getenv("APP_PUBLIC_URL", "").rstrip("/")
-    q = ("SELECT g.id AS gid, g.owner_user_id AS owner, g.name AS gname, "
-         "COALESCE(u.last_active_at,'') AS last_active "
-         "FROM groups g LEFT JOIN users u ON u.id = g.owner_user_id WHERE g.type='family'")
+    """Run at most one due safeguard stage per family group.
+
+    Schedule: 180 inactive days, then head reminders on days 181, 187 and 195;
+    family escalation begins on a later daily run. All-family mode is verified
+    email only. Selected mode advances one verified-email priority every gap.
+    """
+    now = _utc(now)
+    threshold_days, reminder_days, priority_gap = _inactivity_cfg()
+    summary = {"checked": 0, "nudged": 0, "escalated": 0, "failed": 0, "skipped": 0}
+    # New links are emitted only after all API tasks understand the capability
+    # table. This keeps old and new tasks from producing mutually unreadable
+    # credentials during a rolling deployment.
+    if os.getenv("INACTIVITY_V2_ENABLED", "").strip() != "1":
+        return {**summary, "disabled": True}
+    q = ("SELECT g.id AS gid,g.owner_user_id AS owner,g.name AS gname,"
+         "COALESCE(u.last_active_at,'') AS last_active,COALESCE(u.email,'') AS head_email,"
+         "COALESCE(u.notification_prefs,'') AS notification_prefs,"
+         "COALESCE(u.inactivity_email_enabled,true) AS inactivity_email_enabled "
+         "FROM groups g LEFT JOIN users u ON u.id=g.owner_user_id WHERE g.type='family'")
     params: list = []
     if only_owner:
         q += " AND g.owner_user_id=%s"
         params.append(only_owner)
-    for g in await (await conn.execute(q, params)).fetchall():
-        owner, gid = g["owner"], g["gid"]
+    groups = await (await conn.execute(q, params)).fetchall()
+
+    for snapshot in groups:
+        owner, gid = snapshot["owner"], snapshot["gid"]
         if not owner:
             continue
         summary["checked"] += 1
-        idle = _days_since(g["last_active"], now)
-        if idle < checkin_days:
-            continue
-        esc = await (await conn.execute(
-            "SELECT * FROM inactivity_escalations WHERE owner_user_id=%s AND group_id=%s", (owner, gid))).fetchone()
-        if esc and esc.get("acknowledged") and idle < escalate_days:
-            continue
-        token = (esc or {}).get("ack_token") or str(uuid.uuid4())
-        link = f"{base}/active/{token}"
+        async with conn.transaction():
+            # Serialize manual, scheduled and retried runs for this household.
+            locked = await (await conn.execute(
+                "SELECT id FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE", (gid, owner))).fetchone()
+            if not locked:
+                continue
+            g = await (await conn.execute(
+                "SELECT g.name AS gname,u.id AS owner,COALESCE(u.last_active_at,'') AS last_active,"
+                "COALESCE(u.email,'') AS head_email,COALESCE(u.notification_prefs,'') AS notification_prefs,"
+                "COALESCE(u.inactivity_email_enabled,true) AS inactivity_email_enabled "
+                "FROM groups g JOIN users u ON u.id=g.owner_user_id "
+                "WHERE g.id=%s AND g.owner_user_id=%s FOR UPDATE OF u",
+                (gid, owner))).fetchone()
+            last_active = _parse_utc(g["last_active"])
+            if not last_active:
+                summary["skipped"] += 1
+                continue
+            idle = (now - last_active).total_seconds() / 86400.0
+            cycle = _inactivity_cycle(owner, gid, g["last_active"])
+            threshold_at = last_active + timedelta(days=threshold_days)
+            esc = await (await conn.execute(
+                "SELECT * FROM inactivity_escalations WHERE owner_user_id=%s AND group_id=%s FOR UPDATE",
+                (owner, gid))).fetchone()
 
-        async def _set_state(stage: str, prio: int, _esc=esc, _owner=owner, _gid=gid, _token=token):
-            if _esc:
+            if idle < threshold_days:
+                if esc and (esc.get("cycle_key") != cycle or esc.get("stage") != "active"):
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET cycle_key=%s,stage='active',current_priority=0,"
+                        "threshold_at=%s,next_action_at=%s,last_outcome='activity_reset',acknowledged=false,"
+                        "head_acknowledged_at='',family_acknowledged_at='',updated_at=%s "
+                        "WHERE owner_user_id=%s AND group_id=%s",
+                        (cycle, threshold_at.isoformat(),
+                         (threshold_at + timedelta(days=reminder_days[0])).isoformat(), now.isoformat(), owner, gid))
+                    await conn.execute(
+                        "UPDATE inactivity_capabilities SET consumed_at=%s WHERE owner_user_id=%s "
+                        "AND group_id=%s AND consumed_at=''", (now.isoformat(), owner, gid))
+                continue
+
+            if not esc:
                 await conn.execute(
-                    "UPDATE inactivity_escalations SET stage=%s, current_priority=%s, last_notified_at=%s, updated_at=%s "
+                    "INSERT INTO inactivity_escalations "
+                    "(id,owner_user_id,group_id,stage,current_priority,last_notified_at,acknowledged,ack_token,"
+                    "created_at,updated_at,cycle_key,threshold_at,next_action_at,last_outcome,"
+                    "head_acknowledged_at,family_acknowledged_at) "
+                    "VALUES (%s,%s,%s,'',0,'',false,'',%s,%s,%s,%s,%s,'','','')",
+                    (new_id(), owner, gid, now.isoformat(), now.isoformat(), cycle,
+                     threshold_at.isoformat(), (threshold_at + timedelta(days=reminder_days[0])).isoformat()))
+                esc = await (await conn.execute(
+                    "SELECT * FROM inactivity_escalations WHERE owner_user_id=%s AND group_id=%s FOR UPDATE",
+                    (owner, gid))).fetchone()
+            elif esc.get("cycle_key") != cycle:
+                await conn.execute(
+                    "UPDATE inactivity_capabilities SET consumed_at=%s WHERE owner_user_id=%s "
+                    "AND group_id=%s AND consumed_at=''", (now.isoformat(), owner, gid))
+                await conn.execute(
+                    "UPDATE inactivity_escalations SET cycle_key=%s,stage='',current_priority=0,last_notified_at='',"
+                    "acknowledged=false,ack_token='',threshold_at=%s,next_action_at=%s,last_outcome='',"
+                    "head_acknowledged_at='',family_acknowledged_at='',updated_at=%s "
                     "WHERE owner_user_id=%s AND group_id=%s",
-                    (stage, prio, now.isoformat(), now.isoformat(), _owner, _gid))
-            else:
-                await conn.execute(
-                    "INSERT INTO inactivity_escalations (id, owner_user_id, group_id, stage, current_priority, "
-                    "last_notified_at, acknowledged, ack_token, created_at, updated_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,false,%s,%s,%s)",
-                    (new_id(), _owner, _gid, stage, prio, now.isoformat(), _token, now.isoformat(), now.isoformat()))
+                    (cycle, threshold_at.isoformat(),
+                     (threshold_at + timedelta(days=reminder_days[0])).isoformat(), now.isoformat(), owner, gid))
+                esc = await (await conn.execute(
+                    "SELECT * FROM inactivity_escalations WHERE owner_user_id=%s AND group_id=%s FOR UPDATE",
+                    (owner, gid))).fetchone()
 
-        if idle < escalate_days:
-            # Check-in window: nudge the head to prove they're active.
-            if esc and esc["stage"] == "checkin" and _days_since(esc["last_notified_at"], now) < gap_days:
+            stage = esc.get("stage") or ""
+            if stage in {"closed_head", "closed_family", "family_all", "family_exhausted"} or esc.get("acknowledged"):
                 continue
-            head = await (await conn.execute(
-                "SELECT COALESCE(NULLIF(email,''),'') AS email FROM users WHERE id=%s", (owner,))).fetchone()
-            to = (head or {}).get("email") or owner
-            await notify.notify_contact(
-                conn, to, "Are you still active? — Pattadar",
-                f"We haven't seen activity on your Pattadar account recently. Tap to confirm you're active, "
-                f"otherwise your family will be notified: {link}", owner=owner)
-            await _set_state("checkin", 0)
-            summary["nudged"] += 1
-            continue
 
-        # Escalate window (>= escalate_days).
-        if esc and esc.get("acknowledged"):
-            continue
-        notifiers = await (await conn.execute(
-            "SELECT member_id, priority FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s ORDER BY priority",
-            (owner, gid))).fetchall()
-        subject = f"Family alert — {g['gname']}"
-        body = (f"The head of {g['gname']} on Pattadar has been inactive for over 6 months. "
-                f"Please check on them. Acknowledge here: {link}")
-        if not notifiers:
-            # Default: notify ALL members once.
-            if esc and esc["stage"] == "escalate_all":
+            due_stage = ""
+            reminder_index = -1
+            if stage in {"", "active"} and idle >= threshold_days + reminder_days[0]:
+                due_stage, reminder_index = "reminder_1", 0
+            elif stage == "reminder_1" and idle >= threshold_days + reminder_days[1]:
+                due_stage, reminder_index = "reminder_2", 1
+            elif stage == "reminder_2" and idle >= threshold_days + reminder_days[2]:
+                due_stage, reminder_index = "final_reminder", 2
+
+            if due_stage:
+                prefs = {p.strip().lower() for p in g["notification_prefs"].split(",") if p.strip()}
+                email = g["head_email"].strip()
+                if not email or "email" not in prefs or not g["inactivity_email_enabled"]:
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET last_outcome='head_email_unavailable',updated_at=%s "
+                        "WHERE owner_user_id=%s AND group_id=%s", (now.isoformat(), owner, gid))
+                    summary["skipped"] += 1
+                    continue
+                labels = ("Activity reminder", "Second activity reminder", "Final activity reminder")
+                body = ("Please confirm that you are active on Pattadar."
+                        if reminder_index == 0 else
+                        "We still have not received your activity confirmation on Pattadar."
+                        if reminder_index == 1 else
+                        "This is your final reminder. Your configured family contacts will be notified next if you do not respond.")
+                sent = await _send_inactivity_email(
+                    conn, owner=owner, group_id=gid, cycle=cycle, stage=due_stage,
+                    recipient_ref="head", actor_type="head", email=email,
+                    subject=f"{labels[reminder_index]} — Pattadar", body=body, now=now)
+                if not sent["ok"]:
+                    if sent["status"] == "unknown":
+                        await _set_inactivity_state(
+                            conn, owner, gid, stage="delivery_attention", priority=0, now=now,
+                            next_action_at="", outcome="outcome_unknown")
+                    summary["failed" if sent["status"] in {"failed", "unknown"} else "skipped"] += 1
+                    continue
+                next_at = ((threshold_at + timedelta(days=reminder_days[reminder_index + 1])).isoformat()
+                           if reminder_index < 2 else (now + timedelta(days=1)).isoformat())
+                await _set_inactivity_state(
+                    conn, owner, gid, stage=due_stage, priority=0, now=now,
+                    next_action_at=next_at, outcome=sent["status"])
+                if not sent.get("existing"):
+                    summary["nudged"] += 1
                 continue
-            for m in await (await conn.execute(
-                    "SELECT id FROM family_members WHERE owner_user_id=%s AND group_id=%s AND is_self=false",
-                    (owner, gid))).fetchall():
-                await _alert_member(conn, m["id"], subject, body, owner)
-            await _set_state("escalate_all", 0)
-            summary["escalated"] += 1
-            continue
-        # Staggered: advance one priority at a time, gap_days apart.
-        if esc and esc["stage"] == "escalate" and _days_since(esc["last_notified_at"], now) < gap_days:
-            continue
-        cur_prio = (esc or {}).get("current_priority", 0) or 0
-        nxt = next((n for n in notifiers if n["priority"] > cur_prio), None)
-        if not nxt:
-            continue  # exhausted the notifier list
-        await _alert_member(conn, nxt["member_id"], subject, body, owner)
-        await _set_state("escalate", nxt["priority"])
-        summary["escalated"] += 1
+
+            if stage not in {"final_reminder", "family_selected"}:
+                continue
+            if stage == "final_reminder" and _days_since(esc.get("last_notified_at", ""), now) < 1:
+                continue
+            if stage == "family_selected" and _days_since(esc.get("last_notified_at", ""), now) < priority_gap:
+                continue
+
+            configured = await (await conn.execute(
+                "SELECT fn.member_id,fn.priority,fn.channel,fm.email,fm.email_verified,"
+                "fm.inactivity_email_consent,fm.is_minor FROM family_notifiers fn LEFT JOIN family_members fm "
+                "ON fm.id=fn.member_id AND fm.owner_user_id=fn.owner_user_id "
+                "AND fm.group_id=fn.group_id AND fm.is_self=false "
+                "WHERE fn.owner_user_id=%s AND fn.group_id=%s ORDER BY fn.priority", (owner, gid))).fetchall()
+            subject = f"Family alert — {g['gname']}"
+            body = (f"The head of {g['gname']} has not responded to Pattadar's activity reminders. "
+                    "Please check on them. This alert does not transfer account or property control.")
+            if not configured:
+                recipients = await (await conn.execute(
+                    "SELECT id,email FROM family_members WHERE owner_user_id=%s AND group_id=%s "
+                    "AND is_self=false AND is_minor=false AND email_verified=true AND inactivity_email_consent=true "
+                    "AND COALESCE(email,'')<>'' ORDER BY id",
+                    (owner, gid))).fetchall()
+                if not recipients:
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET last_outcome='no_eligible_family_email',updated_at=%s "
+                        "WHERE owner_user_id=%s AND group_id=%s", (now.isoformat(), owner, gid))
+                    summary["skipped"] += 1
+                    continue
+                outcomes = []
+                for member in recipients:
+                    outcomes.append(await _send_inactivity_email(
+                        conn, owner=owner, group_id=gid, cycle=cycle, stage="family_all",
+                        recipient_ref=member["id"], actor_type="family", email=member["email"],
+                        subject=subject, body=body, now=now))
+                summary["escalated"] += sum(1 for r in outcomes if r["ok"] and not r.get("existing"))
+                summary["failed"] += sum(1 for r in outcomes if r["status"] == "failed")
+                if any(r["status"] == "unknown" for r in outcomes):
+                    await _set_inactivity_state(
+                        conn, owner, gid, stage="delivery_attention", priority=0, now=now,
+                        next_action_at="", outcome="outcome_unknown")
+                elif all(r["ok"] for r in outcomes):
+                    await _set_inactivity_state(
+                        conn, owner, gid, stage="family_all", priority=0, now=now,
+                        next_action_at="", outcome="family_email_complete")
+                else:
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET last_outcome='family_email_partial',updated_at=%s "
+                        "WHERE owner_user_id=%s AND group_id=%s", (now.isoformat(), owner, gid))
+                continue
+
+            current_priority = int(esc.get("current_priority") or 0)
+            nxt = next((n for n in configured
+                        if int(n["priority"]) > current_priority
+                        and n.get("channel") == "email"
+                        and n.get("email_verified")
+                        and not n.get("is_minor")
+                        and n.get("inactivity_email_consent")
+                        and (n.get("email") or "").strip()), None)
+            if not nxt:
+                await _set_inactivity_state(
+                    conn, owner, gid, stage="family_exhausted", priority=current_priority,
+                    now=now, next_action_at="", outcome="no_eligible_ordered_notifier")
+                summary["skipped"] += sum(1 for n in configured if int(n["priority"]) > current_priority)
+                continue
+            sent = await _send_inactivity_email(
+                conn, owner=owner, group_id=gid, cycle=cycle, stage=f"family_priority_{nxt['priority']}",
+                recipient_ref=nxt["member_id"], actor_type="family", email=nxt["email"],
+                subject=subject, body=body, now=now)
+            if not sent["ok"]:
+                if sent["status"] == "unknown":
+                    await _set_inactivity_state(
+                        conn, owner, gid, stage="delivery_attention", priority=current_priority,
+                        now=now, next_action_at="", outcome="outcome_unknown")
+                summary["failed" if sent["status"] in {"failed", "unknown"} else "skipped"] += 1
+                continue
+            await _set_inactivity_state(
+                conn, owner, gid, stage="family_selected", priority=int(nxt["priority"]),
+                now=now, next_action_at=(now + timedelta(days=priority_gap)).isoformat(),
+                outcome=sent["status"])
+            if not sent.get("existing"):
+                summary["escalated"] += 1
     return summary
 
 
@@ -2583,52 +3065,50 @@ class Mutation:
     async def apply_my_kyc(
         self, info: strawberry.Info,
         name: str = "", dob: str = "", gender: str = "",
-        address: str = "", aadhaar: str = "",
+        address: str = "", aadhaar: str = "", aadhaar_candidate_id: str = "",
     ) -> UserType:
-        """Apply KYC read from the owner's own Aadhaar.
-
-        Writes BOTH the account profile and every `is_self` family-member row,
-        so the owner appears in their groups with the same name, age and ID as
-        anyone else — the account and the group record are two views of one
-        person, and they used to drift apart.
-
-        Every argument is optional: only non-empty values are written, so a
-        partial accept from the review screen never blanks a field.
-        """
-        uid = _uid_from_info(info) or "guest"
-        masked = _mask_aadhaar(aadhaar) if (aadhaar or "").strip() else ""
-        enc = encrypt_aadhaar(aadhaar) if (aadhaar or "").strip() else ""
+        """Apply reviewed KYC without returning extracted full digits to a client."""
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", (uid, uid))
-            sets, vals = [], []
-            if (name or "").strip():
-                sets.append("name=%s"); vals.append(name.strip())
-            if (address or "").strip():
-                sets.append("address=%s"); vals.append(address.strip())
-            if masked:
-                sets.append("kyc_ref_masked=%s"); vals.append(masked)
-                sets.append("kyc_ref_enc=%s"); vals.append(enc)
-            if sets:
+            async with conn.transaction():
                 await conn.execute(
-                    f"UPDATE users SET {', '.join(sets)} WHERE id=%s", (*vals, uid))
+                    "INSERT INTO users (id,name) VALUES (%s,%s) ON CONFLICT (id) DO NOTHING", (uid, uid))
+                if aadhaar and aadhaar_candidate_id:
+                    raise ValueError("Use either typed Aadhaar or a card reading, not both")
+                value = (await aadhaar_security.consume_candidate(conn, uid, aadhaar_candidate_id)
+                         if aadhaar_candidate_id else aadhaar_security.digits(aadhaar))
+                if (aadhaar or aadhaar_candidate_id) and not value:
+                    raise ValueError("Aadhaar must be exactly 12 digits")
+                masked, enc = await aadhaar_security.encrypt_number(value, uid, "account", uid) if value else ("", "")
 
-            msets, mvals = [], []
-            for col, val in (("name", name), ("dob", dob), ("gender", gender),
-                             ("present_address", address)):
-                if (val or "").strip():
-                    msets.append(f"{col}=%s"); mvals.append(val.strip())
-            if masked:
-                msets.append("aadhaar_masked=%s"); mvals.append(masked)
-                msets.append("aadhaar_enc=%s"); mvals.append(enc)
-            if msets:
-                await conn.execute(
-                    f"UPDATE family_members SET {', '.join(msets)} "
-                    "WHERE owner_user_id=%s AND is_self=TRUE", (*mvals, uid))
+                sets, vals = [], []
+                if (name or "").strip():
+                    sets.append("name=%s"); vals.append(name.strip())
+                if (address or "").strip():
+                    sets.append("address=%s"); vals.append(address.strip())
+                if masked:
+                    sets.extend(["kyc_ref_masked=%s", "kyc_ref_enc=%s"]); vals.extend([masked, enc])
+                if sets:
+                    await conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id=%s", (*vals, uid))
 
-            await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
-            row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
-            return to_type(UserType, row)
+                members = await (await conn.execute(
+                    "SELECT id FROM family_members WHERE owner_user_id=%s AND is_self=true FOR UPDATE", (uid,))).fetchall()
+                for member in members:
+                    msets, mvals = [], []
+                    for col, val in (("name", name), ("dob", dob), ("gender", gender), ("present_address", address)):
+                        if (val or "").strip():
+                            msets.append(f"{col}=%s"); mvals.append(val.strip())
+                    if value:
+                        mmask, menc = await aadhaar_security.encrypt_number(value, uid, "member", member["id"])
+                        msets.extend(["aadhaar_masked=%s", "aadhaar_enc=%s"]); mvals.extend([mmask, menc])
+                    if msets:
+                        await conn.execute(
+                            f"UPDATE family_members SET {', '.join(msets)} WHERE id=%s AND owner_user_id=%s",
+                            (*mvals, member["id"], uid))
+
+                await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
+                row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
+                return to_type(UserType, row)
 
     @strawberry.mutation
     async def clear_my_kyc(self, info: strawberry.Info) -> UserType:
@@ -2664,7 +3144,7 @@ class Mutation:
         async with pool.connection() as conn:
             row = await (await conn.execute(
                 "SELECT kyc_ref_enc FROM users WHERE id=%s", (uid,))).fetchone()
-            full = decrypt_aadhaar(row["kyc_ref_enc"]) if row else ""
+            full = await decrypt_aadhaar(row["kyc_ref_enc"], uid, "account", uid) if row else ""
             if not full:
                 raise ValueError("No Aadhaar stored on your profile")
             await log_audit(conn, uid, "reveal_aadhaar", uid, "revealed own Aadhaar")
@@ -2685,7 +3165,7 @@ class Mutation:
                 (id, uid))).fetchone()
             if not row:
                 raise NotAuthorized("Not authorized for this member")
-            full = decrypt_aadhaar(row["aadhaar_enc"])
+            full = await decrypt_aadhaar(row["aadhaar_enc"], uid, "member", id)
             if not full:
                 raise ValueError("No Aadhaar stored for this member")
             await log_audit(conn, uid, "reveal_aadhaar", id, f"revealed for {row['name']}")
@@ -3227,8 +3707,10 @@ class Mutation:
             return to_type(BeneficiaryType, row)
 
     @strawberry.mutation
-    async def verify_beneficiary(self, info: strawberry.Info, token: str) -> BeneficiaryType:
-        return await _verify_by_token(info, token)
+    async def verify_beneficiary(
+        self, info: strawberry.Info, token: str, inactivity_email_consent: bool = False,
+    ) -> BeneficiaryType:
+        return await _verify_by_token(info, token, inactivity_email_consent)
 
     @strawberry.mutation
     async def verify_member(self, info: strawberry.Info, token: str) -> BeneficiaryType:
@@ -3451,24 +3933,60 @@ class Mutation:
         dob: str = "", phone: str = "", email: str = "", bio: str = "", is_beneficiary: bool = True,
         share_pct: float = 0.0, photo: str = "",
     ) -> FamilyMemberType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute(
-                "UPDATE family_members SET name=%s, relation=%s, gender=%s, dob=%s, phone=%s, email=%s, bio=%s, is_beneficiary=%s, share_pct=%s, photo=%s "
-                "WHERE id=%s AND owner_user_id=%s RETURNING *",
-                (name, relation, gender, dob, phone, email, bio, is_beneficiary, share_pct, photo, id, uid),
-            )
-            row = await cur.fetchone()
-            if not row:
-                raise NotAuthorized("Not authorized for this family member")
-            return to_type(FamilyMemberType, row)
+            async with conn.transaction():
+                prior = await (await conn.execute(
+                    "SELECT email,phone,group_id FROM family_members WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (id, uid))).fetchone()
+                if not prior:
+                    raise NotAuthorized("Not authorized for this family member")
+                email_changed = (prior.get("email") or "").strip().casefold() != (email or "").strip().casefold()
+                phone_changed = re.sub(r"\D", "", prior.get("phone") or "") != re.sub(r"\D", "", phone or "")
+                cur = await conn.execute(
+                    "UPDATE family_members SET name=%s,relation=%s,gender=%s,dob=%s,phone=%s,email=%s,"
+                    "bio=%s,is_beneficiary=%s,share_pct=%s,photo=%s,"
+                    "email_verified=CASE WHEN %s THEN false ELSE email_verified END,"
+                    "phone_verified=CASE WHEN %s THEN false ELSE phone_verified END,"
+                    "inactivity_email_consent=CASE WHEN %s THEN false ELSE inactivity_email_consent END,"
+                    "inactivity_email_consent_at=CASE WHEN %s THEN '' ELSE inactivity_email_consent_at END,"
+                    "invite_token=CASE WHEN %s THEN '' ELSE invite_token END,"
+                    "invite_status=CASE WHEN %s THEN '' ELSE invite_status END,"
+                    "status=CASE WHEN %s THEN 'pending' ELSE status END "
+                    "WHERE id=%s AND owner_user_id=%s RETURNING *",
+                    (name, relation, gender, dob, phone, email, bio, is_beneficiary, share_pct, photo,
+                     email_changed, phone_changed, email_changed, email_changed,
+                     email_changed or phone_changed, email_changed or phone_changed,
+                     email_changed or phone_changed, id, uid))
+                if email_changed or phone_changed:
+                    await conn.execute(
+                        "UPDATE invitations SET status='revoked',token='' WHERE scope_id=%s "
+                        "AND scope_type IN ('family','beneficiary') AND status='pending'", (id,))
+                if email_changed:
+                    await conn.execute(
+                        "DELETE FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s AND member_id=%s",
+                        (uid, prior["group_id"], id))
+                return to_type(FamilyMemberType, await cur.fetchone())
 
     @strawberry.mutation
     async def delete_family_member(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
-            return cur.rowcount > 0
+            async with conn.transaction():
+                member = await (await conn.execute(
+                    "SELECT group_id,is_self FROM family_members WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (id, uid))).fetchone()
+                if not member or member["is_self"]:
+                    return False
+                await conn.execute(
+                    "DELETE FROM family_notifiers WHERE member_id=%s AND owner_user_id=%s AND group_id=%s",
+                    (id, uid, member["group_id"]))
+                await conn.execute(
+                    "UPDATE inactivity_capabilities SET consumed_at=%s WHERE recipient_ref=%s "
+                    "AND owner_user_id=%s AND group_id=%s AND consumed_at=''",
+                    (datetime.now(timezone.utc).isoformat(), id, uid, member["group_id"]))
+                cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
+                return cur.rowcount > 0
 
     @strawberry.mutation
     async def set_family_member_photo(self, info: strawberry.Info, id: str, photo: str) -> bool:
@@ -3538,25 +4056,24 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_group(self, info: strawberry.Info, id: str) -> bool:
-        """Delete a group, its members, and unassign its passbooks (land goes back
-        to personal, never deleted)."""
-        uid = _uid_from_info(info) or "system"
+        """Delete household configuration atomically; holdings return to personal."""
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            g = await (await conn.execute("SELECT name FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            if not g:
-                return False
-            await conn.execute("UPDATE passbooks SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
-            # Built property is grouped by its OWN column, not through a
-            # passbook, and this line was missing — so deleting a group left
-            # every flat and shop in it pointing at a group that no longer
-            # existed. They stayed out of "in your own name" and out of the
-            # deleted group, which is to say they fell out of the filter
-            # altogether, recoverable only by reassigning them by hand.
-            await conn.execute("UPDATE properties SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
-            await conn.execute("DELETE FROM family_members WHERE group_id=%s AND owner_user_id=%s", (id, uid))
-            cur = await conn.execute("DELETE FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))
-            await log_audit(conn, uid, "delete_group", id, _named("", g["name"]))
-            return cur.rowcount > 0
+            async with conn.transaction():
+                g = await (await conn.execute(
+                    "SELECT name FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE", (id, uid))).fetchone()
+                if not g:
+                    return False
+                await conn.execute("UPDATE passbooks SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("UPDATE properties SET group_id='' WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("DELETE FROM family_notifiers WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("DELETE FROM inactivity_capabilities WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("DELETE FROM inactivity_deliveries WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("DELETE FROM inactivity_escalations WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("DELETE FROM family_members WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                cur = await conn.execute("DELETE FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))
+                await log_audit(conn, uid, "delete_group", id, _named("", g["name"]))
+                return cur.rowcount > 0
 
     @strawberry.mutation
     async def assign_land_to_group(self, info: strawberry.Info, passbook_id: str, group_id: str) -> bool:
@@ -3638,26 +4155,28 @@ class Mutation:
         gender: str = "", dob: str = "", phone: str = "", email: str = "", bio: str = "", photo: str = "",
         father_id: str = "", mother_id: str = "", spouse_id: str = "", is_beneficiary: bool = False,
         share_pct: float = 0.0, kind: str = "", parcel_id: str = "", present_address: str = "", aadhaar: str = "",
-        guardian_name: str = "", guardian_contact: str = "", marital_status: str = "",
+        aadhaar_candidate_id: str = "", guardian_name: str = "", guardian_contact: str = "", marital_status: str = "",
         spouse_name: str = "", spouse_contact: str = "", spouse_status: str = "",
     ) -> PersonType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            g = await (await conn.execute(
-                "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
-            if not g:
-                raise NotAuthorized("Not authorized for this group")
-            v = dict(name=name, relation=relation, role=role, group_id=group_id, gender=gender, dob=dob,
-                     phone=phone, email=email, bio=bio, photo=photo, father_id=father_id, mother_id=mother_id,
-                     spouse_id=spouse_id, is_beneficiary=is_beneficiary, share_pct=share_pct, kind=kind,
-                     parcel_id=parcel_id, present_address=present_address, aadhaar=aadhaar,
-                     guardian_name=guardian_name, guardian_contact=guardian_contact,
-                     marital_status=marital_status, spouse_name=spouse_name, spouse_contact=spouse_contact,
-                     spouse_status=spouse_status)
-            pid = new_id()
-            res = await _write_person(conn, uid, pid, v, is_update=False)
-            await log_audit(conn, uid, "add_member", pid, f"{role or relation}: {name}")
-            return res
+            async with conn.transaction():
+                g = await (await conn.execute(
+                    "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE", (group_id, uid))).fetchone()
+                if not g:
+                    raise NotAuthorized("Not authorized for this group")
+                v = dict(name=name, relation=relation, role=role, group_id=group_id, gender=gender, dob=dob,
+                         phone=phone, email=email, bio=bio, photo=photo, father_id=father_id, mother_id=mother_id,
+                         spouse_id=spouse_id, is_beneficiary=is_beneficiary, share_pct=share_pct, kind=kind,
+                         parcel_id=parcel_id, present_address=present_address, aadhaar=aadhaar,
+                         aadhaar_candidate_id=aadhaar_candidate_id,
+                         guardian_name=guardian_name, guardian_contact=guardian_contact,
+                         marital_status=marital_status, spouse_name=spouse_name, spouse_contact=spouse_contact,
+                         spouse_status=spouse_status)
+                pid = new_id()
+                res = await _write_person(conn, uid, pid, v, is_update=False)
+                await log_audit(conn, uid, "add_member", pid, f"{role or relation}: {name}")
+                return res
 
     @strawberry.mutation
     async def update_member(
@@ -3665,39 +4184,51 @@ class Mutation:
         gender: str = "", dob: str = "", phone: str = "", email: str = "", bio: str = "", photo: str = "",
         father_id: str = "", mother_id: str = "", spouse_id: str = "", is_beneficiary: bool = False,
         share_pct: float = 0.0, kind: str = "", parcel_id: str = "", present_address: str = "", aadhaar: str = "",
-        guardian_name: str = "", guardian_contact: str = "", marital_status: str = "",
+        aadhaar_candidate_id: str = "", guardian_name: str = "", guardian_contact: str = "", marital_status: str = "",
         spouse_name: str = "", spouse_contact: str = "", spouse_status: str = "",
     ) -> PersonType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            gid = (await (await conn.execute(
-                "SELECT group_id FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone() or {}).get("group_id", "")
-            v = dict(name=name, relation=relation, role=role, group_id=gid, gender=gender, dob=dob,
-                     phone=phone, email=email, bio=bio, photo=photo, father_id=father_id, mother_id=mother_id,
-                     spouse_id=spouse_id, is_beneficiary=is_beneficiary, share_pct=share_pct, kind=kind,
-                     parcel_id=parcel_id, present_address=present_address, aadhaar=aadhaar,
-                     guardian_name=guardian_name, guardian_contact=guardian_contact,
-                     marital_status=marital_status, spouse_name=spouse_name, spouse_contact=spouse_contact,
-                     spouse_status=spouse_status)
-            return await _write_person(conn, uid, id, v, is_update=True)
+            async with conn.transaction():
+                gid = (await (await conn.execute(
+                    "SELECT group_id FROM family_members WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (id, uid))).fetchone() or {}).get("group_id", "")
+                v = dict(name=name, relation=relation, role=role, group_id=gid, gender=gender, dob=dob,
+                         phone=phone, email=email, bio=bio, photo=photo, father_id=father_id, mother_id=mother_id,
+                         spouse_id=spouse_id, is_beneficiary=is_beneficiary, share_pct=share_pct, kind=kind,
+                         parcel_id=parcel_id, present_address=present_address, aadhaar=aadhaar,
+                         aadhaar_candidate_id=aadhaar_candidate_id,
+                         guardian_name=guardian_name, guardian_contact=guardian_contact,
+                         marital_status=marital_status, spouse_name=spouse_name, spouse_contact=spouse_contact,
+                         spouse_status=spouse_status)
+                return await _write_person(conn, uid, id, v, is_update=True)
 
     @strawberry.mutation
     async def remove_member(self, info: strawberry.Info, id: str) -> bool:
-        """Delete a person and null any genealogy edges pointing at them. The 'self'
-        node cannot be deleted."""
-        uid = _uid_from_info(info) or "system"
+        """Delete a non-self person and atomically remove notifier/tree links."""
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            s = await (await conn.execute("SELECT is_self, name FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            if not s:
-                return False
-            if s["is_self"]:
-                raise ValueError("You can't remove your own node")
-            await conn.execute("UPDATE family_members SET father_id='' WHERE father_id=%s AND owner_user_id=%s", (id, uid))
-            await conn.execute("UPDATE family_members SET mother_id='' WHERE mother_id=%s AND owner_user_id=%s", (id, uid))
-            await conn.execute("UPDATE family_members SET spouse_id='' WHERE spouse_id=%s AND owner_user_id=%s", (id, uid))
-            cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
-            await log_audit(conn, uid, "remove_member", id, _named("", s["name"]))
-            return cur.rowcount > 0
+            async with conn.transaction():
+                s = await (await conn.execute(
+                    "SELECT is_self,name,group_id FROM family_members "
+                    "WHERE id=%s AND owner_user_id=%s FOR UPDATE", (id, uid))).fetchone()
+                if not s:
+                    return False
+                if s["is_self"]:
+                    raise ValueError("You can't remove your own node")
+                await conn.execute(
+                    "DELETE FROM family_notifiers WHERE member_id=%s AND owner_user_id=%s AND group_id=%s",
+                    (id, uid, s["group_id"]))
+                await conn.execute(
+                    "UPDATE inactivity_capabilities SET consumed_at=%s WHERE recipient_ref=%s "
+                    "AND owner_user_id=%s AND group_id=%s AND consumed_at=''",
+                    (_utc(datetime.utcnow()).isoformat(), id, uid, s["group_id"]))
+                await conn.execute("UPDATE family_members SET father_id='' WHERE father_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("UPDATE family_members SET mother_id='' WHERE mother_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("UPDATE family_members SET spouse_id='' WHERE spouse_id=%s AND owner_user_id=%s", (id, uid))
+                cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
+                await log_audit(conn, uid, "remove_member", id, _named("", s["name"]))
+                return cur.rowcount > 0
 
     @strawberry.mutation
     async def set_member_photo(self, info: strawberry.Info, id: str, photo: str) -> bool:
@@ -3744,35 +4275,58 @@ class Mutation:
 
     @strawberry.mutation
     async def set_notifiers(self, info: strawberry.Info, group_id: str, member_ids: List[str]) -> List[NotifierType]:
-        """Replace a group's ordered inactivity-notifier list. Order in `member_ids`
-        is the priority (1st = Priority 1). Empty list clears it (→ notify everyone)."""
-        uid = _uid_from_info(info) or "system"
+        """Atomically replace the ordered verified-email notifier list.
+
+        The legacy empty-list contract remains the all-family email mode. Every
+        selected id is validated before the current order is touched, preventing
+        cross-household delivery and partial destructive replacement.
+        """
+        uid = _uid_from_info(info)
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("A family member can appear only once in the notifier order")
         async with pool.connection() as conn:
-            own = await (await conn.execute(
-                "SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
-            if not own:
-                raise NotAuthorized("Not authorized for this group")
-            await conn.execute("DELETE FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s", (uid, group_id))
-            now = datetime.utcnow().isoformat()
-            for i, mid in enumerate(member_ids):
+            async with conn.transaction():
+                own = await (await conn.execute(
+                    "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (group_id, uid))).fetchone()
+                if not own:
+                    raise NotAuthorized("Not authorized for this group")
+                if own["type"] != "family":
+                    raise ValueError("Inactivity notifiers are available only for family groups")
+                members = []
+                if member_ids:
+                    members = await (await conn.execute(
+                        "SELECT id,name,relation,role,email,email_verified,inactivity_email_consent,is_self,is_minor "
+                        "FROM family_members WHERE owner_user_id=%s AND group_id=%s AND id=ANY(%s)",
+                        (uid, group_id, member_ids))).fetchall()
+                    by_id = {m["id"]: m for m in members}
+                    if set(by_id) != set(member_ids):
+                        raise ValueError("Every notifier must belong to this family")
+                    if any(m["is_self"] or m.get("is_minor") for m in members):
+                        raise ValueError("Only adult family members can be escalation notifiers")
+                    if any(not (m.get("email") or "").strip() or not m.get("email_verified")
+                           or not m.get("inactivity_email_consent") for m in members):
+                        raise ValueError("Every selected notifier needs a verified email and safeguard-email consent")
+                else:
+                    by_id = {}
+
                 await conn.execute(
-                    "INSERT INTO family_notifiers (id, owner_user_id, group_id, member_id, priority, created_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s)", (new_id(), uid, group_id, mid, i + 1, now))
-            await log_audit(conn, uid, "set_notifiers", group_id, f"{len(member_ids)} notifier(s)")
-            rows = await (await conn.execute(
-                "SELECT member_id, priority FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s ORDER BY priority",
-                (uid, group_id))).fetchall()
-            mem = {m["id"]: m for m in await (await conn.execute(
-                "SELECT id, name, relation, role, phone, email FROM family_members WHERE owner_user_id=%s AND group_id=%s",
-                (uid, group_id))).fetchall()}
-            out = []
-            for r in rows:
-                m = mem.get(r["member_id"])
-                if m:
-                    out.append(NotifierType(member_id=r["member_id"], name=m["name"] or "",
-                                            relation=m["relation"] or m["role"] or "",
-                                            contact=(m["email"] or m["phone"] or ""), priority=r["priority"]))
-            return out
+                    "DELETE FROM family_notifiers WHERE owner_user_id=%s AND group_id=%s", (uid, group_id))
+                now = _utc(datetime.utcnow()).isoformat()
+                for i, mid in enumerate(member_ids):
+                    await conn.execute(
+                        "INSERT INTO family_notifiers "
+                        "(id,owner_user_id,group_id,member_id,priority,channel,created_at) "
+                        "VALUES (%s,%s,%s,%s,%s,'email',%s)",
+                        (new_id(), uid, group_id, mid, i + 1, now))
+                await log_audit(conn, uid, "set_notifiers", group_id,
+                                "All verified family emails" if not member_ids else f"{len(member_ids)} ordered notifier(s)")
+                return [NotifierType(
+                    member_id=mid, name=by_id[mid]["name"] or "",
+                    relation=by_id[mid]["relation"] or by_id[mid]["role"] or "",
+                    contact=by_id[mid]["email"] or "", priority=i + 1,
+                    channel="email", eligible=True,
+                ) for i, mid in enumerate(member_ids)]
 
     @strawberry.mutation
     async def send_test_notification(self, info: strawberry.Info, to: str) -> str:
@@ -3810,21 +4364,117 @@ class Mutation:
         return json.dumps(summary)
 
     @strawberry.mutation
-    async def acknowledge_inactivity(self, info: strawberry.Info, token: str) -> bool:
-        """Tap-to-confirm from a check-in nudge or family alert — stops escalation
-        and (for the head) proves activity by resetting last_active_at."""
+    async def acknowledge_inactivity(
+        self, info: strawberry.Info, token: str, withdraw: bool = False,
+    ) -> bool:
+        """Consume one capability using the scheduler's group→user→state order."""
         token = (token or "").strip()
         if not token:
             return False
+        now = datetime.now(timezone.utc)
+        token_hash = _capability_hash(token)
         async with pool.connection() as conn:
-            row = await (await conn.execute(
-                "UPDATE inactivity_escalations SET acknowledged=true, updated_at=%s WHERE ack_token=%s RETURNING owner_user_id",
-                (datetime.utcnow().isoformat(), token))).fetchone()
-            if not row:
-                return False
-            await conn.execute("UPDATE users SET last_active_at=%s WHERE id=%s",
-                               (datetime.utcnow().isoformat(), row["owner_user_id"]))
-            return True
+            async with conn.transaction():
+                # Initial reads discover lock keys only; authority is revalidated
+                # after all rows are locked in the same order as the scheduler.
+                hint = await (await conn.execute(
+                    "SELECT owner_user_id,group_id FROM inactivity_capabilities WHERE token_hash=%s",
+                    (token_hash,))).fetchone()
+                legacy_hint = None
+                if not hint:
+                    legacy_hint = await (await conn.execute(
+                        "SELECT id,owner_user_id,group_id FROM inactivity_escalations "
+                        "WHERE ack_token=%s AND acknowledged=false", (token,))).fetchone()
+                    hint = legacy_hint
+                if not hint:
+                    return False
+                group = await (await conn.execute(
+                    "SELECT id FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (hint["group_id"], hint["owner_user_id"]))).fetchone()
+                if not group:
+                    return False
+                user = await (await conn.execute(
+                    "SELECT id FROM users WHERE id=%s FOR UPDATE", (hint["owner_user_id"],))).fetchone()
+                if not user:
+                    return False
+                esc = await (await conn.execute(
+                    "SELECT * FROM inactivity_escalations WHERE owner_user_id=%s "
+                    "AND group_id=%s FOR UPDATE", (hint["owner_user_id"], hint["group_id"]))).fetchone()
+                if not esc:
+                    return False
+
+                if legacy_hint:
+                    issued = _parse_utc(esc.get("last_notified_at", "")
+                                        or esc.get("updated_at", "") or esc.get("created_at", ""))
+                    if (esc.get("id") != legacy_hint["id"] or esc.get("ack_token") != token
+                            or esc.get("acknowledged") or not issued
+                            or issued + timedelta(days=30) <= now):
+                        return False
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET acknowledged=true,stage='closed_family',ack_token='',"
+                        "family_acknowledged_at=%s,next_action_at='',last_outcome='legacy_acknowledged',updated_at=%s "
+                        "WHERE id=%s", (now.isoformat(), now.isoformat(), esc["id"]))
+                    await log_audit(conn, esc["owner_user_id"], "acknowledge_inactivity",
+                                    esc["group_id"], "legacy_family",
+                                    actor_kind=audit.ACTOR_RECIPIENT,
+                                    metadata={"actor_type": "legacy_family"})
+                    return True
+
+                capability = await (await conn.execute(
+                    "SELECT * FROM inactivity_capabilities WHERE token_hash=%s FOR UPDATE",
+                    (token_hash,))).fetchone()
+                expires = _parse_utc((capability or {}).get("expires_at", ""))
+                if (not capability or capability.get("owner_user_id") != hint["owner_user_id"]
+                        or capability.get("group_id") != hint["group_id"]
+                        or capability.get("consumed_at") or not expires or expires <= now
+                        or capability.get("actor_type") not in {"head", "family"}
+                        or esc.get("cycle_key") != capability.get("cycle_key")):
+                    return False
+                consumed = await conn.execute(
+                    "UPDATE inactivity_capabilities SET consumed_at=%s WHERE id=%s AND consumed_at=''",
+                    (now.isoformat(), capability["id"]))
+                if consumed.rowcount != 1:
+                    return False
+
+                if capability["actor_type"] == "head":
+                    if withdraw:
+                        await conn.execute(
+                            "UPDATE users SET inactivity_email_enabled=false WHERE id=%s",
+                            (capability["owner_user_id"],))
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET acknowledged=true,stage='closed_head',"
+                        "head_acknowledged_at=%s,next_action_at='',last_outcome='head_acknowledged',updated_at=%s "
+                        "WHERE owner_user_id=%s AND group_id=%s AND cycle_key=%s",
+                        (now.isoformat(), now.isoformat(), capability["owner_user_id"],
+                         capability["group_id"], capability["cycle_key"]))
+                    await conn.execute("UPDATE users SET last_active_at=%s WHERE id=%s",
+                                       (now.isoformat(), capability["owner_user_id"]))
+                else:
+                    if withdraw:
+                        await conn.execute(
+                            "UPDATE family_members SET inactivity_email_consent=false,"
+                            "inactivity_email_consent_at='' WHERE id=%s AND owner_user_id=%s AND group_id=%s",
+                            (capability["recipient_ref"], capability["owner_user_id"], capability["group_id"]))
+                        await conn.execute(
+                            "DELETE FROM family_notifiers WHERE member_id=%s AND owner_user_id=%s AND group_id=%s",
+                            (capability["recipient_ref"], capability["owner_user_id"], capability["group_id"]))
+                    await conn.execute(
+                        "UPDATE inactivity_escalations SET acknowledged=true,stage='closed_family',"
+                        "family_acknowledged_at=%s,next_action_at='',last_outcome='family_acknowledged',updated_at=%s "
+                        "WHERE owner_user_id=%s AND group_id=%s AND cycle_key=%s",
+                        (now.isoformat(), now.isoformat(), capability["owner_user_id"],
+                         capability["group_id"], capability["cycle_key"]))
+                await conn.execute(
+                    "UPDATE inactivity_capabilities SET consumed_at=%s WHERE owner_user_id=%s "
+                    "AND group_id=%s AND cycle_key=%s AND consumed_at=''",
+                    (now.isoformat(), capability["owner_user_id"], capability["group_id"],
+                     capability["cycle_key"]))
+                _ack_kind = capability["actor_type"] + ("_withdrawn" if withdraw else "")
+                await log_audit(conn, capability["owner_user_id"], "acknowledge_inactivity",
+                                capability["group_id"], _ack_kind,
+                                actor_kind=audit.ACTOR_RECIPIENT,
+                                metadata={"actor_type": _ack_kind})
+                return True
 
     @strawberry.mutation
     async def set_member_share(self, info: strawberry.Info, id: str, share_pct: float) -> PersonType:
@@ -4400,7 +5050,7 @@ class Mutation:
         empty kyc_ref leaves whatever is stored untouched."""
         uid = _uid_from_info(info) or "guest"
         masked = _mask_aadhaar(kyc_ref)
-        kyc_enc = encrypt_aadhaar(kyc_ref) if (kyc_ref or "").strip() else ""
+        kyc_enc = await encrypt_aadhaar(kyc_ref, uid, "account", uid) if (kyc_ref or "").strip() else ""
         async with pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
@@ -4610,6 +5260,7 @@ async def _backfill_vault_layer_one(conn) -> None:
 
 
 async def init_db() -> None:
+    aadhaar_security.validate_configuration()
     async with pool.connection() as conn:
         # Serialize concurrent worker startups: the pod runs `uvicorn --workers N`
         # and every worker runs init_db on boot. Pool is autocommit, so hold a
@@ -4617,6 +5268,7 @@ async def init_db() -> None:
         # race on DDL for a newly-added table (pg_type_typname_nsp_index) or on
         # the reference-data PKs (e.g. mandals_pkey). Released at the end of init_db.
         await conn.execute("SELECT pg_advisory_lock(918273645)")
+        await aadhaar_security.ensure_schema(conn)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -4638,6 +5290,7 @@ async def init_db() -> None:
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT ''")
         # Inactivity dead-man's-switch: last time this user was active (Phase 3).
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TEXT NOT NULL DEFAULT ''")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS inactivity_email_enabled BOOLEAN NOT NULL DEFAULT true")
         # Start every existing user's inactivity clock at deploy time — otherwise an
         # empty baseline reads as "inactive forever" and the first check escalates
         # every family at once. New activity updates it via the `me` heartbeat.
@@ -4678,6 +5331,7 @@ async def init_db() -> None:
             )
         """)
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_notifiers_group ON family_notifiers(group_id)")
+        await conn.execute("ALTER TABLE family_notifiers ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'email'")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS inactivity_escalations (
                 id TEXT PRIMARY KEY,
@@ -4692,7 +5346,51 @@ async def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT ''
             )
         """)
+        for _column in (
+            "cycle_key TEXT NOT NULL DEFAULT ''",
+            "threshold_at TEXT NOT NULL DEFAULT ''",
+            "next_action_at TEXT NOT NULL DEFAULT ''",
+            "last_outcome TEXT NOT NULL DEFAULT ''",
+            "head_acknowledged_at TEXT NOT NULL DEFAULT ''",
+            "family_acknowledged_at TEXT NOT NULL DEFAULT ''",
+        ):
+            await conn.execute(f"ALTER TABLE inactivity_escalations ADD COLUMN IF NOT EXISTS {_column}")
         await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_escalation_owner_group ON inactivity_escalations(owner_user_id, group_id)")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS inactivity_capabilities (
+                id TEXT PRIMARY KEY,
+                token_hash TEXT NOT NULL UNIQUE,
+                owner_user_id TEXT NOT NULL DEFAULT '',
+                group_id TEXT NOT NULL DEFAULT '',
+                cycle_key TEXT NOT NULL DEFAULT '',
+                stage TEXT NOT NULL DEFAULT '',
+                actor_type TEXT NOT NULL DEFAULT '',
+                recipient_ref TEXT NOT NULL DEFAULT '',
+                expires_at TEXT NOT NULL DEFAULT '',
+                consumed_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_inactivity_cap_group ON inactivity_capabilities(owner_user_id,group_id,cycle_key)")
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS inactivity_deliveries (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL DEFAULT '',
+                group_id TEXT NOT NULL DEFAULT '',
+                cycle_key TEXT NOT NULL DEFAULT '',
+                stage TEXT NOT NULL DEFAULT '',
+                recipient_ref TEXT NOT NULL DEFAULT '',
+                channel TEXT NOT NULL DEFAULT 'email',
+                status TEXT NOT NULL DEFAULT '',
+                provider TEXT NOT NULL DEFAULT '',
+                error_code TEXT NOT NULL DEFAULT '',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                attempted_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_inactivity_delivery_once "
+            "ON inactivity_deliveries(cycle_key,stage,recipient_ref,channel)")
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS passbooks (
@@ -5227,6 +5925,8 @@ async def init_db() -> None:
         # Per-channel verification flags → green ✓ next to phone/email (set in Phase 2).
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT false")
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false")
+        await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS inactivity_email_consent BOOLEAN NOT NULL DEFAULT false")
+        await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS inactivity_email_consent_at TEXT NOT NULL DEFAULT ''")
         # Which channel the invite was sent on → marked verified when they accept.
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS invite_channel TEXT NOT NULL DEFAULT ''")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_family_legacy ON family_members(legacy_beneficiary_id)")
@@ -5742,6 +6442,8 @@ async def init_db() -> None:
         web360.bind(pool, _uid_from_info)
         await web360.ensure_schema(conn)
         await account.ensure_schema(conn)
+        # Centralized audit read model + transactional outbox (phase 1).
+        await audit.ensure_schema(conn)
 
         await conn.execute("SELECT pg_advisory_unlock(918273645)")
 
@@ -6032,12 +6734,10 @@ async def lifespan(app: FastAPI):
     await pool.open(wait=True, timeout=30)
     try:
         await init_db()
-        async with import_jobs.lifecycle(pool, {
-            "import-registered-document": import_registered_document,
-            "import-passbook": import_passbook,
-            "extract-property": extract_property,
-            "extract-aadhaar": extract_aadhaar,
-        }), payments.lifecycle(pool):
+        # Operation -> handler now lives with the readings themselves
+        # (src/ai_reading/__init__.py); the queue contract is unchanged.
+        async with reading_jobs.lifecycle(pool, ai_reading.JOB_HANDLERS), payments.lifecycle(pool), \
+                audit.lifecycle(pool):
             yield
     finally:
         await pool.close()
@@ -6064,298 +6764,33 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/internal/audit/health")
+async def audit_health():
+    """Audit pipeline state for operators and alarms (AU-5).
+
+    Under /internal/, which the gateway's generic proxy refuses, so this is
+    reachable only from inside the deployment — it reports counts and a chain
+    verdict, never event content. Watch `healthy`: it goes false when the chain
+    fails verification, when outbox rows are stalling, or when the backlog grows,
+    which are the three ways the trail silently stops being trustworthy.
+    """
+    async with pool.connection() as conn:
+        return await audit.health(conn)
+
+
 @app.post("/cron/inactivity-check")
 async def cron_inactivity_check(request: Request):
-    """Daily dead-man's-switch pass over ALL heads (wired to a k8s CronJob). Guarded
-    by the CRON_SECRET header when that env is set."""
-    secret = os.getenv("CRON_SECRET", "")
-    if secret and request.headers.get("x-cron-secret", "") != secret:
+    """Daily household-safeguard pass. The endpoint itself fails closed even if
+    startup configuration was bypassed for local development."""
+    secret = os.getenv("CRON_SECRET", "").strip()
+    supplied = request.headers.get("x-cron-secret", "")
+    if not secret:
+        return JSONResponse(status_code=503, content={"error": "cron not configured"})
+    if not hmac.compare_digest(supplied, secret):
         return JSONResponse(status_code=403, content={"error": "forbidden"})
     async with pool.connection() as conn:
-        summary = await _run_inactivity_check(conn, datetime.utcnow())
+        summary = await _run_inactivity_check(conn, datetime.now(timezone.utc))
     return {"ok": True, "summary": summary}
-
-
-# ── AI Passbook Importer ──────────────────────────────────────────────
-# The "Passbook Importer" AI task (prompts/ai-tasks/passbook-importer.yaml):
-# the user uploads a passbook document / screenshot / PDF and a vision LLM
-# extracts the location + pattadar fields to prefill the Create Passbook form.
-
-# Vision OCR of bilingual (Telugu + English) land records: haiku hallucinates
-# Telugu-script names (invents a different name every run at "medium/high"
-# confidence). Sonnet reads the Telugu names correctly and stably. Used by BOTH
-# the passbook importer and the registered-document importer below.
-_IMPORT_MODEL = "claude-sonnet-5"
-
-# ── Prompt caching ────────────────────────────────────────────────────
-#
-# The system prompt is the one part of an extraction request that is
-# byte-identical on every call — the same thousands of tokens of deed-reading
-# rules, re-billed at full price for every document anybody uploads. Marking it
-# cacheable makes the first read write the entry (1.25x) and every read after
-# it inside the window pay 0.1x instead of 1x. Entries are scoped to the API
-# key rather than to a user, so one pattadar's upload warms the prompt for the
-# next one.
-#
-# Break-even is the SECOND read inside the window: 1.25x + 0.1x < 2x. Below
-# that the write premium is a small loss, which is why the default 5-minute TTL
-# is the right one here — "ttl": "1h" doubles the write to 2x and then needs
-# three reads to pay for itself, and uploads do not arrive in hour-long bursts.
-#
-# The floor matters more than the marker. claude-sonnet-5 caches nothing under
-# 1024 tokens and says nothing when it declines: usage.cache_creation_input_
-# tokens simply stays 0. Measured sizes of the five prompts on this path:
-#
-#   _DOC_IMPORT_SYSTEM       ~4,146 tok  ← caches (registered deeds, the big one)
-#   _PROPERTY_IMPORT_SYSTEM  ~1,289 tok  ← caches, only just
-#   _IMPORT_SYSTEM             ~358 tok  ← below the floor, marker is inert
-#   _PARCEL_PHOTO_SYSTEM       ~327 tok  ← below the floor, marker is inert
-#   _AADHAAR_SYSTEM            ~208 tok  ← below the floor, marker is inert
-#
-# The three short ones are marked anyway: an inert marker costs nothing, and
-# these prompts grow — the day one crosses 1024 tokens it should start caching
-# without anybody remembering to come back here. _log_ai_usage is how we find
-# out which ones actually are.
-#
-# Deliberately NOT cached: the document block itself. It is by far the biggest
-# part of the request, but it is different bytes on every upload — caching it
-# would pay a 1.25x write on thousands of tokens that is only ever read back if
-# the identical file is read twice inside the window. That is a loss on every
-# first read, which is nearly all of them.
-#
-# The per-prompt sizes above are estimates from character counts, and character
-# counts are a blunt proxy — so rather than trust them, _cacheable_system checks
-# each prompt against the floor once and says out loud which ones will never
-# cache. That way the answer comes from the running service, not from a comment
-# that rots the first time somebody edits a prompt.
-_CACHE_MIN_TOKENS = {
-    "claude-sonnet-5": 1024,
-    "claude-sonnet-4-6": 1024,
-    "claude-opus-4-7": 2048,
-    "claude-haiku-4-5": 4096,
-}.get(_IMPORT_MODEL, 4096)
-
-# Prompts already checked against the floor, so the notice is logged once per
-# prompt rather than once per upload.
-_CACHE_FLOOR_CHECKED: set[int] = set()
-
-
-def _cacheable_system(text: str) -> list[dict]:
-    """The system prompt as a single cache-marked block.
-
-    The API takes either a bare string or a list of blocks for `system`;
-    caching needs the list form, because the marker rides on a block. One block
-    means the breakpoint sits at the end of the whole prompt, which is what we
-    want — everything before it (there are no tools on this path) is cached
-    together and the document, which follows in `messages`, is not.
-    """
-    key = hash(text)
-    if key not in _CACHE_FLOOR_CHECKED:
-        _CACHE_FLOOR_CHECKED.add(key)
-        # ~3.6 chars/token is rough and runs OPTIMISTIC against Sonnet 5's
-        # denser tokenizer, so this under-reports rather than over-reports: a
-        # prompt it passes might still be short of the floor. The honest
-        # confirmation is cache_write > 0 in the ai.usage line, not this.
-        approx = len(text) / 3.6
-        if approx < _CACHE_MIN_TOKENS:
-            _log.info(
-                "ai.cache prompt ~%d tok is under the %d-tok floor for %s — the marker is "
-                "inert, this prompt bills at full price every time (expect cache_write=0 "
-                "and cache_read=0 in its ai.usage lines)",
-                approx, _CACHE_MIN_TOKENS, _IMPORT_MODEL,
-            )
-    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
-
-
-# List price in USD per million tokens, keyed by model, because the line this
-# feeds prints model=%s beside the dollars — a hardcoded Sonnet 5 rate would go
-# on quoting Sonnet 5 money next to whatever model _IMPORT_MODEL was changed to,
-# and a cost number that lies is worse than no cost number.
-# The cache rates are DERIVED (write 1.25x input, read 0.1x input) rather than
-# typed out, so they cannot drift away from the input price they follow from.
-_LIST_PRICE_PER_MTOK = {
-    "claude-opus-5":     {"input": 5.0, "output": 25.0},
-    "claude-sonnet-5":   {"input": 2.0, "output": 10.0},
-    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
-    "claude-haiku-4-5":  {"input": 1.0, "output": 5.0},
-}
-
-
-def _usd_per_mtok(model: str) -> dict:
-    """The four token classes priced apart, or zeros for a model we have no
-    price for — an unknown model reports usd=0.0000, which reads as "unpriced"
-    rather than quietly billing it at the last model's rate."""
-    p = _LIST_PRICE_PER_MTOK.get(model)
-    if not p:
-        return {"input": 0.0, "output": 0.0, "cache_write": 0.0, "cache_read": 0.0}
-    return {
-        "input": p["input"],
-        "output": p["output"],
-        "cache_write": p["input"] * 1.25,
-        "cache_read": p["input"] * 0.1,
-    }
-
-
-def _log_ai_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -> None:
-    """Record what a read actually cost.
-
-    Nothing on this path used to read `usage`, so nobody could say what reading
-    a deed cost, which half of the bill was thinking, or whether the cache was
-    working at all. That last one matters most: a broken cache is silent — the
-    requests still succeed, the bill is just quietly higher — and these four
-    numbers are the only ground truth there is. Two consecutive reads of the
-    same document type should show cache_read > 0 on the second.
-
-    `input_tokens` is only the UNCACHED remainder, so the prompt total is the
-    sum of all three input classes, not that field alone.
-    """
-    u = body.get("usage") or {}
-    read = int(u.get("cache_read_input_tokens") or 0)
-    write = int(u.get("cache_creation_input_tokens") or 0)
-    fresh = int(u.get("input_tokens") or 0)
-    out = int(u.get("output_tokens") or 0)
-    rate = _usd_per_mtok(_IMPORT_MODEL)
-    usd = (
-        fresh * rate["input"]
-        + out * rate["output"]
-        + write * rate["cache_write"]
-        + read * rate["cache_read"]
-    ) / 1_000_000
-    _log.info(
-        "ai.usage endpoint=%s attempt=%s model=%s file=%s prompt_total=%d "
-        "(fresh=%d cache_write=%d cache_read=%d) output=%d stop=%s usd=%.4f",
-        endpoint, attempt, _IMPORT_MODEL, name or "-",
-        fresh + write + read, fresh, write, read, out,
-        body.get("stop_reason"), usd,
-    )
-
-
-# The acres-cents convention, stated ONCE for every extraction prompt.
-# It was written into one prompt and not the others, and the drift cost a
-# real user 24.75 acres on screen: "Ac 25-00" read as "25.00 cents".
-_EXTENT_NOTATION_RULE = (
-    "EXTENT NOTATION — AP deeds write land in ACRES AND CENTS with a hyphen: \"Ac 25-00\", "
-    "\"ఎ. 25-30\", \"య.25.00సెంట్లు\" all mean X acres plus YY cents, where 100 cents = 1 acre. "
-    "\"Ac 25-00\" is TWENTY-FIVE ACRES, not 25.00 cents; \"య.25.00సెంట్లు లేక 10.00హె\" is 25 acres "
-    "(≈10 hectares confirms it). When the schedule uses this notation, write the extent as decimal "
-    "acres with the unit \"acres\"/\"Acres\": 25.00 acres. Write \"cents\"/\"Cents\" ONLY when the "
-    "land is genuinely measured in cents alone (a house site of \"5 cents\" with no acre figure). "
-    "Cross-check against any hectare restatement: 1 acre ≈ 0.4047 ha. Misreading acres as cents "
-    "shrinks somebody's land a hundredfold.\n"
-)
-
-_IMPORT_SYSTEM = (
-    _EXTENT_NOTATION_RULE
-    +     "You are a data-extraction assistant for an Andhra Pradesh (India) land-records "
-    "application. You are given an image or PDF of a land passbook / khata / ROR-1B / "
-    "Meebhoomi document, often bilingual (English + Telugu). Extract the passbook header "
-    "AND every land-parcel row (each survey / sub-division line), and return ONLY a "
-    "compact JSON object (no markdown, no code fences, no commentary):\n"
-    '{"state":"<state in English e.g. Andhra Pradesh>","district":"<district in English>",'
-    '"mandal":"<mandal in English>","village":"<village in English>",'
-    '"pattadar_no":"<khata/pattadar number>","owner_name":"<pattadar name (column 2) in English>",'
-    '"father_husband_name":"<father/husband name (column 4, tandri/bharta peru) in English>",'
-    '"parcels":[{"survey_no":"<survey number>","subdivision":"<sub-division or empty>",'
-    '"extent":<number>,"unit":"Acres-Guntas","classification":"<agri|non-agri>",'
-    '"acquisition_source":"<sale|gift|inheritance|partition|will|grant>"}],'
-    '"confidence":"<high|medium|low>"}\n'
-    "Rules:\n"
-    '- owner_name = pattadar name (column 2) ONLY; never append the father/husband '
-    "name to it — that goes in father_husband_name.\n"
-    '- One parcel object per survey/sub-division row. A cell like "183-1" means '
-    'survey_no "183", subdivision "1".\n'
-    "- extent = the numeric area from the extent/vistirnam column, as a decimal number.\n"
-    '- classification: agricultural land (metta/dry or magani/wet) => "agri"; '
-    'house-site / commercial => "non-agri"; default "agri".\n'
-    '- acquisition_source: konugolu/purchase => "sale", varasatvam => "inheritance", '
-    'bahumati => "gift", vibhajana => "partition", veelunama => "will", manjuru => "grant".\n'
-    "- Prefer English transliteration of Telugu names; use \"\"/[]/0 for missing fields; "
-    "never invent values; the state is almost always Andhra Pradesh or Telangana.\n"
-    "Output MUST be valid JSON and nothing else."
-)
-
-
-def _extract_json(text: str) -> dict:
-    """Pull the JSON object out of the model output (tolerate code fences / prose)."""
-    t = (text or "").strip()
-    a, b = t.find("{"), t.rfind("}")
-    if a >= 0 and b > a:
-        t = t[a:b + 1]
-    try:
-        return json.loads(t)
-    except Exception:
-        return {}
-
-
-# These AI-import routes call the Anthropic Messages API directly over httpx
-# (no anthropic SDK dependency). Each call already opens its own private
-# httpx.AsyncClient for a single request and tears it down immediately after —
-# there is no module-level/shared client or connection pool reused across
-# requests. `SSLV3_ALERT_BAD_RECORD_MAC` here is therefore not a concurrent-
-# use-of-one-connection bug; it's an intermittent TLS/transport fault on an
-# otherwise-private connection (large multi-MB base64 image/PDF bodies over a
-# long egress path are more exposed to this than small requests). httpx
-# surfaces it as an exception raised OUT OF client.post() — meaning no
-# httpx.Response was ever returned/parsed, so the model never completed a
-# round trip for that attempt. That makes a retry of the whole call safe: we
-# are not re-running a request that already reached the model and is still
-# in flight, we're re-attempting one that never got a response at all.
-# Retry ONLY on faults where no usable response was received. A fresh TCP+TLS
-# connection is built per attempt (see _post_with_retry). Deliberately EXCLUDES
-# httpx.ReadTimeout / httpx.PoolTimeout: a read timeout can mean the model is
-# still generating an expensive, non-idempotent response, and re-running it would
-# double-charge and re-issue an in-flight call — the same reason the istio route
-# for these paths sets retries=0. ssl.SSLError (e.g. SSLV3_ALERT_BAD_RECORD_MAC)
-# is kept explicitly as defense-in-depth in case it surfaces unwrapped.
-_TRANSIENT_CONNECTION_ERRORS = (
-    ssl.SSLError,
-    httpx.ConnectError,
-    httpx.ConnectTimeout,
-    httpx.WriteError,
-    httpx.ReadError,
-    httpx.RemoteProtocolError,
-)
-
-
-
-def _ai_failure_message(exc: Exception, size_bytes: int) -> str:
-    """A sentence the user can act on.
-
-    `f"AI call failed: {e}"` produced literally "AI call failed: " for an
-    httpx.ReadError, whose str() is empty — a red error naming nothing. Network
-    faults on this path are almost always payload size: a 13 MB scan becomes an
-    18 MB base64 upload, and the connection dies partway through.
-    """
-    mb = size_bytes / (1024 * 1024)
-    kind = type(exc).__name__
-    transport = isinstance(exc, _TRANSIENT_CONNECTION_ERRORS)
-    if transport and mb >= 6:
-        return (f"The connection dropped while sending this {mb:.0f} MB file "
-                f"({kind}). Large scans often fail — photograph the pages that "
-                f"carry the details, or use a smaller PDF.")
-    if transport:
-        return f"The connection to the AI service dropped ({kind}). Try again."
-    detail = str(exc).strip()
-    return f"AI call failed ({kind}){f': {detail}' if detail else ''}"
-
-
-async def _post_with_retry(url: str, *, headers: dict, json_body: dict, timeout: float,
-                            max_attempts: int = 4) -> httpx.Response:
-    """POST with retry on transient connection/TLS faults (SSLV3_ALERT_BAD_RECORD_MAC,
-    reset connections, etc). Builds a FRESH httpx.AsyncClient — a fresh TCP+TLS
-    connection — on every attempt instead of retrying over the same connection, so a
-    corrupted/half-broken connection is never reused for the retry."""
-    for attempt in range(1, max_attempts + 1):
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                return await client.post(url, headers=headers, json=json_body)
-        except _TRANSIENT_CONNECTION_ERRORS:
-            if attempt == max_attempts:
-                raise
-            # Backs off further each time: a 13 MB upload that dropped needs
-            # more than a moment before the next attempt is worth making.
-            await asyncio.sleep(1.5 * attempt)  # 1.5s, 3s, 4.5s
-    raise AssertionError("unreachable")  # loop always returns or re-raises
 
 
 # ── Village maps ──────────────────────────────────────────────────────
@@ -6363,7 +6798,7 @@ async def _post_with_retry(url: str, *, headers: dict, json_body: dict, timeout:
 # The shipped maps are built at the desk (scripts/village-map-import.py) and
 # served by Vite out of apps/web/public/vm. These three routes are the other
 # way in: the owner has a KMZ on their laptop and no reason to know what a
-# terminal is. Same parser (services/api/src/villagemap.py), so a village
+# terminal is. Same parser (services/api/src/village_map.py), so a village
 # uploaded here and the same village built there cannot come out different.
 
 _VM_ONE_MAX = 12 * 1024 * 1024      # a 2,729-plot village zips to 0.5 MB
@@ -6448,7 +6883,7 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
             skipped.append({"name": name, "why": "too large"})
             continue
         try:
-            sources.append(villagemap.Source(name, data))
+            sources.append(village_map.Source(name, data))
         except Exception as exc:
             skipped.append({"name": name, "why": str(exc) or "could not be read"})
 
@@ -6465,12 +6900,12 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
     async with pool.connection() as conn:
         for key in sorted(groups, key=lambda k: groups[k][0].village):
             group = groups[key]
-            built, src, others = villagemap.assemble(group)
+            built, src, others = village_map.assemble(group)
             if not built:
                 skipped.append({"name": ", ".join(s.name for s in group),
                                 "why": "no plot polygons in it"})
                 continue
-            collection, dropped, clashes = villagemap.feature_collection(
+            collection, dropped, clashes = village_map.feature_collection(
                 src.village, built["plots"])
             plots = len(collection["features"])
             if not plots:
@@ -6484,7 +6919,7 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
 
             cur = await conn.execute("SELECT village FROM village_maps WHERE key=%s", (key,))
             replaced = bool(await cur.fetchone())
-            over = villagemap.overview_of(collection)
+            over = village_map.overview_of(collection)
             await conn.execute(
                 "INSERT INTO village_maps (key, village, file_name, source_name,"
                 " plots, geojson, uploaded_by, created_at, acres, centre_lat,"
@@ -6496,14 +6931,14 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
                 " uploaded_by=EXCLUDED.uploaded_by, created_at=EXCLUDED.created_at,"
                 " acres=EXCLUDED.acres, centre_lat=EXCLUDED.centre_lat,"
                 " centre_lon=EXCLUDED.centre_lon, outline=EXCLUDED.outline",
-                (key, src.village, villagemap.file_name(src.village), src.name,
-                 plots, villagemap.dumps(collection), uid,
+                (key, src.village, village_map.file_name(src.village), src.name,
+                 plots, village_map.dumps(collection), uid,
                  datetime.now().isoformat(timespec="seconds"),
                  over["acres"], over["centre"][0], over["centre"][1],
                  json.dumps(over["outline"], separators=(",", ":"))))
             out.append({
                 "key": key, "village": src.village, "plots": plots,
-                "file": villagemap.file_name(src.village), "from": src.name,
+                "file": village_map.file_name(src.village), "from": src.name,
                 "replaced": replaced, "within": built["within"], "near": built["near"],
                 "dropped": dropped, "clashes": clashes,
                 "duplicates": [{"name": o.name,
@@ -6518,701 +6953,12 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
     return {"villages": out, "skipped": skipped}
 
 
-@app.post("/import-passbook")
-async def import_passbook(file: UploadFile = File(...), request: Request = None):
-    await _check_read_consent(request)
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
-    data = await file.read()
-    if len(data) > 8 * 1024 * 1024:
-        return JSONResponse(status_code=413, content={"error": "File too large (max 8 MB)"})
-    mime = (file.content_type or "").lower()
-    name = (file.filename or "").lower()
-    b64 = base64.standard_b64encode(data).decode()
-    if mime == "application/pdf" or name.endswith(".pdf"):
-        block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
-    elif mime.startswith("image/"):
-        block = {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}}
-    else:
-        return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
-    payload = {
-        "model": _IMPORT_MODEL,
-        # Output is pure JSON and you only pay for what is produced, so the
-        # ceiling is set by the longest document, not the typical one. At 3000
-        # a 14 MB multi-page deed stopped mid-object (stop_reason=max_tokens)
-        # and the app prefilled nothing.
-        # The model reasons before answering, and that reasoning is billed against
-        # max_tokens. On a 14 MB deed it spent 8228 tokens thinking — more than the
-        # entire 8000 ceiling — so the JSON was cut off mid-object and the app was
-        # told the document "ran out of room". The ceiling now comfortably exceeds
-        # thinking + answer, and effort=medium cuts the thinking (and the wait, 132s
-        # to 53s) without changing a single extracted value.
-        "max_tokens": 16000,
-        "output_config": {"effort": "medium"},
-        "system": _cacheable_system(_IMPORT_SYSTEM),
-        "messages": [{"role": "user", "content": [
-            block,
-            {"type": "text", "text": "Extract the passbook fields and return ONLY the JSON object."},
-        ]}],
-    }
-    try:
-        r = await _post_with_retry(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json_body=payload,
-            timeout=200,
-        )
-    except httpx.TimeoutException:
-        _log.warning("AI extract timed out (file=%s, model=%s)", file.filename or "", _IMPORT_MODEL)
-        return JSONResponse(status_code=504, content={"error": "AI took too long to read this document (timed out). Try again or enter details manually."})
-    except Exception as e:
-        _log.warning("AI extract failed (file=%s, bytes=%d): %r", file.filename or "", len(data), e)
-        return JSONResponse(status_code=502, content={"error": _ai_failure_message(e, len(data))})
-    if r.status_code != 200:
-        _log.warning("AI extract non-200 (file=%s, status=%s): %s", file.filename or "", r.status_code, (r.text or '')[:300])
-        return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
-    body = r.json()
-    _log_ai_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="first")
-    text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-    fields = _extract_json(text)
-    # Running out of room is a budget problem, not a bad document — so try once
-    # more with the model reasoning less, which leaves far more of the ceiling
-    # for the answer. Only worth doing when that is demonstrably what happened.
-    if (not fields) and body.get("stop_reason") == "max_tokens":
-        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", file.filename or "")
-        retry = dict(payload)
-        retry["output_config"] = {"effort": "low"}
-        try:
-            r2 = await _post_with_retry(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json_body=retry,
-                timeout=200,
-            )
-            if r2.status_code == 200:
-                body = r2.json()
-                _log_ai_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="low-effort-retry")
-                text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-                fields = _extract_json(text)
-        except Exception as e:
-            _log.warning("AI extract low-effort retry failed (file=%s): %r", file.filename or "", e)
-    if not text or not fields:
-        # An empty or unparseable reply used to be returned as a 200 with
-        # {"fields": {}} — the app then prefilled nothing and the form sat there
-        # looking untouched, which reads as "the button did nothing". A document
-        # we could not read is a failure and must say so.
-        _log.warning(
-            "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
-            file.filename or "", len(data), body.get("stop_reason"), len(text),
-        )
-        msg = ("This passbook is long enough that the reading ran out of room. Photograph just the "
-               "pages with the details, or enter them by hand."
-               if body.get("stop_reason") == "max_tokens" else
-               "Nothing could be read from this passbook. It may be a scan of photographs rather "
-               "than text — try a clearer copy, or enter the details by hand.")
-        return JSONResponse(status_code=502, content={"error": msg})
-    return {"fields": fields, "raw": text}
-
-
-# ── AI Aadhaar (KYC) classifier ───────────────────────────────────────
-# Reads an Aadhaar card image/PDF and extracts the KYC fields to prefill the
-# Add-Beneficiary form. The raw doc is mirrored to the user's My Drive by the UI.
-_AADHAAR_SYSTEM = (
-    "You are a KYC data-extraction assistant. You are given an image or PDF of an Indian "
-    "Aadhaar card (front and/or back), often bilingual (English + a regional script). "
-    "Extract ONLY these fields and return ONLY a compact JSON object (no markdown, no code "
-    "fences, no commentary):\n"
-    '{"name":"<full name in English>","dob":"<date of birth as YYYY-MM-DD>",'
-    '"gender":"<male|female|other>","aadhaar":"<12-digit Aadhaar number, digits only>",'
-    '"address":"<full address exactly as printed, single line>","confidence":"<high|medium|low>"}\n'
-    "Rules:\n"
-    "- dob MUST be strict YYYY-MM-DD; if only a year of birth is printed, use YYYY-01-01.\n"
-    "- aadhaar MUST be exactly 12 digits with no spaces; never invent or guess digits — "
-    'if unreadable leave it "".\n'
-    "- gender lowercased (male/female/other).\n"
-    '- Prefer English transliteration; use "" for any missing field.\n'
-    '- If the file is NOT an Aadhaar card, return every field empty with confidence "low".\n'
-    "Output MUST be valid JSON and nothing else."
-)
-
-
-def _sniff_image_mime(data: bytes) -> str:
-    """Real media type from magic bytes; '' when it is not a known image."""
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return "image/png"
-    if data[:3] == b"\xff\xd8\xff":
-        return "image/jpeg"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    # HEIC/HEIF carry an ISO-BMFF brand; the vision API cannot read them, so
-    # naming them here lets the caller fail with a sentence instead of a 400.
-    if data[4:8] == b"ftyp" and data[8:12] in (b"heic", b"heix", b"hevc", b"mif1", b"msf1"):
-        return "image/heic"
-    return ""
-
-
-async def _anthropic_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024, effort: str = "medium", endpoint: str = "anthropic-extract") -> dict:
-    """Shared vision-extraction call: base64 → Claude → parsed JSON. Returns
-    {"fields", "raw"} or {"_error": (status, message)}. `max_mb`/`max_tokens` let a
-    caller with larger scans (e.g. multi-page property docs) raise the defaults."""
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        return {"_error": (503, "AI extraction is not configured")}
-    if len(data) > max_mb * 1024 * 1024:
-        return {"_error": (413, f"File too large (max {max_mb} MB)")}
-    b64 = base64.standard_b64encode(data).decode()
-    mime = (mime or "").lower(); name = (name or "").lower()
-    # Trust the BYTES, not the client's label. Pickers and share sheets happily
-    # hand over a PNG named .jpg, or a generic octet-stream, and forwarding that
-    # verbatim earns a flat 400 from the vision API ("appears to be a image/png
-    # image") that surfaces to the user as an unexplained failure.
-    sniffed = _sniff_image_mime(data)
-    if sniffed:
-        mime = sniffed
-    if mime == "application/pdf" or name.endswith(".pdf"):
-        block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
-    elif mime.startswith("image/"):
-        block = {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}}
-    else:
-        return {"_error": (400, "Upload a PDF, JPG or PNG")}
-    payload = {
-        "model": _IMPORT_MODEL, "max_tokens": max_tokens, "system": _cacheable_system(system),
-        "output_config": {"effort": effort},
-        "messages": [{"role": "user", "content": [block, {"type": "text", "text": user_text}]}],
-    }
-    try:
-        r = await _post_with_retry(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json_body=payload,
-            timeout=200,
-        )
-    except httpx.TimeoutException:
-        _log.warning("AI extract timed out (file=%s, model=%s)", name, _IMPORT_MODEL)
-        return {"_error": (504, "AI took too long to read this document (timed out). It may be large or multi-page — try again, or use 'enter details manually'.")}
-    except Exception as e:
-        _log.warning("AI extract failed (file=%s, bytes=%d): %r", name, len(data), e)
-        return {"_error": (502, _ai_failure_message(e, len(data)))}
-    if r.status_code != 200:
-        _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
-        return {"_error": (502, "AI call failed")}
-    body = r.json()
-    _log_ai_usage(body, endpoint=endpoint, name=name, attempt="first")
-    text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-    fields = _extract_json(text)
-    # Running out of room is a budget problem, not a bad document — so try once
-    # more with the model reasoning less, which leaves far more of the ceiling
-    # for the answer. Only worth doing when that is demonstrably what happened.
-    if (not fields) and body.get("stop_reason") == "max_tokens":
-        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", name)
-        retry = dict(payload)
-        retry["output_config"] = {"effort": "low"}
-        try:
-            r2 = await _post_with_retry(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json_body=retry,
-                timeout=200,
-            )
-            if r2.status_code == 200:
-                body = r2.json()
-                _log_ai_usage(body, endpoint=endpoint, name=name, attempt="low-effort-retry")
-                text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-                fields = _extract_json(text)
-        except Exception as e:
-            _log.warning("AI extract low-effort retry failed (file=%s): %r", name, e)
-    if not text or not fields:
-        # An empty or unparseable reply used to be returned as a 200 with
-        # {"fields": {}} — the app then prefilled nothing and the form sat there
-        # looking untouched, which reads as "the button did nothing". A document
-        # we could not read is a failure and must say so.
-        _log.warning(
-            "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
-            name, len(data), body.get("stop_reason"), len(text),
-        )
-        if body.get("stop_reason") == "max_tokens":
-            return {"_error": (502, "This document is long enough that the reading ran out of room. "
-                                    "Photograph just the pages with the details, or enter them by hand.")}
-        return {"_error": (502, "Nothing could be read from this document. It may be a scan of "
-                                "photographs rather than text — try a clearer copy, or enter the "
-                                "details by hand.")}
-    return {"fields": fields, "raw": text}
-
-
-_PARCEL_PHOTO_SYSTEM = (
-    "You screen photographs for an Andhra Pradesh land-records app. The user is attaching a "
-    "picture to a PARCEL of land as evidence. Decide what the picture actually shows.\n"
-    "Return ONLY a compact JSON object, no markdown or commentary:\n"
-    '{"kind":"<land|document|id_document|person|screenshot|other>",'
-    '"category":"<boundary|overview|crop|water|access|structure|dispute|landmark|general>",'
-    '"confidence":"<high|medium|low>","reason":"<max 12 words, plain English>"}\n'
-    "KIND — choose exactly one:\n"
-    '  • "id_document" — Aadhaar, PAN, driving licence, passport, voter ID, ration card, or any '
-    "card bearing a government identity number or a photo-ID layout. This is the most important "
-    "category to get right.\n"
-    '  • "document" — a printed or scanned page: deed, ROR/Adangal/1-B, passbook page, receipt, '
-    "certificate, court paper, a table of text.\n"
-    '  • "screenshot" — a capture of a phone or computer screen (app UI, browser, chat).\n'
-    '  • "person" — a face or people are the main subject (a person incidentally standing in a '
-    "field is still land).\n"
-    '  • "land" — outdoor ground, fields, crops, soil, boundary or survey stones, bunds, fences, '
-    "farm sheds, wells, borewells, canals, tracks and approach roads, rural buildings on the plot. "
-    "IMPORTANT: bare, dry, fallow, dusty, scrubby or night-time ground IS land. Do not require it "
-    "to look green or cultivated. Andhra farmland is frequently bare earth.\n"
-    '  • "other" — indoor scenes, vehicles, food, pets, and anything that is none of the above.\n'
-    "CATEGORY — only meaningful when kind is \"land\"; otherwise use \"general\".\n"
-    "CONFIDENCE — say \"low\" whenever you are unsure. Being unsure is useful information; a "
-    "confident wrong answer blocks a farmer from recording real evidence."
-)
-
-
-@app.post("/classify-parcel-photo")
-async def classify_parcel_photo(file: UploadFile = File(...)):
-    """Classify an image BEFORE it is stored (CL-600..604).
-
-    The bytes are held in memory for the length of this call and written
-    nowhere — no disk, no S3, no database. That matters most for the case this
-    exists to catch: an Aadhaar card must not be persisted anywhere in order to
-    discover that it should not be persisted.
-    """
-    data = await file.read()
-    out = await _anthropic_extract(
-        data, file.content_type or "", file.filename or "",
-        _PARCEL_PHOTO_SYSTEM, "Classify this picture and return ONLY the JSON object.",
-        endpoint="classify-parcel-photo")
-    if "_error" in out:
-        # An image we cannot READ is not an image we can vouch for. Returning an
-        # error would make the client fail open and accept it silently, which is
-        # exactly wrong for the case this endpoint exists to catch. HEIC (which
-        # the vision API cannot decode) and oversized files land here.
-        _log.info("classify: unreadable (%s) — returning unknown", out["_error"][1])
-        return {"kind": "", "category": "general", "confidence": "low",
-                "reason": "could not read this image"}
-    fields = out.get("fields") or {}
-    kind = str(fields.get("kind", "")).strip().lower()
-    # An unrecognised answer must not read as "land" — unknown means unknown,
-    # and the client treats unknown as a soft warning rather than approval.
-    if kind not in {"land", "document", "id_document", "person", "screenshot", "other"}:
-        kind = ""
-    return {
-        "kind": kind,
-        "category": str(fields.get("category", "general")).strip().lower() or "general",
-        "confidence": str(fields.get("confidence", "low")).strip().lower() or "low",
-        "reason": str(fields.get("reason", "")).strip()[:120],
-    }
-
-
-@app.post("/extract-aadhaar")
-async def extract_aadhaar(file: UploadFile = File(...), request: Request = None):
-    await _check_read_consent(request)
-    data = await file.read()
-    out = await _anthropic_extract(data, file.content_type or "", file.filename or "",
-                                   _AADHAAR_SYSTEM, "Extract the Aadhaar KYC fields and return ONLY the JSON object.",
-                                   endpoint="extract-aadhaar")
-    if "_error" in out:
-        code, msg = out["_error"]
-        return JSONResponse(status_code=code, content={"error": msg})
-    return out
-
-
-# ── AI Registered Document Importer ───────────────────────────────────
-# Reads a scanned registered deed (sale/gift/mortgage, usually Telugu) and
-# extracts the key legal info (parties, property, boundaries, fees, chain).
-
-_DOC_IMPORT_SYSTEM = (
-    "You are a document classifier + data-extraction assistant for an Andhra Pradesh (India) "
-    "land-records application. The uploaded file may be a registered DEED (sale / gift / "
-    "mortgage / GPA / partition / settlement), an Encumbrance Certificate, a tax receipt, a "
-    "land passbook / ROR, a MAP or site-plan or property PHOTO, or something unrelated — "
-    "usually bilingual (Telugu + English).\n"
-    "STEP 1 — classify `doc_type` as EXACTLY one of: "
-    '"Sale Deed","Gift Deed","Partition Deed","Settlement Deed","GPA","Mortgage",'
-    '"Encumbrance Certificate","Pattadar Passbook","ROR/Adangal","FMB","Tax Receipt",'
-    '"Map","Legal Heir Certificate","Court Order","Aadhaar","PAN","Photo","Other". '
-    "A conveyance for consideration = \"Sale Deed\"; a standalone General Power of Attorney = \"GPA\". "
-    "A field-measurement book / survey sketch showing plot dimensions & boundaries = \"FMB\". "
-    "A Record-of-Rights / 1-B / Adangal / Pahani land record = \"ROR/Adangal\". "
-    "An Aadhaar card or e-Aadhaar letter (UIDAI) = \"Aadhaar\"; a PAN card = \"PAN\". "
-    "A plain map / site-plan = \"Map\"; a photograph with no legal text = \"Photo\". "
-    "Anything you cannot confidently place = \"Other\".\n"
-    "STEP 2 — extract ONLY the fields clearly present for that document. If the file is a map / "
-    "photo / receipt, or a field is not clearly readable, leave it \"\" / [] / 0. NEVER guess, "
-    "infer, or invent a value — an empty field is correct when the value is not plainly on the page.\n"
-    "Return ONLY a compact JSON object (no markdown, no code fences, no commentary):\n"
-    '{"doc_type":"<one of the 18 values above>",'
-    '"document_no":"<registered number e.g. 2056>","reg_year":"<e.g. 2010>","book_no":"<e.g. 1>",'
-    '"sro":"<Sub-Registrar Office in English>","registration_date":"<YYYY-MM-DD>","execution_date":"<YYYY-MM-DD>",'
-    '"consideration":<number>,"stamp_duty":<number>,"transfer_duty":<number>,"registration_fee":<number>,'
-    '"user_charges":<number>,"total_fee":<number>,"village":"<English>","mandal":"<English>","district":"<English>",'
-    '"survey_no":"<survey/C.G number>","plot_no":"<plot number>","extent":"<area as written>",'
-    '"classification":"<house-site|agricultural|commercial|other>",'
-    '"boundaries":{"north":"","south":"","east":"","west":""},'
-    '"total_pages":<number of pages in the file>,'
-    '"stamp_papers":{"total_value":<number>,"serials":"<e.g. 110 to 119>","count":<number>,'
-    '"denominations":[{"value":<number>,"count":<number>}],'
-    '"purchased_by":"<name in English>","purchased_for":"<SELF or the name>"},'
-    '"layout_name":"<layout / colony / nagar name in English>",'
-    '"plot_nos":["<each plot number sold, e.g. 70A>"],'
-    '"rate_per_unit":<number>,"rate_unit":"<Sq.yard|Sq.ft|Acre>",'
-    '"parent_survey_extent":"<the WHOLE survey number\'s extent as written, e.g. 8-74 Cents>",'
-    '"boundary_lengths":{"north":"","south":"","east":"","west":""},'
-    '"boundary_points":[{"id":<Point Id as printed>,"easting":<number>,"northing":<number>,"lat":<number>,"lng":<number>}],'
-    '"printed_side_lengths":[<FMB ONLY — every side length printed along the MAPPED PORTION\'s edges, metres, copied exactly>],'
-    '"red_line_lengths":[<FMB ONLY — the lengths drawn in RED: measured lines, not walked boundaries>],'
-    '"portion_extent":"<FMB ONLY — the extent written INSIDE the mapped portion, exactly as printed, e.g. Ac 60.00 Cent>",'
-    '"prior_document":"<prior deed no/year>","gpa_document":"<GPA doc no/year>","scanning_id":"<scanning id>",'
-    '"prior_document_details":{"number":"<e.g. 10024/1981>","registration_date":"<YYYY-MM-DD>",'
-    '"office":"<registering office in English>","book_volume_pages":"<e.g. Book 1, Vol 1488, Pages 168>",'
-    '"original_seller":"<name in English>","original_buyer":"<name in English>"},'
-    '"attachments":{"route_map":<bool>,"landmarks":["<landmark named on the site plan>"],'
-    '"identity_verification":"<what is present: thumbprints, photographs, \'\' if none>",'
-    '"declaration":"<the compliance declaration cited, e.g. Section 27 & 64 Stamp Act>"},'
-    '"parties":[{"role":"<seller|buyer>","name":"<English>","parentage":"<S/o|W/o|D/o ...>","age":"<age>","address":"<English>","is_gpa":<bool>}],'
-    '"headline":"<one line, max 90 chars, see below>",'
-    '"key_points":["<3 to 5 short factual lines, see below>"],'
-    '"pattadar_no":"<passbook/khata number — PASSBOOK & ROR ONLY>",'
-    '"owner_name":"<pattadar name in English — PASSBOOK & ROR ONLY>",'
-    '"father_husband_name":"<S/o or W/o name — PASSBOOK & ROR ONLY>",'
-    '"dob":"<YYYY-MM-DD — date of birth, IDENTITY DOCUMENTS ONLY>",'
-    '"downloaded_on":"<YYYY-MM-DD — e-Aadhaar download / card issue date, IDENTITY DOCUMENTS ONLY>",'
-    '"address":"<the full address EXACTLY as printed on the card, IDENTITY DOCUMENTS ONLY>",'
-    '"parcels":[{"survey_no":"","subdivision":"","extent":"<as written, WITH its unit>",'
-    '"unit":"<Acres|Guntas|Cents|Hectares|Sq.yards>","classification":"<agri|non-agri>",'
-    '"acquisition_source":"<purchase|inheritance|gift|partition|government>"}],'
-    '"summary":"<2-3 short paragraphs, see below>",'
-    '"summary_te":"<the same summary in TELUGU — natural Telugu, not transliteration>",'
-    '"language":"<what the document is written in, e.g. Telugu | English | Telugu, with an English endorsement>",'
-    '"watch_out":"<ONE sentence naming the thing most likely to bite later — a khata ambiguity, a missing page, a survey number only on an annexure. \'\' if nothing>",'
-    '"contents":[{"pages":"<e.g. 1-9>","kind":"<Sale Deed|Registration Endorsement|ROR/Adangal|Route Map|Photos|Other>"}],'
-    '"field_pages":{"<field name>":<page number the value was read from>},'
-    '"field_confidence":{"<field name>":"<clean|check|unsure> — ONLY fields that are not clean"},'
-    '"caveats":["<anything unreadable, ambiguous or worth checking — [] if none>"],'
-    '"confidence":"<high|medium|low>"}\n'
-    "CONTENTS — a registered file is often SEVERAL documents bound together: the deed itself, "
-    "the registration endorsement with photographs and thumb impressions, an adangal or ROR "
-    "print, a route map. Classify the page ranges FIRST and list every range in `contents`, in "
-    "page order, covering all pages. A single-document file is one range. A page printed "
-    "sideways is still its document — say so in caveats if it was hard to read.\n"
-    "FIELD_PAGES / FIELD_CONFIDENCE — for each top-level extracted field you filled "
-    "(document_no, registration_date, consideration, extent, survey_no, village, parties, "
-    "boundaries…), record in `field_pages` the page its value was read from. In "
-    "`field_confidence` list ONLY the fields you are not fully sure of: \"check\" when a careful "
-    "person should glance at the page, \"unsure\" when you may well be wrong. A field absent "
-    "from `field_confidence` is clean. Never mark a field clean to be polite.\n"
-    + _EXTENT_NOTATION_RULE +
-    "BOUNDARY_POINTS — an FMB, survey sketch or resurvey sheet usually ends in a POINT TABLE: "
-    "one row per corner with columns like Point Id, Easting, Northing, Latitude, Longitude. "
-    "When such a table is present, extract EVERY row — id, easting, northing, latitude and "
-    "longitude — as `boundary_points`, in the table's own order, copying the printed decimals "
-    "EXACTLY, all four of them; the geometry that is derived from this table is only as good "
-    "as the digits. NEVER convert between systems yourself, and NEVER estimate a coordinate "
-    "from the drawing. A registered deed occasionally lists corner coordinates in its schedule; "
-    "extract those the same way (id = row number). No coordinate table → [].\n"
-    "FMB SHEETS also carry: side lengths printed along the mapped portion's edges — copy every "
-    "one into `printed_side_lengths` exactly as printed (only the portion being mapped, not the "
-    "outer field's other sides); any length drawn in RED into `red_line_lengths` too; the extent "
-    "written inside the portion into `portion_extent` and the header extent into "
-    "`parent_survey_extent`; and the neighbouring village or survey number written OUTSIDE each "
-    "side of the sheet into `boundaries` by compass side (north/south/east/west). The ring "
-    "order, per-side bearings, area and cross-checks are computed deterministically after you — "
-    "extract, never calculate.\n"
-    "THE NARRATIVE MUST AGREE WITH `parties`. Work out the roles FIRST, then write the headline, "
-    "key points and summary from them. The \"seller\" is the person who PARTED WITH the property; "
-    "the \"buyer\" is the person who RECEIVED it. Never write that the buyer sold, or that the "
-    "seller bought — a headline that contradicts the parties list is a serious error in a "
-    "land-records app, because it inverts who owns the land. For a GPA, the executant GRANTS the "
-    "power and the holder RECEIVES it; say it in that direction.\n"
-    "WRITE IT LIKE A NEWS REPORT. The reader is scanning, not studying. Most important fact "
-    "first, plain English, active voice, past tense for what has already happened. No jargon, no "
-    "field names, no hedging, no preamble like \"This document is\". Write amounts the Indian way "
-    "(Rs 1,91,000). Name people exactly as they appear on the page.\n"
-    "  HEADLINE — one line, max 90 characters, stating WHO did WHAT to WHAT for HOW MUCH. "
-    "No trailing full stop. Example: \"Dasaratharamaiah sold 418.5 sq yd in Nallapadu for "
-    "Rs 84,000\".\n"
-    "  KEY_POINTS — 3 to 5 lines, each under 90 characters, each a single self-contained fact a "
-    "buyer would want at a glance: what was transferred and how big, who to whom, the price, the "
-    "date and registering office, and any title chain (prior document). One fact per line, no "
-    "sentence fragments continuing from the line above.\n"
-    "  SUMMARY — 2 to 3 SHORT paragraphs separated by a blank line (\\n\\n). First paragraph: the "
-    "transaction itself. Later paragraphs: how the seller came to own it, the boundaries, and "
-    "anything else of substance. Two to three sentences per paragraph, never a single wall of "
-    "text. If the document is not a transfer (a receipt, a map, a certificate), report what it is "
-    "and what it covers instead.\n"
-    "CAVEATS — ALWAYS include, as the FIRST caveat, one line naming who you took as the person "
-    "parting with the property and who you took as the person receiving it, in the form: "
-    "\"Read as X transferring to Y — check this direction against the deed.\" Repeated readings of "
-    "the same GPA have disagreed about which party is which, so this direction is never to be "
-    "presented as settled. Then list anything else a careful person should verify by eye: a page that was cut off or "
-    "blurred, a figure that appears twice with different values, an extent written ambiguously, "
-    "a party whose role was hard to determine, handwriting you had to interpret. Be specific "
-    "and brief. An empty list is correct when the document read cleanly — do NOT invent doubt.\n"
-    "IF THE DOCUMENT IS AN AADHAAR OR PAN CARD, it is an identity document, not a land record. "
-    "NEVER write the full Aadhaar or PAN number ANYWHERE in your output — not in document_no, "
-    "not in the headline, key_points, summary, summary_te, watch_out or caveats. This record is "
-    "stored without the encryption the number would require, so the number must not leave this "
-    "extraction at all: give it ONLY masked to its last four (\"XXXX XXXX 8203\"), including in "
-    "`document_no`. Put the holder's name in `owner_name`, the S/o-W/o relation in "
-    "`father_husband_name`, the full printed address in `address` and its parts in "
-    "village/mandal/district, the date of birth in `dob` (YYYY-MM-DD), and the download or "
-    "issue date in `downloaded_on` (YYYY-MM-DD). Leave "
-    "every land field (survey_no, extent, consideration, parties, boundaries, registration "
-    "fields) empty — an identity card names a person, not land. An identity document has NO "
-    "transfer and NO parties: OMIT the read-as-X-transferring-to-Y direction caveat entirely, "
-    "and caveat only what is genuinely unreadable or contradictory on the card.\n"
-    "IF THE DOCUMENT IS A PATTADAR PASSBOOK, ROR, 1-B OR ADANGAL, the fields above that are "
-    "marked PASSBOOK & ROR ONLY are the important ones, and `parcels` is the point of the "
-    "document: it lists EVERY survey number the pattadar holds in that village, and each row "
-    "must appear. `pattadar_no` is the khata / passbook number printed on it. `owner_name` is "
-    "the pattadar. Leave `parties`, `consideration` and the registration fields empty for these "
-    "— a passbook is a record of holding, not a transfer between two people.\n"
-    "EXTENT — write it exactly as the paper does INCLUDING the unit: \"2.20 acres\", "
-    "\"40 guntas\", \"418-1/2 sq. yards\". The number alone is ambiguous, and a figure read as "
-    "the wrong unit misstates the holding by thousands of times.\n"
-    "PARTY ROLES — read carefully, DO NOT SWAP these two:\n"
-    "  • వ్రాసి ఇచ్చినవారు / వ్రాయించి ఇచ్చినవారు (vrasi/vrayinchi ichchinavaru) = the executant / vendor "
-    "who WRITES AND GIVES the deed → role = \"seller\" (the PREVIOUS owner).\n"
-    "  • వ్రాయించుకొన్నవారు / వ్రాయించుకున్నవారు (vrayinchukonnavaru/vrayinchukunnavaru) = the claimant / "
-    "vendee who GETS the deed written FOR THEMSELVES (the recipient) → role = \"buyer\" (the CURRENT owner).\n"
-    "In a sale/gift, the person parting with the property is the seller; the person receiving it is the buyer. "
-    "A GPA HAS NO SELLER AND NO BUYER, and guessing has produced the opposite answer on repeated "
-    "readings of the same document — which silently inverts who controls the land. Map it "
-    "explicitly and always the same way: the EXECUTANT/PRINCIPAL, who owns the property and GRANTS "
-    "the authority (వ్రాసి ఇచ్చినవారు), takes role \"seller\"; the GPA HOLDER/AGENT, who RECEIVES "
-    "the authority to act (వ్రాయించుకొన్నవారు), takes role \"buyer\" and is marked is_gpa true. "
-    "Apply the same rule to an agreement-of-sale-cum-GPA. "
-    "Map each party strictly by which Telugu heading it appears under — never guess from name order.\n"
-    "DOCUMENT NUMBER — the registered number is the single field used to find this deed "
-    "again, in an EC search or the registrar\'s index, so look for it before giving up. On an "
-    "Andhra Pradesh deed it appears as \"ద.నెం.\" / \"దస్తావేజు నెంబరు\" / \"Doc.No.\" / "
-    "\"Document No.\" / \"R.No.\" / \"Regd. No.\", usually written NUMBER/YEAR (8034/2006) in the "
-    "registration endorsement on the LAST pages or in a stamp at the top of the first page — not "
-    "in the body of the text. Put the number alone in `document_no` and the year in `reg_year`. "
-    "Do NOT put the year in `document_no`: a year in that field reads as a deed number that does "
-    "not exist and sends somebody searching the index for it. If the endorsement is genuinely "
-    "absent or unreadable, leave `document_no` empty AND say so in a caveat.\n"
-    "STAMP PAPERS — a registered deed is written on a set of non-judicial stamp papers, and the set is evidence in itself: the serial run, the denominations and who bought them are what a lawyer checks first for a forged or substituted page. List every denomination with its count, and give `total_value` as their SUM — not the consideration, which is a different number.\n"
-    "PLOT vs SURVEY EXTENT — `extent` is the area actually conveyed by THIS deed; `parent_survey_extent` is the extent of the whole survey number it was cut from. Recording the parent extent as the holding would overstate the land by many times, so keep them apart and leave either empty rather than copying one into the other.\n"
-    "RATE — `rate_per_unit` is the price per square yard/foot/acre stated on the page. Do NOT compute it by dividing the consideration; if the paper does not state a rate, leave it 0.\n"
-    "BOUNDARY LENGTHS — the schedule often gives a measurement beside each direction (\"North: 30 ft wide road\", \"East: 66 ft\"). Put the DESCRIPTION of what abuts in `boundaries` and the MEASUREMENT in `boundary_lengths`, each as written. A road named as a boundary is a description, its width is a length; they are not the same fact.\n"
-    "PRIOR LINK DOCUMENT — the deed by which the present seller acquired the property. It is the title chain, and its number, date, office and the two names on it are what makes the chain checkable. If the prior deed was executed through a GPA agent, name the principal as `original_seller` and say so in a caveat.\n"
-    "ATTACHMENTS — state only what is actually bound into the file: a route map or site plan, thumbprints or photographs under Section 32A, a stamp-duty declaration. These are presence facts; do not describe what a document of this kind usually contains.\n"
-    "Boundaries are the chuttupakkala haddulu (N/S/E/W) of the schedule property. Prefer English transliteration of "
-    "Telugu names/places. Output MUST be valid JSON and nothing else."
-)
-
-
-@app.post("/import-registered-document")
-async def import_registered_document(file: UploadFile = File(...), request: Request = None):
-    await _check_read_consent(request)
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
-    data = await file.read()
-    if len(data) > 25 * 1024 * 1024:
-        return JSONResponse(status_code=413, content={"error": "File too large (max 25 MB)"})
-    mime = (file.content_type or "").lower()
-    name = (file.filename or "").lower()
-    b64 = base64.standard_b64encode(data).decode()
-    if mime == "application/pdf" or name.endswith(".pdf"):
-        block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
-    elif mime.startswith("image/"):
-        block = {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}}
-    else:
-        return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
-    payload = {
-        "model": _IMPORT_MODEL,
-        # Output is pure JSON and you only pay for what is produced, so the
-        # ceiling is set by the longest document, not the typical one. At 3000
-        # a 14 MB multi-page deed stopped mid-object (stop_reason=max_tokens)
-        # and the app prefilled nothing.
-        # The model reasons before answering, and that reasoning is billed against
-        # max_tokens. On a 14 MB deed it spent 8228 tokens thinking — more than the
-        # entire 8000 ceiling — so the JSON was cut off mid-object and the app was
-        # told the document "ran out of room". The ceiling now comfortably exceeds
-        # thinking + answer, and effort=medium cuts the thinking (and the wait, 132s
-        # to 53s) without changing a single extracted value.
-        "max_tokens": 16000,
-        "output_config": {"effort": "medium"},
-        "system": _cacheable_system(_DOC_IMPORT_SYSTEM),
-        "messages": [{"role": "user", "content": [
-            block,
-            {"type": "text", "text": "Extract the registered-document fields and return ONLY the JSON object."},
-        ]}],
-    }
-    status, result = await _extract_registered_fields(
-        api_key=api_key, payload=payload, data_len=len(data), name=file.filename or "")
-    if status == 200:
-        return result
-    return JSONResponse(status_code=status, content=result)
-
-
-async def _extract_registered_fields(
-    *, api_key: str, payload: dict, data_len: int, name: str
-) -> tuple[int, dict]:
-    """The read itself, callable from the sync endpoint AND the async job.
-
-    Returns (200, {"fields", "raw"}) or (status, {"error"}) — exactly the
-    bodies the sync endpoint has always sent."""
-    try:
-        r = await _post_with_retry(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json_body=payload,
-            timeout=180,
-        )
-    except httpx.TimeoutException:
-        _log.warning("AI extract timed out (file=%s, model=%s)", name, _IMPORT_MODEL)
-        return 504, {"error": "AI took too long to read this document (timed out). Try again or enter details manually."}
-    except Exception as e:
-        _log.warning("AI extract failed (file=%s, bytes=%d): %r", name, data_len, e)
-        return 502, {"error": _ai_failure_message(e, data_len)}
-    if r.status_code != 200:
-        _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
-        return 502, {"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"}
-    body = r.json()
-    _log_ai_usage(body, endpoint="import-registered-document", name=name, attempt="first")
-    text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-    fields = _extract_json(text)
-    # Running out of room is a budget problem, not a bad document — so try once
-    # more with the model reasoning less, which leaves far more of the ceiling
-    # for the answer. Only worth doing when that is demonstrably what happened.
-    if (not fields) and body.get("stop_reason") == "max_tokens":
-        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", name)
-        retry = dict(payload)
-        retry["output_config"] = {"effort": "low"}
-        try:
-            r2 = await _post_with_retry(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json_body=retry,
-                timeout=200,
-            )
-            if r2.status_code == 200:
-                body = r2.json()
-                _log_ai_usage(body, endpoint="import-registered-document", name=name, attempt="low-effort-retry")
-                text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
-                fields = _extract_json(text)
-        except Exception as e:
-            _log.warning("AI extract low-effort retry failed (file=%s): %r", name, e)
-    if not text or not fields:
-        # An empty or unparseable reply used to be returned as a 200 with
-        # {"fields": {}} — the app then prefilled nothing and the form sat there
-        # looking untouched, which reads as "the button did nothing". A document
-        # we could not read is a failure and must say so.
-        _log.warning(
-            "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
-            name, data_len, body.get("stop_reason"), len(text),
-        )
-        msg = ("This document is long enough that the reading ran out of room. Photograph just the "
-               "pages with the details, or enter them by hand."
-               if body.get("stop_reason") == "max_tokens" else
-               "Nothing could be read from this document. It may be a scan of photographs rather "
-               "than text — try a clearer copy, or enter the details by hand.")
-        return 502, {"error": msg}
-    # A vector FMB's corner table becomes the §13 stored shape here — ring,
-    # sides, bearings, area, cross-checks — so every screen downstream
-    # computes nothing but unit conversion.
-    try:
-        fmb_geometry.attach_geometry(fields)
-    except Exception as e:
-        _log.warning("FMB geometry derivation failed (file=%s): %r", name, e)
-    return 200, {"fields": fields, "raw": text}
-
-
-# Durable async import routes are registered below all extraction handlers.
-
-
-# ── AI Property Importer ──────────────────────────────────────────────
-# Reads a non-agricultural property document (allotment letter, flat sale
-# agreement, plot sale deed, brochure) and auto-fills the Add-Property form.
-# Also recognises AGRICULTURAL land so the UI can route it to the parcel flow.
-_PROPERTY_IMPORT_SYSTEM = (
-    _EXTENT_NOTATION_RULE
-    + "You are a data-extraction assistant for an India (Telangana/AP) real-estate app. "
-    "The uploaded file may be a NON-AGRICULTURAL property document (open-plot/site sale deed or "
-    "allotment letter, flat/apartment sale agreement, independent house/villa deed, commercial "
-    "unit) OR an AGRICULTURAL land document (pattadar passbook, ROR/Adangal, or a deed whose "
-    "schedule property is agricultural land identified by a Survey/C.G. number).\n"
-    "STEP 1 — set `kind`: \"parcel\" if the property is AGRICULTURAL land (survey number, "
-    "classification agricultural, or a passbook/ROR); otherwise \"property\". When unsure, use "
-    "\"property\" with confidence \"low\".\n"
-    "STEP 2 — extract ONLY fields clearly present. NEVER guess or invent; leave \"\"/0/[] when not "
-    "plainly on the page. Fill the registration/parties/boundaries facts for a PROPERTY deed too, "
-    "not only for agricultural land.\n"
-    "Return ONLY a compact JSON object (no markdown/fences/commentary):\n"
-    '{"kind":"property|parcel","confidence":"high|medium|low",'
-    '"property_type":"open_plot|flat|independent_house|villa|commercial|rental|other",'
-    '"label":"<short label e.g. \'Neopolis 250-sqyd plot\'>","city":"<English>","district":"<English>",'
-    '"land_area":<number>,"land_unit":"<the unit AS WRITTEN: Sq.yd|Sq.ft|Acres|Cents|Guntas>","builtup_area":<number>,"builtup_unit":"Sq.ft",'
-    '"attributes":{"plot_no":"","dimensions":"","corner":"","road_width":0,"layout":"","tower_block":"",'
-    '"unit_no":"","floor":"","facing":"","bhk":"","carpet_area":0,"super_builtup_area":0,"uds":0},'
-    # transaction / registration facts — fill for BOTH property and parcel when present:
-    '"acquisition_mode":"purchase|gift|inheritance|partition|other",'
-    '"doc_type":"Sale Deed|Gift Deed|Partition Deed|Settlement Deed|GPA|Mortgage|Pattadar Passbook|ROR/Adangal|Other",'
-    '"document_no":"","reg_year":"","sro":"","registration_date":"<YYYY-MM-DD>","consideration":<number>,'
-    '"stamp_duty":<number>,"registration_fee":<number>,'
-    '"boundaries":{"north":"","south":"","east":"","west":""},'
-    '"parties":[{"role":"seller|buyer","name":"<English>","parentage":"<S/o|W/o|D/o ...>","address":"<English>"}],'
-    # parcel-only geo fields:
-    '"survey_no":"","extent":"","village":"","mandal":"","classification":"agricultural"}\n'
-    "PARTY ROLES — read carefully, DO NOT SWAP these two (deeds are often labeled ONLY in Telugu, "
-    "not English \"buyer\"/\"seller\"):\n"
-    "  • వ్రాయించుకొన్నవారు / వ్రాయించుకున్నవారు (vrayinchukonnavaru/vrayinchukunnavaru) = the claimant / "
-    "vendee who GETS the deed written FOR THEMSELVES (the recipient) → role = \"buyer\". The property "
-    "is being transferred TO this person — they become the CURRENT owner (is_current=true).\n"
-    "  • వ్రాసి ఇచ్చినవారు / వ్రాయించి ఇచ్చినవారు (vrasi/vrayinchi ichchinavaru) = the executant / vendor "
-    "who WRITES AND GIVES the deed → role = \"seller\". They are giving up the property — they become "
-    "the PREVIOUS owner (is_current=false).\n"
-    "Map each party strictly by which Telugu heading it appears under in the document — never guess "
-    "from name order, signature order, or page position.\n"
-    "SCHEDULE — ALWAYS FIND AND READ IT. The deed's SCHEDULE (Telugu 'షెడ్యూలు', or an English "
-    "'Schedule of Property' / 'Boundaries' / 'హద్దులు' section) is the authoritative legal description; "
-    "most critical facts live only there. From it extract:\n"
-    "  • boundaries: for EACH of north/south/east/west put the ADJOINING feature AND its side-measurement "
-    "TOGETHER, e.g. 'Plot No.59 site — 34 ft', 'Uyyuru Damodar Reddy land — 55 ft 6 in', '30-ft-wide road "
-    "— 55 ft 6 in', 'land sold today to Challa Sridevi — 66 ft'. Telugu 'అ.' = అడుగులు (feet); a value like "
-    "'55-6' means 55 ft 6 in. Keep the measurement in the boundary string — it lets the extent be checked "
-    "(depth × width ≈ area).\n"
-    "  • attributes.dimensions: derive from the two pairs of side-measurements, e.g. \"55'6\\\" x 34'\".\n"
-    "  • attributes.road_width: the width in feet if any boundary is a road; attributes.corner: 'yes' if the "
-    "plot abuts a road on two or more sides.\n"
-    "  • attributes.layout: the layout/colony/venture name if named (e.g. 'Mathrusri Anasuyamba Nagar').\n"
-    "  • survey_no: the village D.No./Survey no. from the schedule (e.g. 'D.No.29', '563/5').\n"
-    "  • SOLD PORTION: when the schedule says only PART of a larger plot-set is sold (e.g. 'plots 53,70A,70B "
-    "= 837 Sq.yd; western 418½ Sq.yd sold to you'), set land_area to the SOLD extent (418.5), NEVER the "
-    "parent total (837). If the extent is given in sq.metres too, still report land_area in Sq.yd.\n"
-    "IMPORTANT — the RUPEE `consideration` (sale value, e.g. 2,10,000) is NOT the plot `land_area` "
-    "(e.g. 210 Sq.yd); never copy one into the other. `acquisition_mode`: Sale Deed=purchase, "
-    "Gift Deed=gift, Will/inheritance=inheritance, Partition Deed=partition, else other. In a sale/"
-    "gift, the person PARTING WITH the property = role \"seller\"; the person RECEIVING it = role "
-    "\"buyer\". property_type: vacant plot/site=open_plot; apartment/flat=flat; standalone house="
-    "independent_house; gated villa=villa; shop/office/showroom=commercial; multi-tenant rental "
-    "building=rental; else other. dimensions like 30x75 go in attributes.dimensions. Output MUST be "
-    "valid JSON and nothing else."
-)
-
-
-@app.post("/extract-property")
-async def extract_property(file: UploadFile = File(...), request: Request = None):
-    await _check_read_consent(request)
-    data = await file.read()
-    out = await _anthropic_extract(
-        data, file.content_type or "", file.filename or "",
-        _PROPERTY_IMPORT_SYSTEM,
-        "Classify kind and extract the property (or agricultural parcel) fields. Return ONLY the JSON object.",
-        max_mb=25, max_tokens=16000, endpoint="extract-property",
-    )
-    if "_error" in out:
-        status, msg = out["_error"]
-        return JSONResponse(status_code=status, content={"error": msg})
-    return {"fields": out.get("fields") or {}}
-
-
-from . import import_jobs
-app.include_router(import_jobs.router)
+from .ai_reading import jobs as reading_jobs
+app.include_router(reading_jobs.router)
+# Every AI document reading (prompts, provider adapter, cost accounting,
+# consent gate) lives in src/ai_reading; these are the same paths as before.
+from . import ai_reading
+app.include_router(ai_reading.router)
 from . import capabilities
 app.include_router(capabilities.router)
 from . import payments
@@ -7221,11 +6967,3 @@ app.include_router(payments.router)
 from . import account
 account.bind(pool)
 app.include_router(account.router)
-
-
-async def _check_read_consent(request):
-    # Internal jobs check consent at submission and again before execution.
-    if request is not None:
-        uid = import_jobs.owner(request)
-        await account.require_purpose(uid, "document_processing")
-        await account.require_purpose(uid, "ai_extraction")

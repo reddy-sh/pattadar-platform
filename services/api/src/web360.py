@@ -2949,10 +2949,18 @@ async def _desk_read(conn, uid: str, scope: str, detail: str = "") -> None:
         from . import main as _main
     except ImportError:                   # imported bare off src/
         import main as _main              # type: ignore[no-redef]
-    await _main.log_audit(conn, uid, "desk_read", scope, detail)
+    # A cross-owner administrative read: actor_kind='admin' so the security
+    # view can separate it from an owner reading their own trail. scope/detail
+    # are allowlisted metadata on the envelope (see audit._SPECS['desk_read']).
+    # desk_read is a CRITICAL action — if it cannot be recorded, the read fails
+    # closed rather than proceed silently.
+    await _main.log_audit(conn, uid, "desk_read", scope, detail,
+                          actor_kind=_main.audit.ACTOR_ADMIN,
+                          metadata={"scope": scope, "detail": detail})
 
 
-async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "") -> None:
+async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "",
+                 label: str = "") -> None:
     """Record one change to a record on the shared audit trail.
 
     `target` is the record id, so the record's Audit tab can read every event
@@ -2961,13 +2969,30 @@ async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "") 
     the change still stands, and the worst case is one missing history line.
     `main.log_audit` is imported at call time for the same reason `_desk_read`
     does it: main.py imports this module, and a module-level import would close
-    the circle."""
+    the circle.
+
+    `label` names the record in the owner's own words ("Sy 77/3"), and is
+    resolved HERE rather than at each of the thirty-odd call sites: a line that
+    reads "Removed a parcel" without saying which parcel is the trail failing at
+    its whole purpose, and relying on every caller to remember guarantees some
+    never will. A caller passes it explicitly only when the lookup cannot work —
+    a delete logs AFTER the row is gone, so it must carry the name it read
+    before destroying it."""
     try:
         try:                              # inside the `src` package
             from . import main as _main
         except ImportError:               # imported bare off src/
             import main as _main          # type: ignore[no-redef]
-        await _main.log_audit(conn, uid, action, record_id, detail)
+        name = (label or "").strip()
+        if not name and record_id:
+            # One indexed primary-key lookup. Returns '' for an id that is not
+            # a record (a person, a paper), which is harmless: the line simply
+            # carries no label, exactly as it did before.
+            kind = await _record_kind(conn, uid, record_id)
+            if kind:
+                name = await _record_label(conn, kind, record_id)
+        await _main.log_audit(conn, uid, action, record_id, detail,
+                              metadata={"label": name} if name else None)
     except Exception:                     # noqa: BLE001 — never block the write
         pass
 
@@ -5592,6 +5617,24 @@ async def _record_kind(conn, uid: str, rid: str) -> str:
     return "property" if await cur.fetchone() else ""
 
 
+async def _record_label(conn, kind: str, rid: str) -> str:
+    """What to call a record in an audit line.
+
+    Read BEFORE a destructive write: once the row is gone the trail is the only
+    place its name survives, and "Removed rec-96d0b8d391b7" is not an answer to
+    "what did I delete". A parcel has no title column — its name is the survey
+    number and its subdivision — so it is composed the same way the cards do."""
+    if kind == "parcel":
+        cur = await conn.execute(
+            "SELECT survey_no, subdivision FROM parcels WHERE id=%s", (rid,))
+        row = await cur.fetchone() or {}
+        no = (row.get("survey_no") or "").strip()
+        sub = (row.get("subdivision") or "").strip()
+        return (f"Sy {no}/{sub}" if no and sub else f"Sy {no}" if no else "").strip()
+    cur = await conn.execute("SELECT label FROM properties WHERE id=%s", (rid,))
+    return ((await cur.fetchone() or {}).get("label") or "").strip()
+
+
 async def _create_record(conn, uid: str, inp: RecordInput) -> str:
     import uuid as _uuid
     rid = f"rec-{_uuid.uuid4().hex[:12]}"
@@ -5629,6 +5672,12 @@ async def _create_record(conn, uid: str, inp: RecordInput) -> str:
             (rid, pb_id, no, sub, _f(inp.extent), inp.classification or "agri",
              inp.status or "owned", inp.stake or "owned",
              _f(inp.market_value), _f(inp.purchase_price), now))
+        # Creating a record is a change the trail must carry — without this the
+        # record's own Audit tab read "nothing has happened yet" the instant it
+        # was made, and the owner's audit log never saw the record appear.
+        await _audit(conn, uid, "create_parcel", rid,
+                     f"Added {(inp.title or 'a parcel').strip()}",
+                     label=(inp.title or "").strip())
         return rid
     built = (inp.extent_unit or ("sq.ft" if (inp.classification or "flat")
                                  in ("flat", "shop") else "sq.yd")) == "sq.ft"
@@ -5643,6 +5692,9 @@ async def _create_record(conn, uid: str, inp: RecordInput) -> str:
          (inp.owner_name or "").strip(), inp.status or "owned", inp.stake or "owned",
          0.0 if built else _f(inp.extent), _f(inp.extent) if built else 0.0,
          _f(inp.market_value), _f(inp.market_value), _f(inp.purchase_price), now))
+    await _audit(conn, uid, "create_property", rid,
+                 f"Added {(inp.title or 'a property').strip()}",
+                 label=(inp.title or "").strip())
     return rid
 
 
@@ -5714,6 +5766,19 @@ async def _log_corrections(conn, uid: str, rid: str, before: dict, inp: RecordIn
              json.dumps({"field": label,
                          "from": str(old).strip(),
                          "to": str(new).strip()}), now))
+        # Envelope event on the same connection. The old/new VALUES stay in the
+        # legacy details column only; the envelope records WHICH field changed
+        # (allowlisted `field` label) and that it changed, never the personal
+        # before/after content — that is what keeps the central trail free of
+        # names, locations and prices.
+        try:
+            from . import main as _main
+        except ImportError:
+            import main as _main          # type: ignore[no-redef]
+        await _main.audit.record(
+            conn, action="record.corrected", actor_principal=uid,
+            affected_owner=uid, resource_id=rid,
+            metadata={"field": label, "changed": True})
 
 
 async def _update_record(conn, uid: str, inp: RecordInput) -> str:
@@ -5854,6 +5919,9 @@ class WebMutation:
                 kind = await _record_kind(conn, uid, rid)
                 if not kind:
                     continue
+                # Read the name while the row still exists — after the DELETE
+                # below the trail is the only place it survives.
+                label = await _record_label(conn, kind, rid)
                 # A paper reaches a record by whichever key filed it: the web
                 # 360 writes record_id, while the mobile upload path and the
                 # vault backfill write parcel_id / property_id and leave
@@ -5923,6 +5991,13 @@ class WebMutation:
                 await conn.execute(
                     f"DELETE FROM {'parcels' if kind == 'parcel' else 'properties'}"
                     " WHERE id=%s", (rid,))
+                # Logged AFTER the row is actually gone, so a delete that failed
+                # never leaves a line claiming it happened. The event outlives
+                # the record on purpose: the trail is append-only, and "what
+                # became of that parcel" is exactly the question it answers.
+                await _audit(conn, uid, f"delete_{kind}", rid,
+                             f"Removed {label}" if label else "Removed a record",
+                             label=label)
                 n += 1
         return n
 
@@ -5939,6 +6014,10 @@ class WebMutation:
                 await conn.execute(
                     f"UPDATE {'parcels' if kind == 'parcel' else 'properties'}"
                     " SET archived=%s WHERE id=%s", (archived, rid))
+                label = await _record_label(conn, kind, rid)
+                await _audit(conn, uid, "archive_record", rid,
+                             ("Archived " if archived else "Brought back ")
+                             + (label or "a record"), label=label)
                 n += 1
         return n
 
@@ -5959,6 +6038,7 @@ class WebMutation:
                     " tag, created_at) VALUES (%s,%s,'record',%s,%s, to_char(now(),'YYYY-MM-DD'))"
                     " ON CONFLICT (owner_user_id, entity_type, entity_id, tag) DO NOTHING",
                     (f"tag-{uid}-{rid}-{word}"[:64], uid, rid, word))
+                await _audit(conn, uid, "tag_record", rid, f"Tagged “{word}”")
                 n += 1
         return n
 

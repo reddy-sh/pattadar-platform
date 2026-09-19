@@ -110,6 +110,10 @@ def ownership_predicates(catalog):
             clauses.append('"id"=%s')
         elif table == "audit_events":
             clauses.append('"actor"=%s')
+        elif table in ("audit_events_v2", "audit_outbox"):
+            # The centralized trail is owner-scoped by affected_owner. An
+            # export/erasure for an owner covers events ABOUT their data.
+            clauses.append('"affected_owner"=%s')
         for column, parent in CHILD_LINKS.get(table, []):
             scope = predicate(parent)
             if column in columns and scope:

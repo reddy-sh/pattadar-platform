@@ -13,6 +13,8 @@ from fastapi.responses import JSONResponse
 from psycopg.types.json import Jsonb
 from starlette.datastructures import Headers
 
+from .. import aadhaar
+
 log = logging.getLogger("pattadar.import_jobs")
 router = APIRouter()
 pool = None
@@ -36,9 +38,16 @@ def owner(request: Request) -> str:
     return uid
 
 
+def _stored_filename(file: UploadFile, operation: str) -> str:
+    if operation != "extract-aadhaar":
+        return file.filename or "document"
+    mime = (file.content_type or "").casefold()
+    return "aadhaar.pdf" if mime == "application/pdf" else "aadhaar-image"
+
+
 async def submit(request: Request, file: UploadFile, operation: str):
     uid = owner(request)
-    from . import account
+    from .. import account
     await account.require_purpose(uid, 'document_processing')
     await account.require_purpose(uid, 'ai_extraction')
     content = await file.read(MAX_BYTES + 1)
@@ -68,7 +77,7 @@ async def submit(request: Request, file: UploadFile, operation: str):
         job = uuid.uuid4().hex
         await conn.execute(
             "INSERT INTO document_read_jobs (id,owner_user_id,operation,filename,mime,source,request_key) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-            (job, uid, operation, file.filename or "document", file.content_type or "application/octet-stream", content, key))
+            (job, uid, operation, _stored_filename(file, operation), file.content_type or "application/octet-stream", content, key))
     return {"job": job}
 
 
@@ -109,7 +118,7 @@ async def run_one() -> bool:
     try:
         # Consent may have changed while waiting in the queue. Recheck before
         # handing document bytes to a paid external provider.
-        from . import account
+        from .. import account
         await account.require_purpose(row["owner_user_id"], 'document_processing')
         await account.require_purpose(row["owner_user_id"], 'ai_extraction')
         # More than the extraction's individual HTTP budget, but finite even
@@ -117,6 +126,8 @@ async def run_one() -> bool:
         response = await asyncio.wait_for(handlers[row["operation"]](file=upload), timeout=840)
         code = response.status_code if isinstance(response, JSONResponse) else 200
         result = json.loads(response.body) if isinstance(response, JSONResponse) else response
+        if code == 200 and row["operation"] == "extract-aadhaar":
+            result = await aadhaar.secure_extraction_result(row["owner_user_id"], result)
     except asyncio.CancelledError:
         code, result = 503, {"error": "The server stopped during this reading. It was not retried automatically. You may send it again."}
         async with pool.connection() as conn:
@@ -158,6 +169,7 @@ async def maintenance():
                 # it interrupted rather than repeat it on a different task.
                 await conn.execute("UPDATE document_read_jobs SET state='failed',status=503,source=NULL,result=%s,updated_at=now() WHERE state='running' AND updated_at < now()-interval '15 minutes'", (Jsonb({"error": "The server stopped during this reading. It was not retried automatically. You may send it again."}),))
                 await conn.execute("DELETE FROM document_read_jobs WHERE state<>'running' AND updated_at < now()-interval '1 day'")
+                await aadhaar.cleanup_expired(conn)
         except asyncio.CancelledError:
             raise
         except Exception:
