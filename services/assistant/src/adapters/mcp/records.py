@@ -1,4 +1,13 @@
-"""Claude Agent SDK adapters for the eight internal public-record handlers."""
+"""MCP server: read-only historical public records (8 tools).
+
+Registered under the ``pattadar_records`` key, reaching the model as
+``mcp__pattadar_records__*``. Every tool is annotated read-only and its
+output is treated as data: a record whose text resembles a browser action
+can never become one (see domain/tool_policy.py action_event).
+
+Results are historical reference data, never proof of identity, ownership
+or current legal title.
+"""
 from __future__ import annotations
 
 import json
@@ -8,8 +17,8 @@ from typing import Any
 
 from claude_agent_sdk import ToolAnnotations, create_sdk_mcp_server, tool as sdk_tool
 
-from .exceptions import PublicRecordsError
-from .service import PUBLIC_RECORD_TOOL_NAMES, PublicRecordsService
+from ...public_records.exceptions import PublicRecordsError
+from ...public_records.service import PUBLIC_RECORD_TOOL_NAMES, PublicRecordsService
 
 _log = logging.getLogger("pattadar.assistant.public_records")
 _READ_ONLY = ToolAnnotations(
@@ -285,7 +294,9 @@ def build_public_record_tools(service: PublicRecordsService) -> list[Any]:
 
 def build_public_records_server(service: PublicRecordsService):
     return create_sdk_mcp_server(
-        name="pattadar-records",
+        # Informational only. The tool prefix comes from the mcp_servers
+        # key (pattadar_records) in adapters/agent_runtime.py, not from this.
+        name="pattadar_records",
         version="1.0.0",
         tools=build_public_record_tools(service),
     )

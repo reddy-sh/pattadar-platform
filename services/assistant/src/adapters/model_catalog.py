@@ -77,7 +77,7 @@ def _row_to_info(row: dict) -> ModelInfo:
 
 # ── Registry ───────────────────────────────────────────────────────────────
 
-class ModelRegistry:
+class ModelCatalog:
     """Reads enabled assistant-use-case models from PG, caches them in
     memory, refreshes periodically."""
 
@@ -273,17 +273,17 @@ class ModelRegistry:
 
 
 # Module-level singleton
-_registry: Optional[ModelRegistry] = None
+_catalog: Optional[ModelCatalog] = None
 
 
-def get_registry() -> ModelRegistry:
-    if _registry is None:
-        raise RuntimeError("model_registry not initialised — call init_registry() first")
-    return _registry
+def get_catalog() -> ModelCatalog:
+    if _catalog is None:
+        raise RuntimeError("model_registry not initialised — call init_catalog() first")
+    return _catalog
 
 
-def init_registry(anthropic_api_key: str = "") -> ModelRegistry:
-    global _registry
-    if _registry is None:
-        _registry = ModelRegistry(anthropic_api_key)
-    return _registry
+def init_catalog(anthropic_api_key: str = "") -> ModelCatalog:
+    global _catalog
+    if _catalog is None:
+        _catalog = ModelCatalog(anthropic_api_key)
+    return _catalog

@@ -37,8 +37,20 @@ def migrate_one(conn, row, data, bucket, s3=None):
             if not current or current['storage_path'] != row['storage_path']:
                 return False
             if bucket:
+                kms_key = os.getenv('ASSISTANT_ATTACHMENTS_KMS_KEY_ARN', '').strip()
+                if not kms_key:
+                    raise RuntimeError('ASSISTANT_ATTACHMENTS_KMS_KEY_ARN is required for S3 migration')
                 digest = base64.b64encode(hashlib.sha256(data).digest()).decode()
-                uploaded = s3.put_object(Bucket=bucket,Key=key,Body=data,ContentType=row['mime_type'] or 'application/octet-stream',ChecksumSHA256=digest)
+                uploaded = s3.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=data,
+                    ContentType=row['mime_type'] or 'application/octet-stream',
+                    ChecksumSHA256=digest,
+                    ServerSideEncryption='aws:kms',
+                    SSEKMSKeyId=kms_key,
+                    BucketKeyEnabled=True,
+                )
                 created = {'Bucket':bucket,'Key':key}
                 if uploaded.get('VersionId'):
                     created['VersionId'] = uploaded['VersionId']

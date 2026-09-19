@@ -26,6 +26,22 @@ def _s3():
     return boto3.client('s3', region_name=os.getenv('AWS_REGION', 'ap-south-1'))
 
 
+def _s3_put_args(*, bucket: str, key: str, data: bytes, mime: str, **extra) -> dict:
+    kms_key = os.getenv('ASSISTANT_ATTACHMENTS_KMS_KEY_ARN', '').strip()
+    if not kms_key:
+        raise AttachmentUnavailable('Attachment encryption is not configured')
+    return {
+        'Bucket': bucket,
+        'Key': key,
+        'Body': data,
+        'ContentType': mime or 'application/octet-stream',
+        'ServerSideEncryption': 'aws:kms',
+        'SSEKMSKeyId': kms_key,
+        'BucketKeyEnabled': True,
+        **extra,
+    }
+
+
 async def read_attachment_bytes(row: dict) -> bytes:
     """Called only after get_attachment has authorized the conversation owner."""
     if row.get('content') is not None:
@@ -63,7 +79,10 @@ async def _store(conn, user_id: str, conversation_id: str, attachment_id: str, d
         return f'db:{attachment_id}', data
     owner_key = hashlib.sha256(user_id.encode()).hexdigest()
     key = f'assistant/{owner_key}/{conversation_id}/{attachment_id}'
-    result = await asyncio.to_thread(_s3().put_object, Bucket=bucket, Key=key, Body=data, ContentType=mime or 'application/octet-stream')
+    result = await asyncio.to_thread(
+        _s3().put_object,
+        **_s3_put_args(bucket=bucket, key=key, data=data, mime=mime),
+    )
     if uploaded is not None:
         uploaded.update(bucket=bucket, key=key, version=(result or {}).get('VersionId'))
     return f's3://{bucket}/{key}', None

@@ -11,8 +11,9 @@ public tool server, transport endpoint, URL, token, or second process.
   `requirements.txt`; LangGraph/LangChain are not runtime dependencies.
 - **Durability:** PostgreSQL owns conversations, ordered messages, idempotent
   run state, and SDK session metadata. SDK-local files are ephemeral.
-- **Scope:** `src/domain_policy.py` denies out-of-scope requests before file
-  content, SDK execution, or tools. Browser context is data, not authorization.
+- **Scope:** `src/domain/scope_policy.py` denies out-of-scope requests before
+  file content, SDK execution, or tools. Browser context is data, not
+  authorization.
 - **Models:** the administrator-owned `platform_models` catalog is authoritative;
   the browser has no model controls.
 - **Tools:** built-in Claude tools are disabled. The exact allowlist contains
@@ -32,6 +33,32 @@ public tool server, transport endpoint, URL, token, or second process.
   identity, ownership, current title, or a live government lookup. `(rid,
   s_no)` is the record identity, and source extent units are never converted.
 
+## Module layout
+
+Policy is kept separate from the SDK so the rules that decide what a model may
+do can be read and tested without building an agent or spending a token.
+
+| Path | Owns |
+| --- | --- |
+| `src/main.py` | composition root and the HTTP/SSE transport |
+| `src/ports.py` | the agent-runtime, model-catalog and prompt seams |
+| `src/domain/scope_policy.py` | the deterministic in/out-of-scope decision |
+| `src/domain/tool_policy.py` | tool allowlist, denied built-ins, navigation allowlist, action validation |
+| `src/domain/sse_events.py` | the published SSE event vocabulary |
+| `src/adapters/agent_runtime.py` | Claude Agent SDK glue |
+| `src/adapters/mcp/ui.py` | the `pattadar_ui` server (five tools) |
+| `src/adapters/mcp/records.py` | the `pattadar_records` server (eight read-only tools) |
+| `src/adapters/model_catalog.py` | read-only cache over `platform_models` |
+| `src/adapters/prompt_repository.py` | system prompt: database, then seed, then built-in |
+| `src/public_records/` | the read-only corpus behind the record tools |
+
+Routes intentionally stay in `main.py`: the guard test asserts the scope gate
+runs before attachment reads, prompt loading and the model call *in that file*.
+
+Platform-wide context, including the other AI surface in `services/api`, is in
+[`docs/architecture/ai-system.md`](../../docs/architecture/ai-system.md) and
+indexed in [`ai-inventory.yaml`](../../docs/architecture/ai-inventory.yaml).
+
 ## Public-record configuration
 
 Use `PUBLIC_RECORDS_DATABASE_URL` or `PUBLIC_RECORDS_PG_*` with a dedicated
@@ -48,10 +75,13 @@ search as unavailable.
 
 ## Local validation
 
+Run from the repository root: `test_public_records_runtime.py` spawns a
+subprocess with `PYTHONPATH` set to the working directory and fails elsewhere.
+
 ```sh
 python -m compileall -q services/assistant/src
-python -m pytest -q services/assistant/tests/test_attachment_storage.py services/assistant/tests/test_attachment_migration.py
-python -m pytest -q services/assistant/tests/test_public_records_runtime.py
+python -m pytest -q services/assistant/tests
+python scripts/ai-boundary-guard.py
 bun run --filter @pattadar/web typecheck
 bun run --filter @pattadar/web build
 ```

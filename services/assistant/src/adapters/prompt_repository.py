@@ -10,9 +10,9 @@ Ported from the predecessor's api/common/prompt_service.py. Differences:
 
 Usage::
 
-    from .prompt_service import PromptService
+    from .adapters.prompt_repository import PromptRepository
 
-    svc = PromptService.get_instance()
+    svc = PromptRepository.get_instance()
     prompt = await svc.get("assistant")
 
 Loads prompts from the ``agent_prompts`` table (cached for 60 s), falling back
@@ -107,10 +107,10 @@ def _conninfo() -> str:
     return " ".join(parts)
 
 
-class PromptService:
+class PromptRepository:
     """Centralized prompt loader with DB cache, seed-file and built-in fallback."""
 
-    _instance: Optional["PromptService"] = None
+    _instance: Optional["PromptRepository"] = None
     TTL: float = 60.0  # seconds
 
     def __init__(self, seed_dir: str = _DEFAULT_SEED_DIR):
@@ -122,7 +122,7 @@ class PromptService:
     # ------------------------------------------------------------------
 
     @classmethod
-    def get_instance(cls) -> "PromptService":
+    def get_instance(cls) -> "PromptRepository":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance

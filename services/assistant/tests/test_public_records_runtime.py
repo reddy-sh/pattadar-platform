@@ -15,13 +15,13 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
-from services.assistant.src.agent import AssistantAgent
+from services.assistant.src.adapters.agent_runtime import AssistantAgent
 from services.assistant.src.config import AssistantConfig
-from services.assistant.src.domain_policy import evaluate_scope
+from services.assistant.src.domain.scope_policy import evaluate_scope
 from services.assistant.src.public_records import database as database_module
 from services.assistant.src.public_records.database import ReadOnlyDatabase
 from services.assistant.src.public_records.exceptions import ToolInputError
-from services.assistant.src.public_records.sdk_tools import build_public_record_tools
+from services.assistant.src.adapters.mcp import build_public_record_tools
 from services.assistant.src.public_records.service import PUBLIC_RECORD_TOOL_NAMES, PublicRecordsService
 from services.assistant.src.public_records.settings import PublicRecordSettings
 

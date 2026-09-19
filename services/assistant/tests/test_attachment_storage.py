@@ -4,9 +4,17 @@ import pytest
 import importlib.util
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location('assistant_attachments_under_test', Path(__file__).parents[1] / 'src/attachments.py')
+spec = importlib.util.spec_from_file_location('assistant_attachments_under_test', Path(__file__).parents[1] / 'src/adapters/attachment_store.py')
 attachments = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(attachments)
+
+
+@pytest.fixture(autouse=True)
+def configured_attachment_kms(monkeypatch):
+    monkeypatch.setenv(
+        'ASSISTANT_ATTACHMENTS_KMS_KEY_ARN',
+        'arn:aws:kms:ap-south-1:000000000000:key/documents',
+    )
 
 
 def test_local_bytes_survive_without_any_upload_directory(monkeypatch, tmp_path):
@@ -35,7 +43,11 @@ def test_s3_bytes_read_after_process_replacement(monkeypatch):
         def read(self): return b'durable'
         def close(self): pass
     class S3:
-        def put_object(self, **kw): objects[kw['Key']] = kw['Body']
+        def put_object(self, **kw):
+            assert kw['ServerSideEncryption'] == 'aws:kms'
+            assert kw['SSEKMSKeyId'].endswith('/documents')
+            assert kw['BucketKeyEnabled'] is True
+            objects[kw['Key']] = kw['Body']
         def get_object(self, **kw):
             assert objects[kw['Key']] == b'durable'
             return {'Body':Body()}

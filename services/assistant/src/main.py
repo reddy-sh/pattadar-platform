@@ -19,8 +19,8 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from psycopg.rows import dict_row
 
 from . import telemetry as _metrics
-from .agent import AssistantAgent
-from .attachments import (
+from .adapters.agent_runtime import AssistantAgent
+from .adapters.attachment_store import (
     AttachmentUnavailable,
     build_attachment_blocks,
     get_attachment,
@@ -28,7 +28,7 @@ from .attachments import (
     save_attachment,
 )
 from .config import AssistantConfig
-from .conversations import (
+from .adapters.conversation_store import (
     append_message,
     attachments_belong_to_conversation,
     auto_title,
@@ -49,8 +49,8 @@ from .conversations import (
     update_conversation,
     update_sdk_session,
 )
-from .domain_policy import SCOPE_DENIAL_TEXT, evaluate_scope
-from .models import ChatRequest, ConversationCreate, ConversationUpdate
+from .domain.scope_policy import SCOPE_DENIAL_TEXT, evaluate_scope
+from .schemas import ChatRequest, ConversationCreate, ConversationUpdate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 _log = logging.getLogger("pattadar.assistant.main")
@@ -140,14 +140,14 @@ async def _ensure_tables() -> None:
 async def lifespan(app: FastAPI):
     _log.info("Assistant service starting on port %d", config.port)
     await _ensure_tables()
-    from . import model_registry
+    from .adapters import model_catalog
 
-    registry = model_registry.init_registry(config.anthropic_api_key)
-    await registry.start()
+    catalog = model_catalog.init_catalog(config.anthropic_api_key)
+    await catalog.start()
     await agent_manager.initialize()
     yield
     await agent_manager.shutdown()
-    await registry.stop()
+    await catalog.stop()
     _log.info("Assistant service shut down")
 
 
@@ -252,9 +252,9 @@ async def health():
         errors.append(f"db: {exc}")
 
     try:
-        from . import model_registry
+        from .adapters import model_catalog
 
-        model_registry.get_registry().default_model()
+        model_catalog.get_catalog().default_model()
     except Exception as exc:
         errors.append(f"model_policy: {exc}")
 
@@ -310,10 +310,10 @@ async def create_conversation_endpoint(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
-    from . import model_registry
+    from .adapters import model_catalog
 
     try:
-        model = model_registry.get_registry().default_model()
+        model = model_catalog.get_catalog().default_model()
     except RuntimeError as exc:
         raise HTTPException(503, "No assistant model is currently enabled") from exc
     conn = await _get_conn()
@@ -459,10 +459,10 @@ async def chat_stream(
             )
             return _fixed_stream({"type": "token", "text": SCOPE_DENIAL_TEXT})
 
-        from . import model_registry
+        from .adapters import model_catalog
 
         try:
-            effective_model = model_registry.get_registry().default_model()
+            effective_model = model_catalog.get_catalog().default_model()
         except RuntimeError as exc:
             raise HTTPException(503, "No assistant model is currently enabled") from exc
 
@@ -714,6 +714,6 @@ async def download_attachment(
         await conn.close()
 
 
-from .account_data import router as account_data_router
+from .account_export import router as account_export_router
 
-app.include_router(account_data_router)
+app.include_router(account_export_router)

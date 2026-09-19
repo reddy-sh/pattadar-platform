@@ -16,6 +16,14 @@ migration=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(migration)
 
 
+@pytest.fixture(autouse=True)
+def configured_attachment_kms(monkeypatch):
+    monkeypatch.setenv(
+        'ASSISTANT_ATTACHMENTS_KMS_KEY_ARN',
+        'arn:aws:kms:ap-south-1:000000000000:key/documents',
+    )
+
+
 @pytest.fixture(scope='module')
 def postgres():
     initdb,pg_ctl=shutil.which('initdb'),shutil.which('pg_ctl')
@@ -73,12 +81,15 @@ def test_s3_metadata_failure_removes_only_new_version_and_preserves_source(db):
     conn.execute('CREATE TRIGGER fail_update BEFORE UPDATE ON r_attachments FOR EACH ROW EXECUTE FUNCTION fail_update()')
     class S3:
         deleted=[]
-        def put_object(self,**kw): self.data=kw['Body']; return {'VersionId':'new-version'}
+        def put_object(self,**kw): self.put_args=kw; self.data=kw['Body']; return {'VersionId':'new-version'}
         def get_object(self,**kw): return {'Body':io.BytesIO(self.data)}
         def delete_object(self,**kw): self.deleted.append(kw)
     s3=S3()
     receipt=migration.run(conn,root,execute=True,bucket='documents',s3=s3,writers_drained=True,release_sha='a'*40)
     assert receipt['status']=='blocked'
+    assert s3.put_args['ServerSideEncryption']=='aws:kms'
+    assert s3.put_args['SSEKMSKeyId'].endswith('/documents')
+    assert s3.put_args['BucketKeyEnabled'] is True
     assert s3.deleted[0]['VersionId']=='new-version'
     assert file.read_bytes()==b'original deed'
     assert conn.execute('SELECT storage_path FROM r_attachments').fetchone()['storage_path']==str(file)
