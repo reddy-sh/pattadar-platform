@@ -36,8 +36,10 @@ reported as blocked; metadata alone cannot recreate it.
    preflight's `rollback.assistant`. Do not update the running service yet.
 4. Copy the migration utility to a controlled process that can read the old
    upload volume and reach its database. Supply `ASSISTANT_DSN`, and for S3,
-   `ASSISTANT_ATTACHMENTS_BUCKET` plus a role authorized for that prefix/KMS key.
-   Run a read-only inventory first:
+   `ASSISTANT_ATTACHMENTS_BUCKET` plus
+   `ASSISTANT_ATTACHMENTS_KMS_KEY_ARN`, with a role authorized for that exact
+   prefix/key. The migration sends explicit SSE-KMS and bucket-key parameters;
+   it fails closed when the key ARN is absent. Run a read-only inventory first:
 
    ```sh
    python services/assistant/scripts/migrate_attachments.py \

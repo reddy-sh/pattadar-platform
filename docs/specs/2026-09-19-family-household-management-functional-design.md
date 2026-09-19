@@ -1,8 +1,8 @@
 # Family and Household Management — Functional Design
 
-**Date:** 19/09/2026  
-**Status:** Draft for Reddy review  
-**Document type:** Active feature design; proposed behavior is not implemented until source and tests prove it  
+**Date:** 19/09/2026
+**Status:** Partially implemented in the working tree; not release-ready pending functional acceptance and rollout approval
+**Document type:** Active feature design and implementation contract; source and completed checks remain authoritative
 **Scope:** Family groups, head-of-household activity, inactivity reminders, family notifier settings, and household property management
 
 ## 1. Purpose
@@ -18,7 +18,7 @@ This design defines:
 5. what the head can do with household properties; and
 6. the safety, privacy, audit, and acceptance rules for the feature.
 
-This document intentionally distinguishes current repository behavior from the requested target. Executable source remains the authority until the target behavior is implemented and verified.
+This document distinguishes implemented working-tree behavior from live or provider evidence. Executable source remains the authority, and this status does not mean the change is deployed or that a real recipient received a message.
 
 ## 2. Product principles
 
@@ -37,7 +37,7 @@ This document intentionally distinguishes current repository behavior from the r
 | **Family group / household** | A Pattadar group with `type='family'`. |
 | **Head of household** | The authenticated owner of the family group. The current model represents this as `groups.owner_user_id` and a per-group self member with role `Head`. |
 | **Member** | A person recorded in the household. A member may be a beneficiary/heir but is not necessarily an authenticated Pattadar user. |
-| **Eligible notifier** | A non-self household member with a usable, consented contact channel. |
+| **Eligible notifier** | A non-self adult household member with a verified email and active purpose-specific safeguard-email consent. |
 | **Selected notifier** | An eligible notifier explicitly placed in the household's ordered notification list. |
 | **Last active** | The latest server-recorded authenticated activity for the head. This is broader than an identity-provider login event. |
 | **Acknowledgement** | A valid response proving that the alert was received and stopping the current escalation cycle. |
@@ -74,11 +74,11 @@ This document intentionally distinguishes current repository behavior from the r
 |---|---|---|
 | Household head | Family group creator is stored as `owner_user_id`; their self member receives role `Head`. | Implemented foundation. There is no separate `head_of_household` or previous-head history field. |
 | Last activity | The authenticated `me` query updates `users.last_active_at` and returns the prior value. | Implemented as an activity heartbeat, not an exact Cognito login timestamp. |
-| Inactivity threshold | Defaults are 150 days for head check-in, 180 days for family escalation, and a 7-day priority gap. | Does not implement the requested post-six-month day 1/7/15 head-reminder sequence. |
-| Head acknowledgement | A token acknowledgement stops escalation and resets `last_active_at`. | Implemented foundation. |
-| Default family notification | With no ordered notifier rows, all non-self members are notified once. | Implemented foundation. Current routing may use email or phone automatically. |
-| Specific notifiers | The head can save an ordered member list; priorities are notified one at a time. | Implemented foundation. Per-notifier channel settings are not stored. |
-| Notification preferences | User profile stores `notification_prefs`. | Gap: the inactivity engine does not currently consume these preferences. |
+| Inactivity threshold | Default threshold is 180 elapsed days. The engine sends one head stage per due run on days 181, 187, and 195, then begins family escalation on a later daily run. | Implemented in the working tree; delivery verification remains pending. |
+| Head acknowledgement | A 30-day, single-purpose, hashed-at-rest capability closes the cycle and updates head activity only for a head token. | Implemented in the working tree. |
+| Default family notification | With no ordered notifier rows, all eligible non-self members with verified email are emailed. Missing contacts are reported as skipped rather than delivered. | Implemented in the working tree. |
+| Specific notifiers | The head can atomically save an ordered list of same-household, non-self members with verified email. Priorities are contacted one at a time. | Implemented in the working tree; email is the only enabled inactivity channel. |
+| Notification preferences | Head reminders require `email` in the account's general `notification_prefs` and the purpose-specific `inactivity_email_enabled` flag. Family delivery requires a verified email plus explicit `inactivity_email_consent`. The acknowledgement page can withdraw only future safeguard email. | Implemented in the working tree; live acceptance remains pending. |
 | Family/member management | Owner-scoped group and member create/update/remove operations exist. | Implemented foundation. |
 | Property management | Owner-scoped property/passbook/parcel create, update, delete, assignment, and stake operations exist. | Implemented foundation. There is no delegated non-owner household manager. |
 | Group deletion | Members are removed and holdings are returned to personal/unassigned scope rather than deleted. | Implemented and retained by this design. |
@@ -151,7 +151,7 @@ The household settings screen offers two mutually exclusive modes:
 - **NT-001:** Only the head can change notifier settings.
 - **NT-002:** The head can add, remove, and reorder selected notifiers.
 - **NT-003:** The UI shows each selected person's name, relationship, priority, available verified channels, and whether contact is usable.
-- **NT-004:** A self member cannot be selected as a family escalation recipient.
+- **NT-004:** A self member or minor cannot be selected as a family escalation recipient.
 - **NT-005:** Duplicate recipients are rejected.
 - **NT-006:** A member from another household cannot be selected.
 - **NT-007:** Removing a member from the household removes them from notifier settings.
@@ -217,11 +217,11 @@ Security boundaries:
 - The provider seam may be configured as a stub. Repository configuration or a successful local call is not proof of live email/SMS/WhatsApp delivery.
 - Acknowledgement tokens must be unguessable, single-purpose, revocable/expiring according to the approved token policy, and limited to closing an inactivity stage.
 
-## 10. Proposed data and contract evolution
+## 10. Implemented data and contract evolution
 
-The implementation should reuse current tables where safe rather than creating a second inactivity system.
+The working-tree implementation reuses current tables and adds durable safeguard state. These statements describe repository code, not an applied database migration or deployed service.
 
-### 10.1 Existing data to retain
+### 10.1 Existing data retained
 
 - `groups.owner_user_id` as the server-side head authority.
 - The family self member with role `Head` for display and family-tree purposes.
@@ -230,19 +230,18 @@ The implementation should reuse current tables where safe rather than creating a
 - `inactivity_escalations` as durable cycle/stage state.
 - `notification_log` as delivery-attempt evidence.
 
-### 10.2 Likely additions or refinements
+### 10.2 Additive working-tree schema
 
-- Durable inactivity cycle identifier and threshold timestamp.
-- Explicit head reminder stage: first, second, final, family escalation, closed.
-- Per-stage next-action timestamp and delivery result.
-- Per-notifier channel choice and consent/verification snapshot, or a normalised preference relation if shared elsewhere.
-- Separate `head_acknowledged_at` and `family_acknowledged_at` so activity is not inferred from the wrong actor.
-- Unique delivery key covering cycle, stage, recipient, and channel.
-- Optional headship history only if a separately approved ownership-transfer workflow is designed.
+- `inactivity_escalations` carries cycle, threshold, next-action, outcome, and separate head/family acknowledgement timestamps.
+- `inactivity_capabilities` stores only token hashes and binds each capability to a cycle, stage, actor type, recipient reference, expiry, and one-time consumption.
+- `inactivity_deliveries` records cycle/stage/recipient/channel attempts with a unique delivery key, provider, status, bounded error code, and attempt count.
+- `family_notifiers.channel` is additive and currently restricted by application behavior to `email`.
+- `GroupType` exposes head name, last activity, stage, next action, last outcome, and contact-gap count for the active web screen.
+- Existing legacy escalation rows are assigned to the current activity-derived cycle when next evaluated; no live backfill has been run.
 
 ### 10.3 API behavior
 
-Current GraphQL operations such as `notifiers`, `setNotifiers`, `runInactivityCheck`, and `acknowledgeInactivity` may be evolved, but changes must remain additive for active clients unless a coordinated compatibility migration is approved.
+The root GraphQL contracts remain additive. `notifiers` now exposes channel and eligibility fields; `setNotifiers` preserves the empty-list compatibility contract while validating the full replacement transactionally; `acknowledgeInactivity` keeps its Boolean response but now consumes a purpose-bound public capability. Active W360 selects the new group status fields. Native iOS does not currently consume these inactivity operations, so this root-schema change is classified NOTE rather than an automatic Swift adaptation.
 
 The UI needs read models for:
 
@@ -414,6 +413,10 @@ Current behavior was traced to:
 - [`docs/architecture.md`](../architecture.md): declared gateway/API/cron trust boundaries.
 - [`docs/compliance/gdpr-dpdp.md`](../compliance/gdpr-dpdp.md): family, inactivity, contact, notification, minor/guardian, retention, and consent data classes.
 
-## 20. Known documentation/implementation drift
+## 20. Remaining rollout and evidence gap
 
-`docs/compliance/gdpr-dpdp.md` describes notification consent as per-channel with opt-out honoured. Current source stores `users.notification_prefs`, but `_run_inactivity_check` does not consume it. This design treats enforcement as a required implementation and acceptance gap; it must not be represented as complete based only on the stored profile field.
+The working-tree flow separates contact verification from purpose-specific safeguard-email consent. Membership verification offers an optional consent control for adult members; minors are never safeguard recipients, and guardian-contact changes revoke and reissue pending credentials. Family delivery requires verification and consent at send time; changing the effective invite contact revokes the old credential and clears affected verification/consent; and a recipient can acknowledge while withdrawing only future safeguard email. Ambiguous provider outcomes enter a terminal `delivery_attention` state and are never retried automatically. No resolution mutation exists because deciding whether an ambiguous external side effect may be retried is an operator policy reserved for Reddy; the rollout gate must remain off until that reviewed workflow exists. This is executable design, not legal advice or production evidence.
+
+`INACTIVITY_V2_ENABLED=1` is an explicit rollout gate. Keep it unset while old and new API tasks coexist; the new resolver can consume bounded legacy links, but new capability links must not be emitted until every running task understands them. Enabling the flag, applying schema changes to an environment, activating providers, or dispatching the scheduler requires separate Reddy approval and rollout evidence.
+
+No provider was activated and no cloud, live-data, migration, scheduler, or production operation was performed as part of this implementation.

@@ -186,7 +186,7 @@ const LEGACY_ROUTES = [
  *  next: it is a real screen in this app's own chrome at /app/groups
  *  (w360/pages/Groups.tsx), so it is swept in APP_SCREENS below like any other
  *  screen and a stub there would be a card pointing out of the app. */
-const UNDRAWN_SECTIONS = ['invitations', 'notifications', 'tools', 'audit', 'profile'] as const;
+const UNDRAWN_SECTIONS = ['invitations', 'notifications', 'tools', 'profile'] as const;
 
 /** The desk's roster, as fixtures/seed.ts seeds it. Not in `fixtures/ids.ts`:
  *  that file is the cast of the OWNER's world — six records, their papers,
@@ -528,7 +528,7 @@ test.describe('every address under /app', () => {
     await expect(rail(page), 'the refusal dropped the frame as well').toBeVisible();
   });
 
-  test('the five sections nobody has redrawn say so, and point at the screen that still works', async ({ page }) => {
+  test('the four sections nobody has redrawn say so, and point at the screen that still works', async ({ page }) => {
     test.slow();
     for (const id of UNDRAWN_SECTIONS) {
       await page.goto(`/app/${id}`);

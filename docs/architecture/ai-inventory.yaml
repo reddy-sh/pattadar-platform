@@ -1,0 +1,204 @@
+# Pattadar AI inventory — the machine-readable index of every product AI surface.
+#
+# Purpose: one file that answers "what AI do we run, who owns it, what does it
+# cost, what proves it works". scripts/ai-boundary-guard.py validates this file
+# against the repository and fails when AI code appears outside the declared
+# boundaries.
+#
+# Scope: PRODUCT AI only. Developer tooling (.kiro, .claude, .codex, .cursor,
+# .gemini, root .mcp.json) is excluded by design — none of it is loaded by a
+# running service. .kiro/** is developer governance and is never modified by an
+# AI-architecture change.
+#
+# Honesty rule: "implemented" means the code exists in this repository. It does
+# NOT mean deployed, applied, or operated. Live evidence is recorded elsewhere.
+
+version: 1
+updated: 2026-09-19
+owner: Reddy (Chief Architect, final governance authority)
+architecture_doc: docs/architecture/ai-system.md
+service_layout_doc: docs/architecture/service-layout.md
+
+providers:
+  - id: anthropic
+    status: implemented
+    secret: ANTHROPIC_API_KEY
+    secret_source: AWS Secrets Manager via ECS task secrets (declared in infra/terraform/modules/runtime/ecs.tf)
+    injected_into: [api, gateway, assistant]
+    # The only two modules permitted to call a provider.
+    call_sites:
+      - services/api/src/ai_reading/providers/anthropic.py
+      - services/assistant/src/adapters/agent_runtime.py
+    notes: >
+      Sole provider. The gateway also holds the key to list models for the
+      catalog. No other provider is wired, though ai_catalog/providers is
+      pluggable.
+
+model_catalog:
+  authority: postgresql table platform_models
+  owner_service: gateway
+  admin_surface: services/gateway/src/ai_catalog/routes.py
+  provider_adapters: services/gateway/src/ai_catalog/providers/
+  consumers:
+    - service: assistant
+      module: services/assistant/src/adapters/model_catalog.py
+      access: read-only cache, 30s refresh
+  policy:
+    empty_catalog_means: administrator disabled every model -> refuse (503)
+    fallbacks: cold start only; must never override a successful empty result
+  known_gap: >
+    Fallback to a hardcoded model list is reachable when the catalog is
+    unavailable at cold start. Making this fail closed outside local
+    development is Phase 4 work and needs approval.
+
+capabilities:
+
+  - id: assistant-chat
+    kind: agent            # model chooses tools in a loop
+    status: implemented
+    owner_service: assistant
+    composition_root: services/assistant/src/main.py
+    public_route: POST /api/gateway/assistant/api/chat/stream
+    internal_route: POST /api/chat/stream
+    transport: SSE
+    event_vocabulary: services/assistant/src/domain/sse_events.py
+    consumers:
+      - { client: apps/web, status: active, surface: src/assistant/AssistantPanel.tsx }
+      - { client: apps/web-next, status: staged, surface: src/assistant/AssistantPanel.tsx, note: reduced; no history/attachments/capabilities }
+      - { client: apps/ios, status: none, note: account screen advertises it as forthcoming }
+      - { client: apps/mobile, status: none }
+    runtime:
+      adapter: services/assistant/src/adapters/agent_runtime.py
+      sdk: claude-agent-sdk
+      bounds: { max_turns: 8, max_thinking_tokens: 10000, chat_timeout_s: 180 }
+    policy:
+      scope_gate: services/assistant/src/domain/scope_policy.py
+      scope_gate_runs: before attachment reads, prompt load and any model call
+      tool_policy: services/assistant/src/domain/tool_policy.py
+      builtins: denied (shell, file, web, task)
+      settings_sources: none; strict_mcp_config enabled
+    prompt:
+      repository: services/assistant/src/adapters/prompt_repository.py
+      resolution_order: [postgresql agent_prompts, PROMPT_SEED_DIR markdown, built-in]
+      hardening_suffix: services/assistant/src/domain/tool_policy.py STRICT_SYSTEM_SUFFIX
+    tools:
+      - server: pattadar_ui
+        transport: in-process MCP (Agent SDK)
+        module: services/assistant/src/adapters/mcp/ui.py
+        count: 5
+        class: intent            # proposes browser actions; validated before dispatch
+        validator: domain/tool_policy.py action_event
+      - server: pattadar_records
+        transport: in-process MCP (Agent SDK)
+        module: services/assistant/src/adapters/mcp/records.py
+        count: 8
+        class: read
+        grounding: historical reference data; not proof of identity/ownership/title
+    state:
+      tables: [r_conversations, r_conversation_messages, r_conversation_runs, r_attachments]
+      legacy_tables: [checkpoints, checkpoint_blobs, checkpoint_writes]
+      storage: s3 documents bucket, prefix assistant/
+      idempotency: per-conversation run claim; unique partial index on status='running'
+    data_classes: [owner conversation content, owner attachments, public records]
+    privacy:
+      export: services/assistant/src/account_export.py -> GET /internal/account/export
+      erasure: orchestrated by services/api/scripts/erase_account.py
+    cost_controls: [bounded transcript, page snapshot capped at 25k chars, cacheable system prompt, turn cap]
+    tests:
+      - services/assistant/tests/test_tool_policy.py
+      - services/assistant/tests/test_public_records_runtime.py
+      - services/assistant/tests/test_attachment_storage.py
+      - services/assistant/tests/test_attachment_migration.py
+    ci: partial          # workflow runs a named subset, not the whole suite
+
+  - id: document-reading
+    kind: workflow         # one bounded document + one versioned prompt -> typed fields
+    status: implemented
+    owner_service: api
+    module: services/api/src/ai_reading
+    provider_adapter: services/api/src/ai_reading/providers/anthropic.py
+    model: claude-sonnet-5        # services/api/src/ai_reading/config.py
+    prompts: services/api/src/ai_reading/prompts.py
+    usage_accounting: services/api/src/ai_reading/usage.py
+    consent_gate: services/api/src/ai_reading/consent.py
+    consent_purposes: [document_processing, ai_extraction]
+    durability:
+      queue_module: services/api/src/ai_reading/jobs.py
+      table: document_read_jobs
+      handler_contract: services/api/src/ai_reading/__init__.py JOB_HANDLERS
+      status_poll: GET /import-status/{job}        # owner-scoped, 1 day retention
+      queue_cap_per_owner: 3
+      automatic_retry: none
+      interrupted_call: marked failed 503, never re-issued
+    operations:
+      - { name: import-passbook,             sync: POST /import-passbook,             durable: POST /import-passbook-async,             prompt: PASSBOOK_SYSTEM }
+      - { name: import-registered-document,  sync: POST /import-registered-document,  durable: POST /import-registered-document-async,  prompt: DEED_SYSTEM }
+      - { name: extract-property,            sync: POST /extract-property,            durable: POST /extract-property-async,            prompt: PROPERTY_SYSTEM }
+      - { name: extract-aadhaar,             sync: POST /extract-aadhaar,             durable: POST /extract-aadhaar-async,             prompt: AADHAAR_SYSTEM }
+    consumers:
+      - { client: apps/web,       status: active,        mode: durable,      note: api/client.ts rewrites the sync path to -async and polls }
+      - { client: apps/ios,       status: active,        mode: mixed,        note: durable for registered documents only; treats queued as terminal (gap) }
+      - { client: apps/mobile,    status: compatibility, mode: durable for Aadhaar; synchronous for other reads, note: Aadhaar upload polls an owner-scoped job with one request id }
+      - { client: apps/web-next,  status: staged,        mode: synchronous,  note: deploy refuses this client }
+    data_classes: [deed content, passbook content, Aadhaar KYC, property documents]
+    privacy:
+      aadhaar: >
+        Provider full digits are transient API-process input only. Public and
+        durable results expose aadhaarMasked plus an owner-scoped 30-minute
+        one-use candidate id; candidate/final values are direct-KMS ciphertext
+        and provider raw text/unexpected fields are discarded.
+      source_bytes: deleted from the queue row on completion/failure
+      known_source_gap: queued/running Aadhaar jobs temporarily retain source bytes in KMS-encrypted RDS
+      candidate_store: services/api/src/aadhaar.py -> aadhaar_candidates
+    cost_controls: [cacheable system prompt, single low-effort retry only on max_tokens, per-read usd logging]
+    tests:
+      - services/api/tests/test_ai_reading.py
+      - services/api/tests/test_aadhaar_security.py
+      - services/api/tests/test_import_jobs.py
+    ci: full
+
+  - id: parcel-photo-classifier
+    kind: workflow
+    status: implemented
+    owner_service: api
+    module: services/api/src/ai_reading/operations.py
+    route: POST /classify-parcel-photo
+    prompt: PARCEL_PHOTO_SYSTEM
+    durable: false
+    purpose: >
+      Screens an image BEFORE it is stored, so an identity document is never
+      persisted in order to discover it should not be persisted.
+    fail_behaviour: unreadable image returns kind="" (unknown), never a hard error
+    data_classes: [parcel photographs, possibly identity documents]
+    state: none; bytes are held in memory for the request only
+    consent_gate: none        # intentional: nothing is stored
+    tests: [services/api/tests/test_ai_reading.py]
+    ci: full
+
+# Developer tooling, listed so it is explicitly out of scope rather than missing.
+developer_tooling:
+  status: not product runtime
+  mcp_servers: [codegraph]
+  # Verified present in this repository. Other tools' configs are absent.
+  configs: [.mcp.json, .kiro/settings/mcp.json]
+  skills_and_steering: .kiro/**
+  rule: never modified by a product AI architecture change
+
+# Boundaries enforced by scripts/ai-boundary-guard.py.
+boundaries:
+  provider_call_allowed_in:
+    - services/api/src/ai_reading/providers/anthropic.py
+    - services/assistant/src/adapters/agent_runtime.py
+    - services/gateway/src/ai_catalog/providers/anthropic.py
+  provider_secret_allowed_in:
+    - services/api/src/ai_reading/providers/anthropic.py
+    - services/assistant/src/config.py
+    - services/gateway/src/ai_catalog/
+  product_mcp_tools_allowed_in:
+    - services/assistant/src/adapters/mcp/
+  extraction_prompts_allowed_in:
+    - services/api/src/ai_reading/prompts.py
+  forbidden_everywhere:
+    - a new synchronous paid-reading route
+    - an automatic retry of a provider call that may already have been charged
+    - modification of .kiro/** as part of an AI architecture change

@@ -77,13 +77,18 @@ jobs:
         run: .local/api-venv/bin/python scripts/init-test-db.py
       - run: .local/api-venv/bin/python -m pytest services/api/tests -q
       - run: .local/gateway-venv/bin/python -m pytest services/gateway/tests -q
-      - name: Assistant attachment and internal-tool contracts
+      # The whole assistant suite, not a named subset: a new contract test used
+      # to be able to land without ever running. Includes the attachment,
+      # public-record and tool-policy contracts.
+      - name: Assistant contracts
+        run: .local/assistant-venv/bin/python -m pytest services/assistant/tests -q
+      # Keeps prompts, provider calls, the provider secret and MCP tool
+      # registration inside the boundaries declared in
+      # docs/architecture/ai-inventory.yaml. Static only; calls no provider.
+      - name: AI architecture boundaries
         run: |
-          .local/assistant-venv/bin/python -m pytest \
-            services/assistant/tests/test_attachment_storage.py \
-            services/assistant/tests/test_attachment_migration.py -q
-          .local/assistant-venv/bin/python -m pytest \
-            services/assistant/tests/test_public_records_runtime.py -q
+          .local/api-venv/bin/python scripts/ai-boundary-guard.py --selftest
+          .local/api-venv/bin/python scripts/ai-boundary-guard.py
       # deploy-release.py decides what reaches production ECS; it is the one
       # script whose bugs cannot be caught by a later test.
       - run: .local/api-venv/bin/python -m pytest scripts/tests -q

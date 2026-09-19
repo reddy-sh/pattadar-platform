@@ -1,3 +1,4 @@
+A
 ---
 name: functional-acceptance
 description: Use this skill whenever a change touches a data-mutating surface in Pattadar — any create, read, update, delete, upload/attach, or add-content operation on records, passbooks, parcels, properties, documents, photos, groups, members, tickets, notes, or shares — to prove every operation of that surface actually works end to end (including its failure path) before it is called done, rather than stopping at typecheck, build, or a passing empty state.

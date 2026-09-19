@@ -25,13 +25,20 @@ async function openVillage(page: Page) {
   await expect(page.locator('.vc-label').first()).toBeVisible();
 }
 
-test('village tape works across all basemaps, counts the closing side, and supports undo and clear', async ({ page }) => {
+test('village tape requires Satellite, restores the prior map, and supports undo and clear', async ({ page }) => {
   await openVillage(page);
   const mode = (name: string) => page.getByRole('button', { name, exact: true });
   await mode('Boundaries').click();
-  await mode('Measure').click();
   await expect(mode('Boundaries')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.leaflet-tile-pane img')).toHaveCount(0);
+
+  await mode('Measure on satellite').click();
+  await expect(mode('Satellite')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.vc-measure')).toContainText('Satellite locked');
+  for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
+    await expect(mode(name)).toBeDisabled();
+  }
+  await expect.poll(() => page.locator('.leaflet-tile-pane img').count()).toBeGreaterThan(0);
 
   const map = (await page.locator('.vc-map').boundingBox())!;
   for (const [x, y] of [[0.38, 0.57], [0.58, 0.57], [0.58, 0.75]]) {
@@ -49,12 +56,6 @@ test('village tape works across all basemaps, counts the closing side, and suppo
     return sum + n * (text.endsWith('km') ? 1000 : 1);
   }, 0);
   expect(Math.abs(metres - sideTotal)).toBeLessThan(1);
-  for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
-    await mode(name).click();
-    await expect(mode(name)).toHaveAttribute('aria-pressed', 'true');
-    await expect(tape).toHaveText(readout, { useInnerText: true });
-    await expect(page.locator('.w-corner-no')).toHaveCount(3);
-  }
   await mode('Undo point').click();
   await expect(tape).toContainText('Distance');
   await expect(tape).not.toContainText('Encloses');
@@ -62,15 +63,23 @@ test('village tape works across all basemaps, counts the closing side, and suppo
   await mode('Clear measure').click();
   await expect(page.locator('.w-corner-no')).toHaveCount(0);
   await expect(page.locator('.w-side')).toHaveCount(0);
-  await expect(mode('Measure')).toHaveAttribute('aria-pressed', 'true');
+  await expect(mode('Measure on satellite')).toHaveAttribute('aria-pressed', 'true');
+
+  await mode('Measure on satellite').click();
+  await expect(mode('Boundaries')).toHaveAttribute('aria-pressed', 'true');
+  for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
+    await expect(mode(name)).toBeEnabled();
+  }
+  await expect(page.locator('.leaflet-tile-pane img')).toHaveCount(0);
+  await expect(tape).toHaveCount(0);
 });
 
 test('village map controls and survey search stay usable on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openVillage(page);
   await page.getByRole('button', { name: 'Street map', exact: true }).click();
-  await page.getByLabel('Go to plot no.').fill('Sy 262');
-  await page.getByRole('button', { name: 'Go to plot', exact: true }).click();
+  await page.getByLabel('Find survey or plot number').fill('Sy 262');
+  await page.getByRole('button', { name: 'Find plot', exact: true }).click();
   await expect(page.locator('.vc-tr')).toContainText('Plot 262');
   await expect(page.locator('.vm-plotno')).toContainText('262');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -78,10 +87,10 @@ test('village map controls and survey search stay usable on a phone', async ({ p
   const search = (await page.locator('.vc-tr').boundingBox())!;
   expect(tools.y + tools.height <= search.y || search.y + search.height <= tools.y
     || tools.x + tools.width <= search.x || search.x + search.width <= tools.x).toBe(true);
-  const go = (await page.getByRole('button', { name: 'Go to plot', exact: true }).boundingBox())!;
+  const go = (await page.getByRole('button', { name: 'Find plot', exact: true }).boundingBox())!;
   const zoom = (await page.locator('.leaflet-control-zoom').boundingBox())!;
   expect(go.x + go.width <= zoom.x || go.y + go.height <= zoom.y).toBe(true);
-  await page.getByRole('button', { name: 'Measure', exact: true }).click();
+  await page.getByRole('button', { name: 'Measure on satellite', exact: true }).click();
   const measuringTools = (await page.locator('.vc-tl').boundingBox())!;
   const measuringSearch = (await page.locator('.vc-tr').boundingBox())!;
   expect(measuringSearch.y - measuringTools.y - measuringTools.height).toBeGreaterThanOrEqual(80);
@@ -109,8 +118,8 @@ test('a subdivision record does not claim its parent survey plot', async ({ page
     ownerName: 'Subdivision owner regression' });
   try {
     await openVillage(page);
-    await page.getByLabel('Go to plot no.').fill('262');
-    await page.getByRole('button', { name: 'Go to plot', exact: true }).click();
+    await page.getByLabel('Find survey or plot number').fill('262');
+    await page.getByRole('button', { name: 'Find plot', exact: true }).click();
     await expect(page.locator('.vm-facts')).toContainText('Not one of your records');
     await expect(page.locator('.vm-facts')).not.toContainText('Subdivision owner regression');
   } finally {
@@ -123,7 +132,7 @@ test('a crossed village tape shows distance without claiming acreage or offering
   const map = (await page.locator('.vc-map').boundingBox())!;
   await page.mouse.click(map.x + map.width * 0.38, map.y + map.height * 0.57);
   await expect(page.locator('.vm-plotno')).toBeVisible();
-  await page.getByRole('button', { name: 'Measure', exact: true }).click();
+  await page.getByRole('button', { name: 'Measure on satellite', exact: true }).click();
   for (const [x, y] of [[0.38, 0.57], [0.60, 0.75], [0.38, 0.75], [0.60, 0.57]]) {
     await page.mouse.click(map.x + map.width * x, map.y + map.height * y);
   }

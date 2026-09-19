@@ -23,15 +23,13 @@
  *     start with every tile aborted, which is the case MapCanvas was written
  *     for.
  *
- *   · ADOPTING a village plot onto a record that already exists — the "Or give
- *     it to a record in this village" list (VillageMaps.tsx:1209-1240). The
- *     sibling entry point, "File this as a new property", is clicked at
- *     crud-360.spec.ts:1668 but asserts only the resulting URL, never that a
- *     shape landed. `linkTo` (:521) navigates on the mutation's answer, and its
- *     own comment names the bug that taught it to: "a refused write answers
- *     false rather than throwing", which "is how a boundary that was never
- *     saved came to look saved". So a redirect is not evidence here; the ring
- *     read back from the API is.
+ *   · ADOPTING a village plot onto a record that already exists — the “Or give
+ *     it to a record in this village” list. A redirect is not evidence here:
+ *     `linkTo` navigates on the mutation answer, and a refused write answers
+ *     false rather than throwing. This file therefore reads the adopted ring
+ *     back from the API. The sibling “Add to Properties” path is covered in
+ *     `crud-360.spec.ts`, which now requires the new Sy-number card on
+ *     `/app/properties` and reads its boundary back before continuing.
  *
  * Every scratch record is registered in MADE and deleted in afterEach, never at
  * the end of a test body — Playwright abandons a test at its first failed

@@ -1609,7 +1609,7 @@ test.describe('the other person editor, on the previous interface', () => {
     expect(legacy.saved).toHaveLength(1);
   });
 
-  test('scanning the Aadhaar fills the form in and keeps the card, the way the panel promises', async ({ page, world }) => {
+  test('Aadhaar scanning returns only a mask and uploads the card only after opt-in', async ({ page, world }) => {
     // The reading is an ASYNC read (api/client.ts:33): the POST goes to
     // `-async` and the answer is collected from import-status, so both have to
     // be answered here — the seed only knows the import-* pair.
@@ -1620,7 +1620,8 @@ test.describe('the other person editor, on the previous interface', () => {
         state: 'done',
         fields: {
           name: 'Lakshmi Devi', dob: '1985-03-14', gender: 'Female',
-          aadhaar: '123456789012', address: 'Katragunta, Markapur',
+          aadhaarMasked: 'XXXX-XXXX-9012', aadhaarCandidateId: 'candidate-opaque',
+          address: 'Katragunta, Markapur',
         },
       },
     }));
@@ -1628,21 +1629,22 @@ test.describe('the other person editor, on the previous interface', () => {
     await openPersonDialog(page);
     await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
 
-    // The control is a <label> wrapped round a hidden <input type=file>, which
-    // has neither a role nor a name of its own; the panel's own input is the
-    // first of the two in the dialog.
-    await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles(AADHAAR_SCAN);
+    const input = page.getByRole('dialog').locator('input[type="file"]').first();
+    await input.setInputFiles(AADHAAR_SCAN);
 
     await expect(page.getByLabel('Full name')).toHaveValue('Lakshmi Devi');
     await expect(page.getByLabel('Date of birth')).toHaveValue('1985-03-14');
     await expect(page.getByRole('combobox', { name: 'Gender' })).toHaveText('Female');
-    await expect(page.getByLabel('Aadhaar (KYC)')).toHaveValue('1234 5678 9012');
+    await expect(page.getByLabel('Aadhaar (KYC)')).toHaveValue('');
+    await expect(page.getByText(/Read securely as XXXX-XXXX-9012/)).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Present address' }))
       .toHaveValue('Katragunta, Markapur');
-    await expect(page.getByText('Aadhaar read — fields filled and saved to My Drive')).toBeVisible();
+    await expect(page.getByText(/the card was not retained/)).toBeVisible();
+    expect(world.restCalls(/storage\/files/)).toHaveLength(0);
 
-    // "the card is also saved to My Drive" is printed on the panel, so it has
-    // to have happened.
+    await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
+    await input.setInputFiles(AADHAAR_SCAN);
+    await expect(page.getByText(/card saved to My Drive/)).toBeVisible();
     expect(world.restCalls(/storage\/files/)).toHaveLength(1);
   });
 
@@ -1703,23 +1705,12 @@ test.describe('the other person editor, on the previous interface', () => {
   });
 
   test('the Aadhaar field says what really happens to the number', async ({ page }) => {
-    // DEFECT: apps/web/src/pages/families/PersonDialog.tsx:609 tells the owner
-    // the number is "Stored masked — only last 4 digits (DPDP-2023)". It is
-    // not. services/api/src/main.py:1984-1985 writes BOTH a masked token and
-    // `aadhaar_enc` — all twelve digits, Fernet-encrypted with a key that
-    // lives on the server (main.py:1088 encrypt_aadhaar), so the full number
-    // is recoverable by anyone holding it. The same claim is made on the
-    // self-KYC path (main.py:2545-2546). Whatever the right answer is, the
-    // sentence under a field that collects an identity number has to be the
-    // true one, and a DPDP review cannot be run against copy that describes a
-    // design the server does not implement.
-    test.fail();
     await legacyFamilies(page);
     await openPersonDialog(page);
 
     await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
     await expect(page.getByLabel('Aadhaar (KYC)')).toBeVisible();
-    await expect(page.getByText(/only last 4 digits/)).toHaveCount(0);
+    await expect(page.getByText(/Stored encrypted; lists show only the last 4 digits/)).toBeVisible();
   });
 
   test('a date of birth under eighteen warns before the heir switch is even touched', async ({ page }) => {

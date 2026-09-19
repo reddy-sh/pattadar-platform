@@ -1,8 +1,8 @@
 /**
  * The public doors — everything a stranger reaches with no account at all.
  *
- * routes.tsx:238-246 mounts nine of them outside RequireAuth: "/" (the
- * landing page), /login, /signup, /forgot-password, /privacy, /terms,
+ * routes.tsx mounts ten of them outside RequireAuth: "/" (the landing
+ * page), /pricing, /login, /signup, /forgot-password, /privacy, /terms,
  * /auth/callback, /verify/:token and /active/:token. This file drives all
  * nine, plus the two things that happen to somebody who is NOT signed in and
  * asks for something else: the bounce that sends a deep /app URL to /login
@@ -44,17 +44,12 @@
  *    hard-coded "Google" would go green against a build that shows no social
  *    button at all, which is the regression worth catching.
  *
- *  · /verify AND /active ARE A FINDING, NOT A SCREEN. The SPA's VerifyPage
- *    renders two lines of developer copy and calls nothing, while
- *    apps/web-next/src/views/VerifyPage.tsx:40 and
- *    apps/mobile/src/data/hooks.ts:677 both fire verifyBeneficiary — the one
- *    operation the gateway opens an anonymous door for. Those scenarios are
- *    test.fail(): they assert what the invited co-owner is owed, so they turn
- *    green the day the page is wired. tests/e2e-web360/specs/gap-auth.spec.ts
- *    records the same finding against the built bundle; this file records it
- *    against the dev server, and asserts BOTH URL spellings, because
- *    routes.tsx:245-246 mounts one component on both with no distinguishing
- *    prop and a fix applied to one only would pass otherwise.
+ *  · PUBLIC CAPABILITY PAGES NEVER ACT ON GET. /verify and /active expose
+ *    deliberate controls and post exactly one AST-allowlisted mutation through
+ *    the sealed gateway fixture. This protects against email-link scanners
+ *    consuming a membership or safeguard credential merely by previewing it.
+ *    The tests intercept only that named mutation and assert the raw token is
+ *    never rendered into page copy.
  *
  *  · SIGNED OUT IS THE FILE'S DEFAULT. test.use({ signedIn: false }) at the
  *    top; the one describe that needs a session says so itself, because
@@ -438,6 +433,18 @@ test.describe('the front page', () => {
     ).toHaveAttribute('href', 'mailto:grievance@pattadar.com');
   });
 
+  test('the header offers Pricing exactly once and opens it at the top of the same portal', async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const pricing = page.getByRole('banner').getByRole('link', { name: 'Pricing', exact: true });
+    await expect(pricing).toHaveCount(1);
+    await pricing.click();
+    await expect(page).toHaveURL(/\/pricing$/);
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Start free');
+    await expect(page.getByRole('heading', { level: 1 })).toBeInViewport();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1);
+  });
+
   test('@phone the front page fits a phone, and keeps every way in', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
@@ -446,10 +453,63 @@ test.describe('the front page', () => {
       page.getByRole('region', { name: /Your family.s land records/ }).getByRole('button', { name: 'Get started' }),
     ).toBeVisible();
     await expect(page.getByRole('banner').getByRole('button', { name: 'Sign in' })).toBeVisible();
+    await expect(page.getByRole('banner').getByRole('link', { name: 'Pricing' })).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow, 'the page scrolls sideways on a phone').toBeLessThanOrEqual(1);
+  });
+});
+
+// ═══ /pricing ═════════════════════════════════════════════════════════
+
+test.describe('the pricing page', () => {
+  test('states the free allowance and every planned price without offering checkout', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Start free');
+    await expect(page.getByRole('heading', { name: 'Free', exact: true })).toBeVisible();
+    await expect(page.getByText('1 Family', { exact: true })).toBeVisible();
+    await expect(page.getByText('2 holdings', { exact: true })).toBeVisible();
+    await expect(page.getByText('1 GB storage', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹249 / month', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹599 / month', { exact: true })).toBeVisible();
+    await expect(page.getByText('₹1,499 / month', { exact: true })).toBeVisible();
+    await expect(page.getByText('10 GB additional storage · 1,000 file versions')).toBeVisible();
+    await expect(page.getByText('100 GB additional storage · 10,000 file versions')).toBeVisible();
+    await expect(page.getByText('Planned free allowance')).toHaveCount(1);
+    await expect(page.getByText('Paid checkout coming later')).toHaveCount(3);
+    await expect(page.getByRole('button', { name: /buy|checkout|choose plan/i })).toHaveCount(0);
+  });
+
+  test('has one free account action and truthful route metadata', async ({ page }) => {
+    await page.goto('/pricing');
+    const start = page.getByRole('link', { name: 'Create an account' });
+    await expect(start).toHaveCount(1);
+    await expect(start).toHaveAttribute('href', '/signup');
+    await expect(page).toHaveTitle('Pricing · Pattadar');
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/pricing$/);
+  });
+
+  test('@phone fits without hiding Pricing or creating a second navigation copy', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/pricing');
+    await expect(page.getByRole('banner').getByRole('link', { name: 'Pricing' })).toHaveCount(1);
+    await expect(page.getByRole('banner').getByRole('button', { name: 'Sign in' })).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, 'Pricing scrolls sideways on a phone').toBeLessThanOrEqual(1);
+  });
+
+  test('keeps its structure in forced-colour mode', async ({ browser }) => {
+    const context = await browser.newContext({ forcedColors: 'active' });
+    const page = await context.newPage();
+    await page.route(OFF_SITE, (route) => route.abort('failed'));
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create an account' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Estate' })).toBeVisible();
+    await context.close();
   });
 });
 
@@ -1314,103 +1374,80 @@ test.describe('the legal pages', () => {
 
 // ═══ /verify/:token and /active/:token ═════════════════════════════════
 
-test.describe('the link an invited co-owner is emailed', () => {
-  /** A plausible invitation token. Every string renders the same page today,
-   *  which is itself part of the finding. */
-  const INVITE = '6f1b0a2c-4d3e-4f50-9a11-2b7c8d9e0f12';
+test.describe('public family capability links', () => {
+  const TOKEN = '6f1b0a2c-4d3e-4f50-9a11-2b7c8d9e0f12';
 
-  /**
-   * Watch for verifyBeneficiary — the single operation the gateway opens an
-   * anonymous door for (services/gateway/app/public_graphql.py) — and answer
-   * it. The returned array IS the evidence: empty means the page never asked.
-   *
-   * Registered inside the test so it takes precedence over the seal, which
-   * routes the same path; anything that is not this mutation falls straight
-   * back through to the world.
-   */
-  async function watchVerify(
+  async function watchMutation(
     page: Page,
-    answer: { id: string; status: string } | null,
+    operation: 'verifyBeneficiary' | 'acknowledgeInactivity',
+    answer: unknown,
   ): Promise<string[]> {
     const asked: string[] = [];
     await page.route(/\/graphql$/, (route) => {
       const body = route.request().postData() ?? '';
-      if (!body.includes('verifyBeneficiary')) return route.fallback();
+      if (!body.includes(operation)) return route.fallback();
       asked.push(body);
-      return route.fulfill({ json: { data: { verifyBeneficiary: answer } } });
+      return route.fulfill({ json: { data: { [operation]: answer } } });
     });
     return asked;
   }
 
-  for (const prefix of ['/verify', '/active']) {
-    test(`${prefix} opens for somebody with no account at all`, async ({ page }) => {
-      // The one thing that does work today, and the control for the three
-      // below: the door is public, so a failure here is a routing regression
-      // rather than the wiring defect.
-      await page.goto(`${prefix}/${INVITE}`);
-      await expect(page.getByRole('heading', { name: 'Verify membership' })).toBeVisible();
-      await expect(page).toHaveURL(new RegExp(`${prefix}/${INVITE}$`));
-    });
-
-    test(`an invited co-owner confirms their membership from the emailed ${prefix} link`, async ({ page }) => {
-      // DEFECT: apps/web/src/pages/VerifyPage.tsx:12-16 renders two lines of
-      // static copy — no button, no form, no fetch, no useEffect — so the
-      // invitation stays pending for ever no matter how many times the
-      // invitee taps the link. apps/web-next/src/views/VerifyPage.tsx:40 and
-      // apps/mobile/src/data/hooks.ts:677 both fire verifyBeneficiary with
-      // the token from the URL. The invitee is owed the same here: the
-      // mutation fired (on mount, or behind a deliberate tap) and a sentence
-      // saying they are verified. Both spellings are asserted because
-      // routes.tsx:245-246 mounts one component on both with no
-      // distinguishing prop.
-      test.fail();
-      const asked = await watchVerify(page, { id: 'w-invite-e2e', status: 'verified' });
-      await page.goto(`${prefix}/${INVITE}`);
-      await expect(page.getByRole('heading', { name: 'Verify membership' })).toBeVisible();
-
-      const confirm = page.getByRole('button', { name: /confirm|verify/i });
-      if (await confirm.count()) await confirm.first().click();
-
-      await expect
-        .poll(() => asked.length, {
-          message: "verifyBeneficiary — the gateway's only anonymous operation — was never fired",
-          timeout: 4_000,
-        })
-        .toBeGreaterThan(0);
-      // The token has to travel from the URL into the mutation; a call that
-      // omits it verifies nobody.
-      expect(asked[0]).toContain(INVITE);
-      await expect(page.getByText(/\b(verified|confirmed)\b/i).first()).toBeVisible();
-    });
-
-    test(`a spent or unknown ${prefix} token says so, instead of the page a live one gets`, async ({ page }) => {
-      // DEFECT: VerifyPage.tsx never looks the token up, so a dead link
-      // renders byte-identical to a live one and the invitee is told nothing.
-      // docs/plans/2026-07-26-web-nextjs-minimals-migration.md:351 names the
-      // expected behaviour: "open /verify/BOGUS logged-out -> graceful
-      // invalid-token card".
-      test.fail();
-      await watchVerify(page, null); // what the API answers for a spent token
-      await page.goto(`${prefix}/not-a-real-token`);
-      await expect(page.getByRole('heading', { name: 'Verify membership' })).toBeVisible();
-      await expect(
-        page.getByText(/invalid|not valid|isn.t valid|expired|already been used/i).first(),
-      ).toBeVisible();
-    });
-  }
-
-  test('the verification page speaks to the invitee, not to the developer who stubbed it', async ({ page }) => {
-    // DEFECT: VerifyPage.tsx:14-15 ships an internal build note — "rebuilt
-    // from rhub VerifyView / verifyBeneficiary mutation" — and prints the raw
-    // invitation token in the body copy, to a family member who followed a
-    // link from an email. The owner is owed the invitee-facing card
-    // apps/web-next/src/views/VerifyPage.tsx:66-78 already writes.
-    test.fail();
-    await page.goto(`/verify/${INVITE}`);
+  test('/verify opens publicly, verifies deliberately, and never prints the token', async ({ page }) => {
+    const asked = await watchMutation(page, 'verifyBeneficiary', { id: 'member-a' });
+    await page.goto(`/verify/${TOKEN}`);
     await expect(page.getByRole('heading', { name: 'Verify membership' })).toBeVisible();
-    await expect(page.getByText('Token-based beneficiary verification landing')).toHaveCount(0);
-    await expect(page.getByText('rebuilt from')).toHaveCount(0);
-    await expect(page.getByText(INVITE)).toHaveCount(0);
+    await expect(page.getByText(TOKEN)).toHaveCount(0);
+    await expect.poll(() => asked.length).toBe(0);
+
+    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toContain(TOKEN);
+    await expect(page.getByText('Your membership details are verified.')).toBeVisible();
+  });
+
+  test('/verify records optional safeguard-email consent explicitly', async ({ page }) => {
+    const asked = await watchMutation(page, 'verifyBeneficiary', { id: 'member-a' });
+    await page.goto(`/verify/${TOKEN}`);
+    await page.getByRole('checkbox', { name: /receive household inactivity safeguard emails/i }).check();
+    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toContain('"consent":true');
+  });
+
+  test('/verify reports a spent or invalid credential', async ({ page }) => {
+    await watchMutation(page, 'verifyBeneficiary', null);
+    await page.goto('/verify/not-a-real-token');
+    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await expect(page.getByText(/invalid, expired, or has already been used/i)).toBeVisible();
+  });
+
+  test('/active requires a deliberate click before closing the sequence', async ({ page }) => {
+    const asked = await watchMutation(page, 'acknowledgeInactivity', true);
+    await page.goto(`/active/${TOKEN}`);
+    await expect(page.getByRole('heading', { name: 'Confirm this safeguard message' })).toBeVisible();
+    await expect(page.getByText(TOKEN)).toHaveCount(0);
+    await expect.poll(() => asked.length).toBe(0);
+
+    await page.getByRole('button', { name: 'Confirm this message' }).click();
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toContain(TOKEN);
+    await expect(page.getByText('Thank you. This reminder sequence is now closed.')).toBeVisible();
+  });
+
+  test('/active can close the sequence and withdraw future safeguard email', async ({ page }) => {
+    const asked = await watchMutation(page, 'acknowledgeInactivity', true);
+    await page.goto(`/active/${TOKEN}`);
+    await page.getByRole('button', { name: 'Stop future safeguard email' }).click();
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toContain('"withdraw":true');
+    await expect(page.getByText(/future safeguard email to you is turned off/i)).toBeVisible();
+  });
+
+  test('/active reports an expired or already-used credential', async ({ page }) => {
+    await watchMutation(page, 'acknowledgeInactivity', false);
+    await page.goto('/active/not-a-real-token');
+    await page.getByRole('button', { name: 'Confirm this message' }).click();
+    await expect(page.getByText(/invalid, expired, or has already been used/i)).toBeVisible();
   });
 });
 

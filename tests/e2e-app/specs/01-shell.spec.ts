@@ -74,6 +74,10 @@ const DRAWN: Array<{ item: string; url: RegExp; heading: RegExp; level?: number 
   { item: 'Papers', url: /\/app\/papers$/, heading: /^Papers$/ },
   { item: 'Services 6', url: /\/app\/services$/, heading: /^Work you can order$/ },
   { item: 'Wallet', url: /\/app\/wallet$/, heading: /^What is set aside, and what has gone$/ },
+  // Audit is drawn now (w360/pages/Audit.tsx): the owner's centralized trail,
+  // routed at /app/audit. Its h1 is "Audit Log" whether or not the trail has
+  // any rows — an empty trail is a truthful empty state, not a signpost.
+  { item: 'Audit Log', url: /\/app\/audit$/, heading: /^Audit Log$/ },
   { item: 'Dashboard', url: /\/app$/, heading: /Shankar Reddy/ },
 ];
 
@@ -92,7 +96,8 @@ const UNDRAWN: Array<{ item: string; url: RegExp; heading: string; legacy: strin
   { item: 'Invitations', url: /\/app\/invitations$/, heading: 'Invitations', legacy: '/legacy/invitations' },
   { item: 'Notifications 3', url: /\/app\/notifications$/, heading: 'Notifications', legacy: '/legacy/notifications' },
   { item: 'Tools', url: /\/app\/tools$/, heading: 'Tools', legacy: '/legacy/tools' },
-  { item: 'Audit Log', url: /\/app\/audit$/, heading: 'Audit Log', legacy: '/legacy/audit' },
+  // `Audit Log` left this list with W16: /app/audit is a real page now, not a
+  // signpost. It moved to DRAWN above.
   { item: 'Profile', url: /\/app\/profile$/, heading: 'Profile', legacy: '/legacy/profile' },
 ];
 

@@ -152,6 +152,7 @@ export const REDIRECTS: Array<{ from: string; to: string | RegExp }> = [
 /** The public doors — reachable with no account at all (routes.tsx). */
 export const PUBLIC_ROUTES = [
   '/',
+  '/pricing',
   '/login',
   '/signup',
   '/forgot-password',

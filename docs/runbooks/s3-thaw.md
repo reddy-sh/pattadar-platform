@@ -55,7 +55,10 @@ A restore produces a **temporary readable copy** that disappears after `Days`
 convert restored objects back to a warm class before the copy expires:
 
 ```sh
-aws s3 cp "s3://$BUCKET/$key" "s3://$BUCKET/$key" --storage-class STANDARD
+DOCUMENTS_KMS_KEY="$(terraform -chdir="$PERSISTENT_DIR" output -raw kms_key_arn)"
+aws s3 cp "s3://$BUCKET/$key" "s3://$BUCKET/$key" \
+  --storage-class STANDARD --sse aws:kms \
+  --sse-kms-key-id "$DOCUMENTS_KMS_KEY"
 ```
 
 (In-place copy; only valid while the restored copy is readable. The next

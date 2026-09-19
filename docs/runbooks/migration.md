@@ -56,7 +56,12 @@ on the documents bucket (GuardDuty console → Malware Protection for S3)
 ## 3. Mirror the objects
 
 Keys are `{owner}/{node}/{version}` and must land **verbatim** so the
-`storage_nodes`/`storage_versions` rows need zero changes:
+`storage_nodes`/`storage_versions` rows need zero changes. Keep
+`enforce_documents_sse_kms_headers=false` for this legacy `mc mirror` unless an
+approved staging proof shows that the exact `mc` version sends the required
+SSE-KMS key headers. Bucket-default SSE-KMS still encrypts these migration PUTs.
+Enable the explicit-header deny only after migration and after every ongoing
+writer/copy path passes the Aadhaar KMS rollout inventory.
 
 ```sh
 mc mirror rhubminio/<bucket> awss3/<documents-bucket>

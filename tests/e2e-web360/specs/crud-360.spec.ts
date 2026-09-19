@@ -1651,45 +1651,46 @@ test.describe('W360 · village maps', () => {
     await expect(chip('Satellite')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('the tape keeps its points when the basemap changes',
+  test('the tape uses Satellite and restores the map it displaced',
     async ({ page }) => {
       await open(page, 'RAMAYANAM KANDRIKA');
       const chip = (name: string) => page.getByRole('button', { name, exact: true });
+      const measure = page.getByRole('button', { name: 'Measure on satellite' });
 
-      // Start somewhere with no imagery at all.
+      // Start on the bare cadastre. Measure owns photographic ground, so it
+      // temporarily switches to Satellite and prevents contradictory layers.
       await chip('Boundaries').click();
       await expect.poll(() => page.locator('.leaflet-tile-pane img').count()).toBe(0);
 
-      await page.getByRole('button', { name: 'Measure' }).click();
-      await expect(chip('Boundaries')).toHaveAttribute('aria-pressed', 'true');
-      await expect(chip('Boundaries')).toBeEnabled();
-      await expect(chip('Plot size')).toBeEnabled();
-      await expect.poll(() => page.locator('.leaflet-tile-pane img').count()).toBe(0);
+      await measure.click();
+      await expect(chip('Satellite')).toHaveAttribute('aria-pressed', 'true');
+      for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
+        await expect(chip(name)).toBeDisabled();
+      }
+      await expect(page.locator('.vc-measure')).toContainText(
+        'Satellite locked');
+      await expect.poll(() => page.locator('.leaflet-tile-pane img').count())
+        .toBeGreaterThan(0);
 
       const map = (await page.locator('.vc-map').boundingBox())!;
       await page.mouse.click(map.x + map.width * 0.48, map.y + map.height * 0.56);
       await page.mouse.click(map.x + map.width * 0.60, map.y + map.height * 0.67);
       const tape = page.locator('.vc-legend', { hasText: 'Measure' });
       await expect(tape).toContainText('Distance');
-      const distance = await tape.innerText();
 
-      await chip('Satellite').click();
-      await expect.poll(() => page.locator('.leaflet-tile-pane img').count())
-        .toBeGreaterThan(0);
-      await expect(tape).toHaveText(distance, { useInnerText: true });
-      await chip('Street map').click();
-      await expect(page.locator('.leaflet-tile-pane img').first()).toHaveAttribute('src', /openstreetmap/);
-      await expect(tape).toHaveText(distance, { useInnerText: true });
-
-      await page.getByRole('button', { name: 'Measure' }).click();
-      await expect(chip('Street map')).toHaveAttribute('aria-pressed', 'true');
+      await measure.click();
+      await expect(chip('Boundaries')).toHaveAttribute('aria-pressed', 'true');
+      for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
+        await expect(chip(name)).toBeEnabled();
+      }
+      await expect.poll(() => page.locator('.leaflet-tile-pane img').count()).toBe(0);
       await expect(page.locator('.w-corner-no')).toHaveCount(0);
     });
 
   test('the measure tape reports a distance, and an area once it closes',
     async ({ page }) => {
       await open(page);
-      await page.getByRole('button', { name: 'Measure' }).click();
+      await page.getByRole('button', { name: 'Measure on satellite' }).click();
       const map = await page.locator('.vc-map').boundingBox();
       if (!map) throw new Error('no map');
       const cx = map.x + map.width / 2;
@@ -1722,7 +1723,7 @@ test.describe('W360 · village maps', () => {
       await page.getByRole('button', { name: 'Clear measure', exact: true }).click();
       await expect(page.locator('.w-corner-no')).toHaveCount(0);
       await expect(page.locator('.w-side')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Measure', exact: true }))
+      await expect(page.getByRole('button', { name: 'Measure on satellite', exact: true }))
         .toHaveAttribute('aria-pressed', 'true');
 
       // Esc puts the tape away rather than the selection — first thing out.
@@ -1883,12 +1884,22 @@ test.describe('W360 · village maps', () => {
       await expect(page.locator('.fs-panel')).toContainText('has to be one of your records');
       await expect(page.getByRole('button', { name: /Ask for this on/ })).toHaveCount(0);
 
-      // File it, and the estimate gains somewhere to go.
+      // Add it, and only after the surveyed boundary is saved land on the
+      // Properties screen where the new parcel can be seen.
       await page.getByRole('button', { name: 'Close the fence calculator' }).click();
-      await page.getByRole('button', { name: 'File this as a new property' }).click();
-      await expect(page).toHaveURL(/\/app\/records\/rec-[a-z0-9]+\/map/);
-      const recordId = (/records\/(rec-[a-z0-9]+)/.exec(page.url()) ?? [])[1];
-      expect(recordId).toBeTruthy();
+      await page.getByRole('button', { name: 'Add to Properties' }).click();
+      await expect(page).toHaveURL(/\/app\/properties$/);
+      await expect(page.getByRole('link', { name: 'Sy 839', exact: true }).first()).toBeVisible();
+
+      // The destination alone is not persistence evidence: read the card back
+      // through the real API and require the shape that came from the village.
+      const added = await gql(request, `{ web { properties { cards { id title ring } } } }`);
+      const made = ((added?.data?.web?.properties?.cards ?? []) as Array<{
+        id: string; title: string; ring: number[];
+      }>).find((c) => c.title === 'Sy 839');
+      expect(made).toBeTruthy();
+      expect(made?.ring.length).toBeGreaterThanOrEqual(6);
+      const recordId = made!.id;
 
       await open(page);
       await page.locator('#vm-goto').fill('839');
@@ -1940,7 +1951,7 @@ test.describe('W360 · village maps', () => {
 
       // A shape somebody drew on purpose outranks the plot they happen to have
       // selected.
-      await page.getByRole('button', { name: 'Measure' }).click();
+      await page.getByRole('button', { name: 'Measure on satellite' }).click();
       const map = await page.locator('.vc-map').boundingBox();
       if (!map) throw new Error('no map');
       for (const [dx, dy] of [[-110, -80], [110, -80], [110, 80]] as const) {
@@ -1962,23 +1973,23 @@ test.describe('W360 · village maps', () => {
       await open(page);
       await page.locator('#vm-goto').fill('99999');
       await page.locator('#vm-goto').press('Enter');
-      await expect(page.locator('.vc-tr')).toContainText('No plot 99999 in this village');
+      await expect(page.locator('.vc-tr')).toContainText('No plot starts with 99999 in this village');
       await expect(page.locator('.card', { hasText: 'Selected plot' })).toHaveCount(0);
     });
 
-  test('the plot list and the map are one selection', async ({ page }) => {
+  test('the prefix finder and the map are one selection without an all-plots column', async ({ page }) => {
     await open(page);
-    const list = page.locator('.vm-list .villagerow');
-    await expect(list.first()).toBeVisible();
-    // Only the first screenful is rendered — 998 rows of DOM for a list nobody
-    // scrolls to the end of is a page that stutters.
-    expect(await list.count()).toBeLessThanOrEqual(140);
+    await expect(page.locator('section.card', { hasText: 'All plots' })).toHaveCount(0);
 
-    await page.getByLabel('Find a plot').fill('839');
-    await expect(list).toHaveCount(1);
-    await list.first().click();
+    const finder = page.getByLabel('Find survey or plot number');
+    await finder.fill('839');
+    const option = page.getByRole('option', { name: /^Plot 839\b/ });
+    await expect(option).toBeVisible();
+    await option.click();
+
     await expect(page.locator('.card', { hasText: 'Selected plot' })
       .locator('.vm-plotno')).toContainText('839');
+    await expect(finder).toHaveValue('839');
     // The map moved with it, and the label on the chosen plot is the accented
     // one — it is never allowed to lose its number to a neighbour.
     await expect(page.locator('.vc-label.on')).toContainText('839');

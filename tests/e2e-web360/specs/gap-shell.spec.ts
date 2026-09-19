@@ -53,7 +53,8 @@ const UNDRAWN = [
   { id: 'invitations', title: 'Invitations', legacyHeading: 'Invitations' },
   { id: 'notifications', title: 'Notifications', legacyHeading: 'Notifications' },
   { id: 'tools', title: 'Tools', legacyHeading: 'Tools' },
-  { id: 'audit', title: 'Audit Log', legacyHeading: 'Audit Log' },
+  // `audit` left this list: /app/audit is a real redrawn page now
+  // (w360/pages/Audit.tsx), not a "Not yet redrawn" signpost into /legacy.
   { id: 'admin', title: 'Admin & Ref Data', legacyHeading: 'Admin & Reference Data' },
   { id: 'profile', title: 'Profile', legacyHeading: 'Profile' },
 ];
@@ -69,7 +70,7 @@ const rail = (page: Pg) => page.locator('.MuiDrawer-docked');
  *  stub, since the stub and its destination share an h1. */
 const legacyTopBar = (page: Pg) => page.getByRole('button', { name: 'Account menu' });
 
-test.describe('the seven sections the redesign has not reached', () => {
+test.describe('the sections the redesign has not reached', () => {
   for (const { id, title, legacyHeading } of UNDRAWN) {
     test(`the ${title} stub lands on the real ${title} screen, not a dead end`, async ({ page }) => {
       await page.goto(`/app/${id}`);

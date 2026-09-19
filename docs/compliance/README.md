@@ -26,7 +26,7 @@ SOC 2 is an audit outcome, not a checkbox. This repository bakes in the **techni
 | CloudTrail, CloudWatch logs (365d), ALB/S3 access logs | Terraform scaffold | Alarm tuning (Phase 2) |
 | CI checks + secret scanning + main-branch protection | CI scaffold | — |
 | Aadhaar masking, beneficiary verification tokens, CRON_SECRET | Ported code | — |
-| Application audit trail | API audit writer | Review retention and evidence in production |
+| Application audit trail | Legacy API audit writer + centralized classified envelope (`audit_events_v2`) written via a same-transaction outbox; owner view scoped by `affected_owner`, fail-closed security view, metadata allowlist, 3-year default retention (NIST 800-53 AU) | Onboard storage/share-open/download, gateway auth, assistant and payment producers; enforce insert-only DB role / WORM archive; production retention + evidence review |
 | Account export + erasure cascade | Gateway export, durable deletion receipts and operator executor | Production drill, retention approval and provider reconciliation |
 | GuardDuty malware scan gate on uploaded documents | Terraform scaffold (bucket protection) | Availability gate in gateway (Phase 2) |
 | Consent controls | Versioned web choices and withdrawal enforcement | Native/social onboarding, parental workflow and policy review |

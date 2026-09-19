@@ -329,11 +329,9 @@ const SIGNPOSTS = [
     blurb: 'Stamp duty, market value, unit conversion and the SRO directory.',
     legacyHeading: 'Tools',
   },
-  {
-    path: 'audit', eyebrow: 'Reference', title: 'Audit Log',
-    blurb: 'Every link opened, every paper downloaded, every record changed — with who and when.',
-    legacyHeading: 'Audit Log',
-  },
+  // `audit` was a signpost and is now a real redrawn page (w360/pages/Audit.tsx)
+  // routed at /app/audit — its own describe block covers it below. Admin is a
+  // redirect into the desk. Neither is a "Not yet redrawn" signpost any more.
   {
     path: 'admin', eyebrow: 'Reference', title: 'Admin & Ref Data',
     blurb: 'Districts, mandals, villages, SRO offices, deed types and the fee schedule behind them.',
@@ -393,10 +391,12 @@ test.describe('the sections the redesign has not reached', () => {
   test('the link into the previous interface opens in this window, not a second tab', async ({ page }) => {
     // It used to carry the open-in-new-window glyph and promise a tab it never
     // opened; /legacy is this same app, one route over (Section.tsx:64-68).
-    await page.goto('/app/audit');
-    const open = page.getByRole('link', { name: 'Open Audit Log' });
+    // Tools is still a signpost (audit is now a real page), so it carries the
+    // same in-window link this asserts.
+    await page.goto('/app/tools');
+    const open = page.getByRole('link', { name: 'Open Tools' });
     await expect(open).not.toHaveAttribute('target', '_blank');
-    await expect(open).toHaveAttribute('href', '/legacy/audit');
+    await expect(open).toHaveAttribute('href', '/legacy/tools');
   });
 
   test('every signpost names a section the rail also carries, so neither can drift', async ({ page }) => {

@@ -27,14 +27,14 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
 
 ## Macrostructure family
 
-- **Marketing pages** (`/` landing): Marquee Hero — centered display hero
+- **Marketing pages** (`/` landing, `/pricing`): Marquee Hero — centered display hero
   (heavy sans line + one italic serif accent line), mono data strip, mono
   eyebrows over left-aligned section heads, hairline-ruled timetable rows,
   programme-card grid (dashed `--tba` variant for roadmap items), FAQ as
   native `<details>` hairline rows, Ft5 statement close. Nav: **N10
   scroll-morph** (full-width hairline bar at rest → floating pill when
-  scrolled; deliberate variation from the source's N5 — Pattadar's nav
-  carries 7 links + brand + CTA).
+  scrolled; deliberate variation from the source's N5 — Pattadar's landing nav
+  carries 7 section links + one route-level Pricing link + brand + CTA).
 - **App pages** (`/app/*`): functional shell, tokens-only restyle. No
   enrichment ever — function carries the page. Light, Dark, and High Contrast
   remain complete, user-switchable schemes.
@@ -275,10 +275,13 @@ The rules in this document are quality defaults, not a ceiling. Explicit founder
 
 ## Copy freeze (project rule)
 
-User-visible text is **byte-frozen**. Landing copy lives in
-`apps/web/src/pages/landing/landingContent.ts` — redesigns may not add, remove
-or alter strings (CSS case transforms are presentation, not copy). The e2e
-suite asserts on visible text; never change visible headings/labels/roles.
+User-visible landing text remains **byte-frozen** in
+`apps/web/src/pages/landing/landingContent.ts`. The explicitly requested
+19/09/2026 pricing preview is additive: its route copy lives in
+`apps/web/src/pages/pricing/pricingContent.ts`, and its single `Pricing` header
+link is shared by Landing and Pricing through `MarketingNav`. Existing landing
+strings may not be added, removed or altered; future price changes require a
+versioned pricing/product decision rather than an incidental redesign.
 No invented metrics, testimonials or logos — ever (also a founder rule).
 
 ## App-surface rules (added 2026-08-14, after the first app-side audit)

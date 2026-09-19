@@ -4,7 +4,7 @@ Concrete work items tied to this codebase. Phase tags are historical planning la
 
 ## Done (in the ported code)
 
-- [x] Aadhaar masking — `_mask_aadhaar` in services/api; full number never returned to the UI
+- [x] Aadhaar repository controls — direct-KMS versioned field ciphertext, masked-only extraction responses/results, owner-scoped one-use candidates, audited reveal, and legacy Fernet reads (`services/api/src/aadhaar.py`). Deployment and legacy migration remain open below.
 - [x] Token-based beneficiary/member verification — invite tokens, `verify/:token` landing, no manual status flips
 - [x] `CRON_SECRET` guard on `/cron/inactivity-check` (secret from AWS Secrets Manager, not k8s secret)
 - [x] Notification provider seam with stub default — email/WhatsApp/SMS env-gated, records to `notification_log`; no real sends without credentials
@@ -21,7 +21,9 @@ Concrete work items tied to this codebase. Phase tags are historical planning la
 
 ## Data protection
 
-- [ ] [phase-1] KMS CMK for RDS and the S3 documents bucket (SSE-KMS, key rotation on) — Terraform
+- [x] [phase-1/source] Terraform declares rotated CMKs for shared data and dedicated Aadhaar fields; gateway/assistant writes explicitly request document SSE-KMS and bucket keys; a default-off rollout gate adds bucket-policy denial for a missing/wrong algorithm or key after compatible writers are proven. This is repository source, not applied evidence.
+- [ ] Apply and verify the exact persistent/runtime plans, negative S3 policy test, task-role context constraints, key rotation state, and synthetic field write/reveal in each environment. Follow the [Aadhaar KMS rollout](../runbooks/aadhaar-kms-rollout.md).
+- [ ] Inventory and migrate legacy Fernet Aadhaar ciphertext under an approved backup/writer-control/reconciliation plan; retain `AADHAAR_ENC_KEY` until zero legacy rows are proven.
 - [ ] [phase-1] TLS-only everywhere: S3 bucket policy denies non-TLS, ALB HTTPS-only listener, CloudFront minimum TLS 1.2
 - [ ] [phase-2] GuardDuty Malware Protection for S3 on the documents bucket, and **gate document availability on scan verdict** — uploaded objects are not servable/extractable until scanned clean
 - [ ] [phase-2] Per-user storage quotas in the gateway document-storage API
