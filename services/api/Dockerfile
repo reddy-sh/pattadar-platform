@@ -3,6 +3,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+# Runs as a non-root user: a bug in anything it parses should not land as uid 0.
+RUN useradd --system --create-home --uid 10001 app
+USER app
+
 # --workers > 1 only helps for sync resolvers — async resolvers with a single
 # connection pool benefit more from staying single-process (the pool is
 # per-process). Default to 1; override at runtime via UVICORN_WORKERS env if

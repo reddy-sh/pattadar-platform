@@ -84,6 +84,38 @@ unset cron_secret
 # (The runtime layer reads the secret VALUE itself via a Terraform data source —
 # the check above only guarantees it is non-empty before the apply.)
 
+# --- 3b. Application DB credential ------------------------------------------
+# Every service now connects as pattadar_app with this password: the api used
+# to get a DSN Terraform composed from the RDS master credential, which
+# rotated out from under it roughly weekly. Terraform creates the secret
+# CONTAINER but never its value, so on a fresh account this is empty and all
+# three services crash-loop on authentication while the health checks below
+# report a timeout with no explanation. Fail here instead, with the fix.
+log "Checking the application DB credential (pattadar/${ENV}/db-app-password)"
+app_password="$(aws secretsmanager get-secret-value \
+  --secret-id "pattadar/${ENV}/db-app-password" \
+  --query SecretString --output text 2>/dev/null || true)"
+if [[ -z "$app_password" || "$app_password" == "None" ]]; then
+  cat >&2 <<EOF
+ERROR: secret pattadar/${ENV}/db-app-password has no value.
+
+Every service authenticates as pattadar_app with it, so the apply would
+succeed and then every task would crash-loop. Set the password, and create
+the role and database to match (see docs/runbooks/migration.md):
+
+  pw="\$(openssl rand -base64 30 | tr -d '/+=')"
+  aws secretsmanager put-secret-value \\
+    --secret-id pattadar/${ENV}/db-app-password --secret-string "\$pw"
+
+  # then, connected to the instance as the master user:
+  #   CREATE ROLE pattadar_app LOGIN PASSWORD '<that value>';
+  #   CREATE DATABASE hub OWNER pattadar_app;
+  #   GRANT ALL PRIVILEGES ON DATABASE hub TO pattadar_app;
+EOF
+  exit 1
+fi
+unset app_password
+
 # --- 4. Runtime layer --------------------------------------------------------
 log "Applying runtime layer (${ENV})"
 terraform -chdir="$RUNTIME_DIR" init -input=false
@@ -136,9 +168,13 @@ pending_sns="$(aws sns list-subscriptions \
   --query "length(Subscriptions[?SubscriptionArn=='PendingConfirmation'])" \
   --output text 2>/dev/null || echo 0)"
 if [[ "${pending_sns:-0}" != "0" ]]; then
-  echo ""
-  echo "REMINDER: ${pending_sns} SNS subscription(s) are pending confirmation —"
-  echo "check the inbox and click 'Confirm subscription' or alarms will not reach you."
+  echo "" >&2
+  echo "FAIL: ${pending_sns} SNS subscription(s) are still PendingConfirmation." >&2
+  echo "      Every alarm — RDS storage, the inactivity cron, healthy-host counts —" >&2
+  echo "      fires into the void until someone clicks 'Confirm subscription'." >&2
+  echo "      The platform is up; confirm the subscription, then re-run to verify." >&2
+  echo "      (ALLOW_PENDING_ALARMS=1 skips this check.)" >&2
+  [[ "${ALLOW_PENDING_ALARMS:-0}" = "1" ]] || exit 1
 fi
 
 log "Platform ${ENV} is UP. https://pattadar.com (once DNS cutover is done — see docs/runbooks/account-bootstrap.md)."

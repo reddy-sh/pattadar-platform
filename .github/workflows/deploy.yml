@@ -21,7 +21,7 @@ jobs:
       ADMIN_SUBJECT_IDS: ${{ vars.ADMIN_SUBJECT_IDS }}
       RELEASE_PREFLIGHT_S3_URI: ${{ vars.RELEASE_PREFLIGHT_S3_URI }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
@@ -36,14 +36,14 @@ jobs:
         run: |
           echo "::error::WEB_ORIGIN=$WEB_ORIGIN builds apps/web-next, which lacks scoped recipient access, the account data/consent screens and durable extraction. Ship apps/web (WEB_ORIGIN=spa) until web-next has been brought to parity and re-reviewed."
           exit 1
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-south-1
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_wrapper: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
       - name: Resolve release configuration
@@ -69,10 +69,10 @@ jobs:
       - run: bun run --filter @pattadar/web build
       - name: Stamp the built frontend revision
         run: printf '%s\n' "$RELEASE_SHA" > apps/web/dist/.release-sha
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: arm64
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Build every image before changing a running service
         run: |
           set -euo pipefail
@@ -96,7 +96,7 @@ jobs:
           done
       - name: Deploy matching backend and web revisions
         run: python3 scripts/deploy-release.py --cluster "$CLUSTER" --repositories /tmp/release-repositories.json --sha "$RELEASE_SHA" --preflight /tmp/release-preflight.json --web-origin "$WEB_ORIGIN" --spa-bucket "$SPA_BUCKET" --distribution "$DISTRIBUTION_ID" --execute
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: release-${{ github.event.workflow_run.head_sha }}

@@ -44,7 +44,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | Uploaded documents (S3) | Life of account when the user explicitly retains them; deleted (all versions) on erasure request | User's own records |
 | Aadhaar extraction candidates | 30 minutes for use; consumed rows are cleanup-eligible after 1 day | Complete the selected KYC write without returning full digits to a client |
 | AI reading source bytes/results | Source nulled on completion/failure; terminal job deleted after 1 day | Durable non-replayed processing and short troubleshooting window |
-| notification_log | 12 months, then purge | Delivery troubleshooting |
+| notification_log | 12 months, then purge (enforced by the hourly `audit.maintenance` sweep) | Delivery troubleshooting |
 | audit_events (legacy) | ≥ 1 year (target 3) | SOC 2 evidence, dispute resolution; survives erasure (carve-out) |
 | audit_events_v2 (central trail) | Per-event retention class: security/standard = 3 years, low-signal = 1 year (defaults in `src/audit.RETENTION_DAYS`); on erasure only a de-identified tombstone is retained for the reviewed window | SOC 2 / DPDP evidence with data-class-aware lifetime; duration is a governance decision, not yet enforced by a WORM/insert-only control in production |
 | RDS backups | 7-day PITR window; erased data ages out of backups within the window | Recovery |
@@ -53,11 +53,12 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 
 ## Cross-border transfers
 
-With auth on Amazon Cognito in ap-south-1, authentication data now stays in-India. The **only remaining cross-border transfer** is Anthropic (AI document extraction).
+With auth on Amazon Cognito in ap-south-1, authentication data now stays in-India. The **only remaining cross-border processor** is Anthropic, which receives two distinct classes of data: document images for AI extraction, and in-app assistant conversations.
 
 | Processor | Location | DPDP | GDPR |
 |---|---|---|---|
-| Anthropic API | US | Permitted — transfers allowed unless destination is government-blacklisted (none applicable); document images transit for extraction, not retained for training under commercial terms; documented here in the ROPA | SCCs required |
+| Anthropic API — document extraction | US | Permitted — transfers allowed unless destination is government-blacklisted (none applicable); document images transit for extraction, not retained for training under commercial terms; documented here in the ROPA | SCCs required |
+| Anthropic API — assistant conversations | US | Same basis. Conversation text, user-supplied attachments and public-record lookups performed on the user's behalf transit for inference. Distinct from document extraction and separately disclosed in the privacy notice; not covered by the ai_extraction purpose | SCCs required |
 | AWS (incl. Cognito) | ap-south-1 (Mumbai) | No transfer — data at rest stays in India | — |
 
 TODO(Phase 3): evaluate Amazon Bedrock in ap-south-1 as an in-country alternative for document extraction, removing the last US transfer entirely.
@@ -66,7 +67,7 @@ TODO(Phase 3): evaluate Amazon Bedrock in ap-south-1 as an in-country alternativ
 
 - **DPDP**: notify the Data Protection Board of India **and every affected user** of any personal-data breach, in the form/timeline set by the DPDP Rules.
 - **GDPR**: notify the supervisory authority within **72 hours** of awareness; affected users when high risk.
-- Both duties are steps in the incident runbook (see soc2-controls.md, incident response) — assessment of scope, notification drafting, and evidence preservation are runbook stages, not ad-hoc decisions.
+- Both duties are steps in the [incident runbook](../runbooks/incident-response.md) — detection, containment, scope assessment from `audit_events_v2`, notification drafting and evidence preservation are runbook stages, not ad-hoc decisions.
 
 ## Aadhaar Act note
 

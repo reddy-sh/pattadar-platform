@@ -1196,6 +1196,25 @@ async def maintenance():
                     log.info("audit retention: cleared the content of %d event(s) past "
                              "their retention class; chain positions preserved",
                              cur.rowcount)
+
+            # notification_log is not part of the chain, so it is an ordinary
+            # DELETE on its own connection. It holds phone numbers, email
+            # addresses and message bodies for people who may not be users at
+            # all (invitees, guardians), and the published retention schedule
+            # promises twelve months. Nothing enforced that until now.
+            # created_at is TEXT holding an ISO-8601 UTC timestamp, so the
+            # cutoff is built in the same shape and compared as text: every row
+            # shares the format, and a text comparison uses idx_notiflog_created
+            # where a cast would not.
+            async with _pool.connection() as conn:
+                cur = await conn.execute(
+                    "DELETE FROM notification_log"
+                    " WHERE created_at <> ''"
+                    "   AND created_at < to_char(now() AT TIME ZONE 'UTC'"
+                    "       - interval '12 months', 'YYYY-MM-DD\"T\"HH24:MI:SS')")
+                if cur.rowcount:
+                    log.info("notification retention: purged %d delivery record(s) "
+                             "older than 12 months", cur.rowcount)
         except asyncio.CancelledError:
             raise
         except Exception:

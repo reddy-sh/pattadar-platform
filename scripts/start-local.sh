@@ -185,50 +185,22 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$HOME/reddy.sh/projects/rhub/.env" ]
   ANTHROPIC_API_KEY="$(grep '^ANTHROPIC_API_KEY=' "$HOME/reddy.sh/projects/rhub/.env" | cut -d= -f2- || true)"
 fi
 
-# AWS_DB=1 ./scripts/start-local.sh — the SAME local stack, but the api runs
-# against the AWS PRODUCTION database, so the phone loop shows your real
-# records. ⚠️  Everything you file in this mode writes to PRODUCTION data.
+# AWS_DB=1 used to run this same local stack against the AWS PRODUCTION
+# database so the phone loop showed real records. It is gone. It depended on
+# flipping the prod RDS instance to publicly-accessible — guarded by nothing
+# but a password, reverted by hand, and easy to forget — and on reading the
+# RDS-managed MASTER credential onto this laptop. The secret it read no longer
+# exists either: the services take the pattadar_app password instead.
 #
-# One-time network enable (run these yourself; Claude is blocked from them):
-#   aws rds modify-db-instance --region ap-south-1 \
-#     --db-instance-identifier pattadar-prod-pg \
-#     --publicly-accessible --apply-immediately
-#   aws ec2 authorize-security-group-ingress --region ap-south-1 \
-#     --group-id sg-0b99e08ce9240e0c8 --protocol tcp --port 5432 \
-#     --cidr "$(curl -s ifconfig.me)/32"
-# Undo with --no-publicly-accessible / revoke-security-group-ingress (same
-# args). NOTE: a terraform runtime apply also reverts the public flip, and
-# the RDS modify takes a couple of minutes to land.
-AWS_DB="${AWS_DB:-0}"
-if [ "$AWS_DB" = "1" ]; then
-  echo "⚠️  AWS_DB=1 — the api runs against the PRODUCTION database. Files, deletes"
-  echo "   and edits made from the phone in this mode are REAL."
-  # A dead Intel-mac aws at /usr/local/bin shadows the real one on this
-  # machine ("Bad CPU type in executable") — resolve a CLI that actually
-  # runs instead of trusting PATH order.
-  AWS_BIN=""
-  for c in /opt/homebrew/bin/aws aws /usr/local/bin/aws; do
-    command -v "$c" >/dev/null 2>&1 || continue
-    "$c" --version >/dev/null 2>&1 && { AWS_BIN="$c"; break; }
-  done
-  [ -n "$AWS_BIN" ] || {
-    echo "No WORKING aws CLI found — the Intel leftover at /usr/local/bin/aws"
-    echo "shadows it. Fix: brew install awscli   (and optionally: sudo rm /usr/local/bin/aws)"
-    exit 1
-  }
-  APP_DSN="$("$AWS_BIN" secretsmanager get-secret-value --region ap-south-1 \
-    --secret-id pattadar/prod/db-dsn --query SecretString --output text)" || {
-    echo "Could not read pattadar/prod/db-dsn — is the AWS CLI signed in?"; exit 1; }
-  DSN_HOST="$(sed -nE 's/.*host=([^ ]+).*/\1/p' <<<"$APP_DSN")"
-  if ! (exec 3<>"/dev/tcp/${DSN_HOST}/5432") 2>/dev/null; then
-    echo "Cannot reach ${DSN_HOST}:5432 from this laptop — run the one-time"
-    echo "enable commands in the comment above this check, wait ~2 minutes,"
-    echo "and try again."
-    exit 1
-  fi
-else
-  APP_DSN="host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd"
+# To work against real data: restore a snapshot into a throwaway instance, or
+# port-forward through SSM Session Manager so nothing becomes internet-facing.
+if [ "${AWS_DB:-0}" = "1" ]; then
+  echo "AWS_DB=1 is no longer supported: it exposed the production database to"
+  echo "the internet and pulled the RDS master credential onto this laptop."
+  echo "Restore a snapshot to a scratch instance, or use an SSM port-forward."
+  exit 1
 fi
+APP_DSN="host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd"
 
 # A LEFTOVER api from a previous session answers the health check and gets
 # silently adopted — running yesterday's code against yesterday's database
