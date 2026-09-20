@@ -20,6 +20,7 @@ from . import audit
 # six column additions live in their own module so this file — the iOS-facing
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
 from . import village_map, web360
+from psycopg.conninfo import make_conninfo
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -42,7 +43,9 @@ _log = logging.getLogger("pattadar")
 from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import JSONResponse, Response
 from strawberry.fastapi import GraphQLRouter
-from strawberry.extensions import SchemaExtension
+from strawberry.extensions import (
+    MaskErrors, MaxAliasesLimiter, MaxTokensLimiter, QueryDepthLimiter, SchemaExtension,
+)
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -76,10 +79,32 @@ def _num(v, default=0.0) -> float:
     except (TypeError, ValueError):
         return float(default)
 
-DSN = os.getenv(
-    "APP_PG_DSN",
-    "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd",
-)
+def _dsn_from_env() -> str:
+    """Connection string, from APP_PG_DSN or the PG_* parts.
+
+    APP_PG_DSN used to be composed by Terraform from the RDS-managed MASTER
+    credential, which RDS rotates about every seven days: after a rotation
+    every new connection failed until an operator re-applied and forced a
+    redeployment. The gateway and the assistant already read PG_* parts for
+    the pattadar_app role, so the api reads them too and the master
+    credential stops being deployed at all.
+    """
+    explicit = os.getenv("APP_PG_DSN", "").strip()
+    if explicit:
+        return explicit
+    host = os.getenv("PG_HOST", "").strip()
+    if not host:
+        return "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd"
+    return make_conninfo(
+        host=host,
+        port=os.getenv("PG_PORT", "").strip() or "5432",
+        dbname=os.getenv("PG_DATABASE", "").strip() or "hub",
+        user=os.getenv("PG_USER", "").strip() or "pattadar_app",
+        password=os.getenv("PG_PASSWORD", ""),
+    )
+
+
+DSN = _dsn_from_env()
 
 pool = AsyncConnectionPool(
     conninfo=DSN,
@@ -101,6 +126,15 @@ def to_type(cls, row):
             continue
         out[k] = str(v) if isinstance(v, (date, datetime)) and v is not None else v
     return cls(**out)
+
+
+def without_token(row, field: str = "invite_token"):
+    """The same row with its stored verification token blanked.
+
+    What is stored is a hash, and a hash is not a link: only the call that mints
+    a token hands the raw one back, once, to the client that asked for it.
+    """
+    return {**row, field: ""}
 
 
 def new_id() -> str:
@@ -1078,6 +1112,29 @@ def _uid_from_info(info) -> str:
     return uid
 
 
+def _uid_from_request(request) -> str:
+    """The same identity for the REST routes, which sit outside the schema
+    extension. Empty means unauthenticated — the caller answers 401; there is
+    no shared fallback owner."""
+    return (request.headers.get("x-user-id") or "").strip()
+
+
+def _internal_proxy_ok(request) -> bool:
+    """Is this caller allowed onto the /internal/ routes?
+
+    The gateway refuses to proxy any path with an `internal` segment, so these
+    are already deployment-only; this is the second lock, for a caller that can
+    reach the container directly. Fails OPEN when INTERNAL_PROXY_SECRET is unset
+    — local dev and a half-rolled deploy must keep working — and closed the
+    moment it is set, the same shape as the CRON_SECRET check below.
+    """
+    secret = os.getenv("INTERNAL_PROXY_SECRET", "").strip()
+    if not secret:
+        return True
+    return hmac.compare_digest(
+        (request.headers.get("x-internal-proxy-secret") or "").strip(), secret)
+
+
 class RequireAuthenticatedRoot(SchemaExtension):
     """API defense in depth: only purpose-bound capability mutations are public.
 
@@ -1246,22 +1303,27 @@ async def log_audit(conn, actor: str, action: str, target: str, details: str = "
     back the caller's transaction; a non-critical one degrades to a logged
     warning so a routine write is never blocked by the audit subsystem.
     """
-    await conn.execute(
-        "INSERT INTO audit_events (id, actor, action, target, details, timestamp) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (new_id(), actor, action, target, details, datetime.utcnow().isoformat()),
-    )
-    await audit.record(
-        conn,
-        action=action,
-        actor_principal=actor,
-        affected_owner=affected_owner or actor,
-        resource_id=target,
-        outcome=outcome,
-        actor_kind=actor_kind or audit.ACTOR_OWNER,
-        metadata=metadata,
-        request_id=request_id,
-    )
+    # The two writes are one record in two shapes, so they commit together: a
+    # critical action whose envelope cannot be enqueued must not leave a legacy
+    # row claiming it happened. On a caller that is already in a transaction
+    # this is a savepoint, so it never widens anyone's transaction.
+    async with conn.transaction():
+        await conn.execute(
+            "INSERT INTO audit_events (id, actor, action, target, details, timestamp) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (new_id(), actor, action, target, details, datetime.utcnow().isoformat()),
+        )
+        await audit.record(
+            conn,
+            action=action,
+            actor_principal=actor,
+            affected_owner=affected_owner or actor,
+            resource_id=target,
+            outcome=outcome,
+            actor_kind=actor_kind or audit.ACTOR_OWNER,
+            metadata=metadata,
+            request_id=request_id,
+        )
 
 
 
@@ -1453,7 +1515,7 @@ class Query:
 
     @strawberry.field
     async def passbooks(self, info: strawberry.Info) -> List[PassbookType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM passbooks WHERE owner_user_id = %s ORDER BY created_at DESC", (uid,)
@@ -1462,7 +1524,7 @@ class Query:
 
     @strawberry.field
     async def parcels(self, info: strawberry.Info) -> List[ParcelType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM parcels WHERE passbook_id IN "
@@ -1472,7 +1534,7 @@ class Query:
 
     @strawberry.field
     async def properties(self, info: strawberry.Info) -> List[PropertyType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM properties WHERE owner_user_id = %s ORDER BY created_at DESC", (uid,))
@@ -1480,7 +1542,7 @@ class Query:
 
     @strawberry.field
     async def property(self, info: strawberry.Info, id: str) -> Optional[PropertyType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))
@@ -1489,7 +1551,7 @@ class Query:
 
     @strawberry.field
     async def projects(self, info: strawberry.Info) -> List[ProjectType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM projects WHERE owner_user_id = %s ORDER BY created_at DESC", (uid,))
@@ -1497,7 +1559,7 @@ class Query:
 
     @strawberry.field
     async def property_owners(self, info: strawberry.Info, property_id: str) -> List[PropertyOwnerType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
@@ -1509,7 +1571,7 @@ class Query:
 
     @strawberry.field
     async def property_documents(self, info: strawberry.Info, property_id: str) -> List[DocumentType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
@@ -1521,7 +1583,7 @@ class Query:
 
     @strawberry.field
     async def property_portfolio_stats(self, info: strawberry.Info) -> PropertyPortfolioStatsType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         today = datetime.utcnow().date().isoformat()
         async with pool.connection() as conn:
             t = (await (await conn.execute(
@@ -1537,7 +1599,7 @@ class Query:
     @strawberry.field
     async def passbook(self, info: strawberry.Info, id: str) -> Optional[PassbookType]:
         """A single passbook the caller owns (for the passbook detail view)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))
@@ -1546,7 +1608,7 @@ class Query:
 
     @strawberry.field
     async def parcels_by_passbook(self, info: strawberry.Info, passbook_id: str) -> List[ParcelType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM parcels WHERE passbook_id=%s AND passbook_id IN "
@@ -1556,7 +1618,7 @@ class Query:
     @strawberry.field
     async def parcel(self, info: strawberry.Info, id: str) -> Optional[ParcelType]:
         """A single parcel the caller owns (for the Parcel 360 view)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM parcels WHERE id=%s AND passbook_id IN "
@@ -1569,7 +1631,7 @@ class Query:
         """Photos for one parcel, or every photo the caller owns when parcel_id
         is empty — the list screens need covers for many parcels at once and
         must not make one round trip per row."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             if parcel_id:
                 cur = await conn.execute(
@@ -1586,7 +1648,7 @@ class Query:
         """Photos for one property, or every property photo the caller owns
         when property_id is empty — same batch shape as parcel_photos, for
         the same reason (list covers without a round trip per row)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             if property_id:
                 cur = await conn.execute(
@@ -1600,7 +1662,7 @@ class Query:
 
     @strawberry.field
     async def registered_documents(self, info: strawberry.Info) -> List[RegisteredDocumentType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM registered_documents WHERE owner_user_id=%s ORDER BY created_at DESC", (uid,))
@@ -1608,7 +1670,7 @@ class Query:
 
     @strawberry.field
     async def registered_document(self, info: strawberry.Info, id: str) -> Optional[RegisteredDocumentType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s", (id, uid))
@@ -1617,7 +1679,7 @@ class Query:
 
     @strawberry.field
     async def documents(self, info: strawberry.Info) -> List[DocumentType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM documents WHERE owner_user_id = %s "
@@ -1637,7 +1699,7 @@ class Query:
         only for outgoing edges would show a person half their chain and give
         no hint the other half exists.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
@@ -1663,7 +1725,7 @@ class Query:
     @strawberry.field
     async def favourites(self, info: strawberry.Info) -> List[FavouriteType]:
         """Everything this account has starred, across every kind of record."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM favourites WHERE owner_user_id=%s ORDER BY created_at DESC", (uid,))
@@ -1671,7 +1733,7 @@ class Query:
 
     @strawberry.field
     async def passbook_documents(self, info: strawberry.Info, passbook_id: str) -> List[DocumentType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM documents WHERE (passbook_id=%s OR parcel_id IN (SELECT id FROM parcels WHERE passbook_id=%s)) "
@@ -1682,7 +1744,7 @@ class Query:
     @strawberry.field
     async def notes(self, info: strawberry.Info, entity_type: str, entity_id: str) -> List[NoteType]:
         """Append-only note history for a passbook / parcel / document (newest first)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM notes WHERE owner_user_id=%s AND entity_type=%s AND entity_id=%s "
@@ -1693,7 +1755,7 @@ class Query:
     @strawberry.field
     async def land_expenses(self, info: strawberry.Info) -> List[LandExpenseType]:
         """What has been spent, newest first."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM land_expenses WHERE owner_user_id=%s ORDER BY spent_on DESC, created_at DESC",
@@ -1704,7 +1766,7 @@ class Query:
     async def work_requests(self, info: strawberry.Info,
                             include_closed: bool = True) -> List[WorkRequestType]:
         """Work asked of somebody else, open first."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             sql = "SELECT * FROM work_requests WHERE owner_user_id=%s"
             if not include_closed:
@@ -1716,7 +1778,7 @@ class Query:
     async def land_features(self, info: strawberry.Info, entity_type: str,
                             entity_id: str) -> List[LandFeatureType]:
         """What is on the land — borewells, corner stones, access, power."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM land_features WHERE owner_user_id=%s AND entity_type=%s "
@@ -1727,7 +1789,7 @@ class Query:
     @strawberry.field
     async def groups(self, info: strawberry.Info) -> List[GroupType]:
         """Groups the caller owns (v1: owner-scoped)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute("SELECT * FROM groups WHERE owner_user_id=%s ORDER BY created_at", (uid,))
             rows = await cur.fetchall()
@@ -1735,7 +1797,7 @@ class Query:
 
     @strawberry.field
     async def group(self, info: strawberry.Info, id: str) -> Optional[GroupType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             row = await (await conn.execute(
                 "SELECT * FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
@@ -1745,7 +1807,7 @@ class Query:
     async def parcel_fields(self, info: strawberry.Info, parcel_id: str = "") -> List[ParcelFieldType]:
         """Record-completeness field states. Empty parcel_id returns every
         field the caller owns, for the portfolio-wide record-health view."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             if parcel_id:
                 cur = await conn.execute(
@@ -1761,7 +1823,7 @@ class Query:
     @strawberry.field
     async def members(self, info: strawberry.Info, group_id: str) -> List[PersonType]:
         """Members of a group the caller owns, rooted by the caller's self node."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
                 "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
@@ -1771,14 +1833,14 @@ class Query:
             cur = await conn.execute(
                 "SELECT * FROM family_members WHERE owner_user_id=%s AND group_id=%s "
                 "ORDER BY is_self DESC, created_at", (uid, group_id))
-            return [to_type(PersonType, r) for r in await cur.fetchall()]
+            return [to_type(PersonType, without_token(r)) for r in await cur.fetchall()]
 
     @strawberry.field
     async def group_activity(self, info: strawberry.Info, group_id: str) -> List[AuditEventType]:
         """Audit events relevant to a group the caller owns: the group itself, its
         members, its passbooks and the property assigned to it. Powers the
         group's Activity tab."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
                 "SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
@@ -1803,7 +1865,7 @@ class Query:
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM invitations WHERE " + _INVITATION_OWNED + " ORDER BY created_at DESC", (uid,) * 6)
-            return [to_type(InvitationType, r) for r in await cur.fetchall()]
+            return [to_type(InvitationType, without_token(r, "token")) for r in await cur.fetchall()]
 
     @strawberry.field
     async def pending_invitations(self, info: strawberry.Info) -> List[InvitationType]:
@@ -1811,7 +1873,7 @@ class Query:
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM invitations WHERE status='pending' AND " + _INVITATION_OWNED + " ORDER BY created_at DESC", (uid,) * 6)
-            return [to_type(InvitationType, r) for r in await cur.fetchall()]
+            return [to_type(InvitationType, without_token(r, "token")) for r in await cur.fetchall()]
 
     @strawberry.field
     async def sro_offices(self) -> List[SroOfficeType]:
@@ -1881,7 +1943,7 @@ class Query:
     @strawberry.field
     async def me(self, info: strawberry.Info) -> UserType:
         """The signed-in user's profile (auto-provisioned on first access)."""
-        uid = _uid_from_info(info) or "guest"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO users (id, name, email) VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING",
@@ -1910,7 +1972,7 @@ class Query:
         """Recent notification sends for the caller (the default `stub` provider
         records without delivering) — confirm invites/alerts fired without needing
         an email/SMS account wired up yet."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM notification_log WHERE owner_user_id=%s ORDER BY created_at DESC LIMIT %s",
@@ -1954,7 +2016,7 @@ class Query:
 
     @strawberry.field
     async def audit_events(self, info: strawberry.Info, target: str = "") -> List[AuditEventType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             if target:
                 cur = await conn.execute(
@@ -1968,7 +2030,7 @@ class Query:
 
     @strawberry.field
     async def passbook_activity(self, info: strawberry.Info, passbook_id: str) -> List[AuditEventType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             owns = await conn.execute("SELECT 1 FROM passbooks WHERE id=%s AND owner_user_id=%s", (passbook_id, uid))
             if not await owns.fetchone():
@@ -1981,7 +2043,7 @@ class Query:
 
     @strawberry.field
     async def recent_audit_events(self, info: strawberry.Info) -> List[AuditEventType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "SELECT * FROM audit_events WHERE actor=%s ORDER BY timestamp DESC LIMIT 10", (uid,)
@@ -2122,7 +2184,7 @@ class Query:
 
     @strawberry.field
     async def dashboard_stats(self, info: strawberry.Info) -> DashboardStatsType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         own_pb = "(SELECT id FROM passbooks WHERE owner_user_id = %s)"
         own_pc = f"(SELECT id FROM parcels WHERE passbook_id IN {own_pb})"
         async with pool.connection() as conn:
@@ -2197,7 +2259,21 @@ def _contact_key(value: str) -> str:
 async def _write_person(conn, uid, pid, v, is_update):
     """Insert/update a person row from validated args `v` (a dict). Enforces the
     per-parcel/per-group ≤100% share guard, masks Aadhaar, derives is_minor, and
-    creates a verification invite the first time someone becomes a beneficiary."""
+    creates a verification invite the first time someone becomes a beneficiary.
+
+    On an edit a value of None means "leave this one as it is". The mobile app
+    sends fifteen of the twenty-six fields; writing the whole row regardless
+    blanked the other eleven — guardian, spouse, marital status, the parcel the
+    share is against — every time someone corrected a phone number."""
+    prior = None
+    if is_update:
+        prior = await (await conn.execute(
+            "SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (pid, uid))).fetchone()
+        v = {k: (prior.get(k) if val is None and prior is not None else val)
+             for k, val in v.items()}
+        # Not columns: an absent raw Aadhaar already means "keep what is stored".
+        for key in ("aadhaar", "aadhaar_candidate_id"):
+            v[key] = v.get(key) or ""
     minor = _is_minor(v["dob"])
     if v["is_beneficiary"]:
         contact = (v["email"] or v["phone"]).strip()
@@ -2247,9 +2323,6 @@ async def _write_person(conn, uid, pid, v, is_update):
         cols.pop("aadhaar_masked", None)
         cols.pop("aadhaar_enc", None)
     if is_update:
-        prior = await (await conn.execute(
-            "SELECT is_self,email,phone,group_id,guardian_contact,is_minor FROM family_members "
-            "WHERE id=%s AND owner_user_id=%s", (pid, uid))).fetchone()
         if prior and prior["is_self"]:
             raise ValueError("Your own node can't be edited here")
         email_changed = bool(prior and (prior.get("email") or "").strip().casefold()
@@ -2289,16 +2362,23 @@ async def _write_person(conn, uid, pid, v, is_update):
     if not row:
         raise NotAuthorized("Not authorized for this person")
     # Verification invite on first-time beneficiary (no token yet + contact present).
+    # Only the hash is stored, the way inactivity capabilities are: the verify
+    # link is a bearer credential that can mark an heir verified, so a reader of
+    # the table or a backup must not come away holding a live one. The raw token
+    # exists in this one response and in the message sent to the invitee.
+    minted = ""
     if v["is_beneficiary"] and not (row.get("invite_token") or "").strip():
         token = str(uuid.uuid4())
         invitee = (v["guardian_contact"].strip() if minor else (v["email"] or v["phone"]).strip())
         channel = "email" if "@" in invitee else "phone"
-        await conn.execute("UPDATE family_members SET invite_token=%s, status='pending', invite_channel=%s WHERE id=%s", (token, channel, pid))
+        await conn.execute("UPDATE family_members SET invite_token=%s, status='pending', invite_channel=%s WHERE id=%s", (_capability_hash(token), channel, pid))
         await conn.execute(
             "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
             "VALUES (%s, 'beneficiary', %s, %s, %s, %s, %s, 'pending', %s)",
-            (new_id(), pid, v["kind"] or "coowner", invitee, token, _invitation_expiry(), datetime.utcnow().isoformat()))
-        row["invite_token"] = token; row["status"] = "pending"
+            (new_id(), pid, v["kind"] or "coowner", invitee, _capability_hash(token),
+             _invitation_expiry(), datetime.utcnow().isoformat()))
+        minted = token; row["status"] = "pending"
+    row["invite_token"] = minted
     return to_type(PersonType, row)
 
 
@@ -2307,10 +2387,13 @@ async def _verify_by_token(info, token: str, inactivity_email_consent: bool = Fa
     token = (token or "").strip()
     if not token:
         raise ValueError("Invalid or expired verification link")
+    # Every column holding this credential holds its hash; the raw token only
+    # ever travels in the link sent to the invitee.
+    token_hash = _capability_hash(token)
     async with pool.connection() as conn:
         async with conn.transaction():
             hints = await (await conn.execute(
-                "SELECT * FROM invitations WHERE token=%s ORDER BY id", (token,))).fetchall()
+                "SELECT * FROM invitations WHERE token=%s ORDER BY id", (token_hash,))).fetchall()
             hinted_live = [i for i in hints if _invitation_is_current(i)
                            and i["scope_type"] in {"family", "beneficiary"}]
             scope_ids = {i["scope_id"] for i in hinted_live}
@@ -2326,14 +2409,14 @@ async def _verify_by_token(info, token: str, inactivity_email_consent: bool = Fa
                 (scope_id, scope_id))).fetchone()
             await conn.execute("SELECT id FROM beneficiaries WHERE id=%s FOR UPDATE", (scope_id,))
             invitations = await (await conn.execute(
-                "SELECT * FROM invitations WHERE token=%s ORDER BY id FOR UPDATE", (token,))).fetchall()
+                "SELECT * FROM invitations WHERE token=%s ORDER BY id FOR UPDATE", (token_hash,))).fetchall()
             live = [i for i in invitations if _invitation_is_current(i)
                     and i["scope_type"] in {"family", "beneficiary"}]
             if (not live or any(i["status"] != "pending" for i in invitations)
                     or {i["scope_id"] for i in live} != {scope_id}):
                 raise ValueError("Invalid or expired verification link")
             if member:
-                if member["status"] != "pending" or member["invite_token"] != token:
+                if member["status"] != "pending" or member["invite_token"] != token_hash:
                     raise ValueError("Invalid or expired verification link")
                 expected = ((member.get("guardian_contact") or "") if member.get("is_minor") else
                             (member.get("email") or "") if member.get("invite_channel") == "email" else
@@ -2352,19 +2435,19 @@ async def _verify_by_token(info, token: str, inactivity_email_consent: bool = Fa
                 "WHERE invite_token=%s AND status='pending' "
                 "AND (id=%s OR legacy_beneficiary_id=%s) RETURNING *",
                 (inactivity_email_consent, inactivity_email_consent,
-                 datetime.now(timezone.utc).isoformat(), token, scope_id, scope_id))).fetchone()
+                 datetime.now(timezone.utc).isoformat(), token_hash, scope_id, scope_id))).fetchone()
             if row:
                 await conn.execute(
                     "UPDATE beneficiaries SET status='verified',invite_token='' "
-                    "WHERE invite_token=%s AND status='pending' AND id=%s", (token, scope_id))
+                    "WHERE invite_token=%s AND status='pending' AND id=%s", (token_hash, scope_id))
             else:
                 row = await (await conn.execute(
                     "UPDATE beneficiaries SET status='verified',invite_token='' "
                     "WHERE invite_token=%s AND status='pending' AND id=%s RETURNING *",
-                    (token, scope_id))).fetchone()
+                    (token_hash, scope_id))).fetchone()
             if not row:
                 raise ValueError("Invalid or expired verification link")
-            await conn.execute("UPDATE invitations SET status='accepted',token='' WHERE token=%s", (token,))
+            await conn.execute("UPDATE invitations SET status='accepted',token='' WHERE token=%s", (token_hash,))
             out = dict(row)
             out.setdefault("person_name", out.get("name") or "")
             out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
@@ -2397,9 +2480,7 @@ async def _do_update_member_status(info, id: str, status: str) -> "BeneficiaryTy
                         "AND scope_id=%s AND status='pending'", (target,))
                 await conn.execute("UPDATE family_members SET invite_token='' WHERE id=%s AND owner_user_id=%s", (id, uid))
                 await conn.execute("UPDATE beneficiaries SET invite_token='' WHERE id=%s", (legacy_id,))
-            out = dict(row or legacy)
-            if status != "pending":
-                out["invite_token"] = ""
+            out = without_token(row or legacy)
             out.setdefault("person_name", out.get("name") or "")
             out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
             out.setdefault("relationship", out.get("relation") or "")
@@ -2811,7 +2892,7 @@ class Mutation:
         father_husband_name: str = "",
         group_id: str = "",
     ) -> PassbookType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         pid = new_id()
         async with pool.connection() as conn:
             village = await _canonical_village(conn, uid, village, mandal, district)
@@ -2835,23 +2916,31 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_passbook(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            # CL-547: read the name BEFORE the row is gone — an audit entry that
-            # cannot say what it deleted is not an audit entry.
-            doomed = await (await conn.execute(
-                "SELECT pattadar_no, village FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            cur = await conn.execute("DELETE FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))
-            deleted = cur.rowcount > 0
-            if deleted:
+            # One transaction, children first. The pool is autocommit, so a
+            # statement-at-a-time cascade that died after the passbook row
+            # committed would strand its parcels: nothing reaches a parcel
+            # except through its passbook's owner, so they would be invisible
+            # and undeletable for good.
+            async with conn.transaction():
+                # CL-547: read the name BEFORE the row is gone — an audit entry that
+                # cannot say what it deleted is not an audit entry.
+                doomed = await (await conn.execute(
+                    "SELECT pattadar_no, village FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                if not doomed:
+                    return False
                 # No DB-level FK cascade — remove the passbook's parcels + their
                 # ownership history so a delete doesn't leave orphaned rows.
                 await conn.execute(
                     "DELETE FROM parcel_owners WHERE parcel_id IN (SELECT id FROM parcels WHERE passbook_id=%s)", (id,))
                 await conn.execute("DELETE FROM parcels WHERE passbook_id=%s", (id,))
-                await log_audit(conn, uid, "delete_passbook", id, _named(
-                    "Khata", (doomed or {}).get("pattadar_no"), (doomed or {}).get("village")))
-            return deleted
+                cur = await conn.execute("DELETE FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))
+                deleted = cur.rowcount > 0
+                if deleted:
+                    await log_audit(conn, uid, "delete_passbook", id, _named(
+                        "Khata", doomed.get("pattadar_no"), doomed.get("village")))
+                return deleted
 
     @strawberry.mutation
     async def create_parcel(
@@ -2867,35 +2956,38 @@ class Mutation:
         parent_parcel_id: str = "",
         source: str = "manual",
     ) -> ParcelType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         pid = new_id()
         now = datetime.utcnow()
         async with pool.connection() as conn:
-            await _assert_owns_passbook(conn, uid, passbook_id)
-            cur = await conn.execute(
-                "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent, unit, classification, acquisition_source, geo_point, parent_parcel_id, source, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                (pid, passbook_id, survey_no, subdivision, extent, unit, classification, acquisition_source, "", parent_parcel_id, source, now.isoformat()),
-            )
-            row = await cur.fetchone()
-            # Seed the ownership history with the current owner (the passbook holder).
-            pbcur = await conn.execute("SELECT owner_name FROM passbooks WHERE id=%s", (passbook_id,))
-            pbrow = await pbcur.fetchone()
-            owner = (pbrow["owner_name"] if pbrow else "") or ""
-            await conn.execute(
-                "INSERT INTO parcel_owners (id, parcel_id, owner_name, acquisition_source, extent, mutation_type, mutation_date, is_current, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (new_id(), pid, owner, acquisition_source, extent, "acquisition", now.date().isoformat(), True, now.isoformat()),
-            )
-            await log_audit(conn, uid, "create_parcel", pid, f"Survey {survey_no}")
-            return to_type(ParcelType, row)
+            # One row is a parcel and its first line of ownership; half of
+            # that is a parcel nobody has ever owned.
+            async with conn.transaction():
+                await _assert_owns_passbook(conn, uid, passbook_id)
+                cur = await conn.execute(
+                    "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent, unit, classification, acquisition_source, geo_point, parent_parcel_id, source, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                    (pid, passbook_id, survey_no, subdivision, extent, unit, classification, acquisition_source, "", parent_parcel_id, source, now.isoformat()),
+                )
+                row = await cur.fetchone()
+                # Seed the ownership history with the current owner (the passbook holder).
+                pbcur = await conn.execute("SELECT owner_name FROM passbooks WHERE id=%s", (passbook_id,))
+                pbrow = await pbcur.fetchone()
+                owner = (pbrow["owner_name"] if pbrow else "") or ""
+                await conn.execute(
+                    "INSERT INTO parcel_owners (id, parcel_id, owner_name, acquisition_source, extent, mutation_type, mutation_date, is_current, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (new_id(), pid, owner, acquisition_source, extent, "acquisition", now.date().isoformat(), True, now.isoformat()),
+                )
+                await log_audit(conn, uid, "create_parcel", pid, f"Survey {survey_no}")
+                return to_type(ParcelType, row)
 
     @strawberry.mutation
     async def create_project(
         self, info: strawberry.Info, name: str, builder_name: str = "",
         project_type: str = "", rera_no: str = "", address: str = "", city: str = "",
     ) -> ProjectType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         pid = new_id()
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -2918,34 +3010,36 @@ class Mutation:
         purchase_price: float = 0.0, purchase_date: str = "", reg_doc_no: str = "",
         sro: str = "", reg_date: str = "", seller_name: str = "", buyer_name: str = "",
     ) -> PropertyType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         pid = new_id()
         now = datetime.utcnow()
         async with pool.connection() as conn:
-            cur = await conn.execute(
-                "INSERT INTO properties (id, owner_user_id, group_id, project_id, type, label, address, locality, city, district, "
-                "land_area, land_unit, builtup_area, builtup_unit, acquisition_mode, purchase_price, purchase_date, "
-                "reg_doc_no, sro, reg_date, attributes, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                (pid, uid, group_id, project_id, type, label, address, locality, city, district,
-                 land_area, land_unit, builtup_area, builtup_unit, acquisition_mode, purchase_price, purchase_date,
-                 reg_doc_no, sro, reg_date, attributes, now.isoformat()),
-            )
-            row = await cur.fetchone()
-            # Current owner (the buyer / the user). Seed a prior-owner (seller) row too when known.
-            await conn.execute(
-                "INSERT INTO property_owners (id, property_id, owner_name, user_id, share_pct, role, is_current, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (new_id(), pid, buyer_name, uid, 100.0, "owner", True, now.isoformat()),
-            )
-            if seller_name:
+            # The property and the owners it is bought by go in together.
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "INSERT INTO properties (id, owner_user_id, group_id, project_id, type, label, address, locality, city, district, "
+                    "land_area, land_unit, builtup_area, builtup_unit, acquisition_mode, purchase_price, purchase_date, "
+                    "reg_doc_no, sro, reg_date, attributes, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                    (pid, uid, group_id, project_id, type, label, address, locality, city, district,
+                     land_area, land_unit, builtup_area, builtup_unit, acquisition_mode, purchase_price, purchase_date,
+                     reg_doc_no, sro, reg_date, attributes, now.isoformat()),
+                )
+                row = await cur.fetchone()
+                # Current owner (the buyer / the user). Seed a prior-owner (seller) row too when known.
                 await conn.execute(
                     "INSERT INTO property_owners (id, property_id, owner_name, user_id, share_pct, role, is_current, created_at) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                    (new_id(), pid, seller_name, "", 0.0, "seller", False, now.isoformat()),
+                    (new_id(), pid, buyer_name, uid, 100.0, "owner", True, now.isoformat()),
                 )
-            await log_audit(conn, uid, "create_property", pid, f"{type}: {label}")
-            return to_type(PropertyType, row)
+                if seller_name:
+                    await conn.execute(
+                        "INSERT INTO property_owners (id, property_id, owner_name, user_id, share_pct, role, is_current, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                        (new_id(), pid, seller_name, "", 0.0, "seller", False, now.isoformat()),
+                    )
+                await log_audit(conn, uid, "create_property", pid, f"{type}: {label}")
+                return to_type(PropertyType, row)
 
     @strawberry.mutation
     async def update_property(
@@ -2963,7 +3057,7 @@ class Mutation:
         tax_paid_upto: Optional[str] = None, litigation: Optional[bool] = None, litigation_note: Optional[str] = None,
         attributes: Optional[str] = None, notes: Optional[str] = None, project_id: Optional[str] = None,
     ) -> PropertyType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         fields = {
             "label": label, "address": address, "locality": locality, "city": city, "district": district,
             "land_area": land_area, "land_unit": land_unit, "builtup_area": builtup_area, "builtup_unit": builtup_unit,
@@ -2994,7 +3088,7 @@ class Mutation:
         self, info: strawberry.Info, property_id: str, owner_name: str,
         share_pct: float = 0.0, role: str = "owner", group_id: str = "",
     ) -> PropertyOwnerType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
@@ -3012,27 +3106,31 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_property(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            own = await (await conn.execute(
-                "SELECT label, address FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            if not own:
-                raise NotAuthorized("Not authorized for this property")
-            await conn.execute("DELETE FROM property_owners WHERE property_id=%s", (id,))
-            await conn.execute("DELETE FROM documents WHERE property_id=%s", (id,))
-            # Registered deeds hang off the property too, and each carries its
-            # parties and its AI summary. Deleting only `documents` left the
-            # deed — and everything read out of it — pointing at a property
-            # that no longer existed.
-            await conn.execute(
-                "DELETE FROM document_parties WHERE document_id IN "
-                "(SELECT id FROM registered_documents WHERE property_id=%s AND owner_user_id=%s)",
-                (id, uid))
-            await conn.execute(
-                "DELETE FROM registered_documents WHERE property_id=%s AND owner_user_id=%s", (id, uid))
-            await conn.execute("DELETE FROM properties WHERE id=%s", (id,))
-            await log_audit(conn, uid, "delete_property", id, _named("", own["label"], own["address"]))
-            return True
+            # Six statements on an autocommit pool are six chances to stop
+            # half-way: one transaction, so the property and everything filed
+            # against it go together or not at all.
+            async with conn.transaction():
+                own = await (await conn.execute(
+                    "SELECT label, address FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                if not own:
+                    raise NotAuthorized("Not authorized for this property")
+                await conn.execute("DELETE FROM property_owners WHERE property_id=%s", (id,))
+                await conn.execute("DELETE FROM documents WHERE property_id=%s", (id,))
+                # Registered deeds hang off the property too, and each carries its
+                # parties and its AI summary. Deleting only `documents` left the
+                # deed — and everything read out of it — pointing at a property
+                # that no longer existed.
+                await conn.execute(
+                    "DELETE FROM document_parties WHERE document_id IN "
+                    "(SELECT id FROM registered_documents WHERE property_id=%s AND owner_user_id=%s)",
+                    (id, uid))
+                await conn.execute(
+                    "DELETE FROM registered_documents WHERE property_id=%s AND owner_user_id=%s", (id, uid))
+                await conn.execute("DELETE FROM properties WHERE id=%s", (id,))
+                await log_audit(conn, uid, "delete_property", id, _named("", own["label"], own["address"]))
+                return True
 
     @strawberry.mutation
     async def record_parcel_mutation(
@@ -3045,21 +3143,25 @@ class Mutation:
     ) -> ParcelType:
         """Record an ownership change (mutation) on a parcel — the previous owner
         becomes historical and the new owner is set current."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         now = datetime.utcnow()
         async with pool.connection() as conn:
-            await _assert_owns_parcel(conn, uid, parcel_id)
-            await conn.execute("UPDATE parcel_owners SET is_current=false WHERE parcel_id=%s", (parcel_id,))
-            pcur = await conn.execute("SELECT * FROM parcels WHERE id=%s", (parcel_id,))
-            prow = await pcur.fetchone()
-            await conn.execute(
-                "INSERT INTO parcel_owners (id, parcel_id, owner_name, acquisition_source, extent, mutation_type, mutation_date, is_current, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (new_id(), parcel_id, new_owner, acquisition_source, (prow["extent"] if prow else 0),
-                 mutation_type or "transfer", now.date().isoformat(), True, now.isoformat()),
-            )
-            await log_audit(conn, uid, "record_mutation", parcel_id, f"{mutation_type} -> {new_owner}")
-            return to_type(ParcelType, prow)
+            # Retiring the old owner and recording the new one is the
+            # mutation. On an autocommit pool, stopping between them leaves a
+            # parcel with no current owner at all.
+            async with conn.transaction():
+                await _assert_owns_parcel(conn, uid, parcel_id)
+                await conn.execute("UPDATE parcel_owners SET is_current=false WHERE parcel_id=%s", (parcel_id,))
+                pcur = await conn.execute("SELECT * FROM parcels WHERE id=%s", (parcel_id,))
+                prow = await pcur.fetchone()
+                await conn.execute(
+                    "INSERT INTO parcel_owners (id, parcel_id, owner_name, acquisition_source, extent, mutation_type, mutation_date, is_current, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (new_id(), parcel_id, new_owner, acquisition_source, (prow["extent"] if prow else 0),
+                     mutation_type or "transfer", now.date().isoformat(), True, now.isoformat()),
+                )
+                await log_audit(conn, uid, "record_mutation", parcel_id, f"{mutation_type} -> {new_owner}")
+                return to_type(ParcelType, prow)
 
     @strawberry.mutation
     async def apply_my_kyc(
@@ -3123,24 +3225,28 @@ class Mutation:
         fields from every `is_self` member row. Land, groups and documents are
         untouched — this is about who the account says you are, nothing else.
         """
-        uid = _uid_from_info(info) or "guest"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            prev = await (await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))).fetchone()
-            await conn.execute(
-                "UPDATE users SET name='', address='', kyc_ref_masked='', kyc_ref_enc='' WHERE id=%s", (uid,))
-            await conn.execute(
-                "UPDATE family_members SET name='', dob='', gender='', present_address='', "
-                "aadhaar_masked='', aadhaar_enc='' WHERE owner_user_id=%s AND is_self=TRUE", (uid,))
-            # Name the identity that was removed: this is exactly the kind of
-            # change someone will need to account for later.
-            await log_audit(conn, uid, "clear_my_kyc", uid, _named("Removed", (prev or {}).get("name")))
-            row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
-            return to_type(UserType, row)
+            # The account row and the self member row hold the same identity;
+            # clearing one and not the other is how a wrong card
+            # half-survives.
+            async with conn.transaction():
+                prev = await (await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))).fetchone()
+                await conn.execute(
+                    "UPDATE users SET name='', address='', kyc_ref_masked='', kyc_ref_enc='' WHERE id=%s", (uid,))
+                await conn.execute(
+                    "UPDATE family_members SET name='', dob='', gender='', present_address='', "
+                    "aadhaar_masked='', aadhaar_enc='' WHERE owner_user_id=%s AND is_self=TRUE", (uid,))
+                # Name the identity that was removed: this is exactly the kind of
+                # change someone will need to account for later.
+                await log_audit(conn, uid, "clear_my_kyc", uid, _named("Removed", (prev or {}).get("name")))
+                row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
+                return to_type(UserType, row)
 
     @strawberry.mutation
     async def reveal_my_aadhaar(self, info: strawberry.Info) -> str:
         """The signed-in user's own full Aadhaar. Audited like the member one."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             row = await (await conn.execute(
                 "SELECT kyc_ref_enc FROM users WHERE id=%s", (uid,))).fetchone()
@@ -3158,7 +3264,7 @@ class Mutation:
         a field would ride along on every `members { ... }` query and put the
         number in every list response. Every call writes an audit row — an
         un-audited reveal is indistinguishable from an exfiltration."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             row = await (await conn.execute(
                 "SELECT aadhaar_enc, name FROM family_members WHERE id=%s AND owner_user_id=%s",
@@ -3178,7 +3284,7 @@ class Mutation:
         verified_at: str = "", expires_at: str = "", na_reason: str = "",
     ) -> ParcelFieldType:
         """Upsert one record field. Idempotent on (parcel_id, field_key)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         if state not in ("filled", "not_available", "unknown"):
             raise ValueError("state must be filled, not_available or unknown")
         async with pool.connection() as conn:
@@ -3205,7 +3311,7 @@ class Mutation:
     @strawberry.mutation
     async def update_parcel_geo(self, info: strawberry.Info, parcel_id: str, geo_point: str) -> ParcelType:
         """Save the parcel's geo-location (GeoJSON Point or Polygon string)."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "UPDATE parcels SET geo_point=%s WHERE id=%s AND passbook_id IN "
@@ -3227,7 +3333,7 @@ class Mutation:
         location is hardest to describe in words — it is the case that needs a
         pin most.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "UPDATE properties SET geo_point=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
@@ -3250,7 +3356,7 @@ class Mutation:
         Its own mutation, like the geo pair above: a dedicated write can never
         erase the fields it does not mention.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "UPDATE parcels SET boundary=%s WHERE id=%s AND passbook_id IN "
@@ -3267,7 +3373,7 @@ class Mutation:
     @strawberry.mutation
     async def update_property_boundary(self, info: strawberry.Info, property_id: str, boundary: str) -> PropertyType:
         """Save a property's surveyed outline — same convention as the parcel's."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "UPDATE properties SET boundary=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
@@ -3300,7 +3406,7 @@ class Mutation:
         Every argument is optional and only non-None values are written, so a
         client that sends one field cannot blank the rest.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         fields = {
             "pattadar_no": pattadar_no, "owner_name": owner_name,
             "father_husband_name": father_husband_name, "state": state,
@@ -3342,7 +3448,7 @@ class Mutation:
         """Edit a parcel's full dossier — identity/status, address, boundary
         schedule, financials, legal. Only provided fields are updated. Manual
         entry now; AP-IGRS integration auto-populates these later."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         candidate = {
             "survey_no": survey_no, "subdivision": subdivision, "extent": extent, "unit": unit,
             "classification": classification, "acquisition_source": acquisition_source,
@@ -3378,25 +3484,28 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_parcel(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            # A parcel has no village of its own — the village belongs to its
-            # passbook. Reading it straight off `parcels` raised UndefinedColumn
-            # and broke deletion outright.
-            doomed = await (await conn.execute(
-                "SELECT p.survey_no, pb.village FROM parcels p "
-                "JOIN passbooks pb ON pb.id = p.passbook_id "
-                "WHERE p.id=%s AND pb.owner_user_id=%s", (id, uid))).fetchone()
-            cur = await conn.execute(
-                "DELETE FROM parcels WHERE id=%s AND passbook_id IN "
-                "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (id, uid)
-            )
-            deleted = cur.rowcount > 0
-            if deleted:
+            async with conn.transaction():
+                # A parcel has no village of its own — the village belongs to its
+                # passbook. Reading it straight off `parcels` raised UndefinedColumn
+                # and broke deletion outright.
+                doomed = await (await conn.execute(
+                    "SELECT p.survey_no, pb.village FROM parcels p "
+                    "JOIN passbooks pb ON pb.id = p.passbook_id "
+                    "WHERE p.id=%s AND pb.owner_user_id=%s", (id, uid))).fetchone()
+                if not doomed:
+                    return False
                 await conn.execute("DELETE FROM parcel_owners WHERE parcel_id=%s", (id,))
-                await log_audit(conn, uid, "delete_parcel", id, _named(
-                    "Survey", (doomed or {}).get("survey_no"), (doomed or {}).get("village")))
-            return deleted
+                cur = await conn.execute(
+                    "DELETE FROM parcels WHERE id=%s AND passbook_id IN "
+                    "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (id, uid)
+                )
+                deleted = cur.rowcount > 0
+                if deleted:
+                    await log_audit(conn, uid, "delete_parcel", id, _named(
+                        "Survey", doomed.get("survey_no"), doomed.get("village")))
+                return deleted
 
     @strawberry.mutation
     async def create_document(
@@ -3416,7 +3525,7 @@ class Mutation:
         size_bytes: int = 0,
         mime_type: str = "",
     ) -> DocumentType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         did = new_id()
         # A file with no name of its own renders blank in both vaults. Name it
         # for what it is rather than leaving the client to guess later.
@@ -3441,7 +3550,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_document(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             # Ownership must mirror the `documents` query exactly — unlinked
             # uploads (parcel_id='' etc.) are owned via owner_user_id and were
@@ -3461,7 +3570,7 @@ class Mutation:
 
     @strawberry.mutation
     async def update_document_type(self, info: strawberry.Info, id: str, doc_type: str) -> Optional[DocumentType]:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 f"SELECT parcel_id, passbook_id FROM documents WHERE id=%s AND {_DOC_OWNED}",
@@ -3487,7 +3596,7 @@ class Mutation:
         edge to the A→B deed. Both documents must belong to the caller, so a
         trail can never be made to point at a stranger's record.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         if relation not in DOCUMENT_RELATIONS:
             raise NotAuthorized(f"'{relation}' is not a kind of link")
         # A paper cannot cite itself, and a chain that loops cannot be walked.
@@ -3524,7 +3633,7 @@ class Mutation:
     @strawberry.mutation
     async def unlink_documents(self, info: strawberry.Info, id: str) -> bool:
         """Take an asserted link back. The documents themselves are untouched."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "DELETE FROM document_links WHERE id=%s AND owner_user_id=%s RETURNING from_document_id",
@@ -3548,7 +3657,7 @@ class Mutation:
         neither should have to know which id the other holds to rename the same
         piece of paper.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         name = (name or "").strip()
         if not name:
             return None
@@ -3578,7 +3687,7 @@ class Mutation:
         file. Called after the reader has run and the person said yes to what
         it found, never automatically on upload.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             # The reading has to be this account's too, or a document could be
             # made to display somebody else's extraction.
@@ -3606,7 +3715,7 @@ class Mutation:
         """Point a file at the land it belongs to. Exclusive: a document is
         filed against ONE of parcel / khata / property, so the arguments are
         the whole truth and an omitted one clears."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             # Must already own the row (via its current land, or as uploader).
             cur = await conn.execute(
@@ -3660,7 +3769,7 @@ class Mutation:
         to the guardian for a minor, otherwise to the beneficiary. Aadhaar is
         masked before storage (DPDP-2023); when a parcel is linked, total shares
         across its beneficiaries cannot exceed 100%."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         phone = (phone or "").strip(); email = (email or "").strip()
         # The verification invite goes to email if given, else the mobile.
         contact = email or phone or (person_contact or "").strip()
@@ -3676,35 +3785,41 @@ class Mutation:
         token = str(uuid.uuid4())
         invitee = (guardian_contact or "").strip() if minor else contact
         async with pool.connection() as conn:
-            if (parcel_id or "").strip():
-                await _assert_owns_parcel(conn, uid, parcel_id)
-                # Share-total guard: existing (non-revoked) shares + this one ≤ 100%.
-                existing = await (await conn.execute(
-                    "SELECT COALESCE(SUM(share_pct),0) AS s FROM beneficiaries "
-                    "WHERE parcel_id=%s AND status <> 'revoked'", (parcel_id,))).fetchone()
-                if float(existing["s"] or 0) + float(share_pct or 0) > 100.0001:
-                    raise ValueError(
-                        f"Shares for this parcel would exceed 100% "
-                        f"({float(existing['s'] or 0):.1f}% already allocated). Lower the share.")
-            cur = await conn.execute(
-                "INSERT INTO beneficiaries (id, parcel_id, owner_user_id, person_name, person_contact, "
-                "phone, email, present_address, relationship, share_pct, kind, status, dob, is_minor, marital_status, "
-                "spouse_name, spouse_contact, spouse_status, guardian_name, guardian_contact, invite_token, "
-                "aadhaar_masked, gender, photo) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (bid, (parcel_id or "").strip(), uid, person_name, contact, phone, email, present_address, relationship,
-                 share_pct, kind, dob, minor, marital_status, spouse_name, spouse_contact, spouse_status,
-                 guardian_name, guardian_contact, token, aadhaar_masked, gender, photo),
-            )
-            row = await cur.fetchone()
-            # Verification invite — the beneficiary/guardian accepts via this token.
-            await conn.execute(
-                "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-                "VALUES (%s, 'beneficiary', %s, %s, %s, %s, %s, 'pending', %s)",
-                (new_id(), bid, kind, invitee or contact, token, _invitation_expiry(), datetime.utcnow().isoformat()),
-            )
-            await log_audit(conn, uid, "add_beneficiary", bid, f"{person_name} ({kind}) — invite sent, pending verification")
-            return to_type(BeneficiaryType, row)
+            # The beneficiary and the invitation that verifies them share a
+            # token: one without the other is an heir who can never be
+            # confirmed.
+            async with conn.transaction():
+                if (parcel_id or "").strip():
+                    await _assert_owns_parcel(conn, uid, parcel_id)
+                    # Share-total guard: existing (non-revoked) shares + this one ≤ 100%.
+                    existing = await (await conn.execute(
+                        "SELECT COALESCE(SUM(share_pct),0) AS s FROM beneficiaries "
+                        "WHERE parcel_id=%s AND status <> 'revoked'", (parcel_id,))).fetchone()
+                    if float(existing["s"] or 0) + float(share_pct or 0) > 100.0001:
+                        raise ValueError(
+                            f"Shares for this parcel would exceed 100% "
+                            f"({float(existing['s'] or 0):.1f}% already allocated). Lower the share.")
+                cur = await conn.execute(
+                    "INSERT INTO beneficiaries (id, parcel_id, owner_user_id, person_name, person_contact, "
+                    "phone, email, present_address, relationship, share_pct, kind, status, dob, is_minor, marital_status, "
+                    "spouse_name, spouse_contact, spouse_status, guardian_name, guardian_contact, invite_token, "
+                    "aadhaar_masked, gender, photo) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                    (bid, (parcel_id or "").strip(), uid, person_name, contact, phone, email, present_address, relationship,
+                     share_pct, kind, dob, minor, marital_status, spouse_name, spouse_contact, spouse_status,
+                     guardian_name, guardian_contact, _capability_hash(token), aadhaar_masked, gender, photo),
+                )
+                row = await cur.fetchone()
+                # Verification invite — the beneficiary/guardian accepts via this token.
+                await conn.execute(
+                    "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
+                    "VALUES (%s, 'beneficiary', %s, %s, %s, %s, %s, 'pending', %s)",
+                    (new_id(), bid, kind, invitee or contact, _capability_hash(token),
+                     _invitation_expiry(), datetime.utcnow().isoformat()),
+                )
+                await log_audit(conn, uid, "add_beneficiary", bid, f"{person_name} ({kind}) — invite sent, pending verification")
+                row["invite_token"] = token
+                return to_type(BeneficiaryType, row)
 
     @strawberry.mutation
     async def verify_beneficiary(
@@ -3719,7 +3834,7 @@ class Mutation:
     @strawberry.mutation
     async def add_note(self, info: strawberry.Info, entity_type: str, entity_id: str, body: str) -> NoteType:
         """Append a note to a passbook / parcel / document. Append-only history."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         nid = new_id()
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -3738,7 +3853,7 @@ class Mutation:
         entity_type: str = "", entity_id: str = "", spent_on: str = "",
         vendor: str = "", note: str = "",
     ) -> LandExpenseType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         eid = new_id()
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -3754,7 +3869,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_land_expense(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "DELETE FROM land_expenses WHERE id=%s AND owner_user_id=%s RETURNING title",
@@ -3770,7 +3885,7 @@ class Mutation:
         entity_type: str = "", entity_id: str = "", assignee: str = "",
         cost: float = 0, note: str = "", due_date: str = "",
     ) -> WorkRequestType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         rid = new_id()
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -3802,7 +3917,7 @@ class Mutation:
         needs_you: Optional[bool] = None, note: Optional[str] = None,
         due_date: Optional[str] = None, closed: Optional[bool] = None,
     ) -> WorkRequestType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         fields = {"stage": stage, "assignee": assignee, "cost": cost,
                   "needs_you": needs_you, "note": note, "due_date": due_date, "closed": closed}
         sets = {k: v for k, v in fields.items() if v is not None}
@@ -3822,7 +3937,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_work_request(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "DELETE FROM work_requests WHERE id=%s AND owner_user_id=%s RETURNING title",
@@ -3839,7 +3954,7 @@ class Mutation:
         reference: str = "", vendor: str = "", condition: str = "", note: str = "",
     ) -> LandFeatureType:
         """Record something that is physically on the land."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         fid = new_id()
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -3861,7 +3976,7 @@ class Mutation:
         category: Optional[str] = None, vendor: Optional[str] = None,
         condition: Optional[str] = None,
     ) -> LandFeatureType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         fields = {"label": label, "value": value, "unit": unit,
                   "reference": reference, "note": note, "category": category,
                   "vendor": vendor, "condition": condition}
@@ -3882,7 +3997,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_land_feature(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "DELETE FROM land_features WHERE id=%s AND owner_user_id=%s RETURNING entity_id, label",
@@ -3894,7 +4009,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_note(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute("DELETE FROM notes WHERE id=%s AND owner_user_id=%s", (id, uid))
             return cur.rowcount > 0
@@ -3902,7 +4017,7 @@ class Mutation:
     @strawberry.mutation
     async def set_passbook_photo(self, info: strawberry.Info, id: str, photo: str) -> bool:
         """Set (or clear) the passbook's profile photo — a client-cropped data-URL."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute("UPDATE passbooks SET photo=%s WHERE id=%s AND owner_user_id=%s", (photo, id, uid))
             return cur.rowcount > 0
@@ -3915,7 +4030,7 @@ class Mutation:
         share_pct: float = 0.0, photo: str = "",
     ) -> FamilyMemberType:
         """Add a relative to the caller's family. Family default to beneficiaries."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         fid = new_id()
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -3990,7 +4105,7 @@ class Mutation:
 
     @strawberry.mutation
     async def set_family_member_photo(self, info: strawberry.Info, id: str, photo: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute("UPDATE family_members SET photo=%s WHERE id=%s AND owner_user_id=%s", (photo, id, uid))
             return cur.rowcount > 0
@@ -3999,31 +4114,35 @@ class Mutation:
     async def invite_family_member(self, info: strawberry.Info, id: str, role: str = "view") -> FamilyMemberType:
         """Invite a family member to create their account. Records the invitation
         and flags the member as invited."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            mcur = await conn.execute("SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
-            member = await mcur.fetchone()
-            if not member:
-                raise NotAuthorized("Not authorized for this family member")
-            invitee = ((member.get("email") or "").strip() or (member.get("phone") or "").strip())
-            if not invitee:
-                raise ValueError("Add a phone or email for this family member before inviting")
-            iid = new_id()
-            token = str(uuid.uuid4())
-            await conn.execute(
-                "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-                "VALUES (%s, 'family', %s, %s, %s, %s, %s, 'pending', %s)",
-                (iid, id, role, invitee, token, _invitation_expiry(), datetime.utcnow().isoformat()),
-            )
-            cur = await conn.execute(
-                "UPDATE family_members SET invite_status='invited', status='pending', invite_token=%s, invite_channel=%s WHERE id=%s AND owner_user_id=%s RETURNING *", (token, "email" if "@" in invitee else "phone", id, uid))
-            await log_audit(conn, uid, "invite_family_member", id, f"To {invitee}")
-            return to_type(FamilyMemberType, await cur.fetchone())
+            # The invitation row and the member's copy of the token are the
+            # same credential.
+            async with conn.transaction():
+                mcur = await conn.execute("SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
+                member = await mcur.fetchone()
+                if not member:
+                    raise NotAuthorized("Not authorized for this family member")
+                invitee = ((member.get("email") or "").strip() or (member.get("phone") or "").strip())
+                if not invitee:
+                    raise ValueError("Add a phone or email for this family member before inviting")
+                iid = new_id()
+                token = str(uuid.uuid4())
+                await conn.execute(
+                    "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
+                    "VALUES (%s, 'family', %s, %s, %s, %s, %s, 'pending', %s)",
+                    (iid, id, role, invitee, _capability_hash(token),
+                     _invitation_expiry(), datetime.utcnow().isoformat()),
+                )
+                cur = await conn.execute(
+                    "UPDATE family_members SET invite_status='invited', status='pending', invite_token=%s, invite_channel=%s WHERE id=%s AND owner_user_id=%s RETURNING *", (_capability_hash(token), "email" if "@" in invitee else "phone", id, uid))
+                await log_audit(conn, uid, "invite_family_member", id, f"To {invitee}")
+                return to_type(FamilyMemberType, await cur.fetchone())
 
     # ---- Groups (typed land-holding entities) ------------------------------
     @strawberry.mutation
     async def create_group(self, info: strawberry.Info, type: str, name: str, description: str = "") -> GroupType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         gtype = type if type in GROUP_TYPES else "family"
         async with pool.connection() as conn:
             gid = new_id(); now = datetime.utcnow().isoformat()
@@ -4038,7 +4157,7 @@ class Mutation:
 
     @strawberry.mutation
     async def update_group(self, info: strawberry.Info, id: str, name: str, description: str = "") -> GroupType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "UPDATE groups SET name=%s, description=%s, updated_at=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
@@ -4078,7 +4197,7 @@ class Mutation:
     @strawberry.mutation
     async def assign_land_to_group(self, info: strawberry.Info, passbook_id: str, group_id: str) -> bool:
         """Assign a passbook (and its parcels) to a group, or to '' for personal."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             if group_id:
                 g = await (await conn.execute("SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
@@ -4094,7 +4213,7 @@ class Mutation:
     @strawberry.mutation
     async def assign_property_to_group(self, info: strawberry.Info, property_id: str, group_id: str) -> bool:
         """Assign a property to a group, or to '' for personal."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             if group_id:
                 g = await (await conn.execute("SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
@@ -4115,25 +4234,26 @@ class Mutation:
         account uses two web heads, and a star that exists on one phone only
         is a worse answer than no star at all.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute(
-                "DELETE FROM favourites WHERE owner_user_id=%s AND entity_type=%s AND entity_id=%s RETURNING id",
-                (uid, entity_type, entity_id))
-            if await cur.fetchone():
-                await log_audit(conn, uid, "unfavourite", entity_id, entity_type)
-                return False
-            await conn.execute(
-                "INSERT INTO favourites (id, owner_user_id, entity_type, entity_id, created_at) "
-                "VALUES (%s,%s,%s,%s,%s)",
-                (new_id(), uid, entity_type, entity_id, datetime.utcnow().isoformat()))
-            await log_audit(conn, uid, "favourite", entity_id, entity_type)
-            return True
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "DELETE FROM favourites WHERE owner_user_id=%s AND entity_type=%s AND entity_id=%s RETURNING id",
+                    (uid, entity_type, entity_id))
+                if await cur.fetchone():
+                    await log_audit(conn, uid, "unfavourite", entity_id, entity_type)
+                    return False
+                await conn.execute(
+                    "INSERT INTO favourites (id, owner_user_id, entity_type, entity_id, created_at) "
+                    "VALUES (%s,%s,%s,%s,%s)",
+                    (new_id(), uid, entity_type, entity_id, datetime.utcnow().isoformat()))
+                await log_audit(conn, uid, "favourite", entity_id, entity_type)
+                return True
 
     @strawberry.mutation
     async def set_stake(self, info: strawberry.Info, kind: str, id: str, stake: str) -> bool:
         """Record the account holder's stake in a holding: owned | managed | watch."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         if stake not in ("owned", "managed", "watch"):
             raise ValueError("stake must be owned, managed or watch")
         async with pool.connection() as conn:
@@ -4180,13 +4300,22 @@ class Mutation:
 
     @strawberry.mutation
     async def update_member(
-        self, info: strawberry.Info, id: str, name: str, relation: str = "other", role: str = "",
-        gender: str = "", dob: str = "", phone: str = "", email: str = "", bio: str = "", photo: str = "",
-        father_id: str = "", mother_id: str = "", spouse_id: str = "", is_beneficiary: bool = False,
-        share_pct: float = 0.0, kind: str = "", parcel_id: str = "", present_address: str = "", aadhaar: str = "",
-        aadhaar_candidate_id: str = "", guardian_name: str = "", guardian_contact: str = "", marital_status: str = "",
-        spouse_name: str = "", spouse_contact: str = "", spouse_status: str = "",
+        self, info: strawberry.Info, id: str, name: Optional[str] = None,
+        relation: Optional[str] = None, role: Optional[str] = None,
+        gender: Optional[str] = None, dob: Optional[str] = None, phone: Optional[str] = None,
+        email: Optional[str] = None, bio: Optional[str] = None, photo: Optional[str] = None,
+        father_id: Optional[str] = None, mother_id: Optional[str] = None,
+        spouse_id: Optional[str] = None, is_beneficiary: Optional[bool] = None,
+        share_pct: Optional[float] = None, kind: Optional[str] = None,
+        parcel_id: Optional[str] = None, present_address: Optional[str] = None,
+        aadhaar: Optional[str] = None, aadhaar_candidate_id: Optional[str] = None,
+        guardian_name: Optional[str] = None, guardian_contact: Optional[str] = None,
+        marital_status: Optional[str] = None, spouse_name: Optional[str] = None,
+        spouse_contact: Optional[str] = None, spouse_status: Optional[str] = None,
     ) -> PersonType:
+        """Correct a person's details. Every argument is optional and only the
+        ones supplied are written, the way update_passbook and update_parcel
+        already work — a client that edits one field cannot blank the rest."""
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
             async with conn.transaction():
@@ -4232,7 +4361,7 @@ class Mutation:
 
     @strawberry.mutation
     async def set_member_photo(self, info: strawberry.Info, id: str, photo: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute("UPDATE family_members SET photo=%s WHERE id=%s AND owner_user_id=%s", (photo, id, uid))
             return cur.rowcount > 0
@@ -4243,7 +4372,7 @@ class Mutation:
         (email or WhatsApp/SMS — stub-logged until providers are configured), and
         flags the member 'invited'. The channel is remembered so accepting the
         invite marks that channel verified."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             m = await (await conn.execute("SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not m:
@@ -4261,7 +4390,8 @@ class Mutation:
             await conn.execute(
                 "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
                 "VALUES (%s, 'family', %s, %s, %s, %s, %s, 'pending', %s)",
-                (new_id(), id, role, invitee, token, _invitation_expiry(), datetime.utcnow().isoformat()))
+                (new_id(), id, role, invitee, _capability_hash(token),
+                 _invitation_expiry(), datetime.utcnow().isoformat()))
             name = (m.get("name") or "there").strip() or "there"
             subject = "Please confirm your family/heir details — Pattadar"
             body = (f"Hi {name}, you've been listed as a beneficiary/heir on Pattadar land records. "
@@ -4269,9 +4399,11 @@ class Mutation:
             send = await notify.notify_contact(conn, invitee, subject, body, owner=uid)
             cur = await conn.execute(
                 "UPDATE family_members SET invite_status='invited', status='pending', invite_token=%s, invite_channel=%s "
-                "WHERE id=%s AND owner_user_id=%s RETURNING *", (token, channel, id, uid))
+                "WHERE id=%s AND owner_user_id=%s RETURNING *", (_capability_hash(token), channel, id, uid))
             await log_audit(conn, uid, "invite_member", id, f"Invited {invitee} via {send.get('channel', channel)}")
-            return to_type(PersonType, await cur.fetchone())
+            row = await cur.fetchone()
+            row["invite_token"] = token
+            return to_type(PersonType, row)
 
     @strawberry.mutation
     async def set_notifiers(self, info: strawberry.Info, group_id: str, member_ids: List[str]) -> List[NotifierType]:
@@ -4333,7 +4465,7 @@ class Mutation:
         """Send a test message to `to` (email or phone) via the notify seam — use it
         to validate a newly configured provider. Records to notification_log like any
         real send; returns the provider/channel result as JSON."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         to = (to or "").strip()
         if not to:
             raise ValueError("Enter an email or phone number to send the test to")
@@ -4346,7 +4478,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_notification(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute("DELETE FROM notification_log WHERE id=%s AND owner_user_id=%s", (id, uid))
             deleted = cur.rowcount > 0
@@ -4358,7 +4490,7 @@ class Mutation:
     async def run_inactivity_check(self, info: strawberry.Info) -> str:
         """Run the inactivity dead-man's-switch once for the caller's own groups
         (manual trigger — the daily CronJob runs it for everyone). Returns a summary."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             summary = await _run_inactivity_check(conn, datetime.utcnow(), only_owner=uid)
         return json.dumps(summary)
@@ -4479,7 +4611,7 @@ class Mutation:
     @strawberry.mutation
     async def set_member_share(self, info: strawberry.Info, id: str, share_pct: float) -> PersonType:
         """Set a member's share % (heir), enforcing the group/parcel ≤100% guard."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             m = await (await conn.execute(
                 "SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
@@ -4503,7 +4635,7 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_beneficiary(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
                 "DELETE FROM beneficiaries WHERE id=%s AND (owner_user_id=%s OR parcel_id IN "
@@ -4525,7 +4657,7 @@ class Mutation:
         invitee_contact: str,
         expiry: str,
     ) -> InvitationType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         iid = new_id()
         token = str(uuid.uuid4())
         async with pool.connection() as conn:
@@ -4581,7 +4713,7 @@ class Mutation:
     async def create_registered_document(self, info: strawberry.Info, file_ref: str, payload: str) -> RegisteredDocumentType:
         """Create a registered document from the extracted (possibly edited) JSON
         payload; its `parties` become document_parties rows."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         did = new_id()
         now = datetime.utcnow().isoformat()
         try:
@@ -4643,43 +4775,46 @@ class Mutation:
     async def create_parcel_from_document(self, info: strawberry.Info, document_id: str, passbook_id: str) -> ParcelType:
         """Create a parcel from a registered document's property, under a passbook
         the caller owns, tagged with source = the document."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         now = datetime.utcnow()
         async with pool.connection() as conn:
-            dcur = await conn.execute("SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s", (document_id, uid))
-            doc = await dcur.fetchone()
-            if not doc:
-                raise NotAuthorized("Not authorized for this document")
-            await _assert_owns_passbook(conn, uid, passbook_id)
-            pid = new_id()
-            extent_sqyd = _area_sq_yd(doc["extent"])
-            # Registered-deed extents are recorded in sq. yards. Store canonical
-            # acres (1 acre = 4840 sq.yd) so the Extent sort and SUM(extent)
-            # rollups stay in one unit; `unit` keeps 'sqyd' as provenance.
-            extent = round(extent_sqyd / 4840.0, 6)
-            cl = (doc["classification"] or "").lower()
-            cls = "non-agri" if ("house" in cl or "commerc" in cl or "site" in cl) else "agri"
-            cur = await conn.execute(
-                "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent, unit, classification, acquisition_source, geo_point, parent_parcel_id, source, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (pid, passbook_id, str(doc["survey_no"] or ""), str(doc["plot_no"] or ""), extent, "sqyd", cls, "sale", "", "", f"document:{document_id}", now.isoformat()),
-            )
-            row = await cur.fetchone()
-            pbcur = await conn.execute("SELECT owner_name FROM passbooks WHERE id=%s", (passbook_id,))
-            pbrow = await pbcur.fetchone()
-            owner = (pbrow["owner_name"] if pbrow else "") or ""
-            await conn.execute(
-                "INSERT INTO parcel_owners (id, parcel_id, owner_name, acquisition_source, extent, mutation_type, mutation_date, is_current, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (new_id(), pid, owner, "sale", extent, "acquisition", now.date().isoformat(), True, now.isoformat()),
-            )
-            await conn.execute("UPDATE registered_documents SET parcel_id=%s, passbook_id=%s WHERE id=%s", (pid, passbook_id, document_id))
-            await log_audit(conn, uid, "parcel_from_document", pid, document_id)
-            return to_type(ParcelType, row)
+            # The parcel, its ownership seed and the deed's pointer back at it
+            # are one act.
+            async with conn.transaction():
+                dcur = await conn.execute("SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s", (document_id, uid))
+                doc = await dcur.fetchone()
+                if not doc:
+                    raise NotAuthorized("Not authorized for this document")
+                await _assert_owns_passbook(conn, uid, passbook_id)
+                pid = new_id()
+                extent_sqyd = _area_sq_yd(doc["extent"])
+                # Registered-deed extents are recorded in sq. yards. Store canonical
+                # acres (1 acre = 4840 sq.yd) so the Extent sort and SUM(extent)
+                # rollups stay in one unit; `unit` keeps 'sqyd' as provenance.
+                extent = round(extent_sqyd / 4840.0, 6)
+                cl = (doc["classification"] or "").lower()
+                cls = "non-agri" if ("house" in cl or "commerc" in cl or "site" in cl) else "agri"
+                cur = await conn.execute(
+                    "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent, unit, classification, acquisition_source, geo_point, parent_parcel_id, source, created_at) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                    (pid, passbook_id, str(doc["survey_no"] or ""), str(doc["plot_no"] or ""), extent, "sqyd", cls, "sale", "", "", f"document:{document_id}", now.isoformat()),
+                )
+                row = await cur.fetchone()
+                pbcur = await conn.execute("SELECT owner_name FROM passbooks WHERE id=%s", (passbook_id,))
+                pbrow = await pbcur.fetchone()
+                owner = (pbrow["owner_name"] if pbrow else "") or ""
+                await conn.execute(
+                    "INSERT INTO parcel_owners (id, parcel_id, owner_name, acquisition_source, extent, mutation_type, mutation_date, is_current, created_at) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (new_id(), pid, owner, "sale", extent, "acquisition", now.date().isoformat(), True, now.isoformat()),
+                )
+                await conn.execute("UPDATE registered_documents SET parcel_id=%s, passbook_id=%s WHERE id=%s", (pid, passbook_id, document_id))
+                await log_audit(conn, uid, "parcel_from_document", pid, document_id)
+                return to_type(ParcelType, row)
 
     @strawberry.mutation
     async def link_document_passbook(self, info: strawberry.Info, document_id: str, passbook_id: str) -> RegisteredDocumentType:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             await _assert_owns_passbook(conn, uid, passbook_id)
             cur = await conn.execute(
@@ -4700,7 +4835,7 @@ class Mutation:
         than on the piece of land it actually covers — so a parcel screen could
         never show the deed it was made from.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             await _assert_owns_parcel(conn, uid, parcel_id)
             row = await (await conn.execute(
@@ -4725,7 +4860,7 @@ class Mutation:
         showed "No documents attached yet" about the very document it was made
         from — and with the deed unlinked, its AI summary was unreachable.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             own = await (await conn.execute(
                 "SELECT label FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
@@ -4754,35 +4889,37 @@ class Mutation:
         property records land area in, so no conversion is needed here (unlike
         the parcel path, which must normalise to acres).
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            doc = await (await conn.execute(
-                "SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s",
-                (document_id, uid))).fetchone()
-            if not doc:
-                raise NotAuthorized("Not authorized for this document")
-            area = _area_sq_yd(doc["extent"])
-            cl = (doc["classification"] or "").lower()
-            kind = "flat" if "flat" in cl or "apartment" in cl else (
-                "house" if "house" in cl or "residen" in cl else (
-                    "commercial" if "commerc" in cl or "shop" in cl else "open_plot"))
-            # A label the owner will recognise in a list: plot and locality, not
-            # a document number.
-            label = _named("", f"Plot {doc['plot_no']}" if doc["plot_no"] else "", doc["village"]) or "Property"
-            pid = new_id()
-            now = datetime.utcnow().isoformat()
-            cur = await conn.execute(
-                "INSERT INTO properties (id, owner_user_id, type, label, address, locality, city, district, "
-                "land_area, land_unit, acquisition_mode, holding_status, purchase_price, purchase_date, "
-                "created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (pid, uid, kind, label, str(doc["village"] or ""), str(doc["village"] or ""),
-                 str(doc["mandal"] or ""), str(doc["district"] or ""), area, "Sq.yd", "purchase", "owned",
-                 float(doc["consideration"] or 0), str(doc["registration_date"] or ""), now))
-            row = await cur.fetchone()
-            # Point the deed at what it created, so the two stay linked.
-            await conn.execute("UPDATE registered_documents SET property_id=%s WHERE id=%s", (pid, document_id))
-            await log_audit(conn, uid, "create_property", pid, _named("", kind, label))
-            return to_type(PropertyType, row)
+            # The property and the deed's pointer back at it are one act.
+            async with conn.transaction():
+                doc = await (await conn.execute(
+                    "SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s",
+                    (document_id, uid))).fetchone()
+                if not doc:
+                    raise NotAuthorized("Not authorized for this document")
+                area = _area_sq_yd(doc["extent"])
+                cl = (doc["classification"] or "").lower()
+                kind = "flat" if "flat" in cl or "apartment" in cl else (
+                    "house" if "house" in cl or "residen" in cl else (
+                        "commercial" if "commerc" in cl or "shop" in cl else "open_plot"))
+                # A label the owner will recognise in a list: plot and locality, not
+                # a document number.
+                label = _named("", f"Plot {doc['plot_no']}" if doc["plot_no"] else "", doc["village"]) or "Property"
+                pid = new_id()
+                now = datetime.utcnow().isoformat()
+                cur = await conn.execute(
+                    "INSERT INTO properties (id, owner_user_id, type, label, address, locality, city, district, "
+                    "land_area, land_unit, acquisition_mode, holding_status, purchase_price, purchase_date, "
+                    "created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                    (pid, uid, kind, label, str(doc["village"] or ""), str(doc["village"] or ""),
+                     str(doc["mandal"] or ""), str(doc["district"] or ""), area, "Sq.yd", "purchase", "owned",
+                     float(doc["consideration"] or 0), str(doc["registration_date"] or ""), now))
+                row = await cur.fetchone()
+                # Point the deed at what it created, so the two stay linked.
+                await conn.execute("UPDATE registered_documents SET property_id=%s WHERE id=%s", (pid, document_id))
+                await log_audit(conn, uid, "create_property", pid, _named("", kind, label))
+                return to_type(PropertyType, row)
 
     @strawberry.mutation
     async def add_parcel_photo(
@@ -4804,7 +4941,7 @@ class Mutation:
         cannot tell a photograph of a field from a photograph of a document, so
         the choice belongs to the person who can — via set_cover_photo.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             owns = await (await conn.execute(
                 "SELECT 1 FROM parcels WHERE id=%s AND passbook_id IN "
@@ -4831,7 +4968,7 @@ class Mutation:
         """Edit a photo's caption or category. Both are optional and only the
         arguments actually supplied are written — passing null must not blank a
         field the caller never mentioned."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         sets, vals = [], []
         if category is not None:
             sets.append("category=%s"); vals.append((category or "general").strip())
@@ -4853,21 +4990,24 @@ class Mutation:
     async def set_cover_photo(self, info: strawberry.Info, id: str) -> bool:
         """Make one photo the parcel's cover. Clearing the old cover first is
         not optional — a partial unique index rejects a second one."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            row = await (await conn.execute(
-                "SELECT parcel_id FROM parcel_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            if not row:
-                raise NotAuthorized("Not authorized for this photo")
-            await conn.execute(
-                "UPDATE parcel_photos SET is_cover=FALSE WHERE parcel_id=%s", (row["parcel_id"],))
-            await conn.execute("UPDATE parcel_photos SET is_cover=TRUE WHERE id=%s", (id,))
-            await log_audit(conn, uid, "set_cover_photo", row["parcel_id"], "")
-            return True
+            # Clear-then-set: stopping in between leaves the parcel with no
+            # cover.
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT parcel_id FROM parcel_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                if not row:
+                    raise NotAuthorized("Not authorized for this photo")
+                await conn.execute(
+                    "UPDATE parcel_photos SET is_cover=FALSE WHERE parcel_id=%s", (row["parcel_id"],))
+                await conn.execute("UPDATE parcel_photos SET is_cover=TRUE WHERE id=%s", (id,))
+                await log_audit(conn, uid, "set_cover_photo", row["parcel_id"], "")
+                return True
 
     @strawberry.mutation
     async def delete_parcel_photo(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             doomed = await (await conn.execute(
                 "SELECT parcel_id, category, caption, is_cover FROM parcel_photos "
@@ -4895,7 +5035,7 @@ class Mutation:
         never-auto-cover rule carries over unchanged; the choice of what
         fronts a property belongs to its owner, via set_property_cover_photo.
         """
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             owns = await (await conn.execute(
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s",
@@ -4921,7 +5061,7 @@ class Mutation:
     ) -> Optional[PropertyPhotoType]:
         """Edit a property photo's caption or category — only the arguments
         actually supplied are written, same contract as update_parcel_photo."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         sets, vals = [], []
         if category is not None:
             sets.append("category=%s"); vals.append((category or "general").strip())
@@ -4943,21 +5083,24 @@ class Mutation:
     async def set_property_cover_photo(self, info: strawberry.Info, id: str) -> bool:
         """Make one photo the property's cover. Clear-then-set, because the
         partial unique index rejects a second cover."""
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            row = await (await conn.execute(
-                "SELECT property_id FROM property_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            if not row:
-                raise NotAuthorized("Not authorized for this photo")
-            await conn.execute(
-                "UPDATE property_photos SET is_cover=FALSE WHERE property_id=%s", (row["property_id"],))
-            await conn.execute("UPDATE property_photos SET is_cover=TRUE WHERE id=%s", (id,))
-            await log_audit(conn, uid, "set_property_cover_photo", row["property_id"], "")
-            return True
+            # Clear-then-set: stopping in between leaves the property with no
+            # cover.
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT property_id FROM property_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                if not row:
+                    raise NotAuthorized("Not authorized for this photo")
+                await conn.execute(
+                    "UPDATE property_photos SET is_cover=FALSE WHERE property_id=%s", (row["property_id"],))
+                await conn.execute("UPDATE property_photos SET is_cover=TRUE WHERE id=%s", (id,))
+                await log_audit(conn, uid, "set_property_cover_photo", row["property_id"], "")
+                return True
 
     @strawberry.mutation
     async def delete_property_photo(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
             doomed = await (await conn.execute(
                 "SELECT property_id, category, caption, is_cover FROM property_photos "
@@ -4973,18 +5116,20 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_registered_document(self, info: strawberry.Info, id: str) -> bool:
-        uid = _uid_from_info(info) or "system"
+        uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            own = await (await conn.execute(
-                "SELECT doc_type, document_no, village, survey_no FROM registered_documents "
-                "WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
-            if not own:
-                return False
-            await conn.execute("DELETE FROM document_parties WHERE document_id=%s", (id,))
-            await conn.execute("DELETE FROM registered_documents WHERE id=%s", (id,))
-            await log_audit(conn, uid, "delete_registered_document", id, _named(
-                "", own["doc_type"], own["document_no"], own["village"], own["survey_no"]))
-            return True
+            # The deed's parties go with the deed.
+            async with conn.transaction():
+                own = await (await conn.execute(
+                    "SELECT doc_type, document_no, village, survey_no FROM registered_documents "
+                    "WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
+                if not own:
+                    return False
+                await conn.execute("DELETE FROM document_parties WHERE document_id=%s", (id,))
+                await conn.execute("DELETE FROM registered_documents WHERE id=%s", (id,))
+                await log_audit(conn, uid, "delete_registered_document", id, _named(
+                    "", own["doc_type"], own["document_no"], own["village"], own["survey_no"]))
+                return True
 
     @strawberry.mutation
     async def create_user(
@@ -5018,22 +5163,23 @@ class Mutation:
         the rule used by every other update here: a form that submits what it
         did not ask about is how fields get silently erased.
         """
-        uid = _uid_from_info(info) or "guest"
+        uid = _uid_from_info(info)
         clean_name = (name or "").strip()
         clean_email = (email or "").strip()
         async with pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO users (id, name, email) VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING",
-                (uid, uid, ""),
-            )
-            cur = await conn.execute(
-                "UPDATE users SET name = COALESCE(NULLIF(%s, ''), name), "
-                "email = COALESCE(NULLIF(%s, ''), email) WHERE id=%s RETURNING *",
-                (clean_name, clean_email, uid),
-            )
-            row = await cur.fetchone()
-            await log_audit(conn, uid, "update_profile", uid, "name or email changed")
-            return to_type(UserType, row)
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO users (id, name, email) VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                    (uid, uid, ""),
+                )
+                cur = await conn.execute(
+                    "UPDATE users SET name = COALESCE(NULLIF(%s, ''), name), "
+                    "email = COALESCE(NULLIF(%s, ''), email) WHERE id=%s RETURNING *",
+                    (clean_name, clean_email, uid),
+                )
+                row = await cur.fetchone()
+                await log_audit(conn, uid, "update_profile", uid, "name or email changed")
+                return to_type(UserType, row)
 
     async def update_profile(
         self,
@@ -5048,32 +5194,33 @@ class Mutation:
         """Update the signed-in user's profile & preferences. The Aadhaar is
         kept as a masked token for display plus ciphertext for retrieval; an
         empty kyc_ref leaves whatever is stored untouched."""
-        uid = _uid_from_info(info) or "guest"
+        uid = _uid_from_info(info)
         masked = _mask_aadhaar(kyc_ref)
         kyc_enc = await encrypt_aadhaar(kyc_ref, uid, "account", uid) if (kyc_ref or "").strip() else ""
         async with pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
-                (uid, uid),
-            )
-            if kyc_enc:
-                cur = await conn.execute(
-                    "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
-                    "kyc_ref_masked=%s, kyc_ref_enc=%s, mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
-                    (language, districts_of_interest, notification_prefs, masked, kyc_enc,
-                     mfa_enabled, address, uid),
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
+                    (uid, uid),
                 )
-            else:
-                # No Aadhaar supplied — leave whatever is stored alone rather
-                # than blanking it (same rule as member updates).
-                cur = await conn.execute(
-                    "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
-                    "mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
-                    (language, districts_of_interest, notification_prefs, mfa_enabled, address, uid),
-                )
-            row = await cur.fetchone()
-            await log_audit(conn, uid, "update_profile", uid, "profile updated")
-            return to_type(UserType, row)
+                if kyc_enc:
+                    cur = await conn.execute(
+                        "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
+                        "kyc_ref_masked=%s, kyc_ref_enc=%s, mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
+                        (language, districts_of_interest, notification_prefs, masked, kyc_enc,
+                         mfa_enabled, address, uid),
+                    )
+                else:
+                    # No Aadhaar supplied — leave whatever is stored alone rather
+                    # than blanking it (same rule as member updates).
+                    cur = await conn.execute(
+                        "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
+                        "mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
+                        (language, districts_of_interest, notification_prefs, mfa_enabled, address, uid),
+                    )
+                row = await cur.fetchone()
+                await log_audit(conn, uid, "update_profile", uid, "profile updated")
+                return to_type(UserType, row)
 
 
 # ── DB Init ───────────────────────────────────────────────────────────
@@ -6112,6 +6259,15 @@ async def init_db() -> None:
                 timestamp TEXT NOT NULL DEFAULT ''
             )
         """)
+        # Every read of this table is one owner's trail, newest first, and the
+        # table grows with every audited mutation platform-wide and is never
+        # pruned — without these the Audit tab is a sequential scan of the whole
+        # platform's history.
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_events_actor "
+            "ON audit_events(actor, timestamp DESC)")
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target)")
 
         # Mutation replay ledger for IdempotencyMiddleware. The composite
         # PRIMARY KEY is the claim primitive: on an autocommit pool an
@@ -6458,6 +6614,12 @@ async def init_db() -> None:
 
 _IDEM_MUTATION_RE = re.compile(r"^\s*mutation\b")
 _IDEM_NAME_RE = re.compile(r"^\s*mutation\s+([_A-Za-z][_0-9A-Za-z]*)")
+# Mutations whose answer must never be memoized. A reveal returns a decrypted
+# Aadhaar; storing that body would park the twelve digits in
+# idempotency_keys.response in plaintext for the whole replay window — outside
+# the KMS-only-at-rest design the reveal exists to uphold. They are safe to
+# re-execute: they write nothing and audit every call.
+_IDEM_NEVER_RE = re.compile(r"\breveal(?:My|Member)Aadhaar\b")
 _IDEM_PENDING_TTL = 300.0        # seconds before a 'pending' claim is presumed dead
 _IDEM_SWEEP_DAYS = 7             # replay window; older rows are swept at boot
 _IDEM_MAX_RESPONSE = 256 * 1024  # bigger bodies complete unreplayable (409 on dupes)
@@ -6491,6 +6653,8 @@ def _idem_classify(body: bytes, headers: dict) -> Optional[tuple]:
     except Exception:
         return None
     if not isinstance(query, str) or not _idem_is_mutation(query):
+        return None
+    if _IDEM_NEVER_RE.search(query):
         return None
     # Same identity the resolvers use (_uid_from_info); "system" scopes keys
     # for callers the gateway sends without a user id.
@@ -6680,9 +6844,15 @@ class IdempotencyMiddleware:
             await self._settle(uid, key, stamp, ok=False, body=b"")
             raise
         out = b"".join(chunks)
-        await self._settle(uid, key, stamp, ok=_idem_success(status, out), body=out)
+        # Anonymous callers all share the "system" scope, so memoizing their
+        # answer would let one caller's response be replayed to a different one
+        # that guessed the key. They still get exactly-once — the claim stands,
+        # a duplicate gets 410 — just never another caller's body.
+        await self._settle(uid, key, stamp, ok=_idem_success(status, out), body=out,
+                           memoize=bool((headers.get("x-user-id") or "").strip()))
 
-    async def _settle(self, uid: str, key: str, stamp: str, ok: bool, body: bytes) -> None:
+    async def _settle(self, uid: str, key: str, stamp: str, ok: bool, body: bytes,
+                      memoize: bool = True) -> None:
         """Completion is best-effort: if it fails the claim stays pending until a
         duplicate expires it, instead of failing the request. Every statement is
         guarded on the stamp this request wrote at claim time — a settle arriving
@@ -6695,9 +6865,9 @@ class IdempotencyMiddleware:
                         "DELETE FROM idempotency_keys "
                         "WHERE owner_user_id=%s AND key=%s AND created_at=%s",
                         (uid, key, stamp))
-                elif len(body) > _IDEM_MAX_RESPONSE:
-                    # Completed for real — never re-execute — but too large to
-                    # memoize; duplicates get an explicit 410 instead.
+                elif len(body) > _IDEM_MAX_RESPONSE or not memoize:
+                    # Completed for real — never re-execute — but not replayable;
+                    # duplicates get an explicit 410 instead.
                     await conn.execute(
                         "UPDATE idempotency_keys SET status='completed', response=NULL "
                         "WHERE owner_user_id=%s AND key=%s AND created_at=%s",
@@ -6754,18 +6924,84 @@ async def _graphql_context(request: Request) -> dict:
     return {"request": request}
 
 
-schema = strawberry.Schema(query=Query, mutation=Mutation, extensions=[RequireAuthenticatedRoot])
+class MaskUnexpectedErrors(MaskErrors):
+    """Only errors this API meant to say reach the client.
+
+    A resolver that raises NotAuthorized or ValueError is speaking to the
+    person — "Not authorized for this parcel", "Lower the share" — and that text
+    is the contract every client already renders. Anything else is an internal
+    fault, and graphql-core's default is to serialize its str() into
+    errors[].message: psycopg connection strings, KMS failure text, JWKS URLs,
+    straight into a browser toast on an Aadhaar-holding system. Those become one
+    generic line plus a reference, with the real exception in the server log.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(should_mask_error=self._unexpected)
+
+    @staticmethod
+    def _unexpected(error) -> bool:
+        original = getattr(error, "original_error", None)
+        # Parse/validation errors carry no original exception and no internals.
+        return original is not None and not isinstance(original, (NotAuthorized, ValueError))
+
+    def anonymise_error(self, error):
+        ref = uuid.uuid4().hex[:12]
+        _log.error("graphql.unexpected_error ref=%s field=%s: %r",
+                   ref, ".".join(str(p) for p in (error.path or [])),
+                   getattr(error, "original_error", None))
+        masked = super().anonymise_error(error)
+        masked.message = f"Something went wrong at our end (ref {ref})"
+        return masked
+
+
+# A GraphQL document is an arbitrary graph walk: ParcelType.owners ->
+# PassbookType.parcels -> ... nests as deep as the caller asks, and each hop is
+# its own query. The limits bound what one request can cost; nothing the four
+# clients send comes close (the deepest shipped document is DASHBOARD_QUERY).
+_MAX_QUERY_DEPTH = 12
+_MAX_QUERY_ALIASES = 30
+_MAX_QUERY_TOKENS = 4000
+
+schema = strawberry.Schema(
+    query=Query, mutation=Mutation,
+    extensions=[
+        RequireAuthenticatedRoot,
+        QueryDepthLimiter(max_depth=_MAX_QUERY_DEPTH),
+        MaxAliasesLimiter(max_alias_count=_MAX_QUERY_ALIASES),
+        MaxTokensLimiter(max_token_count=_MAX_QUERY_TOKENS),
+        MaskUnexpectedErrors(),
+    ],
+)
 graphql_app = GraphQLRouter(schema, path="/graphql", context_getter=_graphql_context)
 app.include_router(graphql_app)
 
 
+_HEALTH_DB_TIMEOUT = 2.0
+
+
 @app.get("/health")
 async def health():
+    """The load balancer's check, and the one dependency this service has.
+
+    A constant 'healthy' kept a task in the target group with a dead pool —
+    stale credentials, an exhausted RDS — answering 500s to real traffic until
+    somebody noticed. One bounded SELECT 1 is the difference between a task
+    that is running and a task that is working.
+    """
+    try:
+        async with asyncio.timeout(_HEALTH_DB_TIMEOUT):
+            async with pool.connection() as conn:
+                await conn.execute("SELECT 1")
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("health.database_unreachable: %r", exc)
+        return JSONResponse(status_code=503,
+                            content={"status": "unhealthy", "dependency": "database"})
     return {"status": "healthy"}
 
 
 @app.get("/internal/audit/health")
-async def audit_health():
+async def audit_health(request: Request):
     """Audit pipeline state for operators and alarms (AU-5).
 
     Under /internal/, which the gateway's generic proxy refuses, so this is
@@ -6774,8 +7010,52 @@ async def audit_health():
     fails verification, when outbox rows are stalling, or when the backlog grows,
     which are the three ways the trail silently stops being trustworthy.
     """
+    if not _internal_proxy_ok(request):
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
     async with pool.connection() as conn:
         return await audit.health(conn)
+
+
+@app.post("/internal/audit/ingest")
+async def audit_ingest(request: Request):
+    """Audit events the gateway produced, onto this service's outbox.
+
+    The gateway is the boundary that actually sees a document's bytes leave and
+    a recipient token being spent, but the ledger and its outbox live here. So
+    it posts the event; this route classifies and enqueues it exactly like a
+    resolver's own log_audit. It answers fast and never fails a download: the
+    caller sends it fire-and-forget, and a non-critical action that cannot be
+    enqueued is already counted and logged inside `audit.record`.
+
+    `resource_type` is accepted for the caller's convenience and ignored — the
+    taxonomy in audit.py decides an action's resource, never the producer.
+    """
+    if not _internal_proxy_ok(request):
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "expected a JSON object"})
+    action = str(body.get("action") or "").strip()
+    if not action:
+        return JSONResponse(status_code=400, content={"error": "action is required"})
+    actor_kind = str(body.get("actor_kind") or "").strip() or audit.ACTOR_SYSTEM
+    metadata = body.get("metadata")
+    async with pool.connection() as conn:
+        await audit.record(
+            conn,
+            action=action,
+            actor_principal=str(body.get("actor_id") or "").strip(),
+            affected_owner=str(body.get("affected_owner") or "").strip(),
+            resource_id=str(body.get("resource_id") or "").strip(),
+            actor_kind=actor_kind,
+            source_service="gateway",
+            request_id=(request.headers.get("x-request-id") or "").strip(),
+            metadata=metadata if isinstance(metadata, dict) else None,
+        )
+    return {"ok": True}
 
 
 @app.post("/cron/inactivity-check")
@@ -6848,13 +7128,28 @@ async def village_map_file(file_name: str):
 
 
 @app.delete("/village-maps/{key}")
-async def village_map_delete(key: str):
+async def village_map_delete(key: str, request: Request):
+    """Remove an uploaded village map.
+
+    A village map is shared reference data: every account sees the same one, so
+    unlike a khata it has no owner predicate to scope the delete. This route had
+    none at all, which made "any account can wipe the cadastre" a single DELETE.
+    The uploader may remove their own; anyone else must be a platform admin.
+    """
+    uid = _uid_from_request(request)
+    if not uid:
+        return JSONResponse(status_code=401, content={"error": "authentication required"})
     async with pool.connection() as conn:
-        cur = await conn.execute(
-            "DELETE FROM village_maps WHERE key=%s RETURNING village", (key,))
-        row = await cur.fetchone()
-    if not row:
-        return JSONResponse(status_code=404, content={"error": "no such village map"})
+        row = await (await conn.execute(
+            "SELECT village, uploaded_by FROM village_maps WHERE key=%s", (key,))).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "no such village map"})
+        if (row["uploaded_by"] or "") != uid and not await web360._is_admin(conn, uid):
+            return JSONResponse(status_code=403, content={
+                "error": "someone else uploaded this village map"})
+        async with conn.transaction():
+            await conn.execute("DELETE FROM village_maps WHERE key=%s", (key,))
+            await log_audit(conn, uid, "delete_village_map", key, row["village"])
     return {"removed": row["village"]}
 
 
@@ -6868,8 +7163,14 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
     called "Burada Palem", the second is 219 numbers floating over nothing.
     Sent together they are grouped by village and matched, exactly as the
     command-line importer does it, and the same village sent twice replaces
-    itself rather than stacking a second copy."""
-    uid = (request.headers.get("x-user-id") or "").strip() or "system"
+    itself rather than stacking a second copy.
+
+    Re-uploading is how a village is corrected, so an upload that lands on a
+    village somebody else uploaded is an overwrite of shared reference data:
+    that one is for the uploader or a platform admin, and it is audited."""
+    uid = _uid_from_request(request)
+    if not uid:
+        return JSONResponse(status_code=401, content={"error": "authentication required"})
 
     sources, skipped, total = [], [], 0
     for up in files:
@@ -6898,6 +7199,7 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
 
     out = []
     async with pool.connection() as conn:
+        admin = await web360._is_admin(conn, uid)
         for key in sorted(groups, key=lambda k: groups[k][0].village):
             group = groups[key]
             built, src, others = village_map.assemble(group)
@@ -6917,25 +7219,35 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
                             "them in a separate label file, so send both together")})
                 continue
 
-            cur = await conn.execute("SELECT village FROM village_maps WHERE key=%s", (key,))
-            replaced = bool(await cur.fetchone())
+            cur = await conn.execute(
+                "SELECT village, uploaded_by FROM village_maps WHERE key=%s", (key,))
+            existing = await cur.fetchone()
+            replaced = bool(existing)
+            if existing and (existing["uploaded_by"] or "") != uid and not admin:
+                skipped.append({"name": src.name,
+                                "why": "someone else uploaded this village map"})
+                continue
             over = village_map.overview_of(collection)
-            await conn.execute(
-                "INSERT INTO village_maps (key, village, file_name, source_name,"
-                " plots, geojson, uploaded_by, created_at, acres, centre_lat,"
-                " centre_lon, outline)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (key) DO UPDATE SET village=EXCLUDED.village,"
-                " file_name=EXCLUDED.file_name, source_name=EXCLUDED.source_name,"
-                " plots=EXCLUDED.plots, geojson=EXCLUDED.geojson,"
-                " uploaded_by=EXCLUDED.uploaded_by, created_at=EXCLUDED.created_at,"
-                " acres=EXCLUDED.acres, centre_lat=EXCLUDED.centre_lat,"
-                " centre_lon=EXCLUDED.centre_lon, outline=EXCLUDED.outline",
-                (key, src.village, village_map.file_name(src.village), src.name,
-                 plots, village_map.dumps(collection), uid,
-                 datetime.now().isoformat(timespec="seconds"),
-                 over["acres"], over["centre"][0], over["centre"][1],
-                 json.dumps(over["outline"], separators=(",", ":"))))
+            async with conn.transaction():
+                await conn.execute(
+                    "INSERT INTO village_maps (key, village, file_name, source_name,"
+                    " plots, geojson, uploaded_by, created_at, acres, centre_lat,"
+                    " centre_lon, outline)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (key) DO UPDATE SET village=EXCLUDED.village,"
+                    " file_name=EXCLUDED.file_name, source_name=EXCLUDED.source_name,"
+                    " plots=EXCLUDED.plots, geojson=EXCLUDED.geojson,"
+                    " uploaded_by=EXCLUDED.uploaded_by, created_at=EXCLUDED.created_at,"
+                    " acres=EXCLUDED.acres, centre_lat=EXCLUDED.centre_lat,"
+                    " centre_lon=EXCLUDED.centre_lon, outline=EXCLUDED.outline",
+                    (key, src.village, village_map.file_name(src.village), src.name,
+                     plots, village_map.dumps(collection), uid,
+                     datetime.now().isoformat(timespec="seconds"),
+                     over["acres"], over["centre"][0], over["centre"][1],
+                     json.dumps(over["outline"], separators=(",", ":"))))
+                await log_audit(conn, uid, "upload_village_map", key,
+                                f"{src.village} · {plots} plots"
+                                + (" · replaced" if replaced else ""))
             out.append({
                 "key": key, "village": src.village, "plots": plots,
                 "file": village_map.file_name(src.village), "from": src.name,

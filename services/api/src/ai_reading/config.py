@@ -11,6 +11,14 @@ from __future__ import annotations
 # reading operation in this module, passbook and registered deed alike.
 IMPORT_MODEL = "claude-sonnet-5"
 
+# The budget for one provider call, and deliberately BELOW the two budgets it
+# sits inside: services/gateway proxies these paths with a 200s timeout and the
+# ALB idle timeout is 200s. Equal budgets mean the outermost hop always wins the
+# race, so a reading that overruns is discarded at the edge after it has already
+# been paid for; the user sees a bare 504 instead of the sentence this service
+# would have sent.
+MODEL_TIMEOUT_SECONDS = 170
+
 # ── Prompt caching ────────────────────────────────────────────────────
 #
 # The system prompt is the one part of an extraction request that is

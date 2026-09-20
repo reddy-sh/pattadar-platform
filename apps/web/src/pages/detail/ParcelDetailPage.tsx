@@ -48,6 +48,7 @@ import {
   unitLabel,
 } from '@pattadar/core';
 import { gql } from '../../api/client';
+import { escapeHtml } from '../../components/escapeHtml';
 import { GeoMap } from '../../components/GeoMapLazy';
 import { fmtLocal } from '../../lib/format';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
@@ -377,14 +378,16 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
 
   const sub = parcel.subdivision ? '/' + parcel.subdivision : '';
   const boundaryLabel = !parcel.geoPoint ? 'Approximate' : parcel.geoPoint.includes('Polygon') ? 'Exact boundary' : 'Point set';
-  // Rich hover-tooltip / click-popup for the map pin (source parity).
+  // Rich hover-tooltip / click-popup for the map pin (source parity). Record
+  // fields can carry markup — a deed reading fills them from the document —
+  // and GeoMap hands this straight to Leaflet's bindPopup.
   const pinInfoHtml =
     `<div style="min-width:190px;line-height:1.55">` +
-    `<div style="font-weight:600;font-size:13px">Survey ${parcel.surveyNo}${sub}</div>` +
-    `<div>${formatArea(Number(parcel.extent))} &middot; ${parcel.classification || '—'}</div>` +
-    `<div>📍 ${addressLine}</div>` +
-    `<div>Owner: ${parcel.currentOwner || '—'}</div>` +
-    `<div>${boundaryLabel}${parcel.geoPoint ? ' &middot; ' + geoLabel(parcel.geoPoint) : ''}</div>` +
+    `<div style="font-weight:600;font-size:13px">Survey ${escapeHtml(parcel.surveyNo + sub)}</div>` +
+    `<div>${escapeHtml(formatArea(Number(parcel.extent)))} &middot; ${escapeHtml(parcel.classification || '—')}</div>` +
+    `<div>📍 ${escapeHtml(addressLine)}</div>` +
+    `<div>Owner: ${escapeHtml(parcel.currentOwner || '—')}</div>` +
+    `<div>${boundaryLabel}${parcel.geoPoint ? ' &middot; ' + escapeHtml(geoLabel(parcel.geoPoint)) : ''}</div>` +
     `</div>`;
 
   return (

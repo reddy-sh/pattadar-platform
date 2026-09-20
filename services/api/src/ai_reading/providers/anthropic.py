@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import json
 import logging
 import os
@@ -20,7 +21,7 @@ import ssl
 
 import httpx
 
-from ..config import IMPORT_MODEL
+from ..config import IMPORT_MODEL, MODEL_TIMEOUT_SECONDS
 from ..usage import cacheable_system, log_usage
 
 _log = logging.getLogger("pattadar")
@@ -88,12 +89,35 @@ def failure_message(exc: Exception, size_bytes: int) -> str:
     return f"AI call failed ({kind}){f': {detail}' if detail else ''}"
 
 
+# Only this adapter can tell a caller whether a reading that was interrupted
+# could already have been charged: everything up to the POST is free to repeat,
+# everything from it onwards may be a generation that is being billed right now.
+# The state is a mutable dict rather than the contextvar's own value so that a
+# call made in a child task (asyncio.wait_for wraps the handler in one, copying
+# the context) is still visible to the caller that started watching.
+_dispatch: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ai_reading_dispatch", default=None)
+
+
+def watch_dispatch() -> dict:
+    """Start recording whether a paid call leaves this task; read it after."""
+    state = {"dispatched": False}
+    _dispatch.set(state)
+    return state
+
+
+def note_dispatch() -> None:
+    state = _dispatch.get()
+    if state is not None:
+        state["dispatched"] = True
+
+
 async def post_with_retry(url: str, *, headers: dict, json_body: dict, timeout: float,
                             max_attempts: int = 4) -> httpx.Response:
     """POST with retry on transient connection/TLS faults (SSLV3_ALERT_BAD_RECORD_MAC,
     reset connections, etc). Builds a FRESH httpx.AsyncClient — a fresh TCP+TLS
     connection — on every attempt instead of retrying over the same connection, so a
     corrupted/half-broken connection is never reused for the retry."""
+    note_dispatch()
     for attempt in range(1, max_attempts + 1):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -187,7 +211,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
         "messages": [{"role": "user", "content": [block, {"type": "text", "text": user_text}]}],
     }
     try:
-        r = await send_messages(payload, api_key=api_key, timeout=200)
+        r = await send_messages(payload, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
     except httpx.TimeoutException:
         _log.warning("AI extract timed out (file=%s, model=%s)", name, IMPORT_MODEL)
         return {"_error": (504, "AI took too long to read this document (timed out). It may be large or multi-page — try again, or use 'enter details manually'.")}
@@ -209,7 +233,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
         retry = dict(payload)
         retry["output_config"] = {"effort": "low"}
         try:
-            r2 = await send_messages(retry, api_key=api_key, timeout=200)
+            r2 = await send_messages(retry, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
             if r2.status_code == 200:
                 body = r2.json()
                 log_usage(body, endpoint=endpoint, name=name, attempt="low-effort-retry")

@@ -17,6 +17,7 @@ from starlette.datastructures import Headers
 
 from src import account
 from src.ai_reading import jobs
+from src.ai_reading.providers import anthropic as provider
 
 
 @asynccontextmanager
@@ -81,7 +82,9 @@ def test_receipts_are_owner_scoped_and_results_survive_worker_state_reset():
 def test_interrupted_paid_read_is_failed_and_never_automatically_reissued():
     async def run():
         async with database():
-            async def read(file): raise asyncio.CancelledError()
+            async def read(file):
+                provider.note_dispatch()  # the document has reached the provider
+                raise asyncio.CancelledError()
             jobs.handlers={'import-passbook':read}
             receipt=await jobs.submit(request(),upload(),'import-passbook')
             with pytest.raises(asyncio.CancelledError): await jobs.run_one()

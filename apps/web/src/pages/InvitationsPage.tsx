@@ -32,6 +32,7 @@ import MailOutlinedIcon from '@mui/icons-material/MailOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import type { Invitation } from '@pattadar/core';
 import { EmptyState } from '../components/EmptyState';
+import { LoadFailed } from '../components/LoadFailed';
 import { PageHeader } from '../components/PageHeader';
 import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
@@ -59,7 +60,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'warning' 
 
 export function InvitationsPage() {
   const queryClient = useQueryClient();
-  const { data: invitations, isSample, isLoading } = useInvitationsList();
+  const { data: invitations, isSample, isLoading, refetch } = useInvitationsList();
   const [toast, setToast] = useState<Toast | null>(null);
   const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: Invitation } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Invitation | null>(null);
@@ -195,7 +196,9 @@ export function InvitationsPage() {
         }
       />
 
-      {invitations.length === 0 ? (
+      {isSample ? (
+        <LoadFailed what="Your invitations" onRetry={refetch} />
+      ) : invitations.length === 0 ? (
         <Card>
           <EmptyState
             icon={<MailOutlinedIcon />}

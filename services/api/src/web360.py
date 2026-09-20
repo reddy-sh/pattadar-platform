@@ -402,6 +402,14 @@ _DDL = [
     "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE properties ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
 
+    # Whose family group holds a record — through the passbook for a parcel,
+    # on the row itself for a built property. Both are main.py's columns and
+    # neither is new, but `_cards` SELECTs them by name on every 360 read, so
+    # they are asserted here rather than assumed: a database that predates the
+    # Families & Groups migration otherwise takes the whole grid down.
+    "ALTER TABLE passbooks ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''",
+
     # Village maps uploaded through the app, as opposed to the ones built at
     # the desk and shipped in apps/web/public/vm. Keyed by the folded village
     # name, so uploading the same village again replaces it rather than
@@ -433,13 +441,20 @@ _DDL = [
 
 
 async def ensure_schema(conn) -> None:
-    """Create/extend the web-360 tables. Idempotent; safe on every boot."""
+    """Create/extend the web-360 tables. Idempotent; safe on every boot.
+
+    A statement that fails takes the boot down with it. Skipping it only moved
+    the failure: a column this module's own queries name went missing and the
+    360 grid died on `pb.group_id` months later, in front of an owner, out of a
+    boot log that was entirely green. Whoever started the process is the one
+    who can fix a schema, so that is who the failure is shown to."""
     for stmt in _DDL:
         try:
             await conn.execute(stmt)
-        except Exception as exc:  # one bad statement must not block the rest
+        except Exception:
             import logging
-            logging.getLogger("pattadar").warning("web360 ddl skipped: %s (%s)", stmt[:60], exc)
+            logging.getLogger("pattadar").exception("web360 ddl failed: %s", stmt[:80])
+            raise
     await _assert_indexes(conn)
 
 
@@ -2959,6 +2974,32 @@ async def _desk_read(conn, uid: str, scope: str, detail: str = "") -> None:
                           metadata={"scope": scope, "detail": detail})
 
 
+async def _desk_audit(conn, uid: str, action: str, target: str,
+                      detail: str = "") -> None:
+    """Record one roster write on the shared trail, as the admin who made it.
+
+    `_audit` is the wrong door for these: it files an event against a RECORD
+    and names the caller as the affected owner, and a roster row belongs to the
+    platform rather than to any landholder. So this passes actor_kind='admin',
+    which keeps a desk write out of every owner's own trail and in the security
+    view beside `desk_read`, where "who changed who could take work" is the
+    question being asked.
+
+    Swallowed and savepointed for the same reason `_audit` is: these callers
+    hold `_ticket_transaction`, and an audit line that cannot be written must
+    not roll back the roster change it describes."""
+    try:
+        try:                              # inside the `src` package
+            from . import main as _main
+        except ImportError:               # imported bare off src/
+            import main as _main          # type: ignore[no-redef]
+        async with conn.transaction():
+            await _main.log_audit(conn, uid, action, target, detail,
+                                  actor_kind=_main.audit.ACTOR_ADMIN)
+    except Exception:                     # noqa: BLE001 — never block the write
+        pass
+
+
 async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "",
                  label: str = "") -> None:
     """Record one change to a record on the shared audit trail.
@@ -2977,24 +3018,99 @@ async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "",
     its whole purpose, and relying on every caller to remember guarantees some
     never will. A caller passes it explicitly only when the lookup cannot work —
     a delete logs AFTER the row is gone, so it must carry the name it read
-    before destroying it."""
+    before destroying it.
+
+    The swallow needs a savepoint to mean what it says. Callers inside
+    `_ticket_transaction` share one database transaction with money rows, and a
+    failed statement aborts that transaction whether or not its exception is
+    caught — so swallowing without one would turn a missing history line into a
+    released payout that never commits. Nesting `conn.transaction()` rolls the
+    audit writes back to the savepoint and leaves the caller's transaction
+    usable; on the autocommit connections everywhere else it is one short
+    transaction around the two inserts, which is what they wanted anyway."""
     try:
         try:                              # inside the `src` package
             from . import main as _main
         except ImportError:               # imported bare off src/
             import main as _main          # type: ignore[no-redef]
-        name = (label or "").strip()
-        if not name and record_id:
-            # One indexed primary-key lookup. Returns '' for an id that is not
-            # a record (a person, a paper), which is harmless: the line simply
-            # carries no label, exactly as it did before.
-            kind = await _record_kind(conn, uid, record_id)
-            if kind:
-                name = await _record_label(conn, kind, record_id)
-        await _main.log_audit(conn, uid, action, record_id, detail,
-                              metadata={"label": name} if name else None)
+        async with conn.transaction():
+            name = (label or "").strip()
+            if not name and record_id:
+                # One indexed primary-key lookup. Returns '' for an id that is
+                # not a record (a person, a paper), which is harmless: the line
+                # simply carries no label, exactly as it did before.
+                kind = await _record_kind(conn, uid, record_id)
+                if kind:
+                    name = await _record_label(conn, kind, record_id)
+            await _main.log_audit(conn, uid, action, record_id, detail,
+                                  metadata={"label": name} if name else None)
     except Exception:                     # noqa: BLE001 — never block the write
         pass
+
+
+async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]:
+    """One record's audited changes, newest first, spined on the hash chain.
+
+    WHICH events exist is decided by `audit_events_v2` — append-only, chained
+    and guarded by a trigger — plus whatever is still sitting in `audit_outbox`,
+    because an event is on the trail the moment the business change commits and
+    not when the chain worker gets to it. The legacy `audit_events` table is
+    read only for the WORDS: the free-text line and, for a correction, the
+    before/after values, which the envelope deliberately never carries so the
+    central trail stays clear of names, places and prices.
+
+    That is the whole point of the split. The legacy table can be UPDATEd and
+    DELETEd by the app role, and it used to be the list itself, so a row removed
+    there removed a change from the owner's history with nothing to show for it.
+    Now a missing legacy row costs a line its description and no more — visible,
+    where it used to be silent.
+
+    The two stores are written one row each per `log_audit` call, in order, so
+    they are paired by position within a slot: the action, plus the corrected
+    field label when there is one, so two edits to two fields in the same save
+    cannot swap their old values."""
+    scope = ("affected_owner=%s AND resource_id=%s AND action "
+             + ("= %s" if action else "NOT LIKE '%%_read'"))
+    args = [uid, record_id] + ([action] if action else [])
+    cols = "event_id, action, occurred_at, actor_principal, metadata"
+    cur = await conn.execute(
+        f"SELECT {cols} FROM audit_events_v2 WHERE {scope}"
+        f" UNION ALL SELECT {cols} FROM audit_outbox WHERE state='pending' AND {scope}"
+        " ORDER BY occurred_at DESC, event_id DESC LIMIT 200", tuple(args + args))
+    spine = await cur.fetchall()
+
+    said: dict = {}
+    cur = await conn.execute(
+        "SELECT action, details FROM audit_events WHERE actor=%s AND target=%s AND action "
+        + ("= %s" if action else "NOT LIKE '%%_read'")
+        + " ORDER BY timestamp DESC, id DESC LIMIT 200", tuple(args))
+    for r in await cur.fetchall():
+        try:
+            parsed = json.loads(r.get("details") or "")
+        except ValueError:
+            parsed = None
+        values = parsed if isinstance(parsed, dict) else {}
+        said.setdefault((r["action"], str(values.get("field") or "")), []).append(
+            (str(r.get("details") or ""), values))
+
+    out: List[dict] = []
+    taken: dict = {}
+    for r in spine:
+        meta = r.get("metadata") or {}
+        slot = (r["action"], str(meta.get("field") or ""))
+        nth = taken.get(slot, 0)
+        taken[slot] = nth + 1
+        lines = said.get(slot, [])
+        detail, values = lines[nth] if nth < len(lines) else ("", {})
+        at = r["occurred_at"]
+        out.append({
+            "id": r["event_id"], "action": r["action"],
+            "at": at.isoformat() if hasattr(at, "isoformat") else str(at),
+            "by": r["actor_principal"], "detail": detail,
+            "field": str(meta.get("field") or values.get("field") or ""),
+            "was": str(values.get("from") or ""), "now": str(values.get("to") or ""),
+        })
+    return out
 
 
 # ── Reading the roster ────────────────────────────────────────────────
@@ -4207,26 +4323,15 @@ class WebQuery:
         Anything here can be corrected — a survey number typed wrong, a village
         always spelled another way. What stops that being dangerous is not a
         lock on the field but this: the old value is kept, with who changed it
-        and when, and nothing is ever removed from the list."""
+        and when, and nothing is ever removed from the list. Which is a promise
+        only the hash-chained store can keep, so that is what `_trail` counts."""
         uid = _uid(info)
         async with _pool.connection() as conn:
             if not await _record_kind(conn, uid, record_id):
                 return []
-            cur = await conn.execute(
-                "SELECT * FROM audit_events WHERE actor=%s AND target=%s"
-                " AND action='record.corrected' ORDER BY timestamp DESC LIMIT 200",
-                (uid, record_id))
-            out: List[Correction] = []
-            for r in await cur.fetchall():
-                try:
-                    d = json.loads(r.get("details") or "{}")
-                except ValueError:
-                    d = {}
-                out.append(Correction(
-                    id=r["id"], field=str(d.get("field") or ""),
-                    was=str(d.get("from") or ""), now=str(d.get("to") or ""),
-                    at=r.get("timestamp") or "", by=r.get("actor") or ""))
-            return out
+            return [Correction(id=e["id"], field=e["field"], was=e["was"],
+                               now=e["now"], at=e["at"], by=e["by"])
+                    for e in await _trail(conn, uid, record_id, "record.corrected")]
 
     @strawberry.field
     async def record_history(self, info: strawberry.Info, record_id: str) -> List[HistoryEvent]:
@@ -4237,22 +4342,16 @@ class WebQuery:
         recorded, a paper filed, a pin moved, a photo added or removed. Reads
         are excluded so the log is a record of CHANGES, not of viewing. Scoped
         to the caller's own record; `_record_kind` returns '' for anything not
-        theirs, so nothing another owner did can appear here."""
+        theirs, so nothing another owner did can appear here. "Nothing on this
+        list can be edited or removed" is what the screen says, so the list
+        comes from the store where that is enforced — see `_trail`."""
         uid = _uid(info)
         async with _pool.connection() as conn:
             if not await _record_kind(conn, uid, record_id):
                 return []
-            cur = await conn.execute(
-                "SELECT * FROM audit_events WHERE actor=%s AND target=%s"
-                " AND action NOT LIKE '%%_read' ORDER BY timestamp DESC LIMIT 200",
-                (uid, record_id))
-            out: List[HistoryEvent] = []
-            for r in await cur.fetchall():
-                out.append(HistoryEvent(
-                    id=r["id"], action=r.get("action") or "",
-                    detail=str(r.get("details") or ""),
-                    at=r.get("timestamp") or "", by=r.get("actor") or ""))
-            return out
+            return [HistoryEvent(id=e["id"], action=e["action"], detail=e["detail"],
+                                 at=e["at"], by=e["by"])
+                    for e in await _trail(conn, uid, record_id)]
 
     @strawberry.field
     async def assignable(self, info: strawberry.Info) -> List[str]:
@@ -5919,85 +6018,98 @@ class WebMutation:
                 kind = await _record_kind(conn, uid, rid)
                 if not kind:
                     continue
-                # Read the name while the row still exists — after the DELETE
-                # below the trail is the only place it survives.
-                label = await _record_label(conn, kind, rid)
-                # A paper reaches a record by whichever key filed it: the web
-                # 360 writes record_id, while the mobile upload path and the
-                # vault backfill write parcel_id / property_id and leave
-                # record_id empty. Matching only record_id orphaned every
-                # paper a built property had ever been sent.
-                own_key = "parcel_id" if kind == "parcel" else "property_id"
-                cur = await conn.execute(
-                    f"SELECT id, reading_id FROM documents WHERE owner_user_id=%s"
-                    f" AND (record_id=%s OR {own_key}=%s)", (uid, rid, rid))
-                docs = await cur.fetchall()
-                doc_ids = [r["id"] for r in docs]
-                # The reading behind a paper must go too. init_db's vault
-                # backfill re-creates a document row for every reading that
-                # has none, so a deleted deed came back at the next restart.
-                reading_ids = [r["reading_id"] for r in docs if r.get("reading_id")]
-                if reading_ids:
+                # One record, one transaction. Twenty autocommitted DELETEs
+                # have twenty places to stop, and stopping in the middle of
+                # them leaves a record whose papers are gone and whose row is
+                # still on the grid — a state no screen can describe and no
+                # retry can clean up. Either the record and everything under it
+                # goes, or nothing does. A second id in the same call is its
+                # own transaction, so one failure does not undo a delete that
+                # already worked.
+                async with conn.transaction():
+                    # Read the name while the row still exists — after the
+                    # DELETE below the trail is the only place it survives.
+                    label = await _record_label(conn, kind, rid)
+                    # A paper reaches a record by whichever key filed it: the
+                    # web 360 writes record_id, while the mobile upload path and
+                    # the vault backfill write parcel_id / property_id and leave
+                    # record_id empty. Matching only record_id orphaned every
+                    # paper a built property had ever been sent.
+                    own_key = "parcel_id" if kind == "parcel" else "property_id"
+                    cur = await conn.execute(
+                        f"SELECT id, reading_id FROM documents WHERE owner_user_id=%s"
+                        f" AND (record_id=%s OR {own_key}=%s)", (uid, rid, rid))
+                    docs = await cur.fetchall()
+                    doc_ids = [r["id"] for r in docs]
+                    # The reading behind a paper must go too. init_db's vault
+                    # backfill re-creates a document row for every reading that
+                    # has none, so a deleted deed came back at the next restart.
+                    reading_ids = [r["reading_id"] for r in docs if r.get("reading_id")]
+                    if reading_ids:
+                        await conn.execute(
+                            "DELETE FROM registered_documents WHERE owner_user_id=%s"
+                            " AND id = ANY(%s)", (uid, reading_ids))
                     await conn.execute(
-                        "DELETE FROM registered_documents WHERE owner_user_id=%s"
-                        " AND id = ANY(%s)", (uid, reading_ids))
-                await conn.execute(
-                    f"DELETE FROM registered_documents WHERE owner_user_id=%s"
-                    f" AND {own_key}=%s", (uid, rid))
-                if doc_ids:
+                        f"DELETE FROM registered_documents WHERE owner_user_id=%s"
+                        f" AND {own_key}=%s", (uid, rid))
+                    if doc_ids:
+                        await conn.execute(
+                            "DELETE FROM share_links WHERE document_id = ANY(%s)", (doc_ids,))
+                        await conn.execute(
+                            "DELETE FROM document_versions WHERE document_id = ANY(%s)", (doc_ids,))
+                        await conn.execute(
+                            "DELETE FROM record_tags WHERE entity_id = ANY(%s)", (doc_ids,))
+                        await conn.execute(
+                            "DELETE FROM documents WHERE id = ANY(%s)", (doc_ids,))
+                    ptable, pkey = _photo_table(kind), _photo_key(kind)
+                    cur = await conn.execute(f"SELECT id FROM {ptable} WHERE {pkey}=%s", (rid,))
+                    photo_ids = [r["id"] for r in await cur.fetchall()]
+                    if photo_ids:
+                        await conn.execute(
+                            "DELETE FROM record_tags WHERE entity_id = ANY(%s)", (photo_ids,))
+                        await conn.execute(f"DELETE FROM {ptable} WHERE {pkey}=%s", (rid,))
+                    # A ticket's children key off the ticket, not off the
+                    # record, so the sweep below cannot reach them.
+                    cur = await conn.execute(
+                        "SELECT id FROM work_requests WHERE entity_id=%s AND owner_user_id=%s",
+                        (rid, uid))
+                    wr = [r["id"] for r in await cur.fetchall()]
+                    if wr:
+                        for t in ("ticket_deliverables", "ticket_dispatches"):
+                            await conn.execute(f"DELETE FROM {t} WHERE ticket_id = ANY(%s)", (wr,))
+                        # Neither the ledger NOR the ticket's own trail is
+                        # deleted. Money that moved is a fact about the account,
+                        # not about the record, and deleting a record must not
+                        # destroy the record of 2,900 rupees leaving it — and
+                        # `ticket_events` is where every one of those rupees is
+                        # explained, so sweeping it away left the surviving
+                        # ledger rows with nothing to say who was paid or why.
+                        await conn.execute(
+                            "UPDATE service_payments SET note = CASE WHEN note='' THEN"
+                            " 'record deleted' ELSE note END WHERE ticket_id = ANY(%s)"
+                            " AND owner_user_id=%s", (wr, uid))
+                    for table, col in (
+                        ("record_tags", "entity_id"), ("boundary_marks", "record_id"),
+                        ("record_people", "record_id"), ("people_payments", "record_id"),
+                        ("purchase_lots", "record_id"), ("capital_costs", "record_id"),
+                        ("waiting_items", "record_id"), ("land_features", "entity_id"),
+                        ("land_expenses", "entity_id"), ("notes", "entity_id"),
+                        ("work_requests", "entity_id"),
+                    ):
+                        await conn.execute(f"DELETE FROM {table} WHERE {col}=%s", (rid,))
+                    if has_stamp:
+                        await conn.execute("DELETE FROM demo_stamp WHERE record_id=%s", (rid,))
                     await conn.execute(
-                        "DELETE FROM share_links WHERE document_id = ANY(%s)", (doc_ids,))
-                    await conn.execute(
-                        "DELETE FROM document_versions WHERE document_id = ANY(%s)", (doc_ids,))
-                    await conn.execute(
-                        "DELETE FROM record_tags WHERE entity_id = ANY(%s)", (doc_ids,))
-                    await conn.execute(
-                        "DELETE FROM documents WHERE id = ANY(%s)", (doc_ids,))
-                ptable, pkey = _photo_table(kind), _photo_key(kind)
-                cur = await conn.execute(f"SELECT id FROM {ptable} WHERE {pkey}=%s", (rid,))
-                photo_ids = [r["id"] for r in await cur.fetchall()]
-                if photo_ids:
-                    await conn.execute(
-                        "DELETE FROM record_tags WHERE entity_id = ANY(%s)", (photo_ids,))
-                    await conn.execute(f"DELETE FROM {ptable} WHERE {pkey}=%s", (rid,))
-                # A ticket's children key off the ticket, not off the record,
-                # so the sweep below cannot reach them.
-                cur = await conn.execute(
-                    "SELECT id FROM work_requests WHERE entity_id=%s AND owner_user_id=%s",
-                    (rid, uid))
-                wr = [r["id"] for r in await cur.fetchall()]
-                if wr:
-                    for t in ("ticket_events", "ticket_deliverables", "ticket_dispatches"):
-                        await conn.execute(f"DELETE FROM {t} WHERE ticket_id = ANY(%s)", (wr,))
-                    # The ledger is NOT deleted. Money that moved is a fact
-                    # about the account, not about the record, and deleting a
-                    # record must not destroy the record of 2,900 rupees
-                    # leaving it.
-                    await conn.execute(
-                        "UPDATE service_payments SET note = CASE WHEN note='' THEN"
-                        " 'record deleted' ELSE note END WHERE ticket_id = ANY(%s)"
-                        " AND owner_user_id=%s", (wr, uid))
-                for table, col in (
-                    ("record_tags", "entity_id"), ("boundary_marks", "record_id"),
-                    ("record_people", "record_id"), ("people_payments", "record_id"),
-                    ("purchase_lots", "record_id"), ("capital_costs", "record_id"),
-                    ("waiting_items", "record_id"), ("land_features", "entity_id"),
-                    ("land_expenses", "entity_id"), ("notes", "entity_id"),
-                    ("work_requests", "entity_id"),
-                ):
-                    await conn.execute(f"DELETE FROM {table} WHERE {col}=%s", (rid,))
-                if has_stamp:
-                    await conn.execute("DELETE FROM demo_stamp WHERE record_id=%s", (rid,))
-                await conn.execute(
-                    f"DELETE FROM {'parcels' if kind == 'parcel' else 'properties'}"
-                    " WHERE id=%s", (rid,))
-                # Logged AFTER the row is actually gone, so a delete that failed
-                # never leaves a line claiming it happened. The event outlives
-                # the record on purpose: the trail is append-only, and "what
-                # became of that parcel" is exactly the question it answers.
-                await _audit(conn, uid, f"delete_{kind}", rid,
-                             f"Removed {label}" if label else "Removed a record",
-                             label=label)
+                        f"DELETE FROM {'parcels' if kind == 'parcel' else 'properties'}"
+                        " WHERE id=%s", (rid,))
+                    # Logged AFTER the row is actually gone, so a delete that
+                    # failed never leaves a line claiming it happened. The event
+                    # outlives the record on purpose: the trail is append-only,
+                    # and "what became of that parcel" is exactly the question
+                    # it answers.
+                    await _audit(conn, uid, f"delete_{kind}", rid,
+                                 f"Removed {label}" if label else "Removed a record",
+                                 label=label)
                 n += 1
         return n
 
@@ -7067,6 +7179,14 @@ class WebMutation:
     # and none of them raises. A client that asked for a move the machine does
     # not allow is told nothing happened, and the refusal is written into the
     # trail rather than repaired.
+    #
+    # Every move that touches money or the record is filed on the audit trail
+    # as well as on the ticket's own `ticket_events`. The two are not the same
+    # store: ticket_events belongs to the ticket and answers "what happened on
+    # this job", while the audit event is filed against the RECORD, outlives
+    # the ticket, and is the copy the hash chain covers. Both writes sit inside
+    # `_ticket_transaction`, so an event that exists is an event whose money
+    # moved.
 
     @strawberry.mutation
     async def fund_ticket(self, info: strawberry.Info, ticket_id: str) -> str:
@@ -7095,6 +7215,9 @@ class WebMutation:
             if not await _write_ledger(conn, uid, ticket_id,
                                        ticketing.hold_plan(quoted, ticket_id)):
                 return ""
+            await _audit(conn, uid, "ticket.funded", row.get("entity_id") or "",
+                         f"Set aside {_inr_short(quoted)} for "
+                         f"{ticketing.ticket_ref(ticket_id)}")
             cur = await conn.execute(
                 "SELECT id FROM service_payments WHERE ticket_id=%s AND owner_user_id=%s"
                 " AND entry='hold' ORDER BY created_at DESC, id LIMIT 1", (ticket_id, uid))
@@ -7129,6 +7252,15 @@ class WebMutation:
                 delivered = await (await conn.execute("SELECT status FROM ticket_dispatches WHERE id=%s", (did,))).fetchone()
                 if delivered and delivered["status"] != "failed":
                     await _move(conn, uid, row, "dispatch")
+            if did:
+                # Masked, like every other line that names an outside contact:
+                # this one leaves the building with a link to the owner's
+                # papers on it, and the trail says that it went without
+                # republishing the number it went to.
+                await _audit(conn, uid, "ticket.dispatched", rid,
+                             f"Sent {ticketing.ticket_ref(ticket_id)} to "
+                             f"{person_name.strip() or ticketing.mask_contact(contact)}"
+                             f" · {purpose}")
             return did
 
     @strawberry.mutation
@@ -7351,6 +7483,14 @@ class WebMutation:
                     (note or "", _ddmmyyyy(_today()), held, ticket_id, uid))
                 if card:
                     await _remember_person(conn, uid, row, card)
+                # The one irreversible money move in the module, and the one
+                # that puts somebody else's work onto the land: both halves are
+                # on the line, because "what was filed" and "what it cost" are
+                # never asked separately six months later.
+                await _audit(conn, uid, "ticket.accepted", rid,
+                             f"Accepted {ticketing.ticket_ref(ticket_id)}: filed "
+                             f"{filed} of {len(items)}, released {_inr_short(held)}"
+                             + (f" to {payee}" if payee else ""))
                 for dx in await _live_dispatches(conn, uid, ticket_id):
                     await _dispatch(conn, uid, row, card,
                                     contact=dx.get("contact") or "",
@@ -7383,6 +7523,8 @@ class WebMutation:
                 (reason.strip(), ticket_id, uid))
             rid = row.get("entity_id") or ""
             card = next((c for c in await _cards(conn, uid) if c["id"] == rid), {})
+            await _audit(conn, uid, "ticket.sent_back", rid,
+                         f"Sent {ticketing.ticket_ref(ticket_id)} back: {reason.strip()}")
             for dx in await _live_dispatches(conn, uid, ticket_id):
                 await _dispatch(conn, uid, row, card, contact=dx.get("contact") or "",
                                 person_name=dx.get("person_name") or "",
@@ -7420,6 +7562,12 @@ class WebMutation:
                 " WHERE id=%s AND owner_user_id=%s", (reason or "", settled, ticket_id, uid))
             rid = row.get("entity_id") or ""
             card = next((c for c in await _cards(conn, uid) if c["id"] == rid), {})
+            # Both halves of what happened to the held money: what was settled
+            # for the trips somebody made, and what went back to the wallet.
+            await _audit(conn, uid, "ticket.cancelled", rid,
+                         f"Cancelled {ticketing.ticket_ref(ticket_id)}: paid "
+                         f"{_inr_short(settled)}, returned {_inr_short(held - settled)}"
+                         + (f" · {reason}" if reason else ""))
             for dx in await _live_dispatches(conn, uid, ticket_id):
                 chan = dx.get("channel") or "whatsapp"
                 await _send(conn, uid, chan, dx.get("contact") or "",
@@ -7520,6 +7668,12 @@ class WebMutation:
                 detail=" · ".join([associates.label_of(k) for k in keys]
                                   + [_area_label(l, p) for l, p, _k in places]),
                 actor=uid)
+            # The roster's own `associate_events` answers "what happened to
+            # this person"; this answers "which admin enrolled somebody", which
+            # is a question about the desk and belongs beside desk_read. The
+            # number is not repeated here — the row already holds it.
+            await _desk_audit(conn, uid, "associate.invited", aid,
+                              " · ".join(associates.label_of(k) for k in keys))
             return aid
 
     @strawberry.mutation
@@ -7593,6 +7747,7 @@ class WebMutation:
             await _assoc_event(
                 conn, aid, kind="updated", headline="Their details were changed",
                 detail=", ".join(changed), actor=uid)
+            await _desk_audit(conn, uid, "associate.updated", aid, ", ".join(changed))
             return True
 
     @strawberry.mutation
@@ -7714,6 +7869,8 @@ class WebMutation:
                 conn, aid, kind="state",
                 headline=f"They are now: {_ASSOC_WORD.get(want, want)}",
                 detail=why, actor=uid)
+            await _desk_audit(conn, uid, "associate.state_set", aid,
+                              f"{want}{f' · {why}' if why else ''}")
             return True
 
     @strawberry.mutation

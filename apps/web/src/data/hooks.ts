@@ -56,6 +56,32 @@ const GROUP_FIELDS =
 const MEMBER_FIELDS =
   'id name relation gender dob phone email role isSelf isBeneficiary sharePct status aadhaarMasked phoneVerified emailVerified';
 
+/** The schema rejects a document with more than 30 aliases outright
+ *  (MaxAliasesLimiter, services/api/src/main.py), so a batch is a slice. */
+const MEMBER_BATCH = 25;
+
+/** Members of many groups in ONE request per batch. There is no batch
+ *  resolver, but GraphQL aliases do the same job: a household with twenty
+ *  groups used to fire twenty POSTs, each carrying the full gateway/auth cost
+ *  for a handful of rows. Returned per group id, in the order asked. */
+export async function membersByGroup<M>(groupIds: string[], fields: string): Promise<Array<[string, M[]]>> {
+  const batches: string[][] = [];
+  for (let i = 0; i < groupIds.length; i += MEMBER_BATCH) batches.push(groupIds.slice(i, i + MEMBER_BATCH));
+  const results = await Promise.all(
+    batches.map(async (ids) => {
+      const query = `query(${ids.map((_, i) => `$g${i}: String!`).join(', ')}) { ${ids
+        .map((_, i) => `m${i}: members(groupId: $g${i}) { ${fields} }`)
+        .join(' ')} }`;
+      const d = await gql<Record<string, M[]>>(
+        query,
+        Object.fromEntries(ids.map((id, i) => [`g${i}`, id])),
+      );
+      return ids.map((id, i) => [id, d[`m${i}`] ?? []] as [string, M[]]);
+    }),
+  );
+  return results.flat();
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
@@ -117,13 +143,9 @@ export function useDashboard() {
         serviceRequests { id reqType parcelId status details createdAt }
         documents { id fileRef docType parcelId passbookId }
       }`);
-      const perGroup = await Promise.all(
-        (d.groups ?? []).map((g) =>
-          gql<{ members: DashMember[] }>(
-            `query($gid: String!) { members(groupId: $gid) { isSelf status } }`,
-            { gid: g.id },
-          ).catch(() => ({ members: [] as DashMember[] })),
-        ),
+      const perGroup = await membersByGroup<DashMember>(
+        (d.groups ?? []).map((g) => g.id),
+        'isSelf status',
       );
       return {
         stats: d.dashboardStats,
@@ -137,7 +159,7 @@ export function useDashboard() {
         audit: d.recentAuditEvents ?? [],
         requests: d.serviceRequests ?? [],
         documents: d.documents ?? [],
-        members: perGroup.flatMap((r) => r.members ?? []),
+        members: perGroup.flatMap(([, members]) => members),
       };
     },
     dashboardSample,
@@ -288,16 +310,14 @@ export function useGroups() {
     async () => {
       const d = await gql<{ groups: Group[] }>(`query { groups { ${GROUP_FIELDS} } }`);
       const groups = d.groups ?? [];
-      const perGroup = await Promise.all(
-        groups.map(async (g) => {
-          const r = await gql<{ members: Omit<Member, 'groupId'>[] }>(
-            `query($gid: String!) { members(groupId: $gid) { ${MEMBER_FIELDS} } }`,
-            { gid: g.id },
-          ).catch(() => ({ members: [] as Omit<Member, 'groupId'>[] }));
-          return (r.members ?? []).map((m) => ({ ...m, groupId: g.id }));
-        }),
+      const perGroup = await membersByGroup<Omit<Member, 'groupId'>>(
+        groups.map((g) => g.id),
+        MEMBER_FIELDS,
       );
-      return { groups, members: perGroup.flat() };
+      return {
+        groups,
+        members: perGroup.flatMap(([groupId, members]) => members.map((m) => ({ ...m, groupId }))),
+      };
     },
     { groups: sampleGroups, members: sampleMembers },
   );

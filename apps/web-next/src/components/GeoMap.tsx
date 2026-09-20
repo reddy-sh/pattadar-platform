@@ -52,6 +52,8 @@ import type { CSSProperties } from 'react';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { MapErrorKind, MapLayer } from './kit/types';
+import { labelHtml } from './mapLabel';
+import type { MapLabel } from './mapLabel';
 
 /** The kinds this engine can actually raise. `chunk` belongs to the lazy seam
  *  above it (`GeoMapLazy`), which is the only thing that can fail to load. */
@@ -72,13 +74,13 @@ export interface GeoMapProps {
    *  clicks draw. Toggling never remounts, so the map keeps its view + layer.
    *  When set, this supersedes readOnly/mode. Reacts to external `value` changes. */
   drawMode?: 'off' | 'marker' | 'polygon';
-  label?: string;
+  label?: MapLabel;
   /** Show the place-search box (default true). */
   showSearch?: boolean;
   /** Extra read-only geometries (GeoJSON strings) to display; fits bounds to all. */
   geometries?: string[];
   /** Read-only geometries with info shown on hover (tooltip) / click (popup or callback). */
-  features?: Array<{ geojson: string; popup?: string; title?: string; id?: string }>;
+  features?: Array<{ geojson: string; popup?: MapLabel; title?: string; id?: string }>;
   /** If set, clicking a feature with an id calls this instead of opening its popup. */
   onFeatureClick?: (id: string) => void;
   /** If there is no value, geocode this place on mount and center there. Pass an
@@ -348,7 +350,7 @@ export default function GeoMap(props: GeoMapProps) {
     const setMarker = (ll: L.LatLng, doEmit: boolean) => {
       if (shapeRef.current) map.removeLayer(shapeRef.current);
       const m = L.marker(ll, { icon: pinIcon(accentRef.current), draggable: canEdit });
-      if (label) m.bindPopup(label);
+      if (label) m.bindPopup(labelHtml(label));
       m.addTo(map);
       if (canEdit) m.on('dragend', () => emitPoint(m.getLatLng()));
       shapeRef.current = m;
@@ -452,7 +454,7 @@ export default function GeoMap(props: GeoMapProps) {
 
     // Read-only display of extra geometries (e.g. every parcel of a passbook).
     const allBounds: Array<[number, number]> = [];
-    const addDisplayGeo = (gj: { type?: string; coordinates?: unknown }, opts?: { popup?: string; title?: string; id?: string }) => {
+    const addDisplayGeo = (gj: { type?: string; coordinates?: unknown }, opts?: { popup?: MapLabel; title?: string; id?: string }) => {
       const isInteractive = !!(opts && (opts.popup || opts.title || opts.id));
       let lyr: L.Layer | null = null;
       if (gj.type === 'Point') {
@@ -465,9 +467,9 @@ export default function GeoMap(props: GeoMapProps) {
         ring.forEach((p) => allBounds.push(p));
       }
       if (!lyr) return;
-      if (opts?.title) lyr.bindTooltip(opts.title, { sticky: true });
+      if (opts?.title) lyr.bindTooltip(labelHtml(opts.title), { sticky: true });
       if (opts?.id && onFeatureClickRef.current) lyr.on('click', () => onFeatureClickRef.current?.(opts.id as string));
-      else if (opts?.popup) lyr.bindPopup(opts.popup);
+      else if (opts?.popup) lyr.bindPopup(labelHtml(opts.popup));
       lyr.addTo(map);
       displayLayersRef.current.push(lyr);
     };
@@ -527,7 +529,7 @@ export default function GeoMap(props: GeoMapProps) {
                 fillColor: accentRef.current,
                 fillOpacity: 0.25,
               }).addTo(mapRef.current);
-              halo.bindTooltip(`Approximate — ${place}`, { direction: 'top', offset: [0, -8] });
+              halo.bindTooltip(labelHtml(`Approximate — ${place}`), { direction: 'top', offset: [0, -8] });
               displayLayersRef.current.push(halo);
               return;
             }

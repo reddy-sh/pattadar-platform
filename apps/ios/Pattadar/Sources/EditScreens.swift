@@ -351,8 +351,9 @@ struct AddMemberScreen: View {
             "isBeneficiary": isHeir, "sharePct": isHeir ? (Double(share) ?? 0) : 0,
             "kind": "", "parcelId": "", "presentAddress": "",
             // Aadhaar is never collected here: an ID number typed into a form
-            // that does not need it is a liability, not a feature.
-            "aadhaar": "", "guardianName": "", "guardianContact": "",
+            // that does not need it is a liability, not a feature. No read has
+            // run either, so there is no extraction candidate to consume.
+            "aadhaar": "", "aadhaarCandidateId": "", "guardianName": "", "guardianContact": "",
             "maritalStatus": "", "spouseName": "", "spouseContact": "", "spouseStatus": "",
         ]
         if await app.load(Mutations.addMember, variables: vars, as: Added.self) == nil {

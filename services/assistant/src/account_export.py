@@ -11,12 +11,11 @@ router = APIRouter(prefix="/internal/account", tags=["account"])
 @router.get("/export")
 async def export(request: Request):
     # Import on use to avoid the main module's initialization cycle.
-    from .main import _get_conn
+    from .main import pool
     uid = (request.headers.get("x-user-id") or "").strip()
     if not uid:
         raise HTTPException(401, "Authentication required")
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         async with conn.transaction():
             await conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             conversations = await (await conn.execute("SELECT * FROM r_conversations WHERE user_id=%s ORDER BY created_at", (uid,))).fetchall()
@@ -42,5 +41,3 @@ async def export(request: Request):
             "runs": runs,
             "attachments": [{**a, "downloadUrl": f"/api/gateway/assistant/api/attachments/{a['id']}"} for a in attachments],
             "checkpointArchive": archive}, custom_encoder={bytes: lambda b: {"encoding": "base64", "data": base64.b64encode(b).decode()}})
-    finally:
-        await conn.close()

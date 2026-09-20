@@ -91,10 +91,15 @@ def db(isolated_postgres, monkeypatch):
     return isolated_postgres
 
 
+# Every column holding a verification credential holds its hash; "secret" is
+# what the invitee's link carries, and only that raw value is ever accepted.
+SECRET_HASH = main._capability_hash("secret")
+
+
 def seed(db, *, expiry="2999-01-01", member_status="pending", invitation_status="pending"):
     with psycopg.connect(db, autocommit=True) as conn:
-        conn.execute("INSERT INTO family_members (id,owner_user_id,status,invite_token,email) VALUES ('member','owner',%s,'secret','member@example.com')", (member_status,))
-        conn.execute("INSERT INTO invitations (id,scope_type,scope_id,invitee_contact,token,expiry,status) VALUES ('invite','family','member','member@example.com','secret',%s,%s)", (expiry,invitation_status))
+        conn.execute("INSERT INTO family_members (id,owner_user_id,status,invite_token,email) VALUES ('member','owner',%s,%s,'member@example.com')", (member_status, SECRET_HASH))
+        conn.execute("INSERT INTO invitations (id,scope_type,scope_id,invitee_contact,token,expiry,status) VALUES ('invite','family','member','member@example.com',%s,%s,%s)", (SECRET_HASH, expiry, invitation_status))
 
 
 def state(db):
@@ -109,7 +114,10 @@ def test_pending_tokens_are_owner_scoped(db):
         own = await main.schema.execute(query, context_value=info("owner").context)
         stranger = await main.schema.execute(query, context_value=info("other").context)
         assert own.errors is None
-        assert own.data["pendingInvitations"] == [{"id": "invite", "token": "secret"}]
+        # The owner sees that an invitation is outstanding, never its token:
+        # a readable token lets the owner accept on the member's behalf and
+        # manufacture that member's consent record.
+        assert own.data["pendingInvitations"] == [{"id": "invite", "token": ""}]
         assert stranger.data == {"pendingInvitations": [], "invitations": []}
     asyncio.run(run())
 
@@ -165,9 +173,9 @@ def test_fault_during_audit_rolls_back_acceptance_and_token_consumption(db, monk
     monkeypatch.setattr(main, "log_audit", fail)
     with pytest.raises(RuntimeError, match="injected"):
         asyncio.run(main._verify_by_token(None, "secret"))
-    assert state(db) == {"status": "pending", "invite_token": "secret"}
+    assert state(db) == {"status": "pending", "invite_token": SECRET_HASH}
     with psycopg.connect(db) as conn:
-        assert conn.execute("SELECT status,token FROM invitations").fetchone() == ("pending", "secret")
+        assert conn.execute("SELECT status,token FROM invitations").fetchone() == ("pending", SECRET_HASH)
 
 
 def test_concurrent_acceptance_succeeds_once(db):

@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import time
 
 import httpx
@@ -11,33 +12,73 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from .. import auth, database as db
+from ..internal_api import internal_headers
 from .proxy import _api_base_url, _assistant_base_url
 
 router = APIRouter(prefix="/api/gateway/account", tags=["account"])
 
+#: Both verdicts below sit in front of EVERY authenticated request, and the
+#: erasure-freeze table is empty for all but a handful of accounts ever. A
+#: short TTL keeps that off the hot path; a freeze and a consent change both
+#: tolerate seconds of propagation, and the routes that cause either one drop
+#: the entry themselves so the person who acted sees it at once.
+_CACHE_TTL_SECONDS = float(os.getenv("ACCOUNT_CACHE_TTL_SECONDS", "30"))
+_CACHE_MAX_ENTRIES = 4096
+
+_access_cache: dict = {}
+_consent_cache: dict = {}
+
+#: An upload waits on this, so a struggling api costs the uploader seconds,
+#: not the two minutes an export is allowed.
+_CONSENT_TIMEOUT = httpx.Timeout(5, connect=2)
+_DEFAULT_TIMEOUT = httpx.Timeout(120, connect=10)
+
+
+def _cached(cache, key):
+    entry = cache.get(key)
+    if entry is None or entry[0] < time.monotonic():
+        return None
+    return entry
+
+
+def _remember(cache, key, value):
+    if len(cache) >= _CACHE_MAX_ENTRIES:
+        cache.clear()
+    entry = (time.monotonic() + _CACHE_TTL_SECONDS, value)
+    cache[key] = entry
+    return entry
+
 
 async def check_account_access(request, claims):
     principal = auth.principal_id_from_claims(claims)
-    owner = "owner_" + hashlib.sha256(auth.user_id_from_claims(claims).encode()).hexdigest()
-    rows = await asyncio.to_thread(db.query_native, "account_access_blocks",
-        "SELECT 1 FROM account_access_blocks WHERE principal_id=%s OR owner_id=%s LIMIT 1", [principal, owner])
-    if rows and not (request.method == "GET" and request.url.path == "/api/gateway/account/erasure"):
+    user_id = auth.user_id_from_claims(claims)
+    owner = "owner_" + hashlib.sha256(user_id.encode()).hexdigest()
+    blocked = _cached(_access_cache, principal)
+    if blocked is None:
+        rows = await asyncio.to_thread(db.query_native, "account_access_blocks",
+            "SELECT 1 FROM account_access_blocks WHERE principal_id=%s OR owner_id=%s LIMIT 1", [principal, owner])
+        blocked = _remember(_access_cache, principal, bool(rows))
+    if blocked[1] and not (request.method == "GET" and request.url.path == "/api/gateway/account/erasure"):
         raise HTTPException(403, detail={"error": "ACCOUNT_ERASURE_IN_PROGRESS"})
     if request.method in {"POST", "PUT"} and (
         request.url.path.startswith("/api/gateway/storage/files")
         or request.url.path == "/api/gateway/assistant/api/attachments"
     ):
-        consent = await upstream(_api_base_url(), "/internal/account/consent", auth.user_id_from_claims(claims))
-        if consent.get("acceptedAt") and "document_processing" not in consent["purposes"]:
+        consent = _cached(_consent_cache, user_id)
+        if consent is None:
+            consent = _remember(_consent_cache, user_id, await upstream(
+                _api_base_url(), "/internal/account/consent", user_id, timeout=_CONSENT_TIMEOUT))
+        if consent[1].get("acceptedAt") and "document_processing" not in consent[1]["purposes"]:
             raise HTTPException(403, detail={"error": "CONSENT_REQUIRED", "purpose": "document_processing"})
 
 
-async def upstream(base, path, owner, method="GET", body=None):
+async def upstream(base, path, owner, method="GET", body=None, timeout=_DEFAULT_TIMEOUT):
     if not base:
         raise HTTPException(503, "Account service unavailable")
     async def send(client):
-        response = await client.request(method, base + path, headers={"x-user-id": owner}, json=body,
-                                        timeout=httpx.Timeout(120, connect=10))
+        response = await client.request(method, base + path,
+                                        headers={"x-user-id": owner, **internal_headers()}, json=body,
+                                        timeout=timeout)
         if response.status_code >= 400:
             # API validation messages are safe; private upstream response bodies
             # from infrastructure failures must not leak service details.
@@ -93,7 +134,11 @@ class Consent(BaseModel):
 @router.post("/consent")
 async def set_consent(request: Request, body: Consent):
     await auth.validate_bearer(request)
-    return await upstream(_api_base_url(), "/internal/account/consent", auth.extract_user_id(request), "POST", body.model_dump())
+    uid = auth.extract_user_id(request)
+    _consent_cache.pop(uid, None)
+    saved = await upstream(_api_base_url(), "/internal/account/consent", uid, "POST", body.model_dump())
+    _consent_cache.pop(uid, None)
+    return saved
 
 
 class ErasureConfirmation(BaseModel):

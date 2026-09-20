@@ -20,6 +20,23 @@ export function setAccessTokenProvider(provider: GetAccessToken): void {
   getAccessToken = provider;
 }
 
+/** What every screen says when the gateway stops accepting the session. */
+export const SESSION_ENDED_MESSAGE = 'Your session has ended — sign in again.';
+
+// The auth provider (src/auth/AuthProvider.tsx) registers the real handler.
+// Until it does, a 401 is simply the response the caller already handles.
+let onUnauthorized: () => void = () => {};
+
+/**
+ * Register the session-expiry handler. A 401 from the gateway means the tokens
+ * in this tab no longer buy a session, and only the auth layer can clear it and
+ * route back to sign-in — without this, every panel renders an HTTP 401 behind
+ * a Try again that can never succeed.
+ */
+export function setUnauthorizedHandler(handler: () => void): void {
+  onUnauthorized = handler;
+}
+
 export interface ApiRequestInit extends RequestInit {
   /** A per-operation deadline; caller cancellation is always honored. */
   timeoutMs?: number;
@@ -79,7 +96,9 @@ export async function apiFetch(path: string, init: ApiRequestInit = {}): Promise
   const deadline = AbortSignal.timeout(requestTimeoutMs(path, init));
   const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
   try {
-    return await fetch(path, { ...requestInit, headers, signal });
+    const response = await fetch(path, { ...requestInit, headers, signal });
+    if (response.status === 401) onUnauthorized();
+    return response;
   } catch (e) {
     // TimeoutError is what `AbortSignal.timeout` throws, and "signal is aborted
     // without reason" is not a sentence to put in front of an owner.
@@ -106,7 +125,19 @@ export async function apiErrorMessage(response: Response, fallback: string): Pro
 
 interface GraphQLResponse<T> {
   data?: T;
-  errors?: Array<{ message: string }>;
+  errors?: Array<{ message: string; extensions?: { code?: string } }>;
+}
+
+/** A GraphQL failure, carrying the server's machine-readable code when it sent
+ *  one, so a screen can branch on the code instead of on English prose. */
+export class GraphQLRequestError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'GraphQLRequestError';
+    this.code = code;
+  }
 }
 
 /** POST a GraphQL query to the pattadar service via the gateway. */
@@ -116,9 +147,17 @@ export async function gql<T>(query: string, variables?: Record<string, unknown>)
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),
   });
+  // The 401 sentence is what the owner reads in the error card while the auth
+  // layer takes them back to sign-in; an HTTP status is not that sentence.
+  if (res.status === 401) throw new Error(SESSION_ENDED_MESSAGE);
   if (!res.ok) throw new Error(`GraphQL HTTP ${res.status}`);
   const body = (await res.json()) as GraphQLResponse<T>;
-  if (body.errors?.length) throw new Error(body.errors.map((e) => e.message).join('; '));
+  if (body.errors?.length) {
+    throw new GraphQLRequestError(
+      body.errors.map((e) => e.message).join('; '),
+      body.errors.find((e) => e.extensions?.code)?.extensions?.code,
+    );
+  }
   if (body.data === undefined) throw new Error('GraphQL response had no data');
   return body.data;
 }

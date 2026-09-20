@@ -18,6 +18,33 @@ async function checked(res: Response): Promise<unknown> {
   return body;
 }
 
+/** The server was never reached, as opposed to the server saying no.
+ *
+ *  The people on these links have no account and the worst connections —
+ *  an associate or a surveyor standing in a field. Folding both failures
+ *  together printed "Failed to fetch" under "Link unavailable", which reads
+ *  as "the owner revoked it" and is the one wrong thing to tell them. */
+class Unreachable extends Error {}
+
+/** Every call this page makes, with a deadline on it. This page does not go
+ *  through apiFetch — the recipient is anonymous and must not be handed the
+ *  signed-in owner's Bearer — so the deadlines are repeated here, and they are
+ *  the ones client.ts uses: 20s for a read, 600s for bytes in either
+ *  direction. Without one a stalled 2G connection sat on "Opening the link…"
+ *  forever. */
+async function reach(url: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<Response> {
+  try {
+    return await fetch(url, {
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    throw new Unreachable('The server could not be reached — check your connection and try again.');
+  }
+}
+
 export default function RecipientAccess() {
   const { token = '' } = useParams();
   const { pathname } = useLocation();
@@ -25,6 +52,10 @@ export default function RecipientAccess() {
   const base = `/api/gateway/capabilities/${scope}/${encodeURIComponent(token)}`;
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState('');
+  /** True while the failure is a connection and not a refusal, so the page can
+   *  offer a retry instead of announcing a dead link. */
+  const [unreachable, setUnreachable] = useState(false);
+  const [opening, setOpening] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [label, setLabel] = useState('');
@@ -32,18 +63,23 @@ export default function RecipientAccess() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<{ url: string; mime: string; title: string } | null>(null);
   const load = useCallback(async () => {
+    setOpening(true); setError(''); setUnreachable(false);
     try {
-      const data = await checked(await fetch(base, { cache: 'no-store', referrerPolicy: 'no-referrer' }));
+      const data = await checked(await reach(base));
       setView(data as View);
-    } catch (e) { setView(null); setError(e instanceof Error ? e.message : 'This link is unavailable.'); }
+    } catch (e) {
+      setView(null);
+      setUnreachable(e instanceof Unreachable);
+      setError(e instanceof Error ? e.message : 'This link is unavailable.');
+    } finally { setOpening(false); }
   }, [base]);
-  useEffect(() => { setView(null); setError(''); void load(); }, [load]);
+  useEffect(() => { setView(null); void load(); }, [load]);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
 
   const openFile = async (item: View['items'][number]) => {
     setBusy(true); setError('');
     try {
-      const result = await fetch(`${base}/files/${encodeURIComponent(item.id)}`, { cache: 'no-store', referrerPolicy: 'no-referrer' });
+      const result = await reach(`${base}/files/${encodeURIComponent(item.id)}`, {}, 600_000);
       if (!result.ok) { await checked(result); return; }
       const blob = await result.blob();
       // Arbitrary HTML/SVG must never execute with the application's origin.
@@ -58,8 +94,8 @@ export default function RecipientAccess() {
   const act = async (action: string) => {
     setBusy(true); setError('');
     try {
-      await checked(await fetch(`${base}/actions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }), referrerPolicy: 'no-referrer' }));
+      await checked(await reach(`${base}/actions`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }) }));
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'The action could not be saved.'); }
     finally { setBusy(false); }
@@ -72,7 +108,7 @@ export default function RecipientAccess() {
     const body = new FormData(); body.append('label', label); body.append('note', note);
     if (file) body.append('file', file);
     try {
-      await checked(await fetch(`${base}/deliverables`, { method: 'POST', body, referrerPolicy: 'no-referrer' }));
+      await checked(await reach(`${base}/deliverables`, { method: 'POST', body }, 600_000));
       setMessage(file ? 'Submitted. The owner can review this file now.' : 'Your update was recorded for the owner.');
       setLabel(''); setNote(''); setFile(null); form.reset();
       await load();
@@ -83,8 +119,18 @@ export default function RecipientAccess() {
   return <div className="w360" data-scheme="light" style={{ display: 'block', minHeight: '100vh' }}>
     <main style={{ maxWidth: 840, margin: '0 auto', padding: '2rem 1.25rem' }}>
       <p className="brand">Pattadar<span>.</span></p>
-      <h1>{view?.title || (error ? 'Link unavailable' : 'Opening the link…')}</h1>
+      {/* A link that was refused and a link that could not be reached are
+          different things, and only one of them is worth trying again. */}
+      <h1>{view?.title
+        || (opening ? 'Opening the link…'
+          : unreachable ? 'Could not reach the server'
+          : error ? 'Link unavailable' : 'Opening the link…')}</h1>
       {error && <p role="alert">{error}</p>}
+      {!view && !opening && (
+        <button className="btn primary" type="button" onClick={() => { void load(); }}>
+          Try again
+        </button>
+      )}
       {view && <div className="stack" style={{ gap: '1.5rem' }}>
         <p>Available until {view.expiresOn}. The owner may revoke this link at any time.</p>
         {view.scope === 'work' && <section className="card">

@@ -456,9 +456,20 @@ const Q_MAP = `{ web { mapRecords {
 type Wrapped<K extends string, T> = { web: Record<K, T> };
 const KEY = 'w360';
 
+/** The whole of Home, and the rail's badge counts with it — so the Shell asks
+ *  for it on every authenticated route, on screens that draw none of it.
+ *
+ *  The staleTime is what stops that: at the 30s global default a tab focused
+ *  after lunch, or a route change a minute later, re-ran the aggregate. A
+ *  write still refreshes it immediately — an invalidation refetches an active
+ *  query however fresh it is — so this only governs how old an UNTOUCHED
+ *  answer may be before the page asks again. */
+const BADGE_STALE = 5 * 60 * 1000;
+
 export function usePortfolio() {
   return useQuery({
     queryKey: [KEY, 'portfolio'],
+    staleTime: BADGE_STALE,
     queryFn: async () => (await gql<Wrapped<'portfolio', Portfolio>>(Q_PORTFOLIO)).web.portfolio,
   });
 }
@@ -625,7 +636,14 @@ export function useSharedKits() {
     queryFn: async () => (await gql<Wrapped<'sharedKits', SharedKit[]>>(Q_KITS)).web.sharedKits,
     // Recover an already-open page after a local API restart instead of
     // preserving the first network failure until the owner clicks retry.
-    refetchInterval: (query) => query.state.status === 'error' ? 3_000 : false,
+    //
+    // It backs off: three seconds catches the restart it was written for, and
+    // doubling to a minute stops a page left open on a failing backend from
+    // asking the same question every three seconds for the rest of the day —
+    // the shape that keeps a struggling server from coming back.
+    refetchInterval: (query) => query.state.status === 'error'
+      ? Math.min(3_000 * 2 ** Math.min(query.state.errorUpdateCount - 1, 5), 60_000)
+      : false,
   });
 }
 
@@ -717,6 +735,7 @@ const Q_SERVICES = `query SO($q:String,$key:String) { web { servicesOffered(q:$q
 export function useOrders(recordId?: string, includeClosed = false) {
   return useQuery({
     queryKey: [KEY, 'orders', recordId ?? '', includeClosed],
+    staleTime: BADGE_STALE,
     queryFn: async () =>
       (await gql<Wrapped<'orders', Order[]>>(Q_ORDERS, {
         recordId: recordId ?? null,
@@ -776,17 +795,31 @@ export function useMapRecords(enabled = true) {
  *  `onError` to `mutate`, and react-query runs both — this one first.
  *
  *  `what` names the thing in the owner's words: "That expense could not be
- *  saved", not "saveExpense failed". */
-function useW360Mutation<V, R = unknown>(doc: string, what: string, reportError = true) {
+ *  saved", not "saveExpense failed".
+ *
+ *  `invalidate` is the one way out, and it exists for a BATCH: filing ten
+ *  photos ran ten whole-tree invalidations, each one refetching the portfolio,
+ *  the orders and the record while the remaining uploads were still going. A
+ *  batch takes the refresh off its own writes and calls `useRefreshW360` once,
+ *  at the end — it does not skip it. */
+function useW360Mutation<V, R = unknown>(
+  doc: string, what: string, reportError = true, invalidate = true,
+) {
   const qc = useQueryClient();
   const toast = useToast();
   return useMutation({
     mutationFn: (vars: V) => gql<R>(doc, vars as Record<string, unknown>),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: invalidate ? () => qc.invalidateQueries({ queryKey: [KEY] }) : undefined,
     onError: reportError
       ? (e) => toast.bad(`${what} could not be saved. Nothing has changed.`, e)
       : undefined,
   });
+}
+
+/** The refresh a batch owes, once its last write has landed. */
+export function useRefreshW360() {
+  const qc = useQueryClient();
+  return () => { void qc.invalidateQueries({ queryKey: [KEY] }); };
 }
 
 export const useSetTag = () =>
@@ -846,7 +879,9 @@ export const useUpdateCaption = () =>
  *  separate multipart POST (see uploadToDrive) — GraphQL carries only the
  *  node id that comes back from it. Resolves to '' when the record is not
  *  the caller's or the ref is empty. */
-export const useAddPhoto = () =>
+/** `invalidate: false` is for the batch filer, which refreshes once at the end
+ *  of the pick rather than after every file in it. */
+export const useAddPhoto = (invalidate = true) =>
   useW360Mutation<{
     recordId: string; fileRef: string; fileName: string; caption: string;
     category: string; mediaKind: string; width: number; height: number;
@@ -859,6 +894,8 @@ export const useAddPhoto = () =>
                       category:$category,mediaKind:$mediaKind,width:$width,height:$height,
                       sha256:$sha256,capturedAt:$capturedAt) } }`,
     'That photo',
+    true,
+    invalidate,
   );
 
 export const useAddPerson = () =>
@@ -1567,10 +1604,18 @@ const Q_ASSOCIATES_FOR_TICKET = `query AFT($ticketId:String!) {
  *
  *  `scope` is open | silent | stuck | all, and the last answer is held across a
  *  change of it: without that, every tab switch unmounted the list into a
- *  skeleton and the row under the pointer moved as it came back. */
+ *  skeleton and the row under the pointer moved as it came back.
+ *
+ *  The rail badge mounts this on every route an admin visits, and the resolver
+ *  reads every owner's jobs and writes an audit row for each answer, so the
+ *  staleTime is what keeps routine navigation from being a platform-wide scan
+ *  and a row in the ledger. A write still invalidates it. A minute, not the
+ *  five the badge queries take: the same answer draws the desk itself, where
+ *  what arrived while the operator was in another tab is the point. */
 export function useDesk(scope = 'open') {
   return useQuery({
     queryKey: [KEY, 'desk', scope],
+    staleTime: 60_000,
     placeholderData: keepPreviousData,
     queryFn: async () =>
       (await gql<Wrapped<'desk', Desk | null>>(Q_DESK, { scope })).web.desk,

@@ -6,14 +6,17 @@ capability scope. Owner and file IDs never come from caller headers or body.
 from __future__ import annotations
 
 import functools
+import hashlib
 import re
 
 import httpx
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
+from starlette.background import BackgroundTask
 
 from .. import auth
+from ..internal_api import record_audit
 from .proxy import _api_base_url
 from .storage import MAX_UPLOAD_BYTES, _cd, _err, _scope, get_storage
 
@@ -21,6 +24,15 @@ router = APIRouter(prefix="/api/gateway/capabilities", tags=["recipient access"]
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"}
+
+
+def _capability_actor(scope: str, token: str) -> str:
+    """A stable name for the link that acted, which is not the link itself.
+
+    The token IS the credential: two downloads through one link must be
+    recognisable as the same actor in the ledger without the ledger becoming a
+    place to steal working links from."""
+    return "capability_" + hashlib.sha256(f"{scope}|{token}".encode()).hexdigest()[:32]
 
 
 def _check(scope: str, token: str):
@@ -69,16 +81,23 @@ async def recipient_file(scope: str, token: str, item_id: str):
     if not _ID.fullmatch(item_id):
         raise HTTPException(404, "This file is unavailable")
     grant = await _grant(f"/internal/capabilities/{scope}/{token}/files/{item_id}")
-    svc = get_storage()
     try:
+        svc = get_storage()
         data, mime, name = await run_in_threadpool(svc.read_content, grant["owner"], grant["fileRef"], None)
     except Exception as exc:
         return _err(exc)
     # Download arbitrary originals, so user-uploaded HTML/SVG cannot execute on
     # the application origin or read another capability from the current page.
     return Response(data, media_type=mime, headers={**_HEADERS,
-        "Content-Disposition": _cd(name).replace("inline;", "attachment;"),
-        "Content-Security-Policy": "sandbox; default-src 'none'"})
+        "Content-Disposition": _cd(name, "attachment"),
+        "Content-Security-Policy": "sandbox; default-src 'none'"},
+        # The actor is outside the household: the owner's ledger has to be able
+        # to show that a link, not a person of theirs, took this paper.
+        background=BackgroundTask(record_audit, "recipient.download",
+            actor_id=_capability_actor(scope, token), actor_kind="recipient",
+            resource_type="document", resource_id=item_id,
+            affected_owner=grant["owner"],
+            metadata={"doc_kind": "photo" if (mime or "").startswith("image/") else "paper"}))
 
 
 @router.post("/work/{token}/actions")
@@ -100,9 +119,9 @@ async def worker_deliverable(token: str, label: str = Form(...), note: str = For
         data = await file.read(MAX_UPLOAD_BYTES + 1)
         if len(data) > MAX_UPLOAD_BYTES:
             raise HTTPException(413, "File exceeds the upload limit")
-        svc = get_storage()
-        org_id, workspace_id = _scope(svc)
         try:
+            svc = get_storage()
+            org_id, workspace_id = _scope(svc)
             node = await run_in_threadpool(functools.partial(svc.create_file,
                 grant["owner"], None, file.filename or "Work submission", data,
                 file.content_type or "application/octet-stream", "worker submission",

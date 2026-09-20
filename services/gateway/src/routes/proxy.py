@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from .. import auth
+from ..internal_api import INTERNAL_PROXY_SECRET_HEADER, internal_headers
 from ..public_graphql import is_public_verification
 
 _log = logging.getLogger("pattadar.gateway.proxy")
@@ -50,9 +51,20 @@ _DROP_REQUEST_HEADERS = {
     "x-ea-user-id",
     "x-user-name",
     "x-ea-user-name",
+    # the gateway's own proof of origin — a caller supplying it would be
+    # supplying the very thing upstream checks.
+    INTERNAL_PROXY_SECRET_HEADER,
 }
 
 _DROP_RESPONSE_HEADERS = {"content-length", "transfer-encoding", "connection"}
+
+#: The api proxy buffers the whole body in memory BEFORE authentication runs,
+#: so this is the ceiling an anonymous caller can spend. GraphQL operations
+#: and the base64 image payloads the extraction mutations carry sit far below
+#: it; an upload goes to the storage routes, not through here.
+MAX_PROXY_BODY_BYTES = int(
+    os.getenv("GATEWAY_MAX_PROXY_BODY_BYTES", str(32 * 1024 * 1024))
+)
 
 
 def _api_base_url() -> str:
@@ -65,11 +77,35 @@ def _assistant_base_url() -> str:
 
 def outbound_headers(inbound: dict, user_id: Optional[str]) -> dict:
     """Forwardable headers: inbound minus hop-by-hop/auth/identity, plus the
-    validated x-user-id (the ONLY way that header ever reaches upstream)."""
+    validated x-user-id (the ONLY way that header ever reaches upstream) and
+    this gateway's internal-proxy secret. The inbound x-request-id survives
+    untouched — the edge middleware has already minted one if the caller
+    sent none."""
     headers = {k: v for k, v in inbound.items() if k.lower() not in _DROP_REQUEST_HEADERS}
     if user_id:
         headers["x-user-id"] = user_id
+    headers.update(internal_headers())
     return headers
+
+
+async def read_capped_body(request: Request, limit: int) -> Optional[bytes]:
+    """Buffer the request body, or None once it passes ``limit``.
+
+    A declared Content-Length is refused without reading a byte; a chunked
+    body is abandoned the moment the running total crosses the ceiling, so
+    neither shape can be streamed into the task's memory.
+    """
+    declared = str(request.headers.get("content-length") or "")
+    if declared.isdigit() and int(declared) > limit:
+        return None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _response_headers(upstream: httpx.Response) -> dict:
@@ -105,7 +141,11 @@ async def proxy_pattadar(request: Request, path: str):
     if not base:
         return JSONResponse(status_code=503, content={"error": "API_BASE_URL not configured"})
 
-    body = await request.body()
+    # Capped BEFORE the token is even looked at: this read is the one piece of
+    # work an unauthenticated caller can make the gateway do.
+    body = await read_capped_body(request, MAX_PROXY_BODY_BYTES)
+    if body is None:
+        return JSONResponse(status_code=413, content={"error": "Request body too large"})
 
     # strict=False → None only when NO token was presented; a presented-but-
     # invalid token still raises 401 inside validate_bearer.

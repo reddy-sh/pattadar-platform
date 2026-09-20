@@ -483,7 +483,7 @@ export default function AddMemberScreen() {
                 try {
                   const full = await revealAadhaar.mutateAsync(existing.id);
                   await copySensitive(full.revealMemberAadhaar);
-                  setNote('Aadhaar number copied — the clipboard clears in a minute.');
+                  setNote('Aadhaar number copied — the clipboard clears in a minute, or when you come back here.');
                 } catch (e) {
                   setNote(e instanceof Error ? e.message : "Couldn't copy the number");
                 }

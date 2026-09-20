@@ -33,7 +33,7 @@ import SendOutlined from '@mui/icons-material/SendOutlined';
 import { useAddPaper, useBoundary, useCreateRequest, usePapers, usePhotos, useRecord } from '../api';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
-import { Card, Chip, Loading, pairs } from '../ui';
+import { Card, Chip, Failed, Loading, pairs } from '../ui';
 
 /** What each kind of request opens with. The words are the ones an owner
  *  would actually send, not a template someone has to rewrite. */
@@ -82,7 +82,7 @@ export function RequestWork() {
   const kind = sp.get('kind') ?? 'survey';
   const opener = OPENERS[kind] ?? OPENERS.survey;
 
-  const { data: rec } = useRecord(id);
+  const { data: rec, isLoading: recLoading, error: recError } = useRecord(id);
   const { data: bound } = useBoundary(id);
   const { data: photos } = usePhotos(id);
   const { data: papers } = usePapers(id);
@@ -208,7 +208,11 @@ export function RequestWork() {
     }
   }
 
-  if (!rec) return <main><Loading h="60vh" /></main>;
+  if (recLoading) return <main><Loading h="60vh" /></main>;
+  // A read that settled with nothing is not a read still running. `retry: 1`
+  // means a failed record read ends here for good, and drawing the skeleton
+  // for it rendered the outage as an eternity.
+  if (!rec) return <main><Failed what="This record" error={recError} h="60vh" /></main>;
 
   return (
     <main>

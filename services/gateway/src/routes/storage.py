@@ -25,8 +25,10 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, Depends, File, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
+from starlette.background import BackgroundTask
 
 from ..auth import extract_user_id, require_auth
+from ..internal_api import record_audit
 from ..storage import (
     ORG_ID,
     WORKSPACE_ID,
@@ -108,7 +110,7 @@ def _err(exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"error": "Storage error"})
 
 
-def _cd(name: str) -> str:
+def _cd(name: str, disposition: str = "inline") -> str:
     """Content-Disposition for a stored file.
 
     HTTP headers are latin-1, and real filenames are not. A macOS screenshot
@@ -124,7 +126,34 @@ def _cd(name: str) -> str:
     """
     raw = (name or "download").replace('"', "").replace("\n", " ").replace("\r", " ")
     fallback = "".join(c if 32 <= ord(c) < 127 else "_" for c in raw) or "download"
-    return f"inline; filename=\"{fallback}\"; filename*=UTF-8\'\'{quote(raw, safe='')}"
+    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8\'\'{quote(raw, safe='')}"
+
+
+#: A stored file's type is whatever the uploader claimed — and an anonymous
+#: work-token holder can put a file in an owner's drive. So the bytes are served
+#: unable to act: never sniffed into a richer type than the one declared, and
+#: never granted anything by the origin they came from.
+_SANDBOX = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "sandbox; default-src 'none'",
+}
+
+#: The types a viewer may render in place. Anything else is handed over as a
+#: download rather than opened on this origin.
+_INLINE_TYPES = frozenset({
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/heic",
+    "image/heif",
+    "application/pdf",
+})
+
+
+def _disposition(mime: str) -> str:
+    return "inline" if (mime or "").split(";", 1)[0].strip().lower() in _INLINE_TYPES else "attachment"
 
 
 def _is_heic(mime: str, name: str) -> bool:
@@ -193,7 +222,9 @@ async def list_nodes(
             items = await run_in_threadpool(svc.list_children, owner, None, view, None, tag, org)
         # Browsing INTO a folder the caller doesn't own but has a share on:
         # fall back to share-aware listing of that folder's children.
-        elif parent and view == "files" and not q and svc._access(owner, parent) not in (None, "owner"):
+        elif parent and view == "files" and not q and await run_in_threadpool(
+            svc._access, owner, parent
+        ) not in (None, "owner"):
             items = await run_in_threadpool(svc.list_shared_children, owner, parent)
         else:
             items = await run_in_threadpool(svc.list_children, owner, parent, view, q, None, org)
@@ -240,24 +271,28 @@ async def get_node(request: Request, node_id: str, _claims: dict = Depends(requi
 #: browser asks, and the answer is a 304 costing one read and no decode.
 _CACHE = "private, max-age=60, must-revalidate"
 
+#: An explicitly asked-for version is a different entity from "whatever this
+#: node holds now", and that entity never changes, so it needs no revalidating.
+_CACHE_PINNED = "private, max-age=86400, immutable"
 
-def _content_etag(data: bytes, fmt: Optional[str], thumb: Optional[int]) -> str:
-    """An ETag over the SOURCE bytes and the transform that was asked for.
 
-    Both halves matter. The bytes, so replacing a file changes the tag; and the
+def _content_etag(source: bytes, fmt: Optional[str], thumb: Optional[int]) -> str:
+    """An ETag over the identity of the SOURCE and the transform asked for.
+
+    Both halves matter. The source, so replacing a file changes the tag; and the
     transform, so a thumbnail and its original are different entities and can
     never answer each other's request — a 512 px card thumbnail served in place
     of a full-size download would be a silent corruption, not a cache hit.
 
-    It is computed from the ORIGINAL rather than from the response body, and
-    that is what makes it worth having: there is no stored derivative, so
-    `?thumb=` decodes the whole image with Pillow and re-encodes it on EVERY
-    request, and a property grid asks for one per card. Answering 304 above the
-    decode is the entire saving — answering it below would spare the wire and
-    still burn the CPU.
+    The identity is the version id, which is immutable and known from the
+    metadata alone, and that is what makes it worth having: there is no stored
+    derivative, so `?thumb=` decodes the whole image with Pillow and re-encodes
+    it on EVERY request, and a property grid asks for one per card. Deciding the
+    304 from the version id answers it above BOTH the S3 download and the
+    decode; hashing the bytes to decide would have paid for the download first.
     """
     stamp = f"|{fmt or ''}|{thumb or ''}".encode()
-    return '"' + hashlib.sha1(data + stamp).hexdigest()[:24] + '"'
+    return '"' + hashlib.sha1(source + stamp).hexdigest()[:24] + '"'
 
 
 @router.get("/files/{node_id}/content")
@@ -272,13 +307,22 @@ async def file_content(
     owner = extract_user_id(request)
     svc = get_storage()
     try:
-        data, mime, name = await run_in_threadpool(svc.read_content, owner, node_id, version)
+        version_id, key, mime, name, file_owner = await run_in_threadpool(
+            svc.content_identity, owner, node_id, version
+        )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
 
-    etag = _content_etag(data, fmt, thumb)
+    etag = _content_etag(version_id.encode(), fmt, thumb)
+    cache = _CACHE_PINNED if version else _CACHE
+    doc_kind = "photo" if _is_imageish(mime, name) else "paper"
     if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": _CACHE})
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache})
+
+    try:
+        data = await run_in_threadpool(svc.read_object, key)
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
 
     # thumb=<px>: downscale image (incl. HEIC) to a JPEG thumbnail for grid tiles.
     if thumb and _is_imageish(mime, name):
@@ -298,9 +342,28 @@ async def file_content(
         except Exception as exc:  # noqa: BLE001
             _log.warning("storage.heic_convert_failed: %s", exc)
             return JSONResponse(status_code=502, content={"error": "Could not convert image"})
-    return Response(content=data, media_type=mime, headers={
-        "Content-Disposition": _cd(name), "ETag": etag, "Cache-Control": _CACHE,
-    })
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={
+            **_SANDBOX,
+            "Content-Disposition": _cd(name, _disposition(mime)),
+            "ETag": etag,
+            "Cache-Control": cache,
+        },
+        # After the bytes are on the wire: the ledger records that a copy of the
+        # paper left, and must never be what decides whether it can.
+        background=BackgroundTask(
+            record_audit,
+            "download_document",
+            actor_id=owner,
+            actor_kind="owner",
+            resource_type="document",
+            resource_id=node_id,
+            affected_owner=file_owner,
+            metadata={"doc_kind": doc_kind},
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

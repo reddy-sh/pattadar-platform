@@ -36,15 +36,32 @@ data "aws_iam_policy_document" "github_deploy_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "repo:${var.github_repository}:ref:refs/heads/main",
-        # GitHub's immutable-subject rollout (Aug 2026): the sub arrives as
-        # owner@OWNER_ID/repo@REPO_ID. Every push-deploy failed on this
-        # mismatch until both shapes were trusted.
-        "repo:${join("@*/", split("/", var.github_repository))}@*:ref:refs/heads/main",
-      ]
+      values   = local.github_trusted_subs
     }
   }
+}
+
+locals {
+  github_owner = split("/", var.github_repository)[0]
+  github_repo  = split("/", var.github_repository)[1]
+
+  # GitHub's immutable-subject rollout (Aug 2026): the sub arrives as
+  # owner@OWNER_ID/repo@REPO_ID. Every push-deploy failed on this mismatch
+  # until that shape was trusted too. The IDs are what make the subject
+  # immutable — a deleted-and-resquatted reddy-sh/pattadar-platform gets new
+  # ones — so wildcarding them defeats the whole mechanism. Until the founder
+  # fills github_owner_id / github_repository_id this falls back to the
+  # wildcard shape, which is trust-by-name only.
+  github_immutable_sub = (
+    var.github_owner_id != "" && var.github_repository_id != ""
+    ? "repo:${local.github_owner}@${var.github_owner_id}/${local.github_repo}@${var.github_repository_id}:ref:refs/heads/main"
+    : "repo:${local.github_owner}@*/${local.github_repo}@*:ref:refs/heads/main"
+  )
+
+  github_trusted_subs = [
+    "repo:${var.github_repository}:ref:refs/heads/main",
+    local.github_immutable_sub,
+  ]
 }
 
 # One managed policy, grouped by concern. Runtime resources (SPA bucket,
@@ -213,8 +230,6 @@ data "aws_iam_policy_document" "github_deploy" {
       "rds:ListTagsForResource",
       "route53:Get*",
       "route53:List*",
-      "s3:Get*",
-      "s3:List*",
       "scheduler:Get*",
       "scheduler:List*",
       "secretsmanager:Describe*",
@@ -228,6 +243,21 @@ data "aws_iam_policy_document" "github_deploy" {
       "wafv2:List*",
     ]
     resources = ["*"]
+  }
+
+  # S3 is read separately, at BUCKET granularity only. "s3:Get*" on "*" also
+  # matched s3:GetObject: the state bucket is SSE-S3 and its objects carry the
+  # composed RDS master DSN and the cron secret, and the ALB access logs carry
+  # full request URLs including capability share tokens. Bucket ARNs here carry
+  # no "/*", so no object-level action can match — object access stays limited
+  # to the explicit TfStateReadWrite and SpaSync statements above.
+  statement {
+    sid = "TerraformReadS3BucketConfig"
+    actions = [
+      "s3:Get*",
+      "s3:List*",
+    ]
+    resources = ["arn:aws:s3:::${var.app_name}-*"]
   }
 }
 
@@ -257,8 +287,15 @@ resource "aws_iam_role_policy_attachment" "github_deploy" {
 }
 
 # --- Governance (Cloud Custodian) — read-only role for the scheduled
-# governance workflow. Report-only posture: c7n policies carry no actions,
-# so ReadOnlyAccess is the entire blast radius.
+# governance workflow. Report-only posture: c7n policies carry no actions.
+#
+# SecurityAudit, not ReadOnlyAccess: the policies only describe/list
+# (security-group, ec2, ebs, network-addr, rds, rds-snapshot, s3 public-access
+# block, iam-user credential report, cloudtrail status), all of which
+# SecurityAudit grants. ReadOnlyAccess additionally carries s3:GetObject,
+# which reaches the SSE-S3 terraform-state objects (composed RDS master DSN,
+# cron secret) and the ALB access logs — a daily cron running unpinned c7n is
+# not a principal that should be able to read either.
 
 resource "aws_iam_role" "github_governance" {
   count = var.manage_github_oidc ? 1 : 0
@@ -273,5 +310,5 @@ resource "aws_iam_role_policy_attachment" "github_governance_readonly" {
   count = var.manage_github_oidc ? 1 : 0
 
   role       = aws_iam_role.github_governance[0].name
-  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+  policy_arn = "arn:aws:iam::aws:policy/SecurityAudit"
 }

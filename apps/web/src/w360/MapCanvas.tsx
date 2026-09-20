@@ -895,9 +895,12 @@ export default function MapCanvas({
             L.DomEvent.stop(e);
             if (!editAt(e)) plotClickRef.current?.({ lp: plot.lp, ac: plot.ac, ring: plot.ring });
           });
-          poly.bindTooltip(
-            plot.ac ? `Plot ${plot.lp} · ${plot.ac} ac` : `Plot ${plot.lp}`,
-            { sticky: true });
+          // A tooltip given as a string is assigned as innerHTML, and a plot
+          // number is whatever a <name> in an uploaded KMZ said it was. Same
+          // rule as textIcon and the mark labels above: it goes in as text.
+          const tip = document.createElement('span');
+          tip.textContent = plot.ac ? `Plot ${plot.lp} · ${plot.ac} ac` : `Plot ${plot.lp}`;
+          poly.bindTooltip(tip, { sticky: true });
         }
         poly.addTo(g);
       }

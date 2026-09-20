@@ -381,14 +381,15 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
   const sub = parcel.subdivision ? '/' + parcel.subdivision : '';
   const boundaryLabel = !parcel.geoPoint ? 'Approximate' : parcel.geoPoint.includes('Polygon') ? 'Exact boundary' : 'Point set';
   // Rich hover-tooltip / click-popup for the map pin (source parity).
-  const pinInfoHtml =
-    `<div style="min-width:190px;line-height:1.55">` +
-    `<div style="font-weight:600;font-size:13px">Survey ${parcel.surveyNo}${sub}</div>` +
-    `<div>${formatArea(Number(parcel.extent))} &middot; ${parcel.classification || '—'}</div>` +
-    `<div>📍 ${addressLine}</div>` +
-    `<div>Owner: ${parcel.currentOwner || '—'}</div>` +
-    `<div>${boundaryLabel}${parcel.geoPoint ? ' &middot; ' + geoLabel(parcel.geoPoint) : ''}</div>` +
-    `</div>`;
+  const pinInfo = {
+    title: `Survey ${parcel.surveyNo}${sub}`,
+    lines: [
+      `${formatArea(Number(parcel.extent))} · ${parcel.classification || '—'}`,
+      `📍 ${addressLine}`,
+      `Owner: ${parcel.currentOwner || '—'}`,
+      `${boundaryLabel}${parcel.geoPoint ? ' · ' + geoLabel(parcel.geoPoint) : ''}`,
+    ],
+  };
 
   return (
     <Box>
@@ -454,7 +455,7 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
           )}
         </Box>
       </Box>
-      <GeoMap value={draft} onChange={setDraft} drawMode={drawMode} height={430} showSearch label={pinInfoHtml} autoLocate={geoCandidates} />
+      <GeoMap value={draft} onChange={setDraft} drawMode={drawMode} height={430} showSearch label={pinInfo} autoLocate={geoCandidates} />
       {ring.length >= 3 ? (
         <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
           <SectionCard title="Boundary measurements">

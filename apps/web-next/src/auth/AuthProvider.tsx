@@ -17,10 +17,10 @@
  * the library refreshes an expired access token automatically via the stored
  * refresh token — then falls back to the oidc user.
  *
- * MOCK MODE: when NEXT_PUBLIC_COGNITO_AUTHORITY is unset (or empty), auth
- * becomes a local stub — a dev user is "signed in" automatically so
- * `bun run dev` works before the user pool exists. The AppShell shows a
- * visible "Auth mocked — dev only" chip in this mode.
+ * MOCK MODE: in a non-production build, when NEXT_PUBLIC_COGNITO_AUTHORITY is
+ * unset (or empty), auth becomes a local stub — a dev user is "signed in"
+ * automatically so `bun run dev` works before the user pool exists. The
+ * AppShell shows a visible "Auth mocked — dev only" chip in this mode.
  */
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -36,8 +36,10 @@ import {
 
 const authority = process.env.NEXT_PUBLIC_COGNITO_AUTHORITY;
 
-/** True when no Cognito pool is configured — local stub auth is active. */
-export const isAuthMocked = !authority;
+/** True when no Cognito pool is configured — local stub auth is active. A
+ *  production build never stubs: a missing authority there fails closed (no
+ *  sign-in at all) rather than signing a stranger in as the dev user. */
+export const isAuthMocked = !authority && process.env.NODE_ENV !== 'production';
 
 /** Minimal user shape the UI needs (works in both real and mock mode). */
 export interface AuthUser {

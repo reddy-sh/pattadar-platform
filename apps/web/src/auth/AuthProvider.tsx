@@ -24,7 +24,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import type { User } from 'oidc-client-ts';
-import { apiFetch, setAccessTokenProvider } from '../api/client';
+import { apiFetch, setAccessTokenProvider, setUnauthorizedHandler } from '../api/client';
 import {
   getNativeSession,
   hasNativeUser,
@@ -235,12 +235,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })().finally(() => {
       if (!cancelled) setIsLoading(false);
     });
+    // A 401 from the gateway is the end of this tab's session: the refresh
+    // token died, or a silent renew failed. Dropping the user makes RequireAuth
+    // send them to /login with the path they were on, instead of leaving them
+    // signed-in-looking in front of panels that can never load.
+    let ended = false;
+    setUnauthorizedHandler(() => {
+      if (cancelled || ended) return;
+      ended = true;
+      void (async () => {
+        signOutNative();
+        await userManager?.removeUser();
+        setUser(null);
+      })();
+    });
     const onLoaded = (u: User) => setUser(toAuthUser(u));
     const onUnloaded = () => setUser(null);
     userManager?.events.addUserLoaded(onLoaded);
     userManager?.events.addUserUnloaded(onUnloaded);
     return () => {
       cancelled = true;
+      setUnauthorizedHandler(() => {});
       userManager?.events.removeUserLoaded(onLoaded);
       userManager?.events.removeUserUnloaded(onUnloaded);
     };

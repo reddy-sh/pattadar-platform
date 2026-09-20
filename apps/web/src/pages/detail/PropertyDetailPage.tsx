@@ -39,6 +39,7 @@ import Typography from '@mui/material/Typography';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { sampleDocuments, sampleGroups, sampleProperties } from '@pattadar/core';
 import { gql } from '../../api/client';
+import { escapeHtml } from '../../components/escapeHtml';
 import { GeoMap } from '../../components/GeoMapLazy';
 import { useLiveOrSample } from '../../data/useLiveOrSample';
 import { deleteProperty } from '../../data/pattadarActions';
@@ -538,7 +539,7 @@ export function PropertyDetailPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         {p.geoPoint ? 'Stored location.' : `Approximate area — ${addressLine}.`}
       </Typography>
-      <GeoMap value={p.geoPoint || undefined} readOnly showSearch={false} height={430} label={p.label || 'Property'} autoLocate={mapQuery} />
+      <GeoMap value={p.geoPoint || undefined} readOnly showSearch={false} height={430} label={escapeHtml(p.label || 'Property')} autoLocate={mapQuery} />
     </Box>
   );
 

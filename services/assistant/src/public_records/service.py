@@ -146,6 +146,9 @@ class PublicRecordsService:
             "semantic_search_ready": False,
         }
 
+    async def close(self) -> None:
+        await self.db.close()
+
     async def capabilities(self, *, force: bool = False) -> dict[str, Any]:
         """Return a short-lived, redacted readiness summary."""
         async with self._capability_lock:

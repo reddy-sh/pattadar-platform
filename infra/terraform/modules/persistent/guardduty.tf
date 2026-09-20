@@ -150,7 +150,7 @@ resource "aws_guardduty_malware_protection_plan" "documents" {
 
   actions {
     tagging {
-      status = "ENABLED" # tag objects with scan verdict; enforce via bucket policy later
+      status = "ENABLED" # tag objects with scan verdict; DenyReadOfInfectedDocuments (s3.tf) enforces it
     }
   }
 

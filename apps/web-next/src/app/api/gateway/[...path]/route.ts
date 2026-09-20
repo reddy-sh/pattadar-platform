@@ -3,6 +3,10 @@
 // Each branch refuses independently when its target env is unset.
 import { NextRequest } from 'next/server';
 
+// This route injects identity. A production build refuses it outright, so no
+// ops mistake with the DEV_* vars can re-open header identity injection.
+const DEV_ONLY = process.env.NODE_ENV !== 'production';
+
 const API = process.env.DEV_API_TARGET;         // http://localhost:8080  (pattadar API, 'pattadar/' prefix stripped)
 const GATEWAY = process.env.DEV_GATEWAY_TARGET; // http://localhost:8082  (storage/admin/assistant, Bearer passthrough)
 const DEV_USER = process.env.DEV_USER_ID;       // injected as x-user-id on direct-API calls only
@@ -12,6 +16,7 @@ export const dynamic = 'force-dynamic';
 const HOP = ['host', 'connection', 'content-encoding', 'content-length', 'transfer-encoding'];
 
 async function forward(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  if (!DEV_ONLY) return new Response('dev proxy disabled', { status: 404 });
   const { path } = await params;
   const direct = path[0] === 'pattadar';
   const target = direct ? API : GATEWAY;

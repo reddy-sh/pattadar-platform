@@ -42,7 +42,7 @@ export const GROUPS_QUERY = `query { groups { id ownerUserId type name descripti
  * Members of one group (the web useGroups selection). The server does NOT
  * return groupId — the caller stamps it client-side.
  */
-export const GROUP_MEMBERS_QUERY = `query($gid: String!) { members(groupId: $gid) { id name relation gender dob phone email bio presentAddress photo role isSelf isBeneficiary sharePct status inviteStatus inviteToken aadhaarMasked phoneVerified emailVerified } }`;
+export const GROUP_MEMBERS_QUERY = `query($gid: String!) { members(groupId: $gid) { id name relation gender dob phone email bio presentAddress photo role isSelf isBeneficiary sharePct status inviteStatus inviteToken aadhaarMasked phoneVerified emailVerified fatherId motherId spouseId kind parcelId guardianName guardianContact maritalStatus spouseName spouseContact spouseStatus } }`;
 
 /** Lightweight per-group member states for dashboard rings. */
 export const GROUP_MEMBER_STATES_QUERY = `query($gid: String!) { members(groupId: $gid) { isSelf status } }`;
@@ -151,10 +151,15 @@ export const DELETE_REGISTERED_DOCUMENT_MUTATION = `mutation($id:String!){ delet
 
 export const SET_MEMBER_SHARE_MUTATION = `mutation($id:String!,$pct:Float!){ setMemberShare(id:$id, sharePct:$pct){ id sharePct } }`;
 
-/** Full-field member edit. Every field must be supplied — the resolver writes
- * them all — so callers MUST send current values for anything unchanged.
+/** Full-field member edit. Every writable field the resolver owns is declared
+ * here, and callers MUST send current values for anything unchanged: an
+ * omitted field is written blank, so a screen that edits a phone number must
+ * still echo back what GROUP_MEMBERS_QUERY returned for the tree links,
+ * guardian, spouse record, beneficiary kind and parcel scope — or the member
+ * loses them. The inheritance fields are nullable so a client that predates
+ * them still validates.
  * (The API preserves the stored Aadhaar when `aadhaar` is sent empty.) */
-export const UPDATE_MEMBER_MUTATION = `mutation($id:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$isBeneficiary:Boolean!,$sharePct:Float!,$presentAddress:String!,$aadhaar:String!,$aadhaarCandidateId:String!){ updateMember(id:$id,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,isBeneficiary:$isBeneficiary,sharePct:$sharePct,presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId){ id } }`;
+export const UPDATE_MEMBER_MUTATION = `mutation($id:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$fatherId:String,$motherId:String,$spouseId:String,$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String,$parcelId:String,$presentAddress:String!,$aadhaar:String!,$aadhaarCandidateId:String!,$guardianName:String,$guardianContact:String,$maritalStatus:String,$spouseName:String,$spouseContact:String,$spouseStatus:String){ updateMember(id:$id,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId,guardianName:$guardianName,guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,spouseContact:$spouseContact,spouseStatus:$spouseStatus){ id } }`;
 
 export const REVEAL_AADHAAR_MUTATION = `mutation($id:String!){ revealMemberAadhaar(id:$id) }`;
 

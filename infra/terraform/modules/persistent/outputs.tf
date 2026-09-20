@@ -72,6 +72,11 @@ output "cognito_spa_client_id" {
   value       = aws_cognito_user_pool_client.spa.id
 }
 
+output "cognito_local_dev_client_id" {
+  description = "Loopback-callback app client id for local development (VITE_COGNITO_CLIENT_ID on a laptop; null when enable_local_dev_client = false)."
+  value       = one(aws_cognito_user_pool_client.local_dev[*].id)
+}
+
 output "cognito_mobile_client_id" {
   description = "Native iOS app client id (second entry in the gateway's COGNITO_CLIENT_ID allowlist)."
   value       = aws_cognito_user_pool_client.mobile.id

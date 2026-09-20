@@ -1,5 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { AppState, type NativeEventSubscription } from 'react-native';
 
 /**
  * Gate for showing or copying a full Aadhaar number.
@@ -27,16 +28,47 @@ export async function authenticateForReveal(reason: string): Promise<boolean> {
   return res.success;
 }
 
-/** Copy raw digits (portals reject separators) and clear the pasteboard later. */
+let pendingClear: { timer: ReturnType<typeof setTimeout>; watch: NativeEventSubscription } | null = null;
+
+function cancelPendingClear(): void {
+  if (!pendingClear) return;
+  clearTimeout(pendingClear.timer);
+  pendingClear.watch.remove();
+  pendingClear = null;
+}
+
+/**
+ * Copy raw digits (portals reject separators) and clear the pasteboard again.
+ *
+ * The timer alone cannot keep that promise. React Native freezes JS timers
+ * while the app is backgrounded and drops them entirely when the process is
+ * killed — and backgrounding is the whole point of the copy: the number is
+ * going into a government portal in another app. So the clear also runs the
+ * moment this app is resumed, whichever comes first.
+ *
+ * Only a real background counts. The biometric prompt that precedes every
+ * reveal puts iOS into 'inactive' and back, which would otherwise wipe the
+ * number before the user ever left to paste it.
+ */
 export async function copySensitive(value: string, clearAfterMs = 60_000): Promise<void> {
   const digits = value.replace(/\D/g, '');
+  cancelPendingClear();
   await Clipboard.setStringAsync(digits);
-  setTimeout(() => {
+  const clear = () => {
+    cancelPendingClear();
     // Only clear if it is still ours — never clobber something the user copied since.
     Clipboard.getStringAsync()
       .then((cur) => (cur === digits ? Clipboard.setStringAsync('') : undefined))
       .catch(() => undefined);
-  }, clearAfterMs);
+  };
+  let left = false;
+  pendingClear = {
+    timer: setTimeout(clear, clearAfterMs),
+    watch: AppState.addEventListener('change', (state) => {
+      if (state === 'background') left = true;
+      else if (state === 'active' && left) clear();
+    }),
+  };
 }
 
 /** Group digits for display: 1234 1234 8203. */

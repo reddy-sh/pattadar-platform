@@ -33,6 +33,7 @@ import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import type { NotificationEntry } from '@pattadar/core';
 import { EmptyState } from '../components/EmptyState';
+import { LoadFailed } from '../components/LoadFailed';
 import { PageHeader } from '../components/PageHeader';
 import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
@@ -58,7 +59,7 @@ const isFailure = (r: NotificationEntry) => r.status === 'failed' || !!(r.error 
 
 export function NotificationsPage() {
   const queryClient = useQueryClient();
-  const { data: rows, isSample, isLoading } = useNotificationLogList();
+  const { data: rows, isSample, isLoading, refetch } = useNotificationLogList();
   const [scope, setScope] = useState<'all' | 'failures'>('all');
   const [toast, setToast] = useState<Toast | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<NotificationEntry | null>(null);
@@ -150,7 +151,9 @@ export function NotificationsPage() {
         Sent notifications
       </Typography>
 
-      {shown.length === 0 ? (
+      {isSample ? (
+        <LoadFailed what="The notification log" onRetry={refetch} />
+      ) : shown.length === 0 ? (
         <Card>
           <EmptyState
             icon={<NotificationsOutlinedIcon />}

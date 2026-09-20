@@ -5,6 +5,11 @@
  * the legacy sample argument, which now serves only as a shape template) and
  * the view shows a "Service unreachable" chip. While loading, views see the
  * empty shape too (skeletons cover the paint), never fake data.
+ *
+ * The rejection reaches react-query, so a failure is an errored query — it is
+ * never stored as fresh data, it recovers on the next mount or window focus,
+ * and `error`/`refetch` give a screen the Failed state and retry the chip
+ * alone could not.
  */
 import { useQuery } from '@tanstack/react-query';
 
@@ -24,9 +29,19 @@ export function emptyLike<T>(template: T): T {
   return template;
 }
 
-interface Resolved<T> {
-  data: T;
-  isSample: boolean;
+/** The read every legacy screen makes. One definition, so the copy of this
+ *  pattern in pages/families/familiesData.ts cannot drift back into swallowing
+ *  failures. */
+export function liveQueryOptions<T>(queryKey: readonly unknown[], fetchLive: () => Promise<T>) {
+  return {
+    queryKey,
+    // The failure is NOT swallowed into a resolved empty dataset: react-query
+    // has to see the rejection, or an outage is cached as fresh data for
+    // staleTime and the screen keeps claiming the account is empty.
+    queryFn: fetchLive,
+    staleTime: 30_000,
+    retry: false,
+  };
 }
 
 export interface LiveOrSampleResult<T> {
@@ -34,6 +49,10 @@ export interface LiveOrSampleResult<T> {
   /** True once the query resolved via the sample fallback. */
   isSample: boolean;
   isLoading: boolean;
+  /** The failure behind isSample, for screens that can say more than the chip. */
+  error: Error | null;
+  /** Re-run the query — the retry the chip never had. */
+  refetch: () => void;
 }
 
 export function useLiveOrSample<T>(
@@ -41,21 +60,12 @@ export function useLiveOrSample<T>(
   fetchLive: () => Promise<T>,
   sample: T,
 ): LiveOrSampleResult<T> {
-  const q = useQuery({
-    queryKey: ['pattadar', key],
-    queryFn: async (): Promise<Resolved<T>> => {
-      try {
-        return { data: await fetchLive(), isSample: false };
-      } catch {
-        return { data: emptyLike(sample), isSample: true };
-      }
-    },
-    staleTime: 30_000,
-    retry: false,
-  });
+  const q = useQuery(liveQueryOptions(['pattadar', key], fetchLive));
   return {
-    data: q.data?.data ?? emptyLike(sample),
-    isSample: q.data?.isSample ?? false,
+    data: q.data ?? emptyLike(sample),
+    isSample: q.isError,
     isLoading: q.isPending,
+    error: q.error,
+    refetch: () => void q.refetch(),
   };
 }

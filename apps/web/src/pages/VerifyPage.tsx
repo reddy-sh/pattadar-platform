@@ -7,10 +7,15 @@ import Typography from '@mui/material/Typography';
 import { useState } from 'react';
 import { useParams } from 'react-router';
 
-import { gql } from '../api/client';
+import { gql, GraphQLRequestError } from '../api/client';
 import '../styles/site.css';
 
 type State = 'ready' | 'saving' | 'done' | 'invalid' | 'failed';
+
+/** Codes verifyBeneficiary returns for a link that will never work again. Any
+ *  other failure is worth retrying, so the two must not be told apart by the
+ *  wording of an error the server is free to rewrite. */
+const SPENT_LINK_CODES = new Set(['LINK_INVALID', 'LINK_EXPIRED', 'LINK_ALREADY_USED']);
 
 /** Public membership verification with explicit, optional safeguard-email consent. */
 export function VerifyPage() {
@@ -28,8 +33,12 @@ export function VerifyPage() {
       );
       setState(result.verifyBeneficiary ? 'done' : 'invalid');
     } catch (error) {
+      const code = error instanceof GraphQLRequestError ? error.code : undefined;
       const message = error instanceof Error ? error.message.toLowerCase() : '';
-      setState(/invalid|expired|already/.test(message) ? 'invalid' : 'failed');
+      // The prose match stays only as the fallback for servers not yet sending
+      // a code.
+      const spent = code ? SPENT_LINK_CODES.has(code) : /invalid|expired|already/.test(message);
+      setState(spent ? 'invalid' : 'failed');
     }
   };
 

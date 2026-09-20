@@ -2107,6 +2107,29 @@
 }
 .w360 .photo-failed button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 
+/* The poster a filed clip shows until somebody asks for it. A video has no
+   thumbnail to stand in for it — the gateway downscales images only — so this
+   is the whole of what is drawn before the bytes are fetched. */
+.w360 .videostart {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 0.25rem;
+  width: 100%;
+  min-height: 100%;
+  padding: var(--space-md);
+  border: 0;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--w-ink-2);
+  background: var(--w-surface-2);
+  cursor: pointer;
+}
+.w360 span.videostart { cursor: default; }
+.w360 .videostart:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+
 .w360 .skeleton { border-radius: var(--radius-sm); background: var(--w-surface-2); animation: w-pulse 1.4s var(--ease-in-out) infinite; }
 @keyframes w-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
@@ -3933,3 +3956,71 @@
    rows and the dispatch body are deliberately NOT capped — a scan thumbnail
    and a sent message want the room. */
 .w360 .svc-rows { max-width: 48rem; }
+
+/* ── The document reader (W07) ─────────────────────────────────────────── */
+
+/* Three columns: the page rail, the scan, and everything the record knows
+   about it. The template was written inline on the element, which put 7rem of
+   page rail and 24rem of reading panel — 496px — in front of a document on a
+   400px phone, with no rule anywhere able to reach it. Written here it can
+   stack: on a narrow screen the rail lies down above the sheet and the panel
+   goes below it, at 900px, which is the breakpoint the rest of this file
+   already turns two columns into one at. */
+.w360 .rd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24rem;
+  min-height: calc(100vh - 4.5rem);
+}
+.w360 .rd-grid.with-pages { grid-template-columns: 7rem minmax(0, 1fr) 24rem; }
+
+.w360 .rd-pages {
+  border-right: 1px solid var(--w-line);
+  padding: var(--space-md);
+  display: grid;
+  gap: 0.625rem;
+  align-content: start;
+  /* `min-height: 0` is what lets a grid item shrink enough to scroll instead
+     of growing the page, and sticky keeps the rail beside the reading pane
+     while that pane scrolls. */
+  min-height: 0;
+  max-height: calc(100vh - 4.5rem);
+  overflow-y: auto;
+  position: sticky;
+  top: 0;
+}
+
+.w360 .rd-sheet {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  padding: var(--space-lg);
+  gap: var(--space-md);
+}
+.w360 .rd-grid.with-pages .rd-sheet { grid-template-rows: minmax(0, 1fr) auto; }
+
+.w360 .rd-side {
+  border-left: 1px solid var(--w-line);
+  padding: var(--space-lg);
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+
+@media (max-width: 900px) {
+  .w360 .rd-grid,
+  .w360 .rd-grid.with-pages { grid-template-columns: minmax(0, 1fr); }
+  /* A rail that scrolls sideways above the sheet, and no longer sticky: stuck
+     to the top of a narrow screen it would cover the page it indexes. */
+  .w360 .rd-pages {
+    grid-auto-flow: column;
+    grid-auto-columns: 3.5rem;
+    justify-content: start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: static;
+    max-height: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--w-line);
+  }
+  .w360 .rd-side { border-left: 0; border-top: 1px solid var(--w-line); }
+}

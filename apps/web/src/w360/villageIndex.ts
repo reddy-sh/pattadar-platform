@@ -158,6 +158,23 @@ function openRing(ring: Array<[number, number]>): Array<[number, number]> {
   }
   return out;
 }
+/** A plot number as a plot number can look, and nothing else.
+ *
+ *  These labels are read out of the `<name>` of an uploaded KMZ, by a regex
+ *  that constrains nothing, and every user is served every village's file — so
+ *  a name is attacker-typed text that reaches every screen the map is on. It
+ *  is rendered as text everywhere today, which is what makes it safe; this
+ *  keeps it safe for the next renderer as well. Survey numbers are digits,
+ *  subdivision letters and separators ("262/1", "12-A", "839"), so anything
+ *  outside that set is dropped rather than escaped: there is no plot whose
+ *  name it could be. All eight shipped villages pass through unchanged. */
+const plotLabel = (raw: unknown, max: number): string =>
+  String(raw ?? '').replace(/[^0-9A-Za-z/\-. ]/g, '').trim().slice(0, max);
+
+/** Exported for the test that pins the rule; callers read `lp` off the plot. */
+export const plotNumber = (raw: unknown): string => plotLabel(raw, 32);
+export const plotExtent = (raw: unknown): string => plotLabel(raw, 16);
+
 const villageCache = new Map<string, Promise<VillagePlot[] | null>>();
 
 
@@ -201,8 +218,8 @@ export function loadVillage(name: string): Promise<VillagePlot[] | null> {
         properties?: Record<string, string>;
         geometry?: { coordinates?: number[][][] };
       }) => ({
-        lp: String(f.properties?.lp ?? ''),
-        ac: f.properties?.ac,
+        lp: plotNumber(f.properties?.lp),
+        ac: plotExtent(f.properties?.ac) || undefined,
         chaltha: f.properties?.chaltha,
         // GeoJSON is lon-first; Leaflet wants lat-first. And RFC 7946 rings
         // are CLOSED — the first corner repeated as the last — while we store

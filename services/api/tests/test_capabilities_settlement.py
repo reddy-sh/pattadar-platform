@@ -25,9 +25,9 @@ from src import capabilities as c, ticketing as t, web360 as w
 
 BASE = [
     "CREATE TABLE land_features (id TEXT PRIMARY KEY)",
-    "CREATE TABLE passbooks (id TEXT PRIMARY KEY,owner_user_id TEXT,pattadar_no TEXT,village TEXT,mandal TEXT,district TEXT,owner_name TEXT,state TEXT)",
+    "CREATE TABLE passbooks (id TEXT PRIMARY KEY,owner_user_id TEXT,pattadar_no TEXT,village TEXT,mandal TEXT,district TEXT,owner_name TEXT,state TEXT,group_id TEXT DEFAULT '')",
     "CREATE TABLE parcels (id TEXT PRIMARY KEY,passbook_id TEXT,survey_no TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '')",
-    "CREATE TABLE properties (id TEXT PRIMARY KEY,owner_user_id TEXT,label TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '')",
+    "CREATE TABLE properties (id TEXT PRIMARY KEY,owner_user_id TEXT,label TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '',group_id TEXT DEFAULT '')",
     "CREATE TABLE documents (id TEXT PRIMARY KEY,owner_user_id TEXT,name TEXT DEFAULT '',record_id TEXT DEFAULT '',parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '',file_ref TEXT DEFAULT '',subtitle TEXT DEFAULT '',shelf TEXT DEFAULT '',doc_type TEXT DEFAULT '',page_count INT DEFAULT 0,size_bytes BIGINT DEFAULT 0,mime_type TEXT DEFAULT '',source TEXT DEFAULT '',order_ref TEXT DEFAULT '',created_at TEXT DEFAULT '',sort INT DEFAULT 0)",
     "CREATE TABLE parcel_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,parcel_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
     "CREATE TABLE property_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,property_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",

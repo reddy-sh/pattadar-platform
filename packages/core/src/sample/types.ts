@@ -189,6 +189,20 @@ export interface Member {
   presentAddress?: string;
   /** Square data-URL avatar, stored only with the owner's consent. */
   photo?: string;
+  /** Succession record — family-tree links, the guardian a minor's invite goes
+   *  to, the spouse record, and the beneficiary's kind/parcel scope. Every one
+   *  of these must round-trip through an edit or it is wiped. */
+  fatherId?: string;
+  motherId?: string;
+  spouseId?: string;
+  kind?: string;
+  parcelId?: string;
+  guardianName?: string;
+  guardianContact?: string;
+  maritalStatus?: string;
+  spouseName?: string;
+  spouseContact?: string;
+  spouseStatus?: string;
 }
 
 export interface Invitation {

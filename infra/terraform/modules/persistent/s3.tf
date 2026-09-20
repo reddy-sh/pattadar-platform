@@ -247,6 +247,32 @@ data "aws_iam_policy_document" "documents_bucket" {
     }
   }
 
+  # GuardDuty Malware Protection tags each object with its scan verdict
+  # (guardduty.tf). Enforced here rather than in the gateway task role so no
+  # principal — task, human or AI pipeline — can read an infected upload.
+  # Only THREATS_FOUND is denied: an untagged object is one the scan has not
+  # reached yet, and denying those would stall every fresh upload.
+  statement {
+    sid    = "DenyReadOfInfectedDocuments"
+    effect = "Deny"
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+    ]
+    resources = ["${aws_s3_bucket.documents.arn}/*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:ExistingObjectTag/GuardDutyMalwareScanStatus"
+      values   = ["THREATS_FOUND"]
+    }
+  }
+
   dynamic "statement" {
     for_each = var.enforce_documents_sse_kms_headers ? [1] : []
 

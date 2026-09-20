@@ -62,7 +62,6 @@ data "aws_iam_policy_document" "execution_secrets" {
     resources = concat([
       local.persistent.secret_arns["anthropic-api-key"],
       local.persistent.secret_arns["cron-secret"],
-      aws_secretsmanager_secret.db_dsn.arn,
       aws_secretsmanager_secret.db_app_password.arn,
       ], var.enable_aadhaar_legacy_fernet ? [
       local.persistent.secret_arns["aadhaar-legacy-fernet-key"],
@@ -299,6 +298,14 @@ resource "aws_ecs_task_definition" "api" {
         { name = "APP_PUBLIC_URL", value = "https://${var.web_domain}" },
         { name = "PAYMENTS_MODE", value = var.payments_mode },
         { name = "RAZORPAY_LIVE_CONFIRMED", value = var.razorpay_live_confirmed ? "1" : "0" },
+        # Same pattadar_app parts the gateway and assistant take. The api used
+        # to receive a DSN composed from the RDS-managed MASTER credential,
+        # which rotates ~7d and stranded every new connection until an
+        # operator re-applied; the master credential is no longer deployed.
+        { name = "PG_HOST", value = aws_db_instance.main.address },
+        { name = "PG_PORT", value = "5432" },
+        { name = "PG_USER", value = "pattadar_app" },
+        { name = "PG_DATABASE", value = "hub" },
       ]
 
       # CRON_SECRET is ALWAYS set (invariant): /cron/inactivity-check rejects
@@ -306,7 +313,7 @@ resource "aws_ecs_task_definition" "api" {
       secrets = concat([
         { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
         { name = "CRON_SECRET", valueFrom = local.persistent.secret_arns["cron-secret"] },
-        { name = "APP_PG_DSN", valueFrom = aws_secretsmanager_secret.db_dsn.arn },
+        { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
         ], var.enable_aadhaar_legacy_fernet ? [
         { name = "AADHAAR_ENC_KEY", valueFrom = local.persistent.secret_arns["aadhaar-legacy-fernet-key"] },
       ] : [], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }])
@@ -331,8 +338,17 @@ resource "aws_ecs_service" "gateway" {
   name            = "gateway"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.gateway.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
+
+  # deploy-release.py registers digest-pinned revisions and points the service
+  # at them. Terraform still owns the task-definition template (env, secrets,
+  # roles), but must not drag the service back to the revision built from the
+  # *_image_tag variables: those are mutable tags that no longer track a
+  # release, so an apply would silently roll production back to stale images.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+  desired_count = var.desired_count
+  launch_type   = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -363,8 +379,17 @@ resource "aws_ecs_service" "api" {
   name            = "api"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
+
+  # deploy-release.py registers digest-pinned revisions and points the service
+  # at them. Terraform still owns the task-definition template (env, secrets,
+  # roles), but must not drag the service back to the revision built from the
+  # *_image_tag variables: those are mutable tags that no longer track a
+  # release, so an apply would silently roll production back to stale images.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+  desired_count = var.desired_count
+  launch_type   = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -470,6 +495,17 @@ resource "aws_ecs_task_definition" "assistant" {
         { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
       ]
 
+      # The assistant sits behind no target group, so without this ECS replaces
+      # it only when the process exits: a wedged event loop or an exhausted
+      # connection pool stays RUNNING while every chat request times out.
+      healthCheck = {
+        command     = ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)\""]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 30
+      }
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -488,8 +524,17 @@ resource "aws_ecs_service" "assistant" {
   name            = "assistant"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.assistant.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
+
+  # deploy-release.py registers digest-pinned revisions and points the service
+  # at them. Terraform still owns the task-definition template (env, secrets,
+  # roles), but must not drag the service back to the revision built from the
+  # *_image_tag variables: those are mutable tags that no longer track a
+  # release, so an apply would silently roll production back to stale images.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+  desired_count = var.desired_count
+  launch_type   = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -586,8 +631,17 @@ resource "aws_ecs_service" "web" {
   name            = "web"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.web[0].arn
-  desired_count   = var.web_desired_count
-  launch_type     = "FARGATE"
+
+  # deploy-release.py registers digest-pinned revisions and points the service
+  # at them. Terraform still owns the task-definition template (env, secrets,
+  # roles), but must not drag the service back to the revision built from the
+  # *_image_tag variables: those are mutable tags that no longer track a
+  # release, so an apply would silently roll production back to stale images.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+  desired_count = var.web_desired_count
+  launch_type   = "FARGATE"
 
   network_configuration {
     subnets          = aws_subnet.public[*].id

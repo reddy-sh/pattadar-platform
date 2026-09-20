@@ -201,6 +201,14 @@ export default function VillageCanvas({
   const failedTiles = useRef(new Map<L.TileLayer, Set<HTMLElement>>());
   const labelBox = useRef<HTMLDivElement | null>(null);
   const shapes = useRef<Map<string, L.Polygon>>(new Map());
+  /** A plot's extent, by its number. Restyling one polygon has to be a lookup
+   *  and not a scan of the village: Munagapadu is 2,729 plots and the pointer
+   *  crossing one fires this twice. */
+  const acresOf = useRef<Map<string, number>>(new Map());
+  /** What the last hover/selection pass painted, so the next one repaints
+   *  those polygons instead of all of them. */
+  const lit = useRef<{ selected: string | null; hovered: string | null }>(
+    { selected: null, hovered: null });
   const fittedFor = useRef<string>('');
   const tape = useRef<Array<[number, number]>>([]);
   const watcher = useRef<ResizeObserver | null>(null);
@@ -355,6 +363,30 @@ export default function VillageCanvas({
     }
   }, [mode]);
 
+  /** What a plot wears when it is neither selected nor hovered. */
+  const plainStyle = (lp: string): L.PathOptions => {
+    const shaded = mode === 'extent';
+    const band = shaded ? bandOf(acresOf.current.get(lp) ?? 0).hex : '';
+    return {
+      color: shaded ? band
+        : mode === 'street' ? EDGE_ON_STREET
+        : mode === 'boundaries' ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.52)',
+      weight: shaded ? 0.7 : 0.9,
+      fillColor: shaded ? band : '#ffffff',
+      // Never zero. A polygon with no fill at all is not hit-tested, and the
+      // whole screen is built on being able to click a field.
+      fillOpacity: shaded ? 0.46 : 0.001,
+    };
+  };
+
+  /** The selected plot, and the hovered one a step lighter. */
+  const litStyle = (isSelected: boolean): L.PathOptions => ({
+    color: isSelected ? ACCENT : HOVER,
+    weight: isSelected ? 2.6 : 2,
+    fillColor: isSelected ? ACCENT : HOVER,
+    fillOpacity: isSelected ? 0.34 : 0.16,
+  });
+
   // ── The plots ───────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -364,6 +396,8 @@ export default function VillageCanvas({
     group.clearLayers();
     edges.clearLayers();
     shapes.current.clear();
+    acresOf.current = new Map(plots.map((p) => [p.lp, p.acres]));
+    lit.current = { selected: null, hovered: null };
 
     // ── The mandal: every village on record, none of them opened ──────
     if (overview?.length) {
@@ -411,19 +445,13 @@ export default function VillageCanvas({
       }).addTo(edges);
     }
 
-    const shaded = mode === 'extent';
     for (const p of plots) {
+      const isSelected = p.lp === selected;
+      const isHot = !isSelected && p.lp === hovered;
       const poly = L.polygon(p.ring as L.LatLngTuple[], {
         renderer: renderer.current ?? undefined,
-        color: shaded ? bandOf(p.acres).hex
-          : mode === 'street' ? EDGE_ON_STREET
-          : mode === 'boundaries' ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.52)',
-        weight: shaded ? 0.7 : 0.9,
         fill: true,
-        fillColor: shaded ? bandOf(p.acres).hex : '#ffffff',
-        // Never zero. A polygon with no fill at all is not hit-tested, and the
-        // whole screen is built on being able to click a field.
-        fillOpacity: shaded ? 0.46 : 0.001,
+        ...(isSelected || isHot ? litStyle(isSelected) : plainStyle(p.lp)),
       });
       poly.on('mouseover', () => live.current.onHover(p.lp));
       poly.on('mouseout', () => live.current.onHover(null));
@@ -433,8 +461,10 @@ export default function VillageCanvas({
         live.current.onSelect(p.lp);
       });
       poly.addTo(group);
+      if (isSelected || isHot) poly.bringToFront();
       if (!shapes.current.has(p.lp)) shapes.current.set(p.lp, poly);
     }
+    lit.current = { selected, hovered };
 
     if (fittedFor.current !== village) {
       fitNow();
@@ -444,33 +474,34 @@ export default function VillageCanvas({
   }, [plots, outline, mode, village, overview]);
 
   // ── Hover and selection, restyled in place ──────────────────────────
+  //
+  // Only the plots that changed. Walking all of them was a full canvas repaint
+  // per pointer move — and the pointer crossing one plot fires this twice,
+  // once for the mouseout of the plot it left and once for the mouseover of
+  // the one it entered. A mode change does not come through here at all: the
+  // plots effect above rebuilds every polygon in the new mode already.
+  //
+  // The labels are not repainted either. They are written from `selected`, and
+  // the label effect below already has `selected` in its deps; a hover
+  // repainted the whole overlay to produce the identical DOM.
   useEffect(() => {
-    const shaded = mode === 'extent';
-    for (const [lp, poly] of shapes.current) {
-      const isSel = lp === selected;
-      const isHot = !isSel && lp === hovered;
-      if (!isSel && !isHot) {
-        poly.setStyle({
-          color: shaded ? bandOf(fromLp(plots, lp)).hex
-            : mode === 'street' ? EDGE_ON_STREET
-            : mode === 'boundaries' ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.52)',
-          weight: shaded ? 0.7 : 0.9,
-          fillColor: shaded ? bandOf(fromLp(plots, lp)).hex : '#ffffff',
-          fillOpacity: shaded ? 0.46 : 0.001,
-        });
+    const was = lit.current;
+    lit.current = { selected, hovered };
+    for (const lp of new Set([was.selected, was.hovered, selected, hovered])) {
+      if (!lp) continue;
+      const poly = shapes.current.get(lp);
+      if (!poly) continue;
+      const isSelected = lp === selected;
+      const isHot = !isSelected && lp === hovered;
+      if (!isSelected && !isHot) {
+        poly.setStyle(plainStyle(lp));
         continue;
       }
-      poly.setStyle({
-        color: isSel ? ACCENT : HOVER,
-        weight: isSel ? 2.6 : 2,
-        fillColor: isSel ? ACCENT : HOVER,
-        fillOpacity: isSel ? 0.34 : 0.16,
-      });
+      poly.setStyle(litStyle(isSelected));
       poly.bringToFront();
     }
-    paintLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, hovered, mode, plots]);
+  }, [selected, hovered]);
 
   // ── Labels ──────────────────────────────────────────────────────────
   const paintLabels = () => {
@@ -750,6 +781,3 @@ export default function VillageCanvas({
 
   return <div className="vc-map" ref={hostRef} />;
 }
-
-const fromLp = (plots: PlotFacts[], lp: string) =>
-  plots.find((p) => p.lp === lp)?.acres ?? 0;

@@ -23,7 +23,22 @@ variable "noncurrent_version_expiration_days" {
 }
 
 variable "enforce_documents_sse_kms_headers" {
-  description = "Deny document PutObject requests without the expected explicit SSE-KMS key. Enable only after every writer revision is deployed and verified."
+  description = <<-EOT
+    Deny document PutObject requests that omit the explicit SSE-KMS headers for
+    the app CMK. Defence in depth only — the bucket already applies SSE-KMS with
+    that key by default, so flipping this changes nothing about how objects are
+    encrypted, it only rejects writers that do not say so.
+
+    Enabling it is a SEPARATE, REVIEWED apply that must land AFTER every writer
+    revision is deployed, because the deny hits mixed/old tasks immediately.
+    Writers audited 2026-09-19, all sending ServerSideEncryption=aws:kms +
+    SSEKMSKeyId: services/gateway/src/storage.py (_put_args, unless the
+    local-only PATTADAR_ALLOW_UNENCRYPTED_LOCAL escape is set),
+    services/assistant/src/adapters/attachment_store.py and
+    services/assistant/scripts/migrate_attachments.py. GuardDuty's malware-plan
+    validation object (guardduty.tf) relies on bucket default encryption and
+    sends no headers — confirm the plan still validates after the flip.
+  EOT
   type        = bool
   default     = false
 }
@@ -46,12 +61,37 @@ variable "parking_storage_class" {
   }
 }
 
+# --- Audit trail ---
+
+variable "cloudtrail_object_lock_retention_days" {
+  description = "Object Lock GOVERNANCE retention on new CloudTrail objects. Must stay below the bucket's 400-day expiry or the lifecycle rule cannot delete them. GOVERNANCE (not COMPLIANCE) so a DPDP erasure order stays executable by a principal holding s3:BypassGovernanceRetention."
+  type        = number
+  default     = 365
+
+  validation {
+    condition     = var.cloudtrail_object_lock_retention_days > 0 && var.cloudtrail_object_lock_retention_days < 400
+    error_message = "cloudtrail_object_lock_retention_days must be between 1 and 399 — the CloudTrail bucket expires objects at 400 days and a longer lock would make that lifecycle rule permanently fail."
+  }
+}
+
+variable "trail_documents_data_events" {
+  description = "Record S3 object-level WRITE events (PutObject, DeleteObject, ...) on the documents bucket in CloudTrail. Reads stay out: S3 server access logging already covers them, and data events are billed per event."
+  type        = bool
+  default     = true
+}
+
 # --- Container registry ---
 
 variable "ecr_keep_last_images" {
   description = "Number of images retained per ECR repository."
   type        = number
   default     = 10
+}
+
+variable "ecr_untagged_expiry_days" {
+  description = "Days an untagged image layer survives before expiry. Untagged images are swept first so they do not consume the ecr_keep_last_images budget and push a still-referenced release image out of the registry."
+  type        = number
+  default     = 14
 }
 
 # --- Domain / email ---
@@ -71,7 +111,30 @@ variable "dmarc_rua_email" {
 # --- Cognito SPA client ---
 
 variable "spa_callback_urls" {
-  description = "OAuth callback URLs for the SPA app client (hosted-UI code flow)."
+  description = "OAuth callback URLs for the SPA app client (hosted-UI code flow). Production client: https only — loopback spellings belong on the local-dev client below."
+  type        = list(string)
+  default     = ["https://pattadar.com/auth/callback"]
+}
+
+variable "spa_logout_urls" {
+  description = "Allowed sign-out redirect URLs for the SPA app client."
+  type        = list(string)
+  default     = ["https://pattadar.com/"]
+}
+
+# --- Cognito local-dev client ---
+# A second public client on the SAME pool, so a laptop keeps the pool's Google
+# IdP and real users while the production SPA client stays https-only. Its
+# id is `cognito_local_dev_client_id` (VITE_COGNITO_CLIENT_ID for local runs).
+
+variable "enable_local_dev_client" {
+  description = "Create a loopback-callback app client for local development. Enable in the env whose pool developers sign in against; the dev env's own SPA client already carries loopback URLs."
+  type        = bool
+  default     = false
+}
+
+variable "local_dev_callback_urls" {
+  description = "OAuth callback URLs for the local-dev app client."
   type        = list(string)
   # Cognito matches redirect_uri byte-for-byte, and the SPA sends its
   # browsing origin — so localhost and 127.0.0.1 are DIFFERENT callbacks.
@@ -79,7 +142,6 @@ variable "spa_callback_urls" {
   # loopback spellings were registered (http is only allowed on loopback,
   # so this widens nothing for the internet).
   default = [
-    "https://pattadar.com/auth/callback",
     "http://localhost:5173/auth/callback",
     "http://127.0.0.1:5173/auth/callback",
     "http://localhost:5180/auth/callback",
@@ -87,11 +149,10 @@ variable "spa_callback_urls" {
   ]
 }
 
-variable "spa_logout_urls" {
-  description = "Allowed sign-out redirect URLs for the SPA app client."
+variable "local_dev_logout_urls" {
+  description = "Allowed sign-out redirect URLs for the local-dev app client."
   type        = list(string)
   default = [
-    "https://pattadar.com/",
     "http://localhost:5173/",
     "http://127.0.0.1:5173/",
     "http://localhost:5180/",
@@ -105,6 +166,21 @@ variable "github_repository" {
   description = "GitHub repository (owner/name) trusted by the OIDC deploy role."
   type        = string
   default     = "reddy-sh/pattadar-platform"
+}
+
+# Read with:
+#   gh api /users/reddy-sh --jq .id
+#   gh api /repos/reddy-sh/pattadar-platform --jq .id
+variable "github_owner_id" {
+  description = "Numeric GitHub owner id. Empty falls the immutable OIDC subject back to an owner@*/repo@* wildcard, which is trust-by-name only — a deleted-and-resquatted repo would still be trusted."
+  type        = string
+  default     = "204504651"
+}
+
+variable "github_repository_id" {
+  description = "Numeric GitHub repository id. Empty falls the immutable OIDC subject back to an owner@*/repo@* wildcard, which is trust-by-name only."
+  type        = string
+  default     = "1311998193"
 }
 
 # --- Account-singleton toggles ---

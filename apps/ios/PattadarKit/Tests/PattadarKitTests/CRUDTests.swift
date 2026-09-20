@@ -121,7 +121,8 @@ func groupLifecycle() async throws {
         "gender": "", "dob": "", "phone": "9999900000", "email": "", "bio": "", "photo": "",
         "fatherId": "", "motherId": "", "spouseId": "",
         "isBeneficiary": true, "sharePct": 50.0, "kind": "", "parcelId": "",
-        "presentAddress": "", "aadhaar": "", "guardianName": "", "guardianContact": "",
+        "presentAddress": "", "aadhaar": "", "aadhaarCandidateId": "",
+        "guardianName": "", "guardianContact": "",
         "maritalStatus": "", "spouseName": "", "spouseContact": "", "spouseStatus": "",
     ], as: AddedMember.self)
     let memberID = try #require(added.addMember?.id)

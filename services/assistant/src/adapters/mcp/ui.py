@@ -15,12 +15,19 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool as sdk_tool
 
-from ...domain.tool_policy import safe_navigation
+from ...domain.tool_policy import (
+    MAX_FIELD_VALUE_CHARS,
+    declared_field,
+    declared_form,
+    safe_form_fields,
+    safe_navigation,
+)
 
 
-def build_ui_server(navigation: list[dict]):
-    """Build the UI tool server for one turn's navigation tree."""
+def build_ui_tools(navigation: list[dict], forms: list[dict] | None = None) -> list[Any]:
+    """Build the UI SDK tool surface for one turn's navigation tree and forms."""
     nav_lookup = safe_navigation(navigation)
+    form_fields = safe_form_fields(forms or [])
 
     @sdk_tool("navigate_user", "Navigate to a Pattadar page.", {"page": str})
     async def navigate_user(args: dict[str, Any]) -> dict[str, Any]:
@@ -48,18 +55,31 @@ def build_ui_server(navigation: list[dict]):
 
     @sdk_tool("fill_field", "Fill a field in the visible Pattadar form without submitting.", {"field": str, "value": str})
     async def fill_field(args: dict[str, Any]) -> dict[str, Any]:
-        payload = {"action": "fill_field", "args": {"field": str(args["field"]), "value": str(args["value"])}}
+        field = declared_field(form_fields, str(args["field"]))
+        if not field:
+            return {"content": [{"type": "text", "text": "No such field on the visible page."}], "is_error": True}
+        value = str(args["value"])
+        if len(value) > MAX_FIELD_VALUE_CHARS:
+            return {"content": [{"type": "text", "text": "That value is too long for this field."}], "is_error": True}
+        payload = {"action": "fill_field", "args": {"field": field, "value": value}}
         return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
     @sdk_tool("submit_form", "Submit the visible Pattadar form after an explicit user request.", {"form": str})
     async def submit_form(args: dict[str, Any]) -> dict[str, Any]:
-        payload = {"action": "submit_form", "args": {"form": str(args.get("form") or "")}}
+        form = declared_form(form_fields, str(args.get("form") or ""))
+        if not form:
+            return {"content": [{"type": "text", "text": "No such form on the visible page."}], "is_error": True}
+        payload = {"action": "submit_form", "args": {"form": form}}
         return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
+    return [navigate_user, set_filter, open_record, fill_field, submit_form]
+
+
+def build_ui_server(navigation: list[dict], forms: list[dict] | None = None):
     return create_sdk_mcp_server(
         # Informational only. The tool prefix comes from the mcp_servers
         # key (pattadar_ui) in adapters/agent_runtime.py, not from this.
         name="pattadar_ui",
         version="1.0.0",
-        tools=[navigate_user, set_filter, open_record, fill_field, submit_form],
+        tools=build_ui_tools(navigation, forms),
     )

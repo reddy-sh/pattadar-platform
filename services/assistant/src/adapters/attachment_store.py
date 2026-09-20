@@ -65,8 +65,14 @@ async def read_attachment_bytes(row: dict) -> bytes:
     if not path or path.startswith('db:'):
         raise AttachmentUnavailable('Attachment bytes are unavailable')
     # Compatibility until the pre-rollout backfill migrates existing files.
+    # A row is metadata, not a capability: confine it to the legacy volume the
+    # same way scripts/migrate_attachments.py does.
     try:
-        return await asyncio.to_thread(Path(path).read_bytes)
+        legacy = Path(path).resolve()
+        root = Path(os.getenv('ASSISTANT_UPLOAD_DIR', '/tmp/assistant_uploads')).resolve()
+        if not legacy.is_relative_to(root):
+            raise AttachmentUnavailable('Attachment path falls outside the legacy attachment volume')
+        return await asyncio.to_thread(legacy.read_bytes)
     except OSError as exc:
         raise AttachmentUnavailable('Legacy attachment bytes are unavailable') from exc
 

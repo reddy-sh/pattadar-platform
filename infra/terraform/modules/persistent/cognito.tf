@@ -191,6 +191,59 @@ resource "aws_cognito_user_pool_client" "spa" {
   prevent_user_existence_errors = "ENABLED"
 }
 
+# --- Local-dev app client (public, code flow, loopback callbacks) -----------
+# Same pool as the SPA client — a laptop keeps the pool's Google IdP and real
+# users — so the production SPA client can stay https-only. Local runs set
+# VITE_COGNITO_CLIENT_ID to `cognito_local_dev_client_id`, not to
+# `cognito_spa_client_id`.
+
+resource "aws_cognito_user_pool_client" "local_dev" {
+  count = var.enable_local_dev_client ? 1 : 0
+
+  name         = "${local.prefix}-local-dev"
+  user_pool_id = aws_cognito_user_pool.pattadar.id
+
+  generate_secret = false
+
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+
+  callback_urls = var.local_dev_callback_urls
+  logout_urls   = var.local_dev_logout_urls
+
+  depends_on = [
+    aws_cognito_identity_provider.google,
+    aws_cognito_identity_provider.facebook,
+    aws_cognito_identity_provider.apple,
+  ]
+
+  explicit_auth_flows = [
+    "ALLOW_USER_SRP_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
+  supported_identity_providers = concat(
+    ["COGNITO"],
+    var.enable_google_idp ? ["Google"] : [],
+    var.enable_facebook_idp ? ["Facebook"] : [],
+    var.enable_apple_idp ? ["SignInWithApple"] : [],
+  )
+
+  access_token_validity  = 60
+  id_token_validity      = 60
+  refresh_token_validity = 1
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "days"
+  }
+
+  enable_token_revocation       = true
+  prevent_user_existence_errors = "ENABLED"
+}
+
 # --- Native app client (iOS; public, code + PKCE, custom-scheme callback) ----
 #
 # Prod already has this client — it was made in the console during the iOS
@@ -263,9 +316,20 @@ resource "aws_cognito_user_pool_domain" "main" {
 }
 
 # Default modern styling; customize colors/logo later in the branding editor.
+# Managed login v2 needs a branding style per app client, so every client that
+# reaches the hosted UI gets one.
 resource "aws_cognito_managed_login_branding" "spa" {
   user_pool_id = aws_cognito_user_pool.pattadar.id
   client_id    = aws_cognito_user_pool_client.spa.id
+
+  use_cognito_provided_values = true
+}
+
+resource "aws_cognito_managed_login_branding" "local_dev" {
+  count = var.enable_local_dev_client ? 1 : 0
+
+  user_pool_id = aws_cognito_user_pool.pattadar.id
+  client_id    = aws_cognito_user_pool_client.local_dev[0].id
 
   use_cognito_provided_values = true
 }

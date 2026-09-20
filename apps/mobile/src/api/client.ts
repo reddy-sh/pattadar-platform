@@ -5,7 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { createGraphQLClient, fetchWithTimeout, type Classification } from '@pattadar/core';
 
-import { isAllowedApiUrl } from '@/lib/urlScheme';
+import { allowedApiUrlHint, isAllowedApiUrl } from '@/lib/urlScheme';
 import { accessToken } from '@/auth/accessToken';
 
 const base = process.env.EXPO_PUBLIC_API_URL ?? '';

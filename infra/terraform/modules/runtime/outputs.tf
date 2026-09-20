@@ -31,9 +31,9 @@ output "rds_master_secret_arn" {
   value       = aws_db_instance.main.master_user_secret[0].secret_arn
 }
 
-output "db_dsn_secret_arn" {
-  description = "ARN of the composed pattadar/<env>/db-dsn runtime secret (APP_PG_DSN)."
-  value       = aws_secretsmanager_secret.db_dsn.arn
+output "db_app_password_secret_arn" {
+  description = "ARN of the pattadar/<env>/db-app-password secret the services read as PG_PASSWORD."
+  value       = aws_secretsmanager_secret.db_app_password.arn
 }
 
 output "ecs_cluster_name" {

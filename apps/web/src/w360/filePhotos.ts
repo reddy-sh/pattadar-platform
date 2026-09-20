@@ -7,7 +7,7 @@
  */
 import { useState } from 'react';
 
-import { useAddPhoto } from './api';
+import { useAddPhoto, useRefreshW360 } from './api';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../pages/documents/storage';
 
 /** Ten megabytes, in bytes. The gateway itself accepts a hundred, but a photo
@@ -45,7 +45,13 @@ function stampOf(ms: number): string {
 }
 
 export function useFilePhotos(recordId: string | undefined) {
-  const add = useAddPhoto();
+  /** Every other write in the module refreshes the w360 tree itself. A pick is
+   *  N writes, and refreshing after each one refetched the portfolio, the
+   *  orders and this record once per file — N-1 answers nobody reads, racing
+   *  the uploads still in flight. The refresh is owed once, when the pick is
+   *  done, and the `finally` below pays it. */
+  const add = useAddPhoto(false);
+  const refresh = useRefreshW360();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [lastAdded, setLastAdded] = useState('');
@@ -117,7 +123,10 @@ export function useFilePhotos(recordId: string | undefined) {
       }
     } finally {
       setBusy(false);
-      if (last) setLastAdded(last);
+      // `last` is the id of the last file that was filed, so it is also the
+      // answer to "did anything land": a pick that filed nothing has nothing
+      // to refresh for.
+      if (last) { setLastAdded(last); refresh(); }
     }
   }
 

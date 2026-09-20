@@ -57,6 +57,46 @@ def _auth_error(status: int, error: str, details: Optional[str] = None) -> HTTPE
     return HTTPException(status_code=status, detail=content)
 
 
+#: Classes that mean the gateway could not decide, rather than that the
+#: credential was bad.
+_UNAVAILABLE_REASONS = ("jwks-unreachable", "internal-error")
+
+
+def _failure_reason(err: BaseException) -> str:
+    """Coarse class for a rejected token — derived from the failure, never
+    from the token, so it is safe to log."""
+    if isinstance(err, httpx.HTTPError):
+        return "jwks-unreachable"
+    if not isinstance(err, JWTError):
+        return "internal-error"
+    text = str(err).lower()
+    if "expired" in text:
+        return "expired"
+    if "not found in" in text:
+        return "unknown-kid"
+    if "signature" in text:
+        return "bad-signature"
+    if "issuer" in text:
+        return "wrong-issuer"
+    return "invalid-claims"
+
+
+def _reject(err: BaseException, roots: str) -> HTTPException:
+    """The response for a failed validation, and the one log line recording it.
+
+    A JWKS fetch that never answered is the gateway's problem, not the
+    caller's: it answers 503, so an identity-provider outage is never read as
+    a fleet of bad credentials — nor discarded as a client bug, which is what
+    a DEBUG line under an INFO root logger amounts to.
+    """
+    reason = _failure_reason(err)
+    if reason in _UNAVAILABLE_REASONS:
+        _log.error("auth.unavailable reason=%s roots=%s error=%s", reason, roots, err)
+        return _auth_error(503, "Authentication temporarily unavailable")
+    _log.warning("auth.rejected reason=%s roots=%s", reason, roots)
+    return _auth_error(401, "Invalid token", str(err))
+
+
 async def validate_bearer(request: Request, *, strict: bool = True) -> Optional[Dict[str, Any]]:
     """
     Core token validation using cached JWKS + kid matching.
@@ -105,17 +145,16 @@ async def validate_bearer(request: Request, *, strict: bool = True) -> Optional[
 
     try:
         claims = await verify_token(token, cfg, cache, http_client=proxy_client)
-    except (JWTError, Exception) as primary_err:
+    except Exception as primary_err:
         pool_cfg, pool_cache = pool_jwt_config, pool_jwks_cache
         if pool_cfg is None or pool_cache is None:
-            _log.debug("JWT validation failed: %s", primary_err)
-            raise _auth_error(401, "Invalid token", str(primary_err))
+            raise _reject(primary_err, "primary")
         # Local loop, second trust root: the laptop key rightly rejected a
         # token it did not sign — a phone that signed in through the real
         # hosted UI carries a pool token, so the pool's JWKS gets its say.
         try:
             claims = await verify_token(token, pool_cfg, pool_cache, http_client=proxy_client)
-        except (JWTError, Exception) as pool_err:
+        except Exception as pool_err:
             # Both roots said no. Report the verdict of the root the token
             # was AIMED at — the kid names it — so an expired dev-door
             # token reads "expired", not "unknown kid" from a pool it
@@ -125,9 +164,7 @@ async def validate_bearer(request: Request, *, strict: bool = True) -> Optional[
             except Exception:
                 token_kid = None
             aimed_local = token_kid is not None and token_kid == getattr(cache, "kid", None)
-            err = primary_err if aimed_local else pool_err
-            _log.debug("JWT validation failed against both trust roots: %s", err)
-            raise _auth_error(401, "Invalid token", str(err))
+            raise _reject(primary_err if aimed_local else pool_err, "both")
 
     request.state.token_claims = claims
     if account_access_check is not None:

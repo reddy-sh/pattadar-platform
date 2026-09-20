@@ -53,6 +53,18 @@ BOILERPLATE = {"LPM", "SHAPE", "FILE", "FILES", "FINAL", "RESURVEY", "SURVEY",
 # export.
 NON_NAMES = {"", "new placemark"}
 
+# What a plot number is allowed to look like: the department numbers plots
+# `74`, `74/1`, `74-A`, `74 A` and nothing else. The value is read out of a
+# file anybody may upload and then served to everybody who opens the village,
+# so it is held to this rather than taken on the file's word.
+LP = re.compile(r"^[0-9A-Za-z/\- .]{1,32}$")
+
+# A KMZ is a zip and a zip states its own unpacked size, which a crafted one
+# lies about: cadastral XML deflates past 1000:1, so a file inside the upload
+# route's 12 MB cap can claim gigabytes. The largest village the department
+# ships is 4 MB.
+KML_MAX = 64 * 1024 * 1024
+
 
 def is_plot_name(txt: str) -> bool:
     low = (txt or "").strip().lower()
@@ -63,13 +75,23 @@ def is_plot_name(txt: str) -> bool:
 
 def kml_from_bytes(data: bytes) -> str:
     """The KML text out of either form. A KMZ is a zip whose first two bytes
-    say so; anything else is taken as the XML itself."""
+    say so; anything else is taken as the XML itself.
+
+    The member is read incrementally under KML_MAX, the declared size being
+    only the first of the two checks: it is the zip's own claim."""
     if data[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(data)) as z:
-            name = next((n for n in z.namelist() if n.lower().endswith(".kml")), None)
-            if not name:
+            info = next((i for i in z.infolist()
+                         if i.filename.lower().endswith(".kml")), None)
+            if info is None:
                 raise ValueError("that KMZ holds no .kml")
-            return z.read(name).decode("utf-8", "replace")
+            if info.file_size > KML_MAX:
+                raise ValueError("the .kml in that KMZ unpacks to more than 64 MB")
+            with z.open(info) as member:
+                kml = member.read(KML_MAX + 1)
+            if len(kml) > KML_MAX:
+                raise ValueError("the .kml in that KMZ unpacks to more than 64 MB")
+            return kml.decode("utf-8", "replace")
     return data.decode("utf-8", "replace")
 
 
@@ -364,24 +386,26 @@ def assemble(group: list[Source]) -> tuple[dict, Source, list[Source]]:
 def feature_collection(village: str, plots: list[dict]) -> tuple[dict, int, int]:
     """(FeatureCollection, dropped, clashes).
 
-    Plots with no number are dropped: this file exists so that "find plot 74"
-    can answer, and a nameless shape cannot be found, filed against a record,
-    or told apart from the one beside it. Two shapes wearing one number is the
-    failure mode a label matcher has — both are kept, because deciding which is
-    right needs the department rather than this code, but they are counted so
-    the caller can say so."""
+    Plots with no number are dropped, and so are plots whose number is not one
+    (LP): this file exists so that "find plot 74" can answer, and a nameless
+    shape cannot be found, filed against a record, or told apart from the one
+    beside it. Two shapes wearing one number is the failure mode a label
+    matcher has — both are kept, because deciding which is right needs the
+    department rather than this code, but they are counted so the caller can
+    say so."""
     kept, dropped, seen = [], 0, set()
     for p in plots:
-        if not p["lp"]:
+        lp = (p["lp"] or "").strip()
+        if not lp or not LP.match(lp):
             dropped += 1
             continue
         # The same plot exported twice is one plot.
-        sig = (p["lp"], len(p["ring"]), tuple(p["ring"][0]), tuple(p["ring"][-1]))
+        sig = (lp, len(p["ring"]), tuple(p["ring"][0]), tuple(p["ring"][-1]))
         if sig in seen:
             dropped += 1
             continue
         seen.add(sig)
-        props = {"lp": p["lp"]}
+        props = {"lp": lp}
         for k in ("ac", "chaltha"):
             if p.get(k):
                 props[k] = p[k]

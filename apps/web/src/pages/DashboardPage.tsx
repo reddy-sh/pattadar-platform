@@ -41,6 +41,7 @@ import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { formatArea, formatDateTime, formatINRCompact } from '@pattadar/core';
 import { openFileViewer } from '../components/FileViewer';
+import { LoadFailed } from '../components/LoadFailed';
 import { PageHeader } from '../components/PageHeader';
 import { HeaderSkeleton, HeroSkeleton, StatRowSkeleton, TableSkeleton } from '../components/Skeletons';
 import { useDashboard } from '../data/hooks';
@@ -87,14 +88,16 @@ interface AttnRow {
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { data: d, isSample, isLoading } = useDashboard();
+  const { data: d, isSample, isLoading, refetch } = useDashboard();
   const [masked, setMasked] = useState(() => localStorage.getItem('pattadar-hide-values') === '1');
   const [openVillage, setOpenVillage] = useState<string | null>(null);
 
   const today = new Date();
   const hour = today.getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstRun = d.stats.totalPassbooks === 0 && d.properties.length === 0;
+  // An unreachable service reads as zero records. Only an account that really
+  // answered with nothing gets the welcome — a failed read gets the failure.
+  const firstRun = !isSample && d.stats.totalPassbooks === 0 && d.properties.length === 0;
 
   // ── value model (unchanged from rhub dashboard.ts) ────────────────────
   const farmTotal = d.stats.estimatedValue ?? 0;
@@ -291,7 +294,9 @@ export function DashboardPage() {
         sample={isSample}
       />
 
-      {firstRun ? (
+      {isSample ? (
+        <LoadFailed what="Your land" onRetry={refetch} />
+      ) : firstRun ? (
         /* First run = upload only. The classifier reads whatever comes in
            and routes it — the user never has to decide what to create. */
         <Card sx={{ p: { xs: 2.5, sm: 3 }, maxWidth: 760 }}>

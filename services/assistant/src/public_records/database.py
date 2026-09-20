@@ -1,12 +1,14 @@
 """Read-only PostgreSQL access for internal public-record handlers."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from .exceptions import PublicRecordsUnavailable
 from .settings import PublicRecordSettings
@@ -34,6 +36,31 @@ class ReadOnlyDatabase:
 
     def __init__(self, settings: PublicRecordSettings):
         self.settings = settings
+        self._pool: AsyncConnectionPool | None = None
+        self._pool_lock = asyncio.Lock()
+
+    async def _acquire_pool(self) -> AsyncConnectionPool:
+        # The corpus is optional and this object is built at import time, so the
+        # pool opens on first query rather than in the service lifespan.
+        if self._pool is None:
+            async with self._pool_lock:
+                if self._pool is None:
+                    pool = AsyncConnectionPool(
+                        conninfo=self.settings.database_dsn,
+                        min_size=0,
+                        max_size=4,
+                        open=False,
+                        timeout=5,
+                        kwargs={"row_factory": dict_row, "connect_timeout": 5},
+                    )
+                    await pool.open(wait=False)
+                    self._pool = pool
+        return self._pool
+
+    async def close(self) -> None:
+        pool, self._pool = self._pool, None
+        if pool is not None:
+            await pool.close()
 
     async def fetch_all(
         self,
@@ -49,12 +76,8 @@ class ReadOnlyDatabase:
             raise ValueError(f"Unsupported local PostgreSQL setting: {sorted(invalid)[0]}")
 
         try:
-            conn = await psycopg.AsyncConnection.connect(
-                self.settings.database_dsn,
-                row_factory=dict_row,
-                connect_timeout=5,
-            )
-            try:
+            pool = await self._acquire_pool()
+            async with pool.connection() as conn:
                 async with conn.transaction():
                     await conn.execute("SET TRANSACTION READ ONLY")
                     await conn.execute(
@@ -69,8 +92,6 @@ class ReadOnlyDatabase:
                     cursor = await conn.execute(sql, params or {})
                     rows = await cursor.fetchall()
                 return _jsonify(rows)
-            finally:
-                await conn.close()
         except PublicRecordsUnavailable:
             raise
         except (psycopg.Error, OSError) as exc:

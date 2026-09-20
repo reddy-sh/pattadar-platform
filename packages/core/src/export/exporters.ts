@@ -29,8 +29,14 @@ export function exportStamp(now: Date = new Date()): string {
   return `${p(now.getDate())}/${p(now.getMonth() + 1)}/${now.getFullYear()}, ${p(now.getHours())}:${p(now.getMinutes())}`;
 }
 
+/** One CSV cell, safe to hand to a spreadsheet. Excel and Sheets EXECUTE a
+ *  cell that opens with =, +, - or @, and a record's title, an owner's name
+ *  and a group name are all free text the owner typed — so `=HYPERLINK(...)`
+ *  in a parcel's title would run on whoever opened the export. A leading
+ *  apostrophe makes it read as text. */
 export function csvEscape(v: string): string {
-  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  const s = /^[=+\-@]/.test(v) ? `'${v}` : v;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 /** Full CSV body (CRLF rows, header first) — caller adds BOM + download. */

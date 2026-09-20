@@ -14,6 +14,7 @@ import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { gql } from '../../api/client';
+import { escapeHtml } from '../../components/escapeHtml';
 import { GeoMap } from '../../components/GeoMapLazy';
 
 export type LocationTarget = { id: string; title: string; geoPoint: string; autoLocate: string } | null;
@@ -75,7 +76,7 @@ export function LocationDialog({
                 OpenStreetMap · no account needed
               </Typography>
             </Box>
-            <GeoMap key={mapMode} value={target.geoPoint} onChange={setGeo} mode={mapMode} height={430} label={target.title} autoLocate={target.autoLocate} />
+            <GeoMap key={mapMode} value={target.geoPoint} onChange={setGeo} mode={mapMode} height={430} label={escapeHtml(target.title)} autoLocate={target.autoLocate} />
           </>
         ) : null}
       </DialogContent>

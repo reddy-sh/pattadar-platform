@@ -27,6 +27,7 @@ class AgentRuntime(Protocol):
         prompt_context: str,
         navigation: list[dict],
         session_id: str,
+        forms: list[dict] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         ...
 

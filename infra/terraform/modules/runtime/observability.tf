@@ -214,3 +214,86 @@ resource "aws_cloudwatch_metric_alarm" "alb_p99_latency_high" {
   ok_actions    = [aws_sns_topic.alarms.arn]
   tags          = local.tags
 }
+
+# The daily inactivity check is the family safeguard: reminders on days 181,
+# 187 and 195 of an idle account. It runs with no retries (a re-fired run could
+# double-send "is Sankara ok?" to relatives), so a failure is a silently
+# skipped day — and a rotated connection secret makes EVERY day fail with a
+# 403 until someone re-applies. Both need to page.
+resource "aws_cloudwatch_metric_alarm" "cron_failed_invocations" {
+  alarm_name          = "${local.prefix}-cron-failed-invocations"
+  alarm_description   = "Inactivity-check schedule failed to invoke its API destination — the dead-man's-switch escalation did not run"
+  namespace           = "AWS/Events"
+  metric_name         = "FailedInvocations"
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    RuleName = aws_cloudwatch_event_rule.inactivity_check.name
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "cron_did_not_run" {
+  alarm_name          = "${local.prefix}-cron-did-not-run"
+  alarm_description   = "Inactivity-check schedule produced no invocation in 24h — the rule is disabled, deleted, or its target is gone"
+  namespace           = "AWS/Events"
+  metric_name         = "Invocations"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+
+  dimensions = {
+    RuleName = aws_cloudwatch_event_rule.inactivity_check.name
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}
+
+# Whole-service-down was previously invisible: the CPU/memory alarms go quiet
+# when a service has no running tasks at all, which reads the same as idle.
+#
+# HealthyHostCount rather than ECS RunningTaskCount on purpose — the latter is
+# a Container Insights metric, and Insights is disabled for cost (see the
+# cluster setting in ecs.tf), so an alarm on it would never receive a data
+# point and would sit permanently in ALARM. The assistant has no target group;
+# its container health check replaces the task instead of pausing on a wedged
+# event loop, and gateway 5xx covers the user-visible half.
+resource "aws_cloudwatch_metric_alarm" "service_no_healthy_hosts" {
+  for_each = {
+    gateway = aws_lb_target_group.gateway.arn_suffix
+    api     = aws_lb_target_group.api.arn_suffix
+  }
+
+  alarm_name          = "${local.prefix}-${each.key}-no-healthy-hosts"
+  alarm_description   = "${each.key} has no healthy targets — the service is down or failing its health check"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HealthyHostCount"
+  statistic           = "Minimum"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+    TargetGroup  = each.value
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}

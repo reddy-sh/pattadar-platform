@@ -84,17 +84,24 @@ struct SignInScreen: View {
                     Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) }
                 }
 
-                Section {
-                    DisclosureGroup("Development", isExpanded: $devOpen) {
-                        FormRow(label: "User", text: $user, prompt: "u01", required: false)
-                        Button("Continue as this user") { Task { await adoptHeaderUser() } }
-                            .disabled(checking || user.trimmingCharacters(in: .whitespaces).isEmpty)
+                // Only where the door can actually open. The production
+                // gateway is https and strips the header, so the control
+                // could never do anything there but sign someone out of
+                // their real session — and `PattadarApp` already fences
+                // header identity on the same test.
+                if isDevStack {
+                    Section {
+                        DisclosureGroup("Development", isExpanded: $devOpen) {
+                            FormRow(label: "User", text: $user, prompt: "u01", required: false)
+                            Button("Continue as this user") { Task { await adoptHeaderUser() } }
+                                .disabled(checking || user.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    } footer: {
+                        // Said plainly. On the local stack this is a real token
+                        // from the laptop's own issuer; on the bare dev API it is
+                        // the old header, which anyone who knows a user id can use.
+                        Text("Developer door: on the local stack this signs you in with tokens from the laptop's own issuer — works offline. Against the bare dev API it falls back to a header. The production gateway accepts neither.")
                     }
-                } footer: {
-                    // Said plainly. On the local stack this is a real token
-                    // from the laptop's own issuer; on the bare dev API it is
-                    // the old header, which anyone who knows a user id can use.
-                    Text("Developer door: on the local stack this signs you in with tokens from the laptop's own issuer — works offline. Against the bare dev API it falls back to a header. The production gateway accepts neither.")
                 }
             }
             .navigationTitle("Sign in")
@@ -128,6 +135,7 @@ struct SignInScreen: View {
     }
 
     private func adoptHeaderUser() async {
+        guard isDevStack else { return }
         checking = true
         problem = ""
         defer { checking = false }
@@ -162,12 +170,17 @@ struct SignInScreen: View {
         dismiss()
     }
 
+    /// A stack the developer door can reach at all. Plain http is the tell:
+    /// the local gateway, the laptop bridge and the bare dev API are all
+    /// http, and production is only ever https.
+    private var isDevStack: Bool { app.api.config.baseURL.scheme == "http" }
+
     /// scheme://host:port of the configured base URL, path dropped — the
     /// local issuer lives at the gateway ROOT, not under the proxy prefix.
     /// Nil on https: production never has a local issuer; don't even ask.
     private func localGatewayRoot() -> URL? {
         let base = app.api.config.baseURL
-        guard base.scheme == "http",
+        guard isDevStack,
               var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)
         else { return nil }
         parts.path = ""

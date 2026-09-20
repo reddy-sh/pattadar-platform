@@ -50,6 +50,28 @@ resource "aws_s3_bucket_public_access_block" "cloudtrail" {
   restrict_public_buckets = true
 }
 
+# WORM on the trail itself: a compromised deploy credential can no longer
+# delete or overwrite trail objects, only add to them. Object Lock is turned on
+# through this resource and NOT through object_lock_enabled on the bucket —
+# that argument forces replacement, and the bucket already holds the trail.
+# GOVERNANCE (not COMPLIANCE) keeps a DPDP erasure order executable by a
+# principal holding s3:BypassGovernanceRetention; retention applies to objects
+# written after the apply, not to existing ones.
+resource "aws_s3_bucket_object_lock_configuration" "cloudtrail" {
+  count = var.manage_org_security ? 1 : 0
+
+  bucket = aws_s3_bucket.cloudtrail[0].id
+
+  rule {
+    default_retention {
+      mode = "GOVERNANCE"
+      days = var.cloudtrail_object_lock_retention_days
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.cloudtrail]
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
   count = var.manage_org_security ? 1 : 0
 
@@ -152,12 +174,27 @@ resource "aws_cloudtrail" "main" {
   include_global_service_events = true
   enable_log_file_validation    = true
 
-  # Management events only for now — S3 data events multiply cost quickly.
-  # TODO(Phase 2): add a data-event selector for the documents bucket if the
-  # audit posture requires object-level trails.
   event_selector {
     read_write_type           = "All"
     include_management_events = true
+  }
+
+  # Object-level WRITES on the documents bucket (PutObject, DeleteObject,
+  # DeleteObjectVersion): the tamper trail for land papers. Reads stay out —
+  # S3 server access logging (s3.tf) already records them and data events are
+  # billed per event.
+  dynamic "event_selector" {
+    for_each = var.trail_documents_data_events ? [1] : []
+
+    content {
+      read_write_type           = "WriteOnly"
+      include_management_events = false
+
+      data_resource {
+        type   = "AWS::S3::Object"
+        values = ["${aws_s3_bucket.documents.arn}/"]
+      }
+    }
   }
 
   tags = local.tags

@@ -125,6 +125,8 @@ _SPECS: dict = {s.action: s for s in [
     # Identity / KYC — the sharpest security events.
     _spec("reveal_aadhaar", CLASS_SECURITY, "person", "security", security=True,
           metadata_keys=("subject_kind",)),
+    _spec("session.sign_in", CLASS_SECURITY, "user", "security", security=True,
+          metadata_keys=("method",)),
     _spec("apply_my_kyc", CLASS_SECURITY, "user", "security", security=True),
     _spec("clear_my_kyc", CLASS_SECURITY, "user", "security", security=True),
     _spec("update_profile", CLASS_PERSONAL, "user", "short",
@@ -145,6 +147,11 @@ _SPECS: dict = {s.action: s for s in [
     _spec("rename_document", CLASS_PERSONAL, "document"),
     _spec("read_document", CLASS_PERSONAL, "document",
           metadata_keys=("doc_type",)),
+    # The gateway records the byte download separately from the metadata read:
+    # "who opened the record" and "who took a copy of the paper" are different
+    # questions, and only the second one is exfiltration.
+    _spec("download_document", CLASS_PERSONAL, "document",
+          metadata_keys=("doc_kind", "doc_type")),
     _spec("link_document", CLASS_PERSONAL, "document"),
     _spec("link_documents", CLASS_PERSONAL, "document",
           metadata_keys=("relation",)),
@@ -195,6 +202,12 @@ _SPECS: dict = {s.action: s for s in [
     _spec("create_share_link", CLASS_SECURITY, "record", "security", security=True,
           metadata_keys=("audience_kind", "doc_count", "expires_on")),
     _spec("revoke_share_link", CLASS_SECURITY, "share", "security", security=True),
+    # A share recipient pulling bytes out of the platform. Security-class and
+    # emitted with actor_kind=recipient: the actor is outside the owner's
+    # household entirely, so the owner's view must be able to show it apart
+    # from their own activity.
+    _spec("recipient.download", CLASS_SECURITY, "document", "security", security=True,
+          metadata_keys=("doc_kind", "doc_type", "share_id")),
 
     # Favourites / tags — genuinely low signal.
     _spec("favourite", CLASS_OPERATIONAL, "record", "short",
@@ -486,35 +499,75 @@ DDL = [
     """,
     "INSERT INTO audit_chain_head (id, seq, head_hash) VALUES (1, 0, '') ON CONFLICT (id) DO NOTHING",
     # ── Append-only enforcement ─────────────────────────────────────────
-    # Defence in depth INSIDE the application's own role. An UPDATE to a
-    # recorded audit row is never legitimate, so it is refused unconditionally.
-    # A DELETE is legitimate only from two reviewed paths — the retention sweep
-    # and an approved account erasure — which announce themselves by setting
-    # `pattadar.audit_maintenance`. Anything else (an app bug, a careless
-    # console session on the app role) is refused.
+    # An UPDATE to a recorded audit row is never legitimate, so it is refused
+    # unconditionally. A DELETE, and the content-clearing UPDATE a redaction
+    # performs, are legitimate only from two reviewed paths — the retention
+    # sweep and an approved account erasure — and a path proves itself TWICE:
+    #
+    #   1. it announces itself with `pattadar.audit_maintenance`, a SET LOCAL
+    #      that scopes the permission to one transaction rather than leaking
+    #      onto a pooled connection, and
+    #   2. it connects as a member of `pattadar_audit_maintainer`, the role
+    #      `ROLE_BOOTSTRAP_SQL` creates and deliberately does NOT grant to the
+    #      application login.
+    #
+    # The announcement alone was the whole gate once, and the application role
+    # can issue it — so it recorded intent without constraining anyone holding
+    # the app's credentials. The role is the half the application cannot grant
+    # itself. Until that role exists (local development, and any deployment
+    # before the bootstrap is applied) the announcement still stands on its own,
+    # so this fails OPEN on an unprovisioned database and CLOSED once the
+    # boundary is there.
     #
     # HONEST LIMIT: a trigger is not a privilege boundary. Whoever holds DDL
-    # rights can drop it. The deployment-level control is a separate
-    # insert-only role for the writer and no UPDATE/DELETE grant at all; that
-    # requires database-owner action and belongs to the infrastructure change,
-    # not to application DDL. This stops accidental and application-level
-    # mutation, and it makes deliberate mutation something someone has to do on
-    # purpose and visibly.
+    # rights can drop it. The deployment-level control is the grant set in
+    # `ROLE_BOOTSTRAP_SQL`: the writer role holds INSERT and nothing else, and
+    # the application login holds no UPDATE or DELETE on the trail at all.
     """
     CREATE OR REPLACE FUNCTION audit_events_v2_append_only() RETURNS trigger AS $audit$
+    DECLARE
+        reviewed BOOLEAN;
     BEGIN
-        IF coalesce(current_setting('pattadar.audit_maintenance', true), '') = 'on' THEN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pattadar_audit_maintainer') THEN
+            reviewed := pg_has_role(current_user, 'pattadar_audit_maintainer', 'USAGE');
+        ELSE
+            reviewed := true;
+        END IF;
+        IF reviewed AND coalesce(current_setting('pattadar.audit_maintenance', true), '') = 'on' THEN
             -- A reviewed path: redaction under a data-rights request, or an
-            -- approved retention/archive truncation. Even here the chain
-            -- columns are untouchable — redaction removes CONTENT, never a
-            -- row's position or its seal.
-            IF TG_OP = 'UPDATE' AND (NEW.seq IS DISTINCT FROM OLD.seq
+            -- approved retention/archive truncation.
+            IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+            -- Even here the chain columns are untouchable — redaction removes
+            -- CONTENT, never a row's position or its seal.
+            IF NEW.seq IS DISTINCT FROM OLD.seq
                     OR NEW.prev_hash <> OLD.prev_hash
                     OR NEW.row_hash <> OLD.row_hash
-                    OR NEW.integrity_hash <> OLD.integrity_hash) THEN
+                    OR NEW.integrity_hash <> OLD.integrity_hash THEN
                 RAISE EXCEPTION 'audit_events_v2: the chain columns of a recorded event can never be rewritten';
             END IF;
-            IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+            -- A row already redacted has no content left to clear, so any
+            -- further change to it is a rewrite dressed as a redaction.
+            IF OLD.redacted_at IS NOT NULL THEN
+                RAISE EXCEPTION 'audit_events_v2: a redacted event is final and cannot be modified again';
+            END IF;
+            -- What the event RECORDS — when it happened, which action, which
+            -- outcome, when it expires — is as immutable as the seal. Only the
+            -- columns a redaction clears may differ, or a rewrite could hide
+            -- behind `redacted_at`, which the verifier is obliged to excuse.
+            IF NEW.event_id <> OLD.event_id
+                    OR NEW.schema_version <> OLD.schema_version
+                    OR NEW.occurred_at <> OLD.occurred_at
+                    OR NEW.source_service <> OLD.source_service
+                    OR NEW.actor_kind <> OLD.actor_kind
+                    OR NEW.action <> OLD.action
+                    OR NEW.resource_type <> OLD.resource_type
+                    OR NEW.outcome <> OLD.outcome
+                    OR NEW.data_class <> OLD.data_class
+                    OR NEW.retention_class <> OLD.retention_class
+                    OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
+                    OR NEW.recorded_at IS DISTINCT FROM OLD.recorded_at THEN
+                RAISE EXCEPTION 'audit_events_v2: a redaction may only clear an event''s content, never rewrite what it records';
+            END IF;
             RETURN NEW;
         END IF;
         IF TG_OP = 'UPDATE' THEN
@@ -534,6 +587,69 @@ DDL = [
 
 # The session flag the reviewed maintenance paths set before deleting.
 MAINTENANCE_ON = "SET LOCAL pattadar.audit_maintenance = 'on'"
+
+
+# ── The privilege boundary (AU-9) ───────────────────────────────────────
+# Two database roles, because the application must not be the thing that can
+# rewrite the record of what the application did:
+#
+#   pattadar_audit_writer      INSERT on the trail and full use of the outbox
+#                              queue. This is all the API ever needs: it
+#                              appends events and never edits one.
+#   pattadar_audit_maintainer  the ONLY role the append-only trigger accepts a
+#                              redaction or a retention delete from. Granted to
+#                              the operator identity that runs the erasure and
+#                              retention jobs, never to the application login.
+#
+# Applying this is a database-owner action: the application's own login cannot
+# be trusted to provision the boundary that constrains it, and a revoke that
+# lands before the erasure runner has somewhere to connect from would break a
+# data-rights request. So `ensure_schema` deliberately does NOT run it — it is
+# an infrastructure change, run once as the database owner:
+#
+#   psql "$ADMIN_PG_DSN" -v ON_ERROR_STOP=1 -c "$(python - <<'PY'
+#   from src import audit; print(audit.role_bootstrap_sql("pattadar_app"))
+#   PY
+#   )"
+#
+# Until it is applied the trigger's role check fails open, so an unprovisioned
+# database (local development, a partly rolled-out deployment) keeps working.
+
+AUDIT_WRITER_ROLE = "pattadar_audit_writer"
+AUDIT_MAINTAINER_ROLE = "pattadar_audit_maintainer"
+
+
+def role_bootstrap_sql(app_role: str) -> str:
+    """The one-time grant set that makes the audit trail append-only for real.
+
+    `app_role` is the login the API connects as. It keeps INSERT (through
+    membership in the writer role) and loses every way to change a recorded
+    event; the maintainer role is created but deliberately left ungranted, so
+    somebody has to hand it out on purpose.
+    """
+    role = (app_role or "").strip()
+    if not role.replace("_", "").isalnum():
+        raise ValueError("app_role must be a plain SQL identifier")
+    return "\n".join([
+        "DO $bootstrap$ BEGIN",
+        f"    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{AUDIT_WRITER_ROLE}') THEN",
+        f"        CREATE ROLE {AUDIT_WRITER_ROLE} NOLOGIN;",
+        "    END IF;",
+        f"    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{AUDIT_MAINTAINER_ROLE}') THEN",
+        f"        CREATE ROLE {AUDIT_MAINTAINER_ROLE} NOLOGIN;",
+        "    END IF;",
+        "END $bootstrap$;",
+        # The outbox is a queue, not evidence: the writer drains it, which means
+        # updating attempt counts and deleting drained rows.
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON audit_outbox TO {AUDIT_WRITER_ROLE};",
+        f"GRANT SELECT, UPDATE ON audit_chain_head TO {AUDIT_WRITER_ROLE};",
+        f"GRANT SELECT, INSERT ON audit_events_v2 TO {AUDIT_WRITER_ROLE};",
+        f"GRANT {AUDIT_WRITER_ROLE} TO {role};",
+        f"GRANT SELECT, UPDATE, DELETE ON audit_events_v2 TO {AUDIT_MAINTAINER_ROLE};",
+        # The point of the whole file: after this the application login can
+        # append an event and read the trail, and nothing else.
+        f"REVOKE UPDATE, DELETE, TRUNCATE ON audit_events_v2 FROM {role};",
+    ])
 
 
 # ── The auditor role (separation of duties) ─────────────────────────────
@@ -784,7 +900,78 @@ async def run_one() -> bool:
 
 # ── Verification (AU-9) ─────────────────────────────────────────────────
 
-async def verify_chain(conn, limit: int = 0) -> dict:
+# The two principals a reviewed redaction writes in place of the erased ones.
+# Anything else in a redacted row's actor is new content, not cleared content.
+_REDACTION_PRINCIPALS = ("erased", "expired")
+
+
+def is_redaction_shape(row) -> bool:
+    """Does this redacted row look like content that was CLEARED?
+
+    A redaction is the one content change `verify_chain` is obliged to excuse,
+    so what it may leave behind has to be pinned down: the reviewed paths write
+    a fixed principal and empty everything else. A row carrying `redacted_at`
+    and some other content is a rewrite wearing a redaction's clothes.
+    """
+    who = row["actor_principal"]
+    return (who in _REDACTION_PRINCIPALS
+            and row["affected_owner"] == who
+            and not (row["resource_id"] or "")
+            and not (row["metadata"] or {}))
+
+
+async def _reviewed_redaction_ids(conn) -> Optional[set]:
+    """Request ids the reviewed erasure runs recorded for themselves.
+
+    None when this database carries no erasure run log at all, which is not the
+    same as an empty one: with nothing to reconcile against, a redaction that
+    names a request id is as far as verification can get.
+    """
+    ids: set = set()
+    logged = False
+    for table, column in (("account_erasure_jobs", "id"),
+                          ("account_retained_audits", "request_id")):
+        found = await (await conn.execute(
+            "SELECT to_regclass(%s) AS t", ("public." + table,))).fetchone()
+        if not found or not found["t"]:
+            continue
+        logged = True
+        rows = await (await conn.execute(
+            f"SELECT DISTINCT {column} AS request_id FROM {table}")).fetchall()
+        ids |= {(r["request_id"] or "").strip() for r in rows}
+    return ids if logged else None
+
+
+async def _unexplained_redactions(conn, rows) -> list:
+    """The seqs of redacted events that no reviewed run accounts for.
+
+    Redaction is the gap in the seal — `integrity_hash` no longer describes the
+    row, by design — so a redaction nobody ordered is how content gets rewritten
+    without the chain noticing. Each one therefore has to answer for itself: the
+    retention sweep answers with the row's own expiry, and an erasure answers
+    with the job id it stamped into `request_id`. Neither is content an attacker
+    can supply without also writing to the erasure job log.
+    """
+    if not rows:
+        return []
+    reviewed = await _reviewed_redaction_ids(conn)
+    now = _now()
+    unexplained = []
+    for r in rows:
+        if r["actor_principal"] == "expired":
+            expires = r["expires_at"]
+            if expires is not None and expires <= now:
+                continue
+        else:
+            request_id = (r["request_id"] or "").strip()
+            if request_id and (reviewed is None or request_id in reviewed):
+                continue
+        unexplained.append(int(r["seq"]))
+    return unexplained
+
+
+async def verify_chain(conn, limit: int = 0, from_seq: int = 0,
+                       prev_hash: Optional[str] = None) -> dict:
     """Walk the chain in order and recompute every link.
 
     Returns a verdict an operator (or an auditor) can act on: how many events
@@ -793,79 +980,177 @@ async def verify_chain(conn, limit: int = 0) -> dict:
     removed, or inserted out of band since it was recorded.
 
     Read-only. `limit` caps the walk for a quick check; 0 walks everything.
+    `from_seq` starts the walk further in, so a caller that already verified the
+    earlier events pays only for what is new (see `verify_recent`), and
+    `prev_hash` is the row_hash it verified last: passing it links the window to
+    that history instead of letting the window's own first row vouch for itself.
     """
-    sql = ("SELECT * FROM audit_events_v2 WHERE seq IS NOT NULL ORDER BY seq")
+    sql = "SELECT * FROM audit_events_v2 WHERE seq IS NOT NULL"
+    params: tuple = ()
+    if from_seq:
+        sql += " AND seq >= %s"
+        params = (int(from_seq),)
+    sql += " ORDER BY seq"
     if limit:
         sql += f" LIMIT {int(limit)}"
-    rows = await (await conn.execute(sql)).fetchall()
+    rows = await (await conn.execute(sql, params or None)).fetchall()
     if not rows:
         return {"ok": True, "checked": 0, "broken_at": None, "reason": "",
-                "truncated_prefix": 0, "first_seq": None, "last_seq": None}
+                "truncated_prefix": 0, "first_seq": None, "last_seq": None,
+                "last_hash": "", "redacted": 0, "unexplained_redactions": []}
 
     # A gap at the START is expected and legitimate: the retention sweep expires
     # the oldest events, and an approved erasure removes an owner's. A gap in the
     # MIDDLE is not explainable that way — that is an event removed from history.
     # So the walk anchors on the first event still present rather than insisting
     # the chain begins at 1, and reports how much prefix is missing so an auditor
-    # can reconcile it against the retention log.
+    # can reconcile it against the retention log. A windowed walk says nothing
+    # about the prefix it deliberately skipped.
     first_seq = int(rows[0]["seq"])
+    truncated_prefix = 0 if from_seq else first_seq - 1
+
+    def broken(seq, reason, checked, unexplained=()) -> dict:
+        return {"ok": False, "checked": checked, "broken_at": seq,
+                "reason": reason, "truncated_prefix": truncated_prefix,
+                "first_seq": first_seq, "last_seq": None, "last_hash": "",
+                "redacted": 0, "unexplained_redactions": list(unexplained)}
+
+    # Resuming from a verified position: the window MUST start exactly where
+    # that position left off, or the events in between are gone.
+    if prev_hash is not None and first_seq != int(from_seq):
+        return broken(int(from_seq),
+                      f"the chain resumes at {first_seq} instead of {int(from_seq)} "
+                      "— events after the last verified one were removed", 0)
     expected_seq = first_seq
     # The first surviving row's predecessor may be gone, so its prev_hash cannot
     # be compared to anything — but its own row_hash still must match its stored
     # prev_hash plus its content, so the row itself is still verified.
-    expected_prev = rows[0]["prev_hash"] or ""
+    expected_prev = (rows[0]["prev_hash"] or "") if prev_hash is None else prev_hash
     checked = 0
+    redacted_rows = []
     for r in rows:
         seq = int(r["seq"])
         if seq != expected_seq:
-            return {"ok": False, "checked": checked, "broken_at": seq,
-                    "reason": f"sequence gap inside the chain: expected {expected_seq}, "
-                              f"found {seq} — an event was removed from history",
-                    "truncated_prefix": first_seq - 1,
-                    "first_seq": first_seq, "last_seq": None}
+            return broken(seq, f"sequence gap inside the chain: expected {expected_seq}, "
+                               f"found {seq} — an event was removed from history", checked)
         if (r["prev_hash"] or "") != expected_prev:
-            return {"ok": False, "checked": checked, "broken_at": seq,
-                    "reason": "prev_hash does not match the previous row's hash "
-                              "— the chain was re-linked",
-                    "truncated_prefix": first_seq - 1,
-                    "first_seq": first_seq, "last_seq": None}
+            return broken(seq, "prev_hash does not match the previous row's hash "
+                               "— the chain was re-linked", checked)
         if chain_hash(expected_prev, r["integrity_hash"], seq) != (r["row_hash"] or ""):
-            return {"ok": False, "checked": checked, "broken_at": seq,
-                    "reason": "row_hash does not match this row's seal "
-                              "— the chain was rewritten at this event",
-                    "truncated_prefix": first_seq - 1,
-                    "first_seq": first_seq, "last_seq": None}
+            return broken(seq, "row_hash does not match this row's seal "
+                               "— the chain was rewritten at this event", checked)
         # Does the CONTENT still match the hash that was sealed into the chain?
         # A redacted row is the one legitimate mismatch: its content was erased
         # on purpose and `integrity_hash` is kept as a commitment to what the
         # event said, so it is skipped here while its links are still verified.
-        if r["redacted_at"] is None and integrity_of_row(r) != r["integrity_hash"]:
-            return {"ok": False, "checked": checked, "broken_at": seq,
-                    "reason": "this event's content does not match the hash sealed "
-                              "into the chain — it was modified after it was recorded",
-                    "truncated_prefix": first_seq - 1,
-                    "first_seq": first_seq, "last_seq": None}
+        if r["redacted_at"] is None:
+            if integrity_of_row(r) != r["integrity_hash"]:
+                return broken(seq, "this event's content does not match the hash sealed "
+                                   "into the chain — it was modified after it was recorded",
+                              checked)
+        elif not is_redaction_shape(r):
+            return broken(seq, "this event carries a redaction but still carries content "
+                               "— it was rewritten, not cleared", checked)
+        else:
+            redacted_rows.append(r)
         expected_prev = r["row_hash"]
         expected_seq = seq + 1
         checked += 1
 
     last_seq = int(rows[-1]["seq"])
-    # The head must name the last surviving row. If it names a LATER seq, events
+    # The head must seal the last surviving row. If it names a LATER seq, events
     # were removed from the end — the one truncation retention cannot explain,
-    # because retention only ever expires the oldest.
+    # because retention only ever expires the oldest. A `limit` walk stops short
+    # of the end on purpose, so it cannot make that comparison.
     head = await (await conn.execute(
         "SELECT seq, head_hash FROM audit_chain_head WHERE id=1")).fetchone()
-    if not limit and head and int(head["seq"]) > last_seq:
-        return {"ok": False, "checked": checked, "broken_at": last_seq + 1,
-                "reason": f"chain head names event {int(head['seq'])} but the trail ends at "
-                          f"{last_seq} — events were removed from the end",
-                "truncated_prefix": first_seq - 1,
-                "first_seq": first_seq, "last_seq": last_seq}
+    if not limit and head:
+        head_seq = int(head["seq"])
+        if head_seq > last_seq:
+            return broken(last_seq + 1,
+                          f"chain head names event {head_seq} but the trail ends at "
+                          f"{last_seq} — events were removed from the end", checked)
+        if head_seq == last_seq and (head["head_hash"] or "") != (rows[-1]["row_hash"] or ""):
+            return broken(last_seq, "the chain head does not seal the last recorded event "
+                                    "— the end of the trail was rewritten", checked)
+    # `ok` is about the LINKS. A redaction leaves them intact by design, so a
+    # redaction nobody ordered is reported on its own terms rather than as a
+    # broken chain: the seqs are listed so an auditor can go and ask about each
+    # one, and `health` refuses to call the pipeline healthy while any stands.
+    unexplained = await _unexplained_redactions(conn, redacted_rows)
     return {"ok": True, "checked": checked, "broken_at": None, "reason": "",
             # How many events are gone from the front. Nonzero is only honest if
             # it matches a logged retention/erasure run.
-            "truncated_prefix": first_seq - 1,
-            "first_seq": first_seq, "last_seq": last_seq}
+            "truncated_prefix": truncated_prefix,
+            "first_seq": first_seq, "last_seq": last_seq,
+            "last_hash": rows[-1]["row_hash"] or "",
+            "redacted": len(redacted_rows),
+            "unexplained_redactions": unexplained[:20]}
+
+
+# How much of the tail one poll re-verifies when it has nothing to resume from
+# (a freshly started process). Everything older was either verified by an
+# earlier poll or belongs to the operator's full walk in
+# services/api/scripts/verify_audit_chain.py.
+HEALTH_TAIL_EVENTS = 200
+
+# The furthest position this process has verified and the row_hash it saw
+# there. Polling resumes from here, so a health check costs the events appended
+# since the last one rather than the whole trail, which only ever grows.
+_verified_through: dict = {"seq": 0, "hash": ""}
+
+
+async def verify_recent(conn, tail: int = HEALTH_TAIL_EVENTS) -> dict:
+    """Verify what has not been verified yet, anchored on the chain head.
+
+    The full walk is O(n) over a table that only grows, so anything that POLLS
+    it — an alarm on `health` — ends up loading the entire trail into one API
+    process on every poll, and the monitoring path is then the first thing to
+    fall over: precisely when the trail most needs watching. This verifies the
+    events appended since the last successful check (the newest `tail` on a
+    cold process) and confirms the stored head still seals the last of them,
+    which is what makes a window tamper-evident rather than merely recent.
+
+    The checkpoint is re-proved before it is trusted: the row it names must
+    still carry the hash it recorded. A rewritten or truncated tail invalidates
+    it and the check falls back to the window, so a stale checkpoint can never
+    vouch for history it can no longer see.
+    """
+    head = await (await conn.execute(
+        "SELECT seq, head_hash FROM audit_chain_head WHERE id=1")).fetchone()
+    head_seq = int(head["seq"]) if head else 0
+    mark = dict(_verified_through)
+    from_seq, prev = 0, None
+    if mark["seq"] and mark["seq"] <= head_seq:
+        anchor = await (await conn.execute(
+            "SELECT row_hash FROM audit_events_v2 WHERE seq=%s", (mark["seq"],))).fetchone()
+        if anchor and (anchor["row_hash"] or "") == mark["hash"]:
+            from_seq, prev = mark["seq"] + 1, mark["hash"]
+    if prev is None:
+        _verified_through.update(seq=0, hash="")
+        from_seq = max(head_seq - int(tail) + 1, 1)
+    verdict = await verify_chain(conn, from_seq=from_seq, prev_hash=prev)
+    verdict["from_seq"] = from_seq
+    if not verdict["ok"]:
+        return verdict
+    if verdict["last_seq"] is not None:
+        _verified_through.update(seq=verdict["last_seq"], hash=verdict["last_hash"])
+    elif prev is not None:
+        # Nothing new to walk, so the window proves nothing on its own — but the
+        # head must still name the event this process verified last.
+        if (head["head_hash"] or "") != prev:
+            verdict.update(ok=False, broken_at=head_seq,
+                           reason="the chain head no longer names the last verified event "
+                                  "— the trail was rewritten behind the checkpoint")
+    elif head_seq:
+        # A cold process found nothing where the head says the newest events
+        # are. The full walk would call an empty table intact — it has no
+        # position to miss them from — so the window has to say it: every event
+        # the head names is gone.
+        verdict.update(ok=False, broken_at=head_seq,
+                       reason=f"the chain head names event {head_seq} but no event at or "
+                              f"after {from_seq} remains — the end of the trail was removed")
+    return verdict
 
 
 async def worker():
@@ -943,14 +1228,17 @@ async def health(conn) -> dict:
     near zero and NOT grow; a rising backlog means the drain has stalled and
     events are not yet tamper-protected. `stalled` flags outbox rows that have
     failed repeatedly. `dropped` counts non-critical events this process gave up
-    on. `chain` is the verification verdict.
+    on. `chain` is the verification verdict — incremental, because this is the
+    endpoint something polls: it covers the events appended since the last poll
+    plus the chain head, never the whole trail. The full walk is the operator's
+    (services/api/scripts/verify_audit_chain.py).
     """
     row = await (await conn.execute(
         "SELECT count(*) AS backlog,"
         " count(*) FILTER (WHERE attempts >= 3) AS stalled,"
         " min(enqueued_at) AS oldest"
         " FROM audit_outbox WHERE state='pending'")).fetchone() or {}
-    chain = await verify_chain(conn)
+    chain = await verify_recent(conn)
     backlog = int(row.get("backlog") or 0)
     stalled = int(row.get("stalled") or 0)
     return {
@@ -960,8 +1248,11 @@ async def health(conn) -> dict:
         "dropped_this_process": _dropped_events,
         "chain": chain,
         # One boolean an alarm can watch, so the alerting rule does not have to
-        # encode this module's internals.
-        "healthy": bool(chain["ok"]) and stalled == 0 and backlog < 1000,
+        # encode this module's internals. A redaction the reviewed runs cannot
+        # account for counts against it: the chain still links, but somebody
+        # cleared an event's content outside the erasure and retention paths.
+        "healthy": (bool(chain["ok"]) and not chain.get("unexplained_redactions")
+                    and stalled == 0 and backlog < 1000),
     }
 
 

@@ -25,6 +25,7 @@ import TextField from '@mui/material/TextField';
 import SearchIcon from '@mui/icons-material/Search';
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
 import { EmptyState } from '../components/EmptyState';
+import { LoadFailed } from '../components/LoadFailed';
 import { PageHeader } from '../components/PageHeader';
 import { TableSkeleton } from '../components/Skeletons';
 import { stickyHeadSx } from '../components/tableSx';
@@ -38,7 +39,7 @@ type ToolTab = 'sro' | 'stamp-duty' | 'market-value' | 'calculator';
 const TAB_VALUES: ToolTab[] = ['sro', 'stamp-duty', 'market-value', 'calculator'];
 
 function SroTool() {
-  const { data: offices, isSample, isLoading } = useSroOffices();
+  const { data: offices, isSample, isLoading, refetch } = useSroOffices();
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const rows = needle
@@ -75,7 +76,9 @@ function SroTool() {
           />
         }
       />
-      {rows.length === 0 ? (
+      {isSample ? (
+        <LoadFailed what="The office directory" onRetry={refetch} />
+      ) : rows.length === 0 ? (
         <Card>
           <EmptyState
             icon={<AccountBalanceOutlinedIcon />}

@@ -126,10 +126,15 @@ targets:
         # time the lid closed. api.<domain> goes to the ALB directly rather
         # than through CloudFront, because a deed read runs ~90 seconds and
         # CloudFront caps origin reads at 60 — the ALB and the gateway both
-        # allow 200. Identity is the Cognito token; the gateway strips the
-        # header below and every other identity claim a client makes.
+        # allow 200. Identity is the Cognito token; the gateway strips every
+        # identity claim a client makes.
+        #
+        # No `PattadarUser` here. It is a development fallback that only the
+        # http path reads, and a real person's user id in a shipped plist is
+        # readable by anyone who unzips the .ipa. The Run scheme above carries
+        # it for ⌘R; anywhere else the app starts with no identity and the
+        # sign-in screen asks for one.
         PattadarAPIURL: https://api.pattadar.com/api/gateway/pattadar
-        PattadarUser: sankara.telukutla
 
   PattadarWidgetExtension:
     type: app-extension

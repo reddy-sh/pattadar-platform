@@ -1,9 +1,15 @@
 /**
- * Profile — functional port of the rhub ProfileView: identity card, preferred
- * language, step-up MFA toggle, "My Address" (feeds the "Same as my address"
- * shortcut when adding family members), districts of interest, notification
- * channels, and the DPDP-compliant masked-Aadhaar reference (raw Aadhaar is
- * never stored). Saves via the updateProfile mutation.
+ * Profile — functional port of the rhub ProfileView: identity card, "My
+ * Address" (feeds the "Same as my address" shortcut when adding family
+ * members), districts of interest, notification channels, and the
+ * DPDP-compliant masked-Aadhaar reference (raw Aadhaar is never stored).
+ * Saves via the updateProfile mutation.
+ *
+ * The preferred-language selector and the "step-up MFA" switch are gone: the
+ * app has no translation layer and nothing in the platform enforces step-up
+ * auth, so both were controls that changed nothing (the same call the Shell
+ * made for its EN/తెలుగు switch). Their stored values still round-trip through
+ * the mutation, which erases every field it is not given.
  */
 import { useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router';
@@ -21,10 +27,10 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import FormGroup from '@mui/material/FormGroup';
 import MenuItem from '@mui/material/MenuItem';
 import Snackbar from '@mui/material/Snackbar';
-import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { gql } from '../api/client';
+import { LoadFailed } from '../components/LoadFailed';
 import { PageHeader } from '../components/PageHeader';
 import { HeaderSkeleton, TableSkeleton } from '../components/Skeletons';
 import { avaColor } from '../lib/format';
@@ -51,7 +57,7 @@ interface Toast {
 }
 
 export function ProfilePage() {
-  const { data: me, isSample, isLoading } = useProfile();
+  const { data: me, isSample, isLoading, refetch } = useProfile();
   const { data: districts } = useDistricts();
   const queryClient = useQueryClient();
 
@@ -67,7 +73,9 @@ export function ProfilePage() {
 
   // Seed the form once the profile lands (same fields the source loads).
   useEffect(() => {
-    // Normalize legacy/sample labels ("English"/"Telugu") to the en/te keys.
+    // Language and MFA have no control on this page any more; they are held
+    // only so Save writes back what is stored. Normalize legacy/sample labels
+    // ("English"/"Telugu") to the en/te keys.
     const lang = String(me.language || 'en').toLowerCase();
     setLanguage(lang.startsWith('te') ? 'te' : 'en');
     setMfaEnabled(!!me.mfaEnabled);
@@ -117,13 +125,16 @@ export function ProfilePage() {
       </>
     );
 
+  // A read that failed is not a profile with blank fields: painting the form
+  // over it offers a Save that would write the blanks back.
+  if (isSample) return <LoadFailed what="Your profile" onRetry={refetch} />;
+
   return (
     <>
       <PageHeader
         eyebrow="Account"
         title="Profile"
         subtitle="Your identity, preferences and consent — used across passbooks, families and notifications."
-        sample={isSample}
       />
       <Button component={RouterLink} to="/app/account" sx={{ mb: 2 }}>Privacy, export and account deletion</Button>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) minmax(0, 2fr)' }, gap: 2 }}>
@@ -162,22 +173,6 @@ export function ProfilePage() {
             <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
               Preferences & Consent
             </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2, mb: 2 }}>
-              <TextField
-                select
-                size="small"
-                label="Preferred Language"
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-              >
-                <MenuItem value="en">English</MenuItem>
-                <MenuItem value="te">తెలుగు (Telugu)</MenuItem>
-              </TextField>
-              <FormControlLabel
-                control={<Switch checked={mfaEnabled} onChange={(e) => setMfaEnabled(e.target.checked)} />}
-                label="Step-up MFA for sensitive actions"
-              />
-            </Box>
             <TextField
               fullWidth
               size="small"
@@ -254,7 +249,7 @@ export function ProfilePage() {
               onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
               sx={{ mb: 2 }}
             />
-            <Button variant="contained" disabled={saving || isSample} onClick={() => void handleSave()}>
+            <Button variant="contained" disabled={saving} onClick={() => void handleSave()}>
               {saving ? 'Saving…' : 'Save Profile'}
             </Button>
           </CardContent>

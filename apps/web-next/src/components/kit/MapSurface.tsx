@@ -57,10 +57,11 @@
  * over the map raises a hint naming the controls that do zoom, rather than a
  * gesture the engine has switched off.
  *
- * `popup` is a `ReactNode`, never an HTML string: the engine's `label` prop is
- * `bindPopup(html)`, i.e. `innerHTML` of a string a screen concatenated out of
- * record fields (`ParcelDetailPage.tsx:383-391`). The node renders in a real
- * overlay card instead, which also gives it a close button and an Esc key.
+ * `popup` is a `ReactNode`, never an HTML string: the engine's `label` is
+ * plain text a screen concatenated out of record fields, which `mapLabel.ts`
+ * escapes before Leaflet's `bindPopup` sets it as `innerHTML`. The node
+ * renders in a real overlay card instead, which also gives it a close button
+ * and an Esc key.
  *
  * KNOWN SEAMS THIS DOES NOT CLOSE, so the next reader does not assume the map
  * is finished: Leaflet still owns the search implementation underneath (this
@@ -413,7 +414,7 @@ export interface MapSurfaceProps {
 
   features?: MapFeature[];
   onFeatureClick?: (id: string) => void;
-  /** ReactNode, not an HTML string — GeoMap's `label` prop is an injection seam. */
+  /** ReactNode, not an HTML string — GeoMap's `label` reaches `innerHTML`. */
   popup?: ReactNode;
 
   /** Shown INSTEAD of the map chrome when there is no value and nothing to locate. */

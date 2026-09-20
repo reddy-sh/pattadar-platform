@@ -60,7 +60,19 @@ public actor ResponseCache {
         guard epoch == currentEpoch else { return }
         let url = fileURL(user: user, document: document, variables: variables)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        #if os(iOS)
+        // These bytes are the whole record — holdings, members, masked
+        // Aadhaar, addresses — so they get the outbox's class rather than the
+        // default one, and must not be readable off a locked phone.
+        // `completeUnlessOpen` rather than `complete` so a refresh that began
+        // before the lock can still write its answer.
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUnlessOpen],
+            ofItemAtPath: root.path)
+        try? body.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+        #else
         try? body.write(to: url, options: .atomic)
+        #endif
     }
 
     public func lookup(user: String, document: String,

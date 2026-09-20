@@ -37,7 +37,7 @@
  *  leave the list and the sums until the Archived facet brings them back, and
  *  an account whose every record is archived says so rather than claiming to
  *  be empty. */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
@@ -596,8 +596,15 @@ export function Properties() {
     lat: c.lat,
     lon: c.lon,
   })), [cards]);
-  const drawn = pins.filter(isLocated);
-  const surveyed = drawn.filter((p) => p.ring.length >= 3).length;
+  /** The pins by record id, and which of them the map could place. Both are
+   *  asked for once per row of the results list beside the map, and that list
+   *  re-renders on every pointer move across it — as a scan of `pins` per row
+   *  that was the whole portfolio walked for each of its own records. */
+  const pinById = useMemo(() => new Map(pins.map((p) => [p.id, p])), [pins]);
+  const drawn = useMemo(() => pins.filter(isLocated), [pins]);
+  const drawnIds = useMemo(() => new Set(drawn.map((p) => p.id)), [drawn]);
+  const surveyed = useMemo(
+    () => drawn.filter((p) => p.ring.length >= 3).length, [drawn]);
 
   // A picked record that the filter has just taken off the map is a panel
   // describing something nobody can see.
@@ -665,11 +672,45 @@ export function Properties() {
 
   const byId = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
   const selShown = cards.filter((c) => selected.has(c.id)).map((c) => c.id);
-  const onSelect = (id: string) => setSelected((prev) => {
+  const onSelect = useCallback((id: string) => setSelected((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
-  });
+  }), []);
+
+  /** The rows beside the map. Hovering one sets `lit`, which the map reads to
+   *  light that record's pin — page state, so every pointer movement across
+   *  this list re-rendered the whole screen. No row draws anything from `lit`,
+   *  so they are built once per answer and a hover reaches only the map. */
+  const results = useMemo(() => cards.map((c) => {
+    const pin = pinById.get(c.id)!;
+    const located = isLocated(pin);
+    return <div className={`pf-result${picked === c.id ? ' on' : ''}`} key={c.id}
+                onMouseEnter={() => setLit(c.id)} onMouseLeave={() => setLit(null)}>
+      <button type="button" className="pf-result-pick" aria-pressed={picked === c.id}
+              onClick={() => {
+                if (located) { setPicked(c.id); mapRef.current?.goTo(c.id); }
+                else nav(`/app/records/${c.id}/map`);
+              }}>
+        <strong>{c.title}</strong>
+        <span className="note">{[c.village, c.mandal].filter(Boolean).join(', ') || 'Place not added'}</span>
+        <span className="note">{fmtExtent(c)} · {statusWord(c.status)}</span>
+        <span className="note">{located ? (pin.ring.length >= 3 ? 'Boundary on map' : 'Location pin only') : 'Add a location to show on map'}</span>
+      </button>
+      {/* Selecting from the map list works the selection bar too, so a reader
+          who found three parcels on the map can act on them without switching
+          back to the grid. */}
+      <label className="check">
+        <input type="checkbox" checked={selected.has(c.id)}
+               aria-label={`Select ${c.title}`}
+               onChange={() => onSelect(c.id)} />
+        Select
+      </label>
+      <Link className="link" to={`/app/records/${c.id}/map`}>
+        {pin.ring.length >= 3 ? 'View / measure boundary' : 'Locate / draw boundary'}
+      </Link>
+    </div>;
+  }), [cards, pinById, picked, selected, onSelect, nav]);
 
   const cardActions: Omit<CardActions, 'selected'> = {
     onSelect,
@@ -1175,35 +1216,7 @@ export function Properties() {
 
             <aside className="pf-results" aria-label="Map search results" aria-busy={isFetching}>
               <p className="eyebrow" role="status">{plural(cards.length, 'matching record')} · {drawn.length} on map</p>
-              {cards.map((c) => {
-                const pin = pins.find((p) => p.id === c.id)!;
-                const located = isLocated(pin);
-                return <div className={`pf-result${picked === c.id ? ' on' : ''}`} key={c.id}
-                            onMouseEnter={() => setLit(c.id)} onMouseLeave={() => setLit(null)}>
-                  <button type="button" className="pf-result-pick" aria-pressed={picked === c.id}
-                          onClick={() => {
-                            if (located) { setPicked(c.id); mapRef.current?.goTo(c.id); }
-                            else nav(`/app/records/${c.id}/map`);
-                          }}>
-                    <strong>{c.title}</strong>
-                    <span className="note">{[c.village, c.mandal].filter(Boolean).join(', ') || 'Place not added'}</span>
-                    <span className="note">{fmtExtent(c)} · {statusWord(c.status)}</span>
-                    <span className="note">{located ? (pin.ring.length >= 3 ? 'Boundary on map' : 'Location pin only') : 'Add a location to show on map'}</span>
-                  </button>
-                  {/* Selecting from the map list works the selection bar too,
-                      so a reader who found three parcels on the map can act on
-                      them without switching back to the grid. */}
-                  <label className="check">
-                    <input type="checkbox" checked={selected.has(c.id)}
-                           aria-label={`Select ${c.title}`}
-                           onChange={() => onSelect(c.id)} />
-                    Select
-                  </label>
-                  <Link className="link" to={`/app/records/${c.id}/map`}>
-                    {pin.ring.length >= 3 ? 'View / measure boundary' : 'Locate / draw boundary'}
-                  </Link>
-                </div>;
-              })}
+              {results}
             </aside>
             </div>
 
@@ -1234,7 +1247,7 @@ export function Properties() {
                   <>
                     {' '}
                     {plural(cards.length - drawn.length, 'record is', 'records are')} not
-                    here: {cards.filter((c) => !drawn.some((d) => d.id === c.id))
+                    here: {cards.filter((c) => !drawnIds.has(c.id))
                       .slice(0, 3).map((c) => c.title).join(', ')}
                     {cards.length - drawn.length > 3 ? ' and others' : ''} — neither surveyed
                     nor pinned. Opening one and dropping its pin is enough.

@@ -40,6 +40,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import MapIcon from '@mui/icons-material/Map';
 import { mapsAppFor, mapsAppName, mapsLink, ringCentroid } from '@pattadar/core';
 
+import { escapeHtml } from './escapeHtml';
 import { GeoMap } from './GeoMapLazy';
 
 export interface FmbPoint { id: number; e: number; n: number; lat: number; lon: number }
@@ -347,7 +348,7 @@ export function FmbMapViewer({
                 readOnly
                 showSearch={false}
                 height={520}
-                label={village || 'FMB parcel'}
+                label={escapeHtml(village || 'FMB parcel')}
               />
             ) : (
             <svg

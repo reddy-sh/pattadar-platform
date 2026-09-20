@@ -45,6 +45,7 @@ import OpacityOutlined from '@mui/icons-material/OpacityOutlined';
 import ParkOutlined from '@mui/icons-material/ParkOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
 import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
+import PlayArrowOutlined from '@mui/icons-material/PlayArrowOutlined';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import RouteOutlined from '@mui/icons-material/RouteOutlined';
 import SettingsInputComponentOutlined from '@mui/icons-material/SettingsInputComponentOutlined';
@@ -251,9 +252,17 @@ export function PhotoImg(
   { fileRef: string; alt: string; thumb?: number; fallback: ReactNode;
     kind?: 'photo' | 'video'; className?: string },
 ) {
-  // A video is fetched whole — ?thumb would hand back a still frame, and the
-  // point of filing a clip is that it moves.
-  const photo = useBlobFetch(isStorageRef(fileRef) ? fileRef : undefined,
+  // A clip is fetched whole, through the same authenticated read as a photo —
+  // there is no still to ask for instead: the gateway only downscales images,
+  // and `?thumb` on a video is a no-op that hands back every byte of it. So
+  // the bytes do not move until somebody asks for them. Paging onto a clip
+  // used to download the whole file into memory before anything was drawn,
+  // with no way to start watching before it had all arrived.
+  const [play, setPlay] = useState(false);
+  useEffect(() => { setPlay(false); }, [fileRef]);
+  const stored = isStorageRef(fileRef);
+  const wanted = stored && (kind !== 'video' || play);
+  const photo = useBlobFetch(wanted ? fileRef : undefined,
                              kind === 'video' ? undefined : thumb);
 
   // A photo that EXISTS and could not be read is not a photo that was never
@@ -274,9 +283,26 @@ export function PhotoImg(
       </span>
     );
   }
+  if (kind === 'video' && stored && !play) {
+    return (
+      <button type="button" className={`videostart ${className ?? ''}`.trim()}
+              onClick={() => setPlay(true)}>
+        <PlayArrowOutlined sx={{ fontSize: 34 }} aria-hidden />
+        <span>{alt.trim() || 'Play this clip'}</span>
+      </button>
+    );
+  }
+  if (kind === 'video' && photo.status === 'loading') {
+    return (
+      <span className={`videostart ${className ?? ''}`.trim()} role="status">
+        <VideocamOutlined sx={{ fontSize: 34 }} aria-hidden />
+        <span>Loading the clip…</span>
+      </span>
+    );
+  }
   if (!photo.url) return <>{fallback}</>;
   if (kind === 'video') {
-    return <video className={className} src={photo.url} controls aria-label={alt} />;
+    return <video className={className} src={photo.url} controls autoPlay aria-label={alt} />;
   }
   return <img className={className} src={photo.url} alt={alt} />;
 }

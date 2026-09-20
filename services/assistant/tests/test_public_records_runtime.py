@@ -18,7 +18,6 @@ from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 from services.assistant.src.adapters.agent_runtime import AssistantAgent
 from services.assistant.src.config import AssistantConfig
 from services.assistant.src.domain.scope_policy import evaluate_scope
-from services.assistant.src.public_records import database as database_module
 from services.assistant.src.public_records.database import ReadOnlyDatabase
 from services.assistant.src.public_records.exceptions import ToolInputError
 from services.assistant.src.adapters.mcp import build_public_record_tools
@@ -53,6 +52,12 @@ class FakeConnection:
     async def execute(self, sql, params=None):
         self.statements.append((sql, params))
         return FakeCursor()
+    async def close(self): pass
+
+class FakePool:
+    def __init__(self, conn): self.conn = conn
+    @asynccontextmanager
+    async def connection(self): yield self.conn
     async def close(self): pass
 
 async def run():
@@ -142,11 +147,10 @@ async def run():
     assert "LIMIT %(dossier_limit)s" in oversized_db.calls[1][0]
 
     fake_connection = FakeConnection()
-    async def fake_connect(*args, **kwargs): return fake_connection
-    database_module.psycopg.AsyncConnection.connect = staticmethod(fake_connect)
     read_only_db = ReadOnlyDatabase(
         PublicRecordSettings(database_dsn="configured", query_timeout_ms=4321)
     )
+    read_only_db._pool = FakePool(fake_connection)
     rows = await read_only_db.fetch_all(
         "SELECT 1 AS value",
         local_settings={"hnsw.ef_search": 60},

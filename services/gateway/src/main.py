@@ -13,6 +13,7 @@ that only scripts/start-local.sh writes.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -20,20 +21,39 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from . import auth, database, local_issuer
+from . import auth, database, local_issuer, request_context
 from .cognito_jwt import CognitoJWTConfig, JWKSCache
+from .internal_api import INTERNAL_PROXY_SECRET_HEADER
 from .routes.proxy import router as proxy_router
 from .ai_catalog import router as admin_models_router
-from .routes.storage import router as storage_router
+from .routes.storage import MAX_UPLOAD_BYTES, router as storage_router
 from .routes.account import router as account_router, check_account_access
 from .routes.capabilities import router as capabilities_router
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
+)
+request_context.install_log_filter()
 _log = logging.getLogger("pattadar.gateway")
 
-# Client-supplied identity headers are removed from EVERY request before any
-# handler runs — identity only ever comes from validated Cognito claims.
-_IDENTITY_HEADERS = (b"x-user-id", b"x-ea-user-id", b"x-user-name", b"x-ea-user-name")
+# Headers a client must never be able to set: identity comes only from
+# validated Cognito claims, and the internal-proxy secret only from this
+# gateway's own env. Removed from EVERY request before any handler runs.
+_IDENTITY_HEADERS = (
+    b"x-user-id",
+    b"x-ea-user-id",
+    b"x-user-name",
+    b"x-ea-user-name",
+    INTERNAL_PROXY_SECRET_HEADER.encode(),
+)
+
+#: The largest request the gateway accepts at all. One upload is the biggest
+#: legitimate thing it ever sees, so the ceiling follows the upload limit
+#: rather than drifting apart from it; the headroom is multipart framing.
+MAX_REQUEST_BYTES = int(
+    os.getenv("GATEWAY_MAX_REQUEST_BYTES", str(MAX_UPLOAD_BYTES + 8 * 1024 * 1024))
+)
 
 
 @asynccontextmanager
@@ -112,7 +132,78 @@ class StripIdentityHeadersMiddleware:
         await self.app(scope, receive, send)
 
 
+class _BodyTooLarge(Exception):
+    """A chunked body passed the ceiling mid-stream."""
+
+
+async def _send_json(send, status: int, payload: dict) -> None:
+    body = json.dumps(payload).encode()
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+class LimitRequestBodyMiddleware:
+    """Refuse an oversized request body before anything reads it.
+
+    Routes buffer bodies in memory — the api proxy does so BEFORE it
+    authenticates — so without a ceiling here an anonymous caller can spend
+    the whole task's memory on one request. A declared Content-Length is
+    refused without reading a byte; a chunked body is counted as it arrives
+    and cut off at the same ceiling.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        declared = next(
+            (v for (k, v) in scope["headers"] if k.lower() == b"content-length"), b""
+        ).decode("latin-1", "ignore")
+        if declared.isdigit() and int(declared) > self.max_bytes:
+            await _send_json(send, 413, {"error": "Request body too large"})
+            return
+
+        received = 0
+        started = False
+
+        async def counted_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise _BodyTooLarge()
+            return message
+
+        async def tracking_send(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, counted_receive, tracking_send)
+        except _BodyTooLarge:
+            if not started:
+                await _send_json(send, 413, {"error": "Request body too large"})
+
+
+# Added last, so it wraps outermost: the id exists before anything can log,
+# and a body refused for its size is still a correlated request.
 app.add_middleware(StripIdentityHeadersMiddleware)
+app.add_middleware(LimitRequestBodyMiddleware, max_bytes=MAX_REQUEST_BYTES)
+app.add_middleware(request_context.RequestIdMiddleware)
 
 
 @app.get("/health")

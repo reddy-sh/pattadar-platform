@@ -26,7 +26,7 @@ from .providers.anthropic import (
     send_messages,
     vision_extract,
 )
-from .config import IMPORT_MODEL
+from .config import IMPORT_MODEL, MODEL_TIMEOUT_SECONDS
 from .consent import require_read_consent
 from .prompts import (
     AADHAAR_SYSTEM,
@@ -83,7 +83,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
         ]}],
     }
     try:
-        r = await send_messages(payload, api_key=api_key, timeout=200)
+        r = await send_messages(payload, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
     except httpx.TimeoutException:
         _log.warning("AI extract timed out (file=%s, model=%s)", file.filename or "", IMPORT_MODEL)
         return JSONResponse(status_code=504, content={"error": "AI took too long to read this document (timed out). Try again or enter details manually."})
@@ -105,7 +105,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
         retry = dict(payload)
         retry["output_config"] = {"effort": "low"}
         try:
-            r2 = await send_messages(retry, api_key=api_key, timeout=200)
+            r2 = await send_messages(retry, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
             if r2.status_code == 200:
                 body = r2.json()
                 log_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="low-effort-retry")
@@ -131,14 +131,20 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
     return {"fields": fields, "raw": text}
 
 
-async def classify_parcel_photo(file: UploadFile = File(...)):
+async def classify_parcel_photo(file: UploadFile = File(...), request: Request = None):
     """Classify an image BEFORE it is stored (CL-600..604).
 
     The bytes are held in memory for the length of this call and written
     nowhere — no disk, no S3, no database. That matters most for the case this
     exists to catch: an Aadhaar card must not be persisted anywhere in order to
     discover that it should not be persisted.
+
+    Storing nothing is not the same as sending nothing: the picture still
+    reaches the provider, so it is gated on the same consent as every other
+    reading. A withdrawal stops the classification, and the client treats a
+    refusal the way it treats an unreachable classifier.
     """
+    await require_read_consent(request)
     data = await file.read()
     out = await vision_extract(
         data, file.content_type or "", file.filename or "",
@@ -238,7 +244,7 @@ async def extract_registered_fields(
     Returns (200, {"fields", "raw"}) or (status, {"error"}) — exactly the
     bodies the sync endpoint has always sent."""
     try:
-        r = await send_messages(payload, api_key=api_key, timeout=180)
+        r = await send_messages(payload, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
     except httpx.TimeoutException:
         _log.warning("AI extract timed out (file=%s, model=%s)", name, IMPORT_MODEL)
         return 504, {"error": "AI took too long to read this document (timed out). Try again or enter details manually."}
@@ -260,7 +266,7 @@ async def extract_registered_fields(
         retry = dict(payload)
         retry["output_config"] = {"effort": "low"}
         try:
-            r2 = await send_messages(retry, api_key=api_key, timeout=200)
+            r2 = await send_messages(retry, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
             if r2.status_code == 200:
                 body = r2.json()
                 log_usage(body, endpoint="import-registered-document", name=name, attempt="low-effort-retry")

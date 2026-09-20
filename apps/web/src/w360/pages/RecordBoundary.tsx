@@ -179,11 +179,20 @@ export function RecordBoundary() {
     remove.mutate({ markId }, {
       onSuccess: (res) => {
         if (!res.web.deleteMark) setPinErr('That mark could not be deleted.');
+        else setKilling(null);
       },
       onError: (e) => setPinErr(
         e instanceof Error ? e.message : 'That mark could not be deleted.'),
     });
   };
+  /** The mark that has been asked about but not yet destroyed.
+   *
+   *  A mark is a stone somebody walked to, noted and photographed, and the
+   *  delete sat directly on a kebab item — one mis-tap and it was gone, with
+   *  no undo and nothing to say so. Every other destructive action on these
+   *  screens asks first; this is the photo gallery's inline Yes/Keep pair,
+   *  which is the lightest of them and the right weight for a row. */
+  const [killing, setKilling] = useState<string | null>(null);
 
   const [copied, setCopied] = useState(false);
 
@@ -1508,10 +1517,30 @@ export function RecordBoundary() {
                         {
                           label: removing === m.id ? 'Deleting…' : 'Delete this mark',
                           danger: true,
-                          onClick: () => deleteMark(m.id),
+                          onClick: () => { setPinErr(''); setKilling(m.id); },
                         },
                       ]} />
                     </div>
+
+                    {killing === m.id && (
+                      <div style={{ marginTop: 'var(--space-sm)', paddingLeft: '2rem' }}>
+                        <p className="note">
+                          Delete {m.label || `mark ${m.seq}`}? The stone's position, who noted
+                          it and when all go with it, and there is no undo. Its old positions
+                          stay in History — the FMB sheet it came from is never edited.
+                        </p>
+                        <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
+                          <button type="button" className="btn sm danger"
+                                  disabled={removing === m.id}
+                                  onClick={() => deleteMark(m.id)}>
+                            {removing === m.id ? 'Deleting…' : 'Yes, delete it'}
+                          </button>
+                          <button type="button" className="btn sm" onClick={() => setKilling(null)}>
+                            Keep it
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {moved && (
                       <>
@@ -1533,7 +1562,7 @@ export function RecordBoundary() {
                           </button>
                           <button type="button" className="btn sm danger"
                                   disabled={removing === m.id}
-                                  onClick={() => deleteMark(m.id)}>
+                                  onClick={() => { setPinErr(''); setKilling(m.id); }}>
                             {removing === m.id ? 'Deleting…' : 'Delete mark'}
                           </button>
                         </div>

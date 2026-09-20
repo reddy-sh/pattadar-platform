@@ -44,8 +44,6 @@
 	<string>Pattadar reads deeds and passbooks from photos you choose.</string>
 	<key>PattadarAPIURL</key>
 	<string>https://api.pattadar.com/api/gateway/pattadar</string>
-	<key>PattadarUser</key>
-	<string>sankara.telukutla</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

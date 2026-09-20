@@ -18,7 +18,7 @@ import {
 } from '@pattadar/core';
 import type { Group, Invitation, NotificationEntry } from '@pattadar/core';
 import { gql } from '../../api/client';
-import { emptyLike } from '../../data/useLiveOrSample';
+import { emptyLike, liveQueryOptions } from '../../data/useLiveOrSample';
 
 // ---------------------------------------------------------------------------
 // Group type definitions (port of rhub groups.ts)
@@ -246,22 +246,13 @@ export function cropSquareDataUrl(file: File, size = 256): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function useFamLive<T>(key: string, fetchLive: () => Promise<T>, sample: T) {
-  const q = useQuery({
-    queryKey: ['pattadar', 'families', key],
-    queryFn: async (): Promise<{ data: T; isSample: boolean }> => {
-      try {
-        return { data: await fetchLive(), isSample: false };
-      } catch {
-        return { data: emptyLike(sample), isSample: true };
-      }
-    },
-    staleTime: 30_000,
-    retry: false,
-  });
+  const q = useQuery(liveQueryOptions(['pattadar', 'families', key], fetchLive));
   return {
-    data: q.data?.data ?? emptyLike(sample),
-    isSample: q.data?.isSample ?? false,
+    data: q.data ?? emptyLike(sample),
+    isSample: q.isError,
     isLoading: q.isPending,
+    error: q.error,
+    refetch: () => void q.refetch(),
   };
 }
 

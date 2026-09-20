@@ -4,10 +4,11 @@ Split out of the SDK runtime so the allowlist, the denied built-ins, the
 navigation allowlist and the action-envelope validator can be read and tested
 without constructing an SDK client or spending a token.
 
-Three independent defences live here and are deliberately not merged:
+Four independent defences live here and are deliberately not merged:
 
 * ``qualified_tool_names`` decides which tools may be CALLED at all;
 * ``safe_navigation`` decides which paths the model may ask the browser to OPEN;
+* ``safe_form_fields`` decides which fields and forms the model may WRITE to;
 * ``action_event`` decides which tool RESULTS may become browser commands.
 
 Collapsing them would mean one mistake removed all three. The runtime enforces
@@ -88,6 +89,58 @@ def safe_navigation(navigation: list[dict]) -> dict[str, str]:
 
     add(navigation)
     return lookup
+
+
+MAX_FIELD_VALUE_CHARS = 2_000
+_MAX_FORMS = 20
+_MAX_FIELDS_PER_FORM = 100
+_MAX_NAME_CHARS = 120
+
+
+def safe_form_fields(forms: list[dict]) -> dict[str, tuple[str, ...]]:
+    """Form name -> the field names the visible page declared as writable.
+
+    The page snapshot is untrusted input, so this normalises shape and size
+    only. It is an allowlist, and an empty one when the page declares nothing:
+    a field the page never offered can never be filled, and record text or an
+    attachment that asks for one is refused before it reaches the browser.
+    """
+    declared: dict[str, tuple[str, ...]] = {}
+    if not isinstance(forms, list):
+        return declared
+    for item in forms[:_MAX_FORMS]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()[:_MAX_NAME_CHARS]
+        if not name:
+            continue
+        raw_fields = item.get("fields")
+        fields = tuple(
+            str(field).strip()[:_MAX_NAME_CHARS]
+            for field in (raw_fields[:_MAX_FIELDS_PER_FORM] if isinstance(raw_fields, list) else ())
+            if isinstance(field, (str, int, float)) and str(field).strip()
+        )
+        declared[name] = fields
+    return declared
+
+
+def declared_form(form_fields: dict[str, tuple[str, ...]], form: str) -> str | None:
+    """The page's own spelling of a declared form, or None when undeclared."""
+    target = form.strip().casefold()
+    for name in form_fields:
+        if name.casefold() == target:
+            return name
+    return None
+
+
+def declared_field(form_fields: dict[str, tuple[str, ...]], field: str) -> str | None:
+    """The page's own spelling of a declared field, or None when undeclared."""
+    target = field.strip().casefold()
+    for fields in form_fields.values():
+        for name in fields:
+            if name.casefold() == target:
+                return name
+    return None
 
 
 def action_event(text: str, qualified_tool_name: str) -> dict[str, Any] | None:

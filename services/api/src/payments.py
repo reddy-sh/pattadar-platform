@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -23,9 +24,14 @@ except ImportError:
     from payments_provider import Config, Razorpay, PaymentError, ProviderRetry, paise, verify_hmac
 
 router = APIRouter(prefix='/payments', tags=['ticket payments'])
+_log = logging.getLogger('pattadar.payments')
 _pool = None
 _provider: Razorpay | None = None
 _config = Config()
+
+# An operation retrying past this many attempts is already hours old; the delay
+# ladder caps at an hour, so it would otherwise retry forever in silence.
+ALERT_AFTER_ATTEMPTS = 6
 
 DDL = [
     """CREATE TABLE IF NOT EXISTS payment_intents (
@@ -326,6 +332,33 @@ async def _ledger(conn, intent: dict, rows: list, reference: str, operation_id: 
              f'provider:{operation_id}:{entry}', intent['owner_user_id'], datetime.now(timezone.utc).isoformat()))
 
 
+def _at_stake(operation: dict, intent: dict) -> str:
+    """What this one operation moves — the refund or the payout, not the whole
+    checkout — since that is the sum the operator has to account for."""
+    return f"₹{(operation['payload'].get('amount') or intent['amount']) // 100:,}"
+
+
+async def _desk_task(kind: str, headline: str, detail: str, operation: dict, intent: dict):
+    """Put a stuck operation on the desk's own inbox (associates.py DDL).
+
+    The log line is an alarm; this is the place an operator actually looks.
+    It runs on its own connection after the operation was parked, and only
+    warns if it cannot be written: a desk that is unreachable must never cost
+    the parked row its record of what happened.
+    """
+    try:
+        async with _pool.connection() as conn:
+            await conn.execute(
+                'INSERT INTO desk_tasks(id,kind,ticket_id,owner_user_id,headline,detail,dedupe_key,created_at)'
+                ' VALUES(%s,%s,%s,%s,%s,%s,%s,%s)'
+                " ON CONFLICT(dedupe_key) WHERE dedupe_key<>'' DO NOTHING",
+                ('dt-' + uuid.uuid4().hex[:12], kind, intent['ticket_id'], intent['owner_user_id'],
+                 headline, detail, f'{kind}:{operation["id"]}', datetime.now(timezone.utc).isoformat()))
+    except Exception as exc:
+        _log.warning('[payments:desk-task-unwritten] operation=%s kind=%s error=%s',
+                     operation['id'], kind, type(exc).__name__)
+
+
 async def process_one(*, intent_id=None, kinds=None) -> bool:
     if _provider is None:
         return False
@@ -434,6 +467,23 @@ async def process_one(*, intent_id=None, kinds=None) -> bool:
             await conn.execute("UPDATE payment_operations SET status=%s,error=%s,next_at=now()+%s*interval '1 second',updated_at=now() WHERE id=%s AND status<>'done'",
                                ('retry' if retry else 'attention', message, delay, operation['id']))
             await conn.execute('UPDATE payment_intents SET error=%s,updated_at=now() WHERE id=%s', (message, intent['id']))
+        if not retry:
+            # Nothing picks an 'attention' row up again: captured money stays
+            # held until a human reconciles it, so this line is the alert.
+            _log.error('[payments:attention] operation=%s kind=%s intent=%s ticket=%s amount=%s attempts=%s error=%s'
+                       ' — operator reconciliation is required',
+                       operation['id'], operation['kind'], intent['id'], intent['ticket_id'],
+                       intent['amount'], operation['attempts'], message)
+            await _desk_task('payment_attention',
+                             f"The {operation['kind']} of {_at_stake(operation, intent)} needs reconciliation",
+                             message, operation, intent)
+        elif operation['attempts'] >= ALERT_AFTER_ATTEMPTS:
+            _log.warning('[payments:stalled] operation=%s kind=%s intent=%s attempts=%s error=%s',
+                         operation['id'], operation['kind'], intent['id'], operation['attempts'], message)
+            await _desk_task('payment_stalled',
+                             f"The {operation['kind']} of {_at_stake(operation, intent)} has retried"
+                             f" {operation['attempts']} times",
+                             message, operation, intent)
     return True
 
 
@@ -453,9 +503,11 @@ async def reconcile_checkouts():
                     if candidate:
                         await _request_verification(conn, current, candidate['id'])
                     await conn.execute('UPDATE payment_intents SET updated_at=now() WHERE id=%s', (intent['id'],))
-        except Exception:
-            # Operation/error monitoring names unresolved rows; no speculative
-            # ledger update is a substitute for a provider receipt.
+        except Exception as exc:
+            # No speculative ledger update is a substitute for a provider
+            # receipt; name the unresolved row instead.
+            _log.warning('[payments:unreconciled] intent=%s order=%s ticket=%s error=%s',
+                         intent['id'], intent['order_id'], intent['ticket_id'], type(exc).__name__)
             continue
 
 

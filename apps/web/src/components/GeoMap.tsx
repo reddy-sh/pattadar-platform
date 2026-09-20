@@ -19,6 +19,8 @@ import type { CSSProperties } from 'react';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+import { escapeHtml } from './escapeHtml';
+
 export interface GeoMapProps {
   value?: string | null;
   onChange?: (geojson: string) => void;
@@ -34,6 +36,8 @@ export interface GeoMapProps {
    *  clicks draw. Toggling never remounts, so the map keeps its view + layer.
    *  When set, this supersedes readOnly/mode. Reacts to external `value` changes. */
   drawMode?: 'off' | 'marker' | 'polygon';
+  /** Pin popup content. Leaflet renders it as HTML, so anything a person or a
+   *  document reading wrote must be passed through escapeHtml() first. */
   label?: string;
   /** Show the place-search box (default true). */
   showSearch?: boolean;
@@ -366,7 +370,7 @@ export default function GeoMap(props: GeoMapProps) {
               const place = String(hit.display_name || candidates[i]).split(',').slice(0, 2).join(',');
               L.circleMarker([lat, lng], { radius: 9, color: shapeColor, weight: 2, fillColor: shapeColor, fillOpacity: 0.25 })
                 .addTo(mapRef.current)
-                .bindTooltip(`Approximate — ${place}`, { direction: 'top', offset: [0, -8] });
+                .bindTooltip(`Approximate — ${escapeHtml(place)}`, { direction: 'top', offset: [0, -8] });
               return;
             }
           } catch {

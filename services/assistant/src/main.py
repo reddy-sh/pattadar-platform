@@ -5,18 +5,17 @@ import asyncio
 import json
 import logging
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from typing import AsyncGenerator
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
-import psycopg
 import anyio
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from . import telemetry as _metrics
 from .adapters.agent_runtime import AssistantAgent
@@ -50,17 +49,30 @@ from .adapters.conversation_store import (
     update_sdk_session,
 )
 from .domain.scope_policy import SCOPE_DENIAL_TEXT, evaluate_scope
+from .internal_auth import InternalProxyAuthMiddleware
+from .observability import RequestIdMiddleware, install_log_filter
 from .schemas import ChatRequest, ConversationCreate, ConversationUpdate
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s request_id=%(request_id)s %(message)s",
+)
+install_log_filter()
 _log = logging.getLogger("pattadar.assistant.main")
 
 config = AssistantConfig.from_env()
 agent_manager = AssistantAgent(config)
 
-
-async def _get_conn() -> psycopg.AsyncConnection:
-    return await psycopg.AsyncConnection.connect(config.db_uri, autocommit=True, row_factory=dict_row)
+# One pooled backend per replica instead of a fresh TCP+TLS+auth handshake per
+# operation; several operations run per chat turn and RDS max_connections is
+# shared with api and gateway.
+pool = AsyncConnectionPool(
+    conninfo=config.db_uri,
+    min_size=1,
+    max_size=10,
+    open=False,
+    kwargs={"row_factory": dict_row, "autocommit": True},
+)
 
 
 _DDL = """
@@ -129,16 +141,14 @@ ALTER TABLE r_attachments ADD COLUMN IF NOT EXISTS content BYTEA;
 
 
 async def _ensure_tables() -> None:
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         await conn.execute(_DDL)
-    finally:
-        await conn.close()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _log.info("Assistant service starting on port %d", config.port)
+    await pool.open(wait=True, timeout=30.0)
     await _ensure_tables()
     from .adapters import model_catalog
 
@@ -148,11 +158,15 @@ async def lifespan(app: FastAPI):
     yield
     await agent_manager.shutdown()
     await catalog.stop()
+    await pool.close()
     _log.info("Assistant service shut down")
 
 
 app = FastAPI(title="Pattadar Assistant", version="2.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# No CORS: the browser never reaches this service directly, only through the
+# gateway proxy, which owns the origin policy.
+app.add_middleware(InternalProxyAuthMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 
 def _user_id(x_user_id: str = Header(default="", alias="x-user-id")) -> str:
@@ -194,11 +208,8 @@ async def _mark_run_failed(
     error_code: str,
 ) -> None:
     try:
-        conn = await _get_conn()
-        try:
+        async with pool.connection() as conn:
             await fail_run(conn, conversation_id, user_id, run_id, error_code)
-        finally:
-            await conn.close()
     except Exception:
         _log.exception("Failed to persist failed run %s", run_id)
 
@@ -238,16 +249,13 @@ def _extract_office_text(path: str, mime: str, fname: str) -> str | None:
 async def health():
     errors: list[str] = []
     try:
-        conn = await _get_conn()
-        try:
+        async with pool.connection() as conn:
             await conn.execute("SELECT 1")
             row = await (
                 await conn.execute("SELECT to_regclass('r_conversation_messages') AS name")
             ).fetchone()
             if not row or not row["name"]:
                 errors.append("messages: table missing")
-        finally:
-            await conn.close()
     except Exception as exc:
         errors.append(f"db: {exc}")
 
@@ -263,8 +271,10 @@ async def health():
     return {"status": "ok", "service": "assistant"}
 
 
-@app.get("/metrics")
+@app.get("/internal/metrics")
 async def metrics():
+    """Under /internal so the gateway refuses to proxy it: aggregate usage and
+    error counters are for an in-task scraper, not for signed-in users."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -297,11 +307,8 @@ async def list_conversations_endpoint(
     offset: int = 0,
 ):
     user_id = _user_id(x_user_id)
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         return {"conversations": await list_conversations(conn, user_id, status, limit, offset)}
-    finally:
-        await conn.close()
 
 
 @app.post("/api/conversations", status_code=201)
@@ -316,13 +323,10 @@ async def create_conversation_endpoint(
         model = model_catalog.get_catalog().default_model()
     except RuntimeError as exc:
         raise HTTPException(503, "No assistant model is currently enabled") from exc
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         row = await create_conversation(conn, user_id, body.title, model, body.application_context)
         _metrics.conversations_total.inc()
         return row
-    finally:
-        await conn.close()
 
 
 @app.get("/api/conversations/{conversation_id}")
@@ -332,8 +336,7 @@ async def get_conversation_endpoint(
     include_messages: bool = True,
 ):
     user_id = _user_id(x_user_id)
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         conversation = await get_conversation(conn, conversation_id, user_id)
         if not conversation:
             raise HTTPException(404, "Conversation not found")
@@ -352,8 +355,6 @@ async def get_conversation_endpoint(
                 for row in rows
             ]
         return result
-    finally:
-        await conn.close()
 
 
 @app.put("/api/conversations/{conversation_id}")
@@ -363,14 +364,11 @@ async def update_conversation_endpoint(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         row = await update_conversation(conn, conversation_id, user_id, body.title, body.status)
         if not row:
             raise HTTPException(404, "Conversation not found")
         return row
-    finally:
-        await conn.close()
 
 
 @app.delete("/api/conversations/{conversation_id}")
@@ -379,13 +377,10 @@ async def delete_conversation_endpoint(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         if not await delete_conversation(conn, conversation_id, user_id):
             raise HTTPException(404, "Conversation not found")
         return {"ok": True}
-    finally:
-        await conn.close()
 
 
 @app.post("/api/conversations/{conversation_id}/restore")
@@ -394,14 +389,11 @@ async def restore_conversation_endpoint(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         row = await restore_conversation(conn, conversation_id, user_id)
         if not row:
             raise HTTPException(404, "Conversation not found or not deleted")
         return row
-    finally:
-        await conn.close()
 
 
 @app.post("/api/chat/stream")
@@ -412,13 +404,13 @@ async def chat_stream(
     user_id = _user_id(x_user_id)
     run_id = body.run_id or uuid4()
 
-    try:
-        conn = await _get_conn()
-    except Exception as exc:
-        _log.exception("Database connection failed for chat stream")
-        raise HTTPException(503, "Assistant storage is temporarily unavailable") from exc
+    async with AsyncExitStack() as storage:
+        try:
+            conn = await storage.enter_async_context(pool.connection())
+        except Exception as exc:
+            _log.exception("Database connection failed for chat stream")
+            raise HTTPException(503, "Assistant storage is temporarily unavailable") from exc
 
-    try:
         conversation = await get_conversation(conn, body.conversation_id, user_id)
         if not conversation or conversation.get("status") == "deleted":
             raise HTTPException(404, "Conversation not found")
@@ -480,17 +472,15 @@ async def chat_stream(
         transcript = await load_bounded_transcript(
             conn, body.conversation_id, user_id, exclude_run_id=run_id
         )
-    finally:
-        await conn.close()
 
     # Attachment bytes are read only after deterministic scope and ownership checks.
     content: str | list[dict] = body.message
     if body.attachment_ids:
-        attachment_conn = await _get_conn()
         try:
-            blocks, _ = await build_attachment_blocks(
-                attachment_conn, body.attachment_ids, user_id, _extract_office_text
-            )
+            async with pool.connection() as attachment_conn:
+                blocks, _ = await build_attachment_blocks(
+                    attachment_conn, body.attachment_ids, user_id, _extract_office_text
+                )
             if blocks:
                 blocks.append({"type": "text", "text": body.message})
                 content = blocks
@@ -500,8 +490,6 @@ async def chat_stream(
         except AttachmentUnavailable as exc:
             await _mark_run_failed(body.conversation_id, user_id, run_id, "attachment_unavailable")
             raise HTTPException(503, "A selected attachment is temporarily unavailable") from exc
-        finally:
-            await attachment_conn.close()
 
     try:
         await agent_manager.refresh_prompt()
@@ -511,44 +499,43 @@ async def chat_stream(
     trusted_context = body.application_context if decision.trusted_context else {}
     _, prompt_context = agent_manager._split_contextual_prompt(trusted_context)
     navigation = trusted_context.get("navigation", []) if trusted_context else []
+    forms = trusted_context.get("forms", []) if trusted_context else []
 
-    persist_conn = await _get_conn()
     try:
-        inserted = await append_message(
-            persist_conn, body.conversation_id, user_id, "user", body.message, run_id,
-            {
-                "scope_allowed": True,
-                "scope_reason": decision.reason,
-                "policy_version": decision.policy_version,
-                "attachment_ids": [str(item) for item in body.attachment_ids],
-            },
-        )
-        if not inserted:
-            existing_user = await (
-                await persist_conn.execute(
-                    """SELECT content FROM r_conversation_messages
-                         WHERE conversation_id=%s AND user_id=%s AND run_id=%s AND role='user'""",
-                    (str(body.conversation_id), user_id, str(run_id)),
-                )
-            ).fetchone()
-            if not existing_user or existing_user["content"] != body.message:
-                await fail_run(
-                    persist_conn, body.conversation_id, user_id, run_id, "run_id_payload_mismatch"
-                )
-                raise HTTPException(409, "This request identifier was already used for different content")
-        await auto_title(persist_conn, body.conversation_id, user_id, body.message)
-        await set_effective_model(persist_conn, body.conversation_id, user_id, effective_model)
-        if trusted_context:
-            await update_application_context(
-                persist_conn, str(body.conversation_id), user_id, trusted_context
+        async with pool.connection() as persist_conn:
+            inserted = await append_message(
+                persist_conn, body.conversation_id, user_id, "user", body.message, run_id,
+                {
+                    "scope_allowed": True,
+                    "scope_reason": decision.reason,
+                    "policy_version": decision.policy_version,
+                    "attachment_ids": [str(item) for item in body.attachment_ids],
+                },
             )
+            if not inserted:
+                existing_user = await (
+                    await persist_conn.execute(
+                        """SELECT content FROM r_conversation_messages
+                             WHERE conversation_id=%s AND user_id=%s AND run_id=%s AND role='user'""",
+                        (str(body.conversation_id), user_id, str(run_id)),
+                    )
+                ).fetchone()
+                if not existing_user or existing_user["content"] != body.message:
+                    await fail_run(
+                        persist_conn, body.conversation_id, user_id, run_id, "run_id_payload_mismatch"
+                    )
+                    raise HTTPException(409, "This request identifier was already used for different content")
+            await auto_title(persist_conn, body.conversation_id, user_id, body.message)
+            await set_effective_model(persist_conn, body.conversation_id, user_id, effective_model)
+            if trusted_context:
+                await update_application_context(
+                    persist_conn, str(body.conversation_id), user_id, trusted_context
+                )
     except HTTPException:
         raise
     except Exception as exc:
         await _mark_run_failed(body.conversation_id, user_id, run_id, "turn_persistence_failed")
         raise HTTPException(503, "The conversation could not be saved") from exc
-    finally:
-        await persist_conn.close()
 
     _metrics.chat_total.labels(model=effective_model).inc()
     started_at = time.perf_counter()
@@ -572,6 +559,7 @@ async def chat_stream(
                         prompt_context=prompt_context,
                         navigation=navigation if isinstance(navigation, list) else [],
                         session_id=str(run_id),
+                        forms=forms if isinstance(forms, list) else [],
                     ):
                         await event_queue.put(event)
             except Exception as producer_error:
@@ -609,8 +597,7 @@ async def chat_stream(
             if not final_text:
                 raise RuntimeError("SDK returned no assistant text")
 
-            save_conn = await _get_conn()
-            try:
+            async with pool.connection() as save_conn:
                 async with save_conn.transaction():
                     await append_message(
                         save_conn, body.conversation_id, user_id, "assistant", final_text, run_id,
@@ -620,8 +607,6 @@ async def chat_stream(
                         save_conn, body.conversation_id, user_id, run_id, final_session
                     )
                     await finish_run(save_conn, body.conversation_id, user_id, run_id)
-            finally:
-                await save_conn.close()
 
             _metrics.chat_seconds.labels(model=effective_model).observe(time.perf_counter() - started_at)
             _log.info(
@@ -667,8 +652,7 @@ async def upload_attachment(
     if len(file_bytes) > config.max_upload_bytes:
         raise HTTPException(413, f"File too large (max {config.max_upload_bytes // 1024 // 1024} MB)")
 
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         conversation = await get_conversation(conn, UUID(conversation_id), user_id)
         if not conversation:
             raise HTTPException(404, "Conversation not found")
@@ -682,8 +666,6 @@ async def upload_attachment(
             attachment_type,
             config.upload_dir,
         )
-    finally:
-        await conn.close()
 
 
 @app.get("/api/attachments/{attachment_id}")
@@ -692,8 +674,7 @@ async def download_attachment(
     x_user_id: str = Header(default="", alias="x-user-id"),
 ):
     user_id = _user_id(x_user_id)
-    conn = await _get_conn()
-    try:
+    async with pool.connection() as conn:
         row = await get_attachment(conn, str(attachment_id), user_id)
         if not row:
             raise HTTPException(404, "Attachment not found")
@@ -710,8 +691,6 @@ async def download_attachment(
                 "X-Content-Type-Options": "nosniff",
             },
         )
-    finally:
-        await conn.close()
 
 
 from .account_export import router as account_export_router

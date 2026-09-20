@@ -276,9 +276,16 @@ class StorageService:
             raise StorageNotFound(node_id)
         return [_camel(r, _NODE_CAMEL) for r in rows]
 
-    def read_content(
+    def content_identity(
         self, caller: str, node_id: str, version_id: Optional[str] = None
-    ) -> tuple[bytes, str, str]:
+    ) -> tuple[str, str, str, str, str]:
+        """Everything a read needs except the bytes, having authorized it.
+
+        Returns (version_id, object_key, mime, name, owner_id). A version id is
+        immutable once written, so a conditional request can be answered from
+        this alone — no S3 object is fetched to find out that the caller
+        already holds the same one.
+        """
         # Authorize by ownership OR an active share (on the node or an ancestor).
         cols = ", ".join(_NODE_CAMEL.keys())
         rows = db.query_native(
@@ -307,15 +314,23 @@ class StorageService:
         )
         if not vrows:
             raise StorageNotFound(vid)
-        key = vrows[0]["object_key"]
         mime = vrows[0].get("mime_type") or "application/octet-stream"
-        resp = self._s3.get_object(Bucket=self._bucket, Key=key)
+        return str(vid), vrows[0]["object_key"], mime, node["name"], node_owner
+
+    def read_object(self, object_key: str) -> bytes:
+        """The bytes behind a key that ``content_identity`` has authorized."""
+        resp = self._s3.get_object(Bucket=self._bucket, Key=object_key)
         body = resp["Body"]
         try:
-            data = body.read()
+            return body.read()
         finally:
             body.close()
-        return data, mime, node["name"]
+
+    def read_content(
+        self, caller: str, node_id: str, version_id: Optional[str] = None
+    ) -> tuple[bytes, str, str]:
+        _vid, key, mime, name, _owner = self.content_identity(caller, node_id, version_id)
+        return self.read_object(key), mime, name
 
     # -- writes -------------------------------------------------------------
 

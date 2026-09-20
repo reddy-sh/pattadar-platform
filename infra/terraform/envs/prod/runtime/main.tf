@@ -59,9 +59,11 @@ module "runtime" {
   razorpay_live_confirmed  = var.razorpay_live_confirmed
   payment_secret_arns      = var.payment_secret_arns
 
-  # Aadhaar rollout starts as a dual-reader/no-new-write bridge. An approved
-  # environment-specific change must choose legacy bridge or KMS writes.
-  aadhaar_kms_writes_enabled   = false
+  # The rollout decision, made: writes go to the dedicated KMS field key. Both
+  # flags false meant every Aadhaar write raised at runtime, discarding vision
+  # extractions the user had already paid for, so the module now refuses that
+  # combination rather than leaving it as an implicit pending choice.
+  aadhaar_kms_writes_enabled   = true
   enable_aadhaar_legacy_fernet = false
   gateway_image_tag            = var.gateway_image_tag
 

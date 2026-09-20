@@ -269,13 +269,24 @@ variable "payment_secret_arns" {
 # --- Aadhaar field-encryption rollout ---------------------------------------
 
 variable "aadhaar_kms_writes_enabled" {
-  description = "Enable new direct-KMS Aadhaar/candidate writes. Keep false for the dual-reader bridge until rollback targets are KMS-capable."
+  description = "Enable new direct-KMS Aadhaar/candidate writes. Keep false ONLY while enable_aadhaar_legacy_fernet carries the writes instead."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_aadhaar_legacy_fernet" {
   description = "Inject the approved legacy Fernet key and permit temporary bridge writes. Enable only while inventoried legacy ciphertext remains."
   type        = bool
   default     = false
+}
+
+# With neither flag set the api starts but raises on every Aadhaar write — KYC
+# saves, member saves and extractions all fail after the provider has been
+# billed. The api asserts this at startup too; catching it at plan time means
+# it never reaches a task definition.
+check "aadhaar_has_a_write_path" {
+  assert {
+    condition     = var.aadhaar_kms_writes_enabled || var.enable_aadhaar_legacy_fernet
+    error_message = "No Aadhaar write path enabled: set aadhaar_kms_writes_enabled (preferred) or enable_aadhaar_legacy_fernet."
+  }
 }

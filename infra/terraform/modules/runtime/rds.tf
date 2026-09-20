@@ -57,51 +57,22 @@ resource "aws_db_instance" "main" {
   tags = local.tags
 }
 
-# --- Composed connection-string secret (APP_PG_DSN) -------------------------
-# The services consume a single DSN. Terraform composes it from the RDS
-# endpoint plus the RDS-managed master secret and stores it as a runtime
-# secret pattadar/<env>/db-dsn (destroyed with the runtime layer; the managed
-# master secret itself lives with the instance/snapshot).
+# --- Application database credential ----------------------------------------
+# Every service connects as pattadar_app with this static password, taking the
+# host/port/user/database as plain env and only the password as a secret.
 #
-# NOTE / caveat: RDS rotates the managed master password automatically
-# (~every 7 days), which goes stale in this composed DSN AND in already
-# running tasks (ECS injects secrets only at task start). After a rotation:
-# `terraform apply` here + force-new-deployment of both services.
-# TODO(Phase 2): dedicated app DB user with a Terraform-independent rotation
-# story, or IAM database auth. Also note the DSN transits Terraform state —
-# acceptable because state lives in the encrypted, locked state bucket.
-
-data "aws_secretsmanager_secret_version" "db_master" {
-  secret_id = aws_db_instance.main.master_user_secret[0].secret_arn
-}
-
-resource "aws_secretsmanager_secret" "db_dsn" {
-  name       = "${var.app_name}/${var.environment}/db-dsn"
-  kms_key_id = local.persistent.kms_key_arn
-
-  # Runtime layer is destroy/recreate by design; don't hold the name hostage
-  # for the default 30-day recovery window.
-  recovery_window_in_days = 0
-
-  tags = local.tags
-}
-
-# Static app-user password (review finding: the RDS-managed MASTER password
-# auto-rotates ~7d — services use the pattadar_app role instead; value seeded
-# by the migration runbook).
+# There used to be a second secret here, pattadar/<env>/db-dsn, composed from
+# the RDS-managed MASTER credential and handed to the api as APP_PG_DSN. Two
+# things were wrong with it: RDS rotates that master password about every
+# seven days, so every new api connection failed until an operator re-applied
+# and forced a redeployment; and composing it in Terraform wrote the master
+# password into state, where the CI read roles could reach it. Both are gone.
+#
+# The password value is seeded out of band (see platform-up.sh, which creates
+# the role and the database and refuses to continue while this secret has no
+# version) so that it never transits Terraform state.
 resource "aws_secretsmanager_secret" "db_app_password" {
   name       = "${var.app_name}/${var.environment}/db-app-password"
   kms_key_id = local.persistent.kms_key_arn
   tags       = local.tags
-}
-
-resource "aws_secretsmanager_secret_version" "db_dsn" {
-  secret_id = aws_secretsmanager_secret.db_dsn.id
-  secret_string = format(
-    "postgresql://%s:%s@%s/%s",
-    jsondecode(data.aws_secretsmanager_secret_version.db_master.secret_string)["username"],
-    urlencode(jsondecode(data.aws_secretsmanager_secret_version.db_master.secret_string)["password"]),
-    aws_db_instance.main.endpoint, # host:5432
-    var.db_name,
-  )
 }

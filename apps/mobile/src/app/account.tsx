@@ -235,7 +235,7 @@ export default function AccountScreen() {
                       try {
                         const r = await myAadhaar.reveal.mutateAsync();
                         await copySensitive(r.revealMyAadhaar);
-                        setNote('Aadhaar copied — the clipboard clears in a minute.');
+                        setNote('Aadhaar copied — the clipboard clears in a minute, or when you come back here.');
                       } catch (e) {
                         setNote(e instanceof Error ? e.message : "Couldn't copy the number");
                       }

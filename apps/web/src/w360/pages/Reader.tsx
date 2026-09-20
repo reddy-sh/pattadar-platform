@@ -50,8 +50,9 @@ const SHELVES = ['title', 'revenue', 'map', 'search', 'identity', 'old', 'unsort
  * rules belong beside it, but this screen does not own w360.css, so it
  * carries them itself until they can be moved there.
  *
- * The `rd-` classes exist only as print hooks — nothing in w360.css styles
- * them, so they change nothing on screen.
+ * The `rd-` classes are the screen's own layout as well now — w360.css writes
+ * the three columns and stacks them below 900px — so each rule here says
+ * `!important` to beat them, as it already did.
  *
  * Rotation is deliberately dropped for the printer: it is a reading aid for
  * the screen, and a rotated transform prints clipped rather than sideways.
@@ -375,22 +376,14 @@ export function Reader() {
         </span>
       </header>
 
-      <div className="rd-grid" style={{ display: 'grid', gridTemplateColumns: showPages ? '7rem minmax(0,1fr) 24rem' : 'minmax(0,1fr) 24rem', minHeight: 'calc(100vh - 4.5rem)' }}>
+      <div className={`rd-grid${showPages ? ' with-pages' : ''}`}>
         {/* The rail used to stop at six thumbnails and print the remainder as
             the dead text "+6": page 7 of a 12-page deed could only be reached
             by pressing the chevron six times, no rail item was ever current
             past page 6, and a reader's flag on page 7 had no dot at all. Every
-            page is a button now. `minHeight: 0` is what lets a grid item
-            shrink enough to scroll instead of growing the page, and sticky
-            keeps the rail beside the reading pane while that pane scrolls. */}
+            page is a button now. */}
         {showPages && (
-        <nav aria-label="Pages" className="rd-pages"
-             style={{
-               borderRight: '1px solid var(--w-line)', padding: 'var(--space-md)',
-               display: 'grid', gap: '0.625rem', alignContent: 'start',
-               minHeight: 0, maxHeight: 'calc(100vh - 4.5rem)', overflowY: 'auto',
-               position: 'sticky', top: 0,
-             }}>
+        <nav aria-label="Pages" className="rd-pages">
           {Array.from({ length: pages }).map((_, n) => (
             <button
               key={n}
@@ -414,7 +407,8 @@ export function Reader() {
         </nav>
         )}
 
-        <section className="rd-sheet" style={{ display: 'grid', gridTemplateRows: showPages ? 'minmax(0,1fr) auto' : 'minmax(0,1fr)', placeItems: scan.status === 'ready' ? 'center' : 'start center', padding: 'var(--space-lg)', gap: 'var(--space-md)' }}>
+        <section className="rd-sheet"
+                 style={{ placeItems: scan.status === 'ready' ? 'center' : 'start center' }}>
           {/* The scan itself, in whichever of five states the fetch landed
               in. Both this screen and the preview drawer render it, so it
               lives in ../paper/scan. The paging row below is this screen's
@@ -450,7 +444,7 @@ export function Reader() {
           )}
         </section>
 
-        <aside className="rd-side" style={{ borderLeft: '1px solid var(--w-line)', padding: 'var(--space-lg)', overflowY: 'auto', display: 'grid', gap: 'var(--space-md)', alignContent: 'start' }}>
+        <aside className="rd-side">
           <div className="row between">
             <span className="row tight">
               <Chip>● {SHELF_WORD[data.shelf] ?? data.shelf}</Chip>

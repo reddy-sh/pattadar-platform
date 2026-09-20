@@ -11,6 +11,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import uuid
@@ -19,6 +20,7 @@ from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 
+_log = logging.getLogger("pattadar.aadhaar")
 _pool = None
 _kms = None
 KMS_PREFIX = "kms-direct:v1:"
@@ -46,10 +48,25 @@ def bind(pool) -> None:
 
 
 def validate_configuration() -> None:
-    """Fail startup outside local/test when the dedicated field key is absent."""
+    """Fail startup outside local/test when Aadhaar cannot be written.
+
+    The key on its own is not enough. With neither AADHAAR_KMS_WRITES_ENABLED
+    nor AADHAAR_LEGACY_WRITE_BRIDGE set, _encrypt_bytes raises and every KYC
+    save, member save and Aadhaar extraction fails — after the extraction has
+    already been paid for. That is a deployment mistake, so it belongs at
+    startup rather than one 500 per request.
+    """
     environment = os.getenv("APP_ENV", "local").strip().casefold()
-    if environment not in {"local", "test"} and not os.getenv("AADHAAR_KMS_KEY_ARN", "").strip():
+    if environment in {"local", "test"}:
+        return
+    if not os.getenv("AADHAAR_KMS_KEY_ARN", "").strip():
         raise RuntimeError("AADHAAR_KMS_KEY_ARN is required outside local/test")
+    if os.getenv("AADHAAR_KMS_WRITES_ENABLED", "") != "1" and \
+            os.getenv("AADHAAR_LEGACY_WRITE_BRIDGE", "") != "1":
+        raise RuntimeError(
+            "no Aadhaar write path is enabled: set AADHAAR_KMS_WRITES_ENABLED=1 "
+            "(or AADHAAR_LEGACY_WRITE_BRIDGE=1 for the legacy bridge)"
+        )
 
 
 async def ensure_schema(conn) -> None:
@@ -123,6 +140,18 @@ def _kms_decrypt_sync(token: str, context: dict[str, str]) -> bytes:
     return bytes(response["Plaintext"])
 
 
+def _unavailable(operation: str, owner: str, purpose: str, record: str, exc: Exception) -> RuntimeError:
+    """One stable sentence for every protection failure.
+
+    A KMS, base64 or cipher error carries key identifiers and sometimes the
+    material itself, so the cause is recorded as a type against non-identifying
+    references and never reaches the caller.
+    """
+    _log.warning("aadhaar.%s failed (purpose=%s, record=%s, owner_ref=%s, cause=%s)",
+                 operation, purpose, record, _owner_ref(owner), type(exc).__name__)
+    return RuntimeError("Aadhaar protection is temporarily unavailable")
+
+
 async def _encrypt_bytes(plaintext: bytes, owner: str, purpose: str, record: str) -> str:
     environment = os.getenv("APP_ENV", "local").strip().casefold()
     local_or_test = environment in {"local", "test"}
@@ -131,12 +160,15 @@ async def _encrypt_bytes(plaintext: bytes, owner: str, purpose: str, record: str
         try:
             return await asyncio.to_thread(_kms_encrypt_sync, plaintext, _context(owner, purpose, record))
         except Exception as exc:
-            raise RuntimeError("Aadhaar protection is temporarily unavailable") from exc
+            raise _unavailable("encrypt", owner, purpose, record, exc) from exc
     legacy_bridge = os.getenv("AADHAAR_LEGACY_WRITE_BRIDGE", "") == "1"
     if legacy_bridge or (local_or_test and os.getenv("ALLOW_INSECURE_LOCAL", "") == "1"):
         cipher = _fernet()
         if cipher:
-            return FERNET_PREFIX + cipher.encrypt(plaintext).decode()
+            try:
+                return FERNET_PREFIX + cipher.encrypt(plaintext).decode()
+            except Exception as exc:
+                raise _unavailable("encrypt", owner, purpose, record, exc) from exc
     raise RuntimeError("Aadhaar protected writes are not enabled")
 
 
@@ -145,7 +177,7 @@ async def _decrypt_bytes(token: str, owner: str, purpose: str, record: str) -> b
         try:
             return await asyncio.to_thread(_kms_decrypt_sync, token, _context(owner, purpose, record))
         except Exception as exc:
-            raise RuntimeError("Aadhaar protection is temporarily unavailable") from exc
+            raise _unavailable("decrypt", owner, purpose, record, exc) from exc
     cipher = _fernet()
     if not cipher:
         raise RuntimeError("Legacy Aadhaar decryption is not configured")
@@ -154,6 +186,8 @@ async def _decrypt_bytes(token: str, owner: str, purpose: str, record: str) -> b
         return cipher.decrypt(raw.encode())
     except InvalidToken as exc:
         raise ValueError("Stored Aadhaar could not be decrypted") from exc
+    except Exception as exc:
+        raise _unavailable("decrypt", owner, purpose, record, exc) from exc
 
 
 async def encrypt_number(raw: str, owner: str, subject_kind: str, subject_id: str) -> tuple[str, str]:
@@ -174,7 +208,10 @@ async def decrypt_number(token: str, owner: str, subject_kind: str, subject_id: 
     return value
 
 
-_AADHAAR_LIKE = re.compile(r"(?<!\d)(?:\d[^\d\w]*){11}\d(?!\d)")
+# Anything that is not a digit or a letter separates the groups — punctuation,
+# any dash, any space, and underscore, which is a word character and so would
+# otherwise slip through.
+_AADHAAR_LIKE = re.compile(r"(?<!\d)(?:\d[\W_]*){11}\d(?!\d)")
 
 
 def _redact_aadhaar_like(value: Any) -> str:
