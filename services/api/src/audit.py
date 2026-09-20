@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import psycopg
 from psycopg.types.json import Jsonb
 
 log = logging.getLogger("pattadar.audit")
@@ -1166,36 +1167,64 @@ async def worker():
             await asyncio.sleep(2)
 
 
+async def redact_expired(conn) -> int:
+    """Clear the content of every event past its retention class. Returns the
+    number redacted.
+
+    Caller supplies the connection because who runs this decides whether it is
+    permitted: once ROLE_BOOTSTRAP_SQL is applied, only a login holding
+    pattadar_audit_maintainer may do it, which is the point of the boundary.
+    """
+    async with conn.transaction():
+        # The append-only trigger refuses a change that does not come from a
+        # reviewed path. The retention sweep is one, and says so. SET LOCAL
+        # scopes the permission to this transaction only, so it cannot leak to
+        # any later statement on this pooled connection.
+        await conn.execute(MAINTENANCE_ON)
+        # REDACT, never DELETE. Retention classes differ (a low-signal event
+        # expires at 1 year, a security event at 3), so expiry order is NOT
+        # chain order: deleting expired rows would punch holes through the
+        # middle of the chain and every later verification would report
+        # tampering that never happened. Clearing the content keeps the seal
+        # and the sequence whole.
+        cur = await conn.execute(
+            "UPDATE audit_events_v2 SET"
+            "   actor_principal = 'expired', affected_owner = 'expired',"
+            "   resource_id = '', metadata = '{}'::jsonb, redacted_at = now()"
+            " WHERE expires_at IS NOT NULL AND expires_at < now()"
+            "   AND redacted_at IS NULL")
+        return cur.rowcount
+
+
+_boundary_noted = False
+
+
 async def maintenance():
-    """Retention sweep: delete events past their expiry. Runs slowly; the
-    account-erasure runner handles owner-scoped removal separately."""
+    """Retention sweep. Runs slowly; the account-erasure runner handles
+    owner-scoped removal separately.
+
+    The audit half only runs while this login is still allowed to do it. After
+    ROLE_BOOTSTRAP_SQL is applied the application login loses UPDATE on the
+    trail by design, and scripts/audit_retention.py takes the job over under a
+    maintainer login — so a refusal here is the boundary working, not a fault.
+    """
     import asyncio
+    global _boundary_noted
     while True:
         try:
-            async with _pool.connection() as conn, conn.transaction():
-                # The append-only trigger refuses a DELETE that does not come
-                # from a reviewed path. The retention sweep is one, and says so.
-                # SET LOCAL scopes the permission to this transaction only, so
-                # it cannot leak to any later statement on this pooled
-                # connection. Expiring an event past its approved retention is
-                # the ONE deletion the trail allows of itself.
-                await conn.execute(MAINTENANCE_ON)
-                # REDACT, never DELETE. Retention classes differ (a low-signal
-                # event expires at 1 year, a security event at 3), so expiry
-                # order is NOT chain order: deleting expired rows would punch
-                # holes through the middle of the chain and every later
-                # verification would report tampering that never happened.
-                # Clearing the content keeps the seal and the sequence whole.
-                cur = await conn.execute(
-                    "UPDATE audit_events_v2 SET"
-                    "   actor_principal = 'expired', affected_owner = 'expired',"
-                    "   resource_id = '', metadata = '{}'::jsonb, redacted_at = now()"
-                    " WHERE expires_at IS NOT NULL AND expires_at < now()"
-                    "   AND redacted_at IS NULL")
-                if cur.rowcount:
+            try:
+                async with _pool.connection() as conn:
+                    redacted = await redact_expired(conn)
+                if redacted:
                     log.info("audit retention: cleared the content of %d event(s) past "
-                             "their retention class; chain positions preserved",
-                             cur.rowcount)
+                             "their retention class; chain positions preserved", redacted)
+            except psycopg.errors.InsufficientPrivilege:
+                if not _boundary_noted:
+                    _boundary_noted = True
+                    log.info("audit retention: the append-only boundary is applied, so "
+                             "this process no longer redacts expired events; run "
+                             "services/api/scripts/audit_retention.py under a "
+                             "pattadar_audit_maintainer login instead")
 
             # notification_log is not part of the chain, so it is an ordinary
             # DELETE on its own connection. It holds phone numbers, email
