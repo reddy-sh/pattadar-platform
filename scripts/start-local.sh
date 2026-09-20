@@ -213,9 +213,13 @@ sleep 0.5
 echo "» starting api on http://localhost:8080 (log: .local/api.log)"
 (
   cd "$RHUB_API_DIR"
+  # Compliance policy administration is a separate, fail-closed role. The
+  # local account is bootstrapped explicitly; deployed environments must pass
+  # immutable subject_ principals through SUPER_ADMIN_UIDS instead.
   APP_PG_DSN="$APP_DSN" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
   APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \
+  SUPER_ADMIN_UIDS="${SUPER_ADMIN_UIDS:-${DEV_USER_ID:-shankarreddy.t}}" \
   ALLOW_INSECURE_LOCAL=1 \
   "$VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8080 --reload >"$API_LOG" 2>&1
 ) &

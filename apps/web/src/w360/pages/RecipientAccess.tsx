@@ -10,6 +10,7 @@ type View = {
   note?: string; outcomeNote?: string; dueDate?: string;
   answers?: { label: string; value: string }[];
   deliverables?: { id: string; label: string; note: string; review: string; review_note: string }[];
+  messages?: { id: string; actor_kind: string; actor_label: string; detail: string; at: string }[];
 };
 
 async function checked(res: Response): Promise<unknown> {
@@ -60,6 +61,7 @@ export default function RecipientAccess() {
   const [message, setMessage] = useState('');
   const [label, setLabel] = useState('');
   const [note, setNote] = useState('');
+  const [reply, setReply] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<{ url: string; mime: string; title: string } | null>(null);
   const load = useCallback(async () => {
@@ -116,6 +118,22 @@ export default function RecipientAccess() {
     finally { setBusy(false); }
   };
 
+  const sendReply = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = reply.trim();
+    if (!text) return;
+    setBusy(true); setError(''); setMessage('');
+    const body = new FormData();
+    body.append('label', text); body.append('note', '');
+    try {
+      await checked(await reach(`${base}/deliverables`, { method: 'POST', body }, 600_000));
+      setReply('');
+      setMessage('Your message was added to the service conversation.');
+      await load();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Your message could not be sent.'); }
+    finally { setBusy(false); }
+  };
+
   return <div className="w360" data-scheme="light" style={{ display: 'block', minHeight: '100vh' }}>
     <main style={{ maxWidth: 840, margin: '0 auto', padding: '2rem 1.25rem' }}>
       <p className="brand">Pattadar<span>.</span></p>
@@ -164,6 +182,31 @@ export default function RecipientAccess() {
             : <img src={preview.url} alt={preview.title} style={{ maxWidth: '100%', maxHeight: '70vh' }} />}
         </section>}
         {view.scope === 'work' && <>
+          <section className="card">
+            <h2>Conversation</h2>
+            {(view.messages || []).length === 0 ? <p className="note">No messages yet.</p> : (
+              <div className="service-chat" role="log" aria-label="Service conversation">
+                {view.messages!.map((item) => (
+                  <div key={item.id}
+                       className={`chat-message${item.actor_kind === 'worker' ? ' owner' : ''}`}>
+                    <span className="note">{item.actor_label || 'Pattadar'} · {item.at.slice(0, 10)}</span>
+                    <div className="chat-bubble">{item.detail}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {view.status !== 'cancelled' && (
+              <form className="chat-compose" onSubmit={(event) => { void sendReply(event); }}>
+                <label className="field">Reply
+                  <textarea maxLength={4000} value={reply}
+                            onChange={(event) => setReply(event.target.value)} />
+                </label>
+                <button className="btn primary" disabled={busy || !reply.trim()}>
+                  {busy ? 'Sending…' : 'Send to owner'}
+                </button>
+              </form>
+            )}
+          </section>
           {(view.deliverables || []).length > 0 && <section className="card"><h2>Submitted work</h2>
             {view.deliverables!.map((item) => <div key={item.id}>
               <h3>{item.label} · {item.review}</h3><p>{item.note}</p>{item.review_note && <p>{item.review_note}</p>}

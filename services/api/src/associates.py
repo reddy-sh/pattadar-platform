@@ -359,9 +359,13 @@ DISCIPLINES: dict = {
                    "village", "Survey licence", 3),
         Discipline("advocate", "Advocate", ("title_opinion", "opinion"),
                    "state", "Bar Council enrolment", 5),
-        Discipline("writer", "Document writer", ("ec", "patta_copy", "mutation"),
+        Discipline("writer", "Document writer", (
+            "ec", "patta_copy", "mutation", "deed_copy", "revenue_extract",
+            "tax_receipt", "fmb_copy", "approval_copy", "occupancy_copy"),
                    "mandal", "Writer's licence", 4),
-        Discipline("agent", "Revenue agent", ("mutation", "patta_copy", "ec"),
+        Discipline("agent", "Revenue agent", (
+            "mutation", "patta_copy", "ec", "deed_copy", "revenue_extract",
+            "tax_receipt", "fmb_copy", "approval_copy", "occupancy_copy"),
                    "mandal", "", 4),
         Discipline("photo_studio", "Photo & drone studio", ("site_visit", "visit"),
                    "mandal", "GST", 3),

@@ -95,6 +95,9 @@ const W360Audit = lazy(() => import('./w360/pages/Audit').then((m) => ({ default
 const W360Groups = lazy(() => import('./w360/pages/Groups').then((m) => ({ default: m.Groups })));
 const W360Ticket = lazy(() => import('./w360/pages/Ticket').then((m) => ({ default: m.Ticket })));
 const W360Wallet = lazy(() => import('./w360/pages/Wallet').then((m) => ({ default: m.Wallet })));
+const W360ComplianceAdmin = lazy(() =>
+  import('./w360/pages/ComplianceAdmin').then((m) => ({ default: m.ComplianceAdmin })),
+);
 
 // The Pattadar desk. Six operator screens: the jobs nobody is on, one of those
 // jobs with the people who could take it, the roster, one associate, adding
@@ -335,6 +338,7 @@ export const router = createBrowserRouter([
       { path: 'papers/:id', element: suspended(W360Reader) },
       { path: 'wallet', element: suspended(W360Wallet) },
       { path: 'account', element: suspended(AccountDataPage) },
+      { path: 'admin/compliance', element: suspended(W360ComplianceAdmin) },
       // The desk. Inside the same shell as everything else on purpose: the
       // operator is also an owner with their own land, and a second shell
       // would mean a second wordmark, a second search box and a sign-out in a

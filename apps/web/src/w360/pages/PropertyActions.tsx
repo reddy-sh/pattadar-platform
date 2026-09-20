@@ -37,6 +37,7 @@ import type { DeedRead } from '../ScanFirst';
 import { describeReading } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { Chip, inGroup } from '../ui';
+import { RecordComplianceGuidance } from '../GovernanceGuidance';
 
 const PROP_TYPES = [
   { key: 'flat', label: 'Flat' },
@@ -591,6 +592,12 @@ export function RecordDrawer({ card, onClose, onCreated }: {
                 <MoneyField id="rd-paid" label="What you paid" value={paid} onChange={setPaid} />
               )}
             </div>
+
+            {!editing && (
+              <RecordComplianceGuidance
+                kind={kind} classification={classification} district={district || '*'} compact
+              />
+            )}
 
             {err && <p className="note" style={{ color: 'var(--w-danger)' }}>{err}</p>}
           </>

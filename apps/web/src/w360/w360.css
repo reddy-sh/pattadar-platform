@@ -1086,6 +1086,74 @@
 .w360 .check:has(input:checked) { color: var(--w-accent); }
 .w360 .check:has(input:checked) .n { color: var(--w-accent); }
 
+/* Missing-paper recommendations are a compact order cart, not another list of
+   warnings. The document gap stays the heading; the priced ways to close it
+   sit directly underneath and remain legible in the 22rem record rail. */
+.w360 .missing-services { display: grid; gap: var(--space-md); margin: var(--space-md) 0; }
+.w360 .missing-group { display: grid; gap: 0.375rem; }
+.w360 .missing-group > .note { line-height: 1.35; }
+.w360 .service-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--w-line);
+  cursor: pointer;
+}
+.w360 .service-choice input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0.1875rem 0 0;
+  accent-color: var(--w-accent);
+  flex: none;
+}
+.w360 .service-choice .note { display: block; margin-top: 0.1875rem; line-height: 1.35; }
+.w360 .service-choice.disabled { cursor: default; opacity: 0.64; }
+.w360 .batch-review { width: 100%; justify-content: flex-start; margin-top: var(--space-sm); }
+.w360 .batch-review .num { margin-left: auto; }
+.w360 .batch-review-panel,
+.w360 .batch-success {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--w-line);
+}
+.w360 .batch-success { border-left: 2px solid var(--w-ok); padding-left: var(--space-sm); }
+
+/* Batch headings divide one service list without nesting cards. */
+.w360 .service-batch-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.75rem var(--space-md);
+  background: var(--w-surface-2);
+  border-bottom: 1px solid var(--w-line);
+  font-size: 0.8125rem;
+}
+.w360 .service-batch-head .note { margin-left: auto; }
+
+/* A ticket conversation is intentionally quieter than the operational trail.
+   Messages are still append-only evidence, but they read like dialogue. */
+.w360 .service-chat { display: grid; gap: var(--space-sm); }
+.w360 .chat-message { max-width: 86%; }
+.w360 .chat-message.owner { justify-self: end; text-align: right; }
+.w360 .chat-bubble {
+  display: inline-block;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--w-line);
+  background: var(--w-surface-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  white-space: pre-wrap;
+}
+.w360 .chat-message.owner .chat-bubble {
+  border-color: color-mix(in srgb, var(--w-accent) 38%, var(--w-line));
+  background: color-mix(in srgb, var(--w-accent) 9%, var(--w-surface));
+}
+.w360 .chat-compose { display: grid; gap: var(--space-sm); margin-top: var(--space-md); }
+.w360 .chat-compose textarea { min-height: 5rem; resize: vertical; }
+
 @media (max-width: 900px) {
   .w360 .withrail { grid-template-columns: minmax(0, 1fr); }
   .w360 .filters { position: static; border-right: 0; border-bottom: 1px solid var(--w-line); max-height: none; }
@@ -4023,4 +4091,129 @@
     border-bottom: 1px solid var(--w-line);
   }
   .w360 .rd-side { border-left: 0; border-top: 1px solid var(--w-line); }
+}
+
+/* ── Governance and compliance ─────────────────────────────────────── */
+.w360 .governance-guidance {
+  border: 1px solid var(--w-line);
+  border-left: 3px solid var(--w-accent);
+  padding: var(--space-sm);
+  display: grid;
+  gap: var(--space-xs);
+  background: color-mix(in srgb, var(--w-accent) 5%, var(--w-surface));
+}
+.w360 .governance-guidance-head { display: flex; gap: var(--space-xs); align-items: flex-start; color: var(--w-text); }
+.w360 .governance-guidance-head > span { display: grid; gap: 0.1rem; }
+.w360 .governance-guidance-head small { color: var(--w-muted); font-size: 0.75rem; }
+.w360 .governance-guidance ul { margin: 0; padding-left: 1.15rem; }
+.w360 .governance-guidance li { color: var(--w-muted); font-size: 0.8125rem; margin: 0.2rem 0; }
+.w360 .governance-guidance .note { margin: 0; }
+.w360 .governance-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
+.w360 .share-paper-picker {
+  min-width: 0; margin: var(--space-sm) 0; padding: 0;
+  border: 0; border-top: 1px solid var(--w-line);
+}
+.w360 .share-paper-picker legend {
+  padding: var(--space-sm) 0 var(--space-xs); color: var(--w-text);
+  font-size: 0.8125rem; font-weight: 700;
+}
+.w360 .share-paper-picker label {
+  display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); align-items: start;
+  gap: var(--space-xs); padding: 0.55rem 0; cursor: pointer;
+}
+.w360 .share-paper-picker input { margin-top: 0.15rem; accent-color: var(--w-accent); }
+.w360 .share-paper-picker label > span { min-width: 0; display: grid; gap: 0.15rem; }
+.w360 .share-paper-picker strong,
+.w360 .share-paper-picker small { overflow-wrap: anywhere; }
+.w360 .share-paper-picker strong { font-size: 0.8125rem; }
+.w360 .share-paper-picker small { color: var(--w-muted); font-size: 0.75rem; }
+
+.w360 .compliance-admin { display: grid; gap: var(--space-lg); }
+.w360 .compliance-titlebar { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-md); }
+.w360 .compliance-titlebar h1 { margin: 0.1rem 0 0.25rem; }
+.w360 .compliance-titlebar .lede { margin: 0; max-width: 52rem; }
+.w360 .compliance-status { flex: none; color: var(--w-muted); font-size: 0.75rem; }
+.w360 .compliance-scope {
+  border-block: 1px solid var(--w-line);
+  padding-block: var(--space-md);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(10rem, 1fr)) minmax(12rem, 1fr);
+  gap: var(--space-sm);
+  align-items: end;
+}
+.w360 .compliance-scope .field { margin: 0; }
+.w360 .compliance-review { display: grid; gap: 0.15rem; padding-bottom: 0.35rem; }
+.w360 .compliance-review small { color: var(--w-muted); }
+.w360 .compliance-terms { display: grid; gap: var(--space-sm); }
+.w360 .compliance-term-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--w-line); }
+.w360 .compliance-term-grid > div {
+  min-width: 0; display: grid; gap: 0.25rem; padding: var(--space-sm);
+  border-right: 1px solid var(--w-line); border-bottom: 1px solid var(--w-line);
+}
+.w360 .compliance-term-grid > div:nth-child(4n) { border-right: 0; }
+.w360 .compliance-term-grid span { color: var(--w-muted); text-transform: capitalize; font-size: 0.7rem; }
+.w360 .compliance-term-grid strong { font-size: 0.875rem; overflow-wrap: anywhere; }
+.w360 .compliance-tabs { display: flex; gap: 0; overflow-x: auto; border-bottom: 1px solid var(--w-line); }
+.w360 .compliance-tabs button {
+  appearance: none; border: 0; border-bottom: 2px solid transparent; background: transparent;
+  color: var(--w-muted); padding: 0.75rem 0.9rem; white-space: nowrap; font: inherit;
+  font-size: 0.8125rem; cursor: pointer;
+}
+.w360 .compliance-tabs button[aria-pressed='true'] { color: var(--w-text); border-color: var(--w-accent); }
+.w360 .compliance-checklist-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md); align-items: start;
+}
+.w360 .compliance-items { display: grid; }
+.w360 .compliance-item {
+  display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: var(--space-xs);
+  padding-block: 0.7rem; border-bottom: 1px solid var(--w-line);
+}
+.w360 .compliance-item:last-child { border-bottom: 0; }
+.w360 .compliance-item > svg { color: var(--w-accent); margin-top: 0.1rem; }
+.w360 .compliance-item > span { display: grid; gap: 0.25rem; }
+.w360 .compliance-item small { color: var(--w-muted); line-height: 1.45; }
+.w360 .compliance-item .pill { font-size: 0.625rem; }
+.w360 .compliance-guide-band { padding: var(--space-lg) 0; border-bottom: 1px solid var(--w-line); }
+.w360 .compliance-guide-band h2 { max-width: 58rem; margin: 0.25rem 0 var(--space-md); font-size: 1.25rem; }
+.w360 .compliance-numbered { margin: 0; padding-left: 1.5rem; max-width: 60rem; }
+.w360 .compliance-numbered li { padding: 0.5rem 0 0.5rem 0.4rem; color: var(--w-muted); }
+.w360 .compliance-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
+.w360 .compliance-three > div { min-width: 0; }
+.w360 .compliance-three ul { padding-left: 1.1rem; margin: var(--space-xs) 0 0; }
+.w360 .compliance-three li { color: var(--w-muted); margin: 0.35rem 0; font-size: 0.8125rem; }
+.w360 .sharing-baseline > svg { color: var(--w-accent); }
+.w360 .compliance-source-list { display: grid; border-top: 1px solid var(--w-line); }
+.w360 .compliance-source-list a {
+  display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) 1rem; align-items: center;
+  gap: var(--space-sm); color: var(--w-text); text-decoration: none; padding: 0.85rem 0;
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .compliance-source-list a:hover strong { color: var(--w-accent); }
+.w360 .compliance-source-list a > span { display: grid; gap: 0.15rem; }
+.w360 .compliance-source-list small { color: var(--w-muted); }
+.w360 .compliance-notice {
+  display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-xs);
+  align-items: start; color: var(--w-muted); font-size: 0.75rem;
+  border-top: 1px solid var(--w-line); padding-top: var(--space-md);
+}
+.w360 .compliance-denied { min-height: 26rem; display: grid; place-content: center; text-align: center; }
+.w360 .compliance-denied svg { margin: 0 auto; color: var(--w-muted); }
+.w360 .compliance-denied h1 { font-size: 1.35rem; margin: var(--space-sm) 0 var(--space-xs); }
+.w360 .compliance-denied p { color: var(--w-muted); max-width: 34rem; }
+
+@media (max-width: 900px) {
+  .w360 .compliance-titlebar { align-items: flex-start; flex-direction: column; }
+  .w360 .compliance-scope { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .w360 .compliance-term-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .w360 .compliance-term-grid > div:nth-child(4n) { border-right: 1px solid var(--w-line); }
+  .w360 .compliance-term-grid > div:nth-child(2n) { border-right: 0; }
+  .w360 .compliance-checklist-grid { grid-template-columns: 1fr; }
+  .w360 .compliance-three { grid-template-columns: 1fr; gap: var(--space-md); }
+}
+@media (max-width: 600px) {
+  .w360 .governance-columns, .w360 .compliance-scope, .w360 .compliance-term-grid { grid-template-columns: 1fr; }
+  .w360 .compliance-term-grid > div { border-right: 0; }
+  .w360 .compliance-notice { grid-template-columns: 1.25rem minmax(0, 1fr); }
+  .w360 .compliance-notice .mono { grid-column: 2; }
 }

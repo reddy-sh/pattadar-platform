@@ -158,11 +158,15 @@ async def recipient_view(scope: str, token: str):
             status = w._status_of(ticket)
             items = await (await conn.execute("SELECT id,label,note,review,review_note,submitted_at FROM ticket_deliverables WHERE ticket_id=%s AND owner_user_id=%s ORDER BY sort",
                            (ticket["id"], row["owner_user_id"]))).fetchall()
+            messages = await (await conn.execute(
+                "SELECT id,actor_kind,actor_label,detail,at FROM ticket_events"
+                " WHERE ticket_id=%s AND owner_user_id=%s AND kind='message'"
+                " ORDER BY at,id", (ticket["id"], row["owner_user_id"]))).fetchall()
             data.update({"status": status, "statusLabel": ticketing.STATUS_LABEL.get(status, status),
                          "actions": ticketing.can(status, "worker"), "note": ticket.get("note") or "",
                          "outcomeNote": ticket.get("outcome_note") or "", "dueDate": ticket.get("due_date") or "",
                          "answers": [{"label": a.k, "value": a.v} for a in w._answers(ticket.get("kind") or "", ticket.get("params") or "{}")],
-                         "deliverables": list(items)})
+                         "deliverables": list(items), "messages": list(messages)})
         return response(data)
 
 
@@ -240,8 +244,9 @@ async def worker_deliverable(token: str, body: dict = Body(...)):
         uid, tid, did = row["owner_user_id"], ticket["id"], f"dv-{uuid.uuid4().hex[:12]}"
         actor = row.get("person_name") or "Worker"
         if not file_ref:
+            message = note or label
             await w._event(conn, uid, tid, kind="message", actor_kind="worker", actor_label=actor,
-                           headline=f"{actor}: {label}", detail=note)
+                           headline=f"{actor} sent a message", detail=message)
             return response({"ok": True, "message": True})
         kind = "photo" if body.get("kind") == "photo" else "paper"
         sort = (await (await conn.execute("SELECT COALESCE(MAX(sort),0)+1 AS s FROM ticket_deliverables WHERE ticket_id=%s", (tid,))).fetchone())["s"]

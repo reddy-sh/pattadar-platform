@@ -35,9 +35,11 @@ from typing import Optional, List
 # ways: main.py imports it as `src.web360`, and services/api/tests/test_located.py
 # imports it bare off src/. A relative-only import breaks the second.
 try:                                    # inside the `src` package, as main.py loads it
-    from . import associates, notify, ticketing
+    from . import associates, feature_schema, governance, notify, ticketing
 except ImportError:                     # imported bare off src/, as the pure tests do
     import associates                   # type: ignore[no-redef]
+    import feature_schema               # type: ignore[no-redef]
+    import governance                   # type: ignore[no-redef]
     import notify                       # type: ignore[no-redef]
     import ticketing                    # type: ignore[no-redef]
 
@@ -196,6 +198,19 @@ _DDL = [
         request_hash TEXT NOT NULL, order_count INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (owner_user_id, intent_key)
     )""",
+    "ALTER TABLE service_order_intents ADD COLUMN IF NOT EXISTS batch_id TEXT NOT NULL DEFAULT ''",
+    """CREATE TABLE IF NOT EXISTS service_batches (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        item_count INTEGER NOT NULL DEFAULT 0,
+        total DOUBLE PRECISION NOT NULL DEFAULT 0,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_service_batches_owner ON service_batches (owner_user_id, created_at)",
+    "ALTER TABLE work_requests ADD COLUMN IF NOT EXISTS batch_id TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS idx_work_requests_batch ON work_requests (owner_user_id, batch_id) WHERE batch_id <> ''",
 
     # W13 — "v1 kept, never deleted".
     """CREATE TABLE IF NOT EXISTS document_versions (
@@ -286,6 +301,10 @@ _DDL = [
     # dispatcher's queue columns on work_requests. After ticketing's, because
     # the ALTERs below extend the tables it creates.
     *associates.DDL,
+    # Governance policies are document-shaped on purpose. Their relational
+    # table is an envelope around one portable JSON document, so the planned
+    # NoSQL move does not require rebuilding checklists from normalized rows.
+    *governance.DDL,
 
     # W01 — the two things with a deadline.
     """CREATE TABLE IF NOT EXISTS waiting_items (
@@ -312,6 +331,13 @@ _DDL = [
     "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS actions TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'feature'",
     "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0",
+    # A feature is a versioned document. These columns map directly to a future
+    # DynamoDB FEATURE item; legacy flat columns remain readable during migration.
+    "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS type_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS attributes TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS geometry TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
 
     # W11/W12 — the capital/running split, and rent in the same ledger.
     "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'running'",
@@ -324,6 +350,12 @@ _DDL = [
     "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS recoverable_note TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS has_receipt BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS fiscal_year TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS invoice_no TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS warranty_until TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS receipt_file_ref TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS receipt_file_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS receipt_mime_type TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE land_expenses ADD COLUMN IF NOT EXISTS receipt_size_bytes INTEGER NOT NULL DEFAULT 0",
 
     # W14 — provenance. Every column here is one line of the "Why this is
     # Borewell 1" panel.
@@ -455,6 +487,7 @@ async def ensure_schema(conn) -> None:
             import logging
             logging.getLogger("pattadar").exception("web360 ddl failed: %s", stmt[:80])
             raise
+    await governance.ensure_baseline(conn)
     await _assert_indexes(conn)
 
 
@@ -505,6 +538,17 @@ def _jlist(raw) -> List[str]:
         return []
 
 
+def _jobject(raw) -> dict:
+    """A JSON-object text column -> dict; tolerant of legacy and bad rows."""
+    if isinstance(raw, dict):
+        return raw
+    try:
+        value = json.loads(raw or "{}")
+        return value if isinstance(value, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
 def _f(v) -> float:
     try:
         return float(v or 0)
@@ -517,6 +561,20 @@ def _i(v) -> int:
         return int(v or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _fiscal_year(value: str = "") -> str:
+    """Indian fiscal year for an ISO or DD/MM/YYYY date, defaulting to today."""
+    parsed = None
+    for pattern in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            parsed = datetime.strptime(value, pattern).date()
+            break
+        except (TypeError, ValueError):
+            pass
+    parsed = parsed or date.today()
+    start = parsed.year if parsed.month >= 4 else parsed.year - 1
+    return f"{start}-{str(start + 1)[-2:]}"
 
 
 # ── What stands on a piece of land ────────────────────────────────────
@@ -711,7 +769,29 @@ class Portfolio:
     # what draws the provider's own inbox, and is '' for everybody until
     # somebody claims their record in phase 5.
     is_platform_admin: bool = False
+    # Compliance policy authorship is intentionally narrower than running the
+    # service desk. A platform operator can see cross-owner jobs; only a
+    # super-admin can see drafts and governance provenance.
+    is_super_admin: bool = False
     associate_id: str = ""
+
+
+@strawberry.type
+class GovernancePolicy:
+    id: str
+    scope_key: str
+    country_code: str
+    state_code: str
+    district_code: str
+    revision: int
+    status: str
+    schema_version: int
+    document: str
+    source_digest: str
+    created_by: str = ""
+    created_at: str = ""
+    published_by: str = ""
+    published_at: str = ""
 
 
 #: Facet key for "held in your own name, not by any group".
@@ -805,6 +885,30 @@ class Paper:
 
 
 @strawberry.type
+class FeatureFieldDefinition:
+    key: str
+    label: str
+    kind: str
+    unit: str
+    placeholder: str
+    options: List[str]
+    required: bool
+    depends_on: str
+    depends_value: str
+
+
+@strawberry.type
+class FeatureTypeDefinition:
+    key: str
+    label: str
+    category: str
+    icon: str
+    geometry_kind: str
+    schema_version: int
+    fields: List[FeatureFieldDefinition]
+
+
+@strawberry.type
 class Feature:
     id: str
     label: str
@@ -819,11 +923,20 @@ class Feature:
     pin_label: str
     photo_count: int
     actions: List[str]
+    type_key: str
+    schema_version: int
+    attributes: str
+    geometry: str
+    version: int
+    cost_total: float
+    cost_count: int
+    receipt_count: int
 
 
 @strawberry.type
 class FeatureList:
     features: List[Feature]
+    types: List[FeatureTypeDefinition]
     total: int
     needs_repair: int
     walked_on: str
@@ -1032,6 +1145,13 @@ class Expense:
     recoverable: bool
     recoverable_note: str
     has_receipt: bool
+    vendor: str
+    invoice_no: str
+    warranty_until: str
+    receipt_file_ref: str
+    receipt_file_name: str
+    receipt_mime_type: str
+    receipt_size_bytes: int
 
 
 @strawberry.type
@@ -1123,7 +1243,16 @@ class ServiceOffer:
     group: str
     blurb: str
     days: int
+    shelves: List[str]
     fields: List[ServiceField]
+
+
+@strawberry.type
+class ServiceBatchReceipt:
+    batch_id: str
+    ref: str
+    order_count: int
+    total: float
 
 
 @strawberry.type
@@ -1291,6 +1420,11 @@ class Order:
     # typing a name. The Services list reads it to know whether there is a
     # number behind the name at all.
     assignee_ref: str = ""
+    # Empty for orders placed before document-request batches existed. A batch
+    # groups related jobs for navigation only; each job keeps its own state,
+    # money, assignee and acceptance decision.
+    batch_id: str = ""
+    batch_ref: str = ""
 
 
 # An order moves through four visible states; the number in `work_requests.stage`
@@ -1303,6 +1437,14 @@ _STAGES = ["Placed", "Assigned", "On site", "Delivered"]
 # ── Read helpers ──────────────────────────────────────────────────────
 
 _UNIT_ALT = {"ac": "Sq.yd", "sq.ft": "sq.m", "sq.yd": "sq.m"}
+
+
+def _batch_ref(batch_id: str) -> str:
+    """A stable, non-sequential reference that does not expose row counts."""
+    if not batch_id:
+        return ""
+    folded = int(hashlib.sha256(batch_id.encode()).hexdigest()[:8], 16)
+    return f"BR-{1000 + folded % 9000}"
 
 
 def _corner_label(index: int) -> str:
@@ -1351,6 +1493,7 @@ SERVICE_CATALOGUE: dict = {
         "group": "Records",
         "blurb": "The registrar's list of every transaction on this land, for a period you choose.",
         "days": 7,
+        "shelves": ["search"],
         "fields": [
             ("from_year", "From year", "year", False, [],
              "Leave both empty for the full history, which is what the registrar gives by default."),
@@ -1365,6 +1508,7 @@ SERVICE_CATALOGUE: dict = {
         "group": "On the ground",
         "blurb": "A licensed surveyor walks the boundary and pins each corner against the FMB sheet.",
         "days": 21,
+        "shelves": [],
         "fields": [
             ("which_side", "Which boundary", "select", True,
              ["All four", "North", "South", "East", "West"], ""),
@@ -1379,6 +1523,7 @@ SERVICE_CATALOGUE: dict = {
         "group": "On the ground",
         "blurb": "Someone stands on the land, photographs it and reports what they found.",
         "days": 7,
+        "shelves": [],
         "fields": [
             ("visit_on", "Preferred date", "date", False, [], "Left empty, we go within the week."),
             ("check", "What to check", "select", True,
@@ -1392,6 +1537,7 @@ SERVICE_CATALOGUE: dict = {
         "group": "Legal",
         "blurb": "An advocate reads the chain of documents and writes whether the title is clean.",
         "days": 14,
+        "shelves": [],
         "fields": [
             ("years", "How far back to trace", "select", True,
              ["13 years", "30 years"], "Banks usually ask for 30."),
@@ -1404,6 +1550,7 @@ SERVICE_CATALOGUE: dict = {
         "group": "Records",
         "blurb": "Getting the revenue record moved into the new owner's name after a sale.",
         "days": 30,
+        "shelves": [],
         "fields": [
             ("new_owner", "Name to transfer into", "text", True, [], ""),
             ("deed_no", "Registered deed number", "text", True, [], ""),
@@ -1415,11 +1562,109 @@ SERVICE_CATALOGUE: dict = {
         "group": "Records",
         "blurb": "A stamped copy of the pattadar passbook entry from the village office.",
         "days": 5,
+        "shelves": ["revenue"],
         "fields": [
-            ("copies", "How many copies", "number", True, [], ""),
+            ("copies", "How many copies", "number", False, [],
+             "One certified copy is requested when this is left empty."),
+        ],
+    },
+    "deed_copy": {
+        "label": "Certified sale deed copy",
+        "price": 900.0,
+        "group": "Records",
+        "blurb": "A certified copy from the registration office when the original deed is unavailable.",
+        "days": 10,
+        "shelves": ["title"],
+        "fields": [
+            ("document_number", "Document number, if known", "text", False, [], ""),
+            ("registration_year", "Registration year, if known", "year", False, [], ""),
+        ],
+    },
+    "revenue_extract": {
+        "label": "1-B / Adangal extract",
+        "price": 650.0,
+        "group": "Records",
+        "blurb": "The latest revenue extract showing the recorded pattadar and cultivation entry.",
+        "days": 5,
+        "shelves": ["revenue"],
+        "fields": [
+            ("as_of_year", "Year, if not the latest", "year", False, [], ""),
+        ],
+    },
+    "tax_receipt": {
+        "label": "Land tax receipt",
+        "price": 400.0,
+        "group": "Records",
+        "blurb": "The latest land or property tax receipt and arrears position from the local office.",
+        "days": 5,
+        "shelves": ["search"],
+        "fields": [
+            ("financial_year", "Financial year, if not the latest", "text", False, [], ""),
+        ],
+    },
+    "fmb_copy": {
+        "label": "FMB / survey map copy",
+        "price": 750.0,
+        "group": "Records",
+        "blurb": "A certified field measurement sketch or survey map from the revenue office.",
+        "days": 7,
+        "shelves": ["map"],
+        "fields": [
+            ("sheet_number", "Sheet number, if known", "text", False, [], ""),
+        ],
+    },
+    "approval_copy": {
+        "label": "Approved plan copy",
+        "price": 1100.0,
+        "group": "Records",
+        "blurb": "A certified layout or building approval copy from the issuing authority.",
+        "days": 10,
+        "shelves": ["identity"],
+        "fields": [
+            ("authority", "Issuing authority, if known", "text", False, [], ""),
+        ],
+    },
+    "occupancy_copy": {
+        "label": "Occupancy certificate copy",
+        "price": 1200.0,
+        "group": "Records",
+        "blurb": "A certified occupancy certificate copy for the completed building or flat.",
+        "days": 10,
+        "shelves": ["identity"],
+        "fields": [
+            ("approval_number", "Approval number, if known", "text", False, [], ""),
         ],
     },
 }
+
+
+def _service_batch_items(raw: str) -> Optional[list[tuple[str, dict, dict]]]:
+    """Validate the JSON boundary for an atomic multi-service request."""
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(items, list) or not 1 <= len(items) <= 12:
+        return None
+    checked: list[tuple[str, dict, dict]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+        kind = str(item.get("kind") or "").strip()
+        answers = item.get("params") or {}
+        offer = SERVICE_CATALOGUE.get(kind)
+        if not offer or kind in seen or not isinstance(answers, dict):
+            return None
+        allowed = {field[0] for field in offer["fields"]}
+        if set(answers) - allowed:
+            return None
+        for (name, _lb, _ty, required, _opts, _h) in offer["fields"]:
+            if required and not str(answers.get(name, "")).strip():
+                return None
+        seen.add(kind)
+        checked.append((kind, offer, answers))
+    return checked
 
 
 async def _cards(conn, uid: str) -> List[dict]:
@@ -2774,6 +3019,8 @@ _TICKET_ROLE = {
     "survey": "Surveyor", "site_visit": "Caretaker", "visit": "Caretaker",
     "title_opinion": "Advocate", "opinion": "Advocate", "ec": "Agent",
     "mutation": "Agent", "patta_copy": "Agent", "fencing": "Contractor",
+    "deed_copy": "Agent", "revenue_extract": "Agent", "tax_receipt": "Agent",
+    "fmb_copy": "Agent", "approval_copy": "Agent", "occupancy_copy": "Agent",
 }
 
 
@@ -2947,6 +3194,55 @@ async def _is_admin(conn, uid: str) -> bool:
         return True
     stored = await _setting(conn, "admin.uids")
     return who in {p.strip() for p in stored.split(",") if p.strip()}
+
+
+def _super_admin_env() -> set:
+    """Immutable bootstrap principals for compliance-policy administration."""
+    return {p.strip() for p in _env("SUPER_ADMIN_UIDS").split(",") if p.strip()}
+
+
+async def _is_super_admin(conn, uid: str) -> bool:
+    """May this principal read unpublished governance and change policy roles?
+
+    This is deliberately not inherited from platform admin. Running the
+    service desk and defining what every owner is told are separate powers.
+    Like the desk gate it fails closed and is evaluated on every request so a
+    revoked role cannot remain live in a process cache.
+    """
+    who = (uid or "").strip()
+    if not who or who == "system":
+        return False
+    if who in _super_admin_env():
+        return True
+    stored = await _setting(conn, "super_admin.uids")
+    return who in {p.strip() for p in stored.split(",") if p.strip()}
+
+
+def _governance_policy(row: dict) -> GovernancePolicy:
+    return GovernancePolicy(
+        id=row.get("id") or "", scope_key=row.get("scope_key") or "",
+        country_code=row.get("country_code") or "", state_code=row.get("state_code") or "",
+        district_code=row.get("district_code") or "", revision=_i(row.get("revision")),
+        status=row.get("status") or "", schema_version=_i(row.get("schema_version")),
+        document=row.get("document") or "{}", source_digest=row.get("source_digest") or "",
+        created_by=row.get("created_by") or "", created_at=row.get("created_at") or "",
+        published_by=row.get("published_by") or "", published_at=row.get("published_at") or "")
+
+
+async def _policy_row(conn, country_code: str, state_code: str,
+                      district_code: str, published_only: bool = True) -> dict:
+    """Most-specific current policy: district, state wildcard, country wildcard."""
+    country = (country_code or "IN").strip().upper()[:8]
+    state = (state_code or "*").strip().upper()[:16]
+    district = (district_code or "*").strip().upper()[:80]
+    status = "AND status='published'" if published_only else ""
+    cur = await conn.execute(
+        "SELECT * FROM governance_policy_sets WHERE country_code=%s "
+        "AND state_code IN (%s,'*') AND district_code IN (%s,'*') " + status +
+        " ORDER BY CASE WHEN district_code=%s THEN 0 ELSE 1 END,"
+        " CASE WHEN state_code=%s THEN 0 ELSE 1 END, revision DESC LIMIT 1",
+        (country, state, district, district, state))
+    return await cur.fetchone() or {}
 
 
 async def _desk_read(conn, uid: str, scope: str, detail: str = "") -> None:
@@ -4060,7 +4356,39 @@ class WebQuery:
                 paper_count=papers + photos,
                 backup_verified_on=_ddmmyyyy(_today()),
                 tiles=tiles, waiting=waiting, value_bars=bars, recent=recent,
-                is_platform_admin=await _is_admin(conn, uid), associate_id=mine)
+                is_platform_admin=await _is_admin(conn, uid),
+                is_super_admin=await _is_super_admin(conn, uid), associate_id=mine)
+
+    @strawberry.field
+    async def governance_policy(
+        self, info: strawberry.Info, country_code: str = "IN",
+        state_code: str = "AP", district_code: str = "*",
+    ) -> Optional[GovernancePolicy]:
+        """Published owner guidance for the most-specific jurisdiction."""
+        uid = _uid(info)
+        if uid == "system":
+            return None
+        async with _pool.connection() as conn:
+            row = await _policy_row(conn, country_code, state_code, district_code, True)
+            return _governance_policy(row) if row else None
+
+    @strawberry.field
+    async def governance_admin_policy(
+        self, info: strawberry.Info, country_code: str = "IN",
+        state_code: str = "AP", district_code: str = "*",
+    ) -> Optional[GovernancePolicy]:
+        """Current policy envelope, including authoring metadata.
+
+        The route is presentation only. Returning ``None`` here is the actual
+        authorization boundary and keeps drafts out of GraphQL for every
+        signed-in account that is not a super-admin.
+        """
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            row = await _policy_row(conn, country_code, state_code, district_code, False)
+            return _governance_policy(row) if row else None
 
     @strawberry.field
     async def properties(
@@ -4383,6 +4711,7 @@ class WebQuery:
             return ServiceOffer(
                 key=k, label=v["label"], price=v["price"], group=v["group"],
                 blurb=v["blurb"], days=_i(v.get("days")),
+                shelves=list(v.get("shelves") or []),
                 fields=[ServiceField(name=n, label=lb, kind=ty, required=req,
                                      options=list(opts), help=hlp)
                         for (n, lb, ty, req, opts, hlp) in v["fields"]])
@@ -4487,13 +4816,34 @@ class WebQuery:
                 " GROUP BY feature_id", (record_id, uid))
             pics = {r["feature_id"]: _i(r.get("c")) for r in await cur.fetchall()}
 
-            feats = [Feature(
-                id=r["id"], label=r.get("label") or "", spec=r.get("spec") or "",
-                icon=r.get("icon") or "feature", category=r.get("category") or "other",
-                condition=r.get("condition") or "", condition_state=r.get("condition_state") or "good",
-                note=r.get("note") or "", lat=_f(r.get("lat")), lon=_f(r.get("lon")),
-                pin_label=r.get("pin_label") or "", photo_count=pics.get(r["id"], 0),
-                actions=_jlist(r.get("actions"))) for r in rows]
+            cur = await conn.execute(
+                "SELECT feature_id, COALESCE(SUM(amount),0) AS total, count(*) AS c,"
+                " count(*) FILTER (WHERE has_receipt=true) AS receipts"
+                " FROM land_expenses WHERE entity_id=%s AND owner_user_id=%s"
+                " AND feature_id<>'' AND kind<>'income' GROUP BY feature_id",
+                (record_id, uid))
+            costs = {r["feature_id"]: r for r in await cur.fetchall()}
+
+            feats: List[Feature] = []
+            for r in rows:
+                type_key = r.get("type_key") or feature_schema.infer_type_key(r.get("label") or "")
+                attributes = _jobject(r.get("attributes"))
+                geometry = _jobject(r.get("geometry"))
+                cost = costs.get(r["id"]) or {}
+                feats.append(Feature(
+                    id=r["id"], label=r.get("label") or "",
+                    spec=r.get("spec") or feature_schema.summary(type_key, attributes),
+                    icon=r.get("icon") or "feature", category=r.get("category") or "other",
+                    condition=r.get("condition") or "",
+                    condition_state=r.get("condition_state") or "good",
+                    note=r.get("note") or "", lat=_f(r.get("lat")), lon=_f(r.get("lon")),
+                    pin_label=r.get("pin_label") or "", photo_count=pics.get(r["id"], 0),
+                    actions=_jlist(r.get("actions")), type_key=type_key,
+                    schema_version=_i(r.get("schema_version")),
+                    attributes=json.dumps(attributes, separators=(",", ":")),
+                    geometry=json.dumps(geometry, separators=(",", ":")),
+                    version=max(1, _i(r.get("version"))), cost_total=_f(cost.get("total")),
+                    cost_count=_i(cost.get("c")), receipt_count=_i(cost.get("receipts"))))
 
             # The page promises "worst condition first", so the order is
             # computed here rather than trusted to the `sort` column — that
@@ -4521,8 +4871,14 @@ class WebQuery:
                 "SELECT captured_at, captured_by FROM parcel_photos WHERE parcel_id=%s "
                 "ORDER BY captured_at DESC LIMIT 1", (record_id,))
             last = await cur.fetchone() or {}
+            type_defs = [FeatureTypeDefinition(
+                key=item["key"], label=item["label"], category=item["category"],
+                icon=item["icon"], geometry_kind=item["geometry_kind"],
+                schema_version=item["schema_version"],
+                fields=[FeatureFieldDefinition(**field) for field in item["fields"]])
+                for item in feature_schema.FEATURE_TYPES]
             return FeatureList(
-                features=feats, total=len(feats), needs_repair=bad,
+                features=feats, types=type_defs, total=len(feats), needs_repair=bad,
                 walked_on=(last.get("captured_at") or "")[:10],
                 walked_by=last.get("captured_by") or "", categories=cats)
 
@@ -4852,7 +5208,13 @@ class WebQuery:
                 category=r.get("category") or "other",
                 recoverable=bool(r.get("recoverable")),
                 recoverable_note=r.get("recoverable_note") or "",
-                has_receipt=bool(r.get("has_receipt"))) for r in sel]
+                has_receipt=bool(r.get("has_receipt")), vendor=r.get("vendor") or "",
+                invoice_no=r.get("invoice_no") or "",
+                warranty_until=r.get("warranty_until") or "",
+                receipt_file_ref=r.get("receipt_file_ref") or "",
+                receipt_file_name=r.get("receipt_file_name") or "",
+                receipt_mime_type=r.get("receipt_mime_type") or "",
+                receipt_size_bytes=_i(r.get("receipt_size_bytes"))) for r in sel]
 
             capital = sum(i.amount for i in items if i.kind == "capital")
             running = sum(i.amount for i in items if i.kind == "running")
@@ -5084,7 +5446,9 @@ class WebQuery:
                     ref=ticketing.ticket_ref(r["id"]),
                     held=max(0.0, held.get(r["id"], 0.0)),
                     pending_review=waiting.get(r["id"], 0),
-                    assignee_ref=r.get("assignee_ref") or ""))
+                    assignee_ref=r.get("assignee_ref") or "",
+                    batch_id=r.get("batch_id") or "",
+                    batch_ref=_batch_ref(r.get("batch_id") or "")))
             return out
 
     @strawberry.field
@@ -6094,7 +6458,7 @@ class WebMutation:
                         ("purchase_lots", "record_id"), ("capital_costs", "record_id"),
                         ("waiting_items", "record_id"), ("land_features", "entity_id"),
                         ("land_expenses", "entity_id"), ("notes", "entity_id"),
-                        ("work_requests", "entity_id"),
+                        ("work_requests", "entity_id"), ("service_batches", "record_id"),
                     ):
                         await conn.execute(f"DELETE FROM {table} WHERE {col}=%s", (rid,))
                     if has_stamp:
@@ -6258,6 +6622,102 @@ class WebMutation:
                 await conn.execute("UPDATE service_order_intents SET order_count=%s WHERE owner_user_id=%s AND intent_key=%s",
                                    (n, uid, idempotency_key))
         return n
+
+    @strawberry.mutation
+    async def order_service_batch(self, info: strawberry.Info, record_id: str,
+                                  items: str, note: str = "",
+                                  idempotency_key: str = "") -> Optional[ServiceBatchReceipt]:
+        """Place one or more catalogue services against one owned record.
+
+        The entire selection is validated before the first job is inserted and
+        all rows share one transaction. The batch is navigation and summary;
+        every work request remains independently assignable, reviewable and
+        payable under the existing ticket state machine.
+        """
+        uid = _uid(info)
+        import uuid as _uuid
+        if len(note.strip()) > 4000 or len(idempotency_key) > 128:
+            return None
+        checked = _service_batch_items(items)
+        if not checked:
+            return None
+
+        canonical = [{"kind": kind, "params": answers} for kind, _offer, answers in checked]
+        request_hash = hashlib.sha256(json.dumps(
+            [record_id, canonical, note.strip()], sort_keys=True).encode()).hexdigest()
+        batch_id = f"sb-{_uuid.uuid4().hex[:12]}"
+        total = sum(_f(offer.get("price")) for _kind, offer, _answers in checked)
+
+        async with _ticket_transaction() as conn:
+            if not await _record_kind(conn, uid, record_id):
+                return None
+            if idempotency_key:
+                inserted = await (await conn.execute(
+                    "INSERT INTO service_order_intents"
+                    " (owner_user_id,intent_key,request_hash,batch_id)"
+                    " VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING intent_key",
+                    (uid, idempotency_key, request_hash, batch_id))).fetchone()
+                if not inserted:
+                    prior = await (await conn.execute(
+                        "SELECT request_hash,order_count,batch_id FROM service_order_intents"
+                        " WHERE owner_user_id=%s AND intent_key=%s FOR UPDATE",
+                        (uid, idempotency_key))).fetchone()
+                    if not prior or prior.get("request_hash") != request_hash or not prior.get("batch_id"):
+                        return None
+                    old = await (await conn.execute(
+                        "SELECT * FROM service_batches WHERE id=%s AND owner_user_id=%s",
+                        (prior["batch_id"], uid))).fetchone()
+                    if not old:
+                        return None
+                    return ServiceBatchReceipt(
+                        batch_id=old["id"], ref=_batch_ref(old["id"]),
+                        order_count=_i(old.get("item_count")), total=_f(old.get("total")))
+
+            from .capabilities import snapshot
+            manifest = await snapshot(conn, uid, record_id, {})
+            card = next((c for c in await _cards(conn, uid) if c["id"] == record_id), {})
+            area_key, area_label = associates.area_key_of(card) if card else ("", "")
+            now = _now_iso()
+            await conn.execute(
+                "INSERT INTO service_batches"
+                " (id,owner_user_id,record_id,item_count,total,note,created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (batch_id, uid, record_id, len(checked), total, note.strip(), now))
+
+            share = _payee_share()
+            for kind, offer, answers in checked:
+                tid = f"wr-{_uuid.uuid4().hex[:12]}"
+                due_days = _i(offer.get("days")) or 7
+                due = (date.today() + timedelta(days=due_days)).strftime("%d/%m/%Y")
+                price = _f(offer.get("price"))
+                await conn.execute(
+                    "INSERT INTO work_requests (id, owner_user_id, kind, title,"
+                    " entity_type, entity_id, assignee, cost, stage, needs_you, note,"
+                    " due_date, closed, created_at, params, status, status_at, quoted,"
+                    " payee_share, area_key, area_label, batch_id)"
+                    " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s,%s,"
+                    " 'placed',%s,%s,%s,%s,%s,%s)",
+                    (tid, uid, kind, offer["label"], record_id, price,
+                     note.strip() or "Requested from the missing papers list", due, now,
+                     json.dumps({**answers, "attachment_manifest": manifest}), now,
+                     price, share, area_key, area_label, batch_id))
+                await _event(
+                    conn, uid, tid, kind="status", action="place", to_status="placed",
+                    headline=ticketing.event_headline(
+                        "status", "place", {"actor_label": "You"}),
+                    detail=f"{_batch_ref(batch_id)} · ordered from {record_id}")
+
+            if idempotency_key:
+                await conn.execute(
+                    "UPDATE service_order_intents SET order_count=%s,batch_id=%s"
+                    " WHERE owner_user_id=%s AND intent_key=%s",
+                    (len(checked), batch_id, uid, idempotency_key))
+            await _audit(
+                conn, uid, "service.batch_ordered", record_id,
+                f"{_batch_ref(batch_id)} · {len(checked)} services · {_inr_short(total)}")
+            return ServiceBatchReceipt(
+                batch_id=batch_id, ref=_batch_ref(batch_id),
+                order_count=len(checked), total=total)
 
     @strawberry.mutation
     async def set_pin(self, info: strawberry.Info, record_id: str,
@@ -7039,22 +7499,34 @@ class WebMutation:
         self, info: strawberry.Info, record_id: str, label: str,
         category: str = "", spec: str = "", condition: str = "",
         condition_state: str = "", note: str = "", icon: str = "",
+        type_key: str = "", schema_version: int = 0, attributes: str = "{}",
+        geometry: str = "{}", pin_label: str = "", purchase_kind: str = "",
+        purchase_title: str = "", purchase_amount: float = 0,
+        purchased_on: str = "", vendor: str = "", invoice_no: str = "",
+        warranty_until: str = "", receipt_file_ref: str = "",
+        receipt_file_name: str = "", receipt_mime_type: str = "",
+        receipt_size_bytes: int = 0,
     ) -> str:
-        """Puts a thing that exists on the land onto the record — a bore, a
-        fence, a transformer. Everything but the name is optional because the
-        name is the only part the owner always knows standing in the field;
-        the spec and the condition are what a later visit fills in.
-
-        The kind is read off the name when the caller does not give one, so a
-        feature filed as "Bore" arrives as water with the bore icon whether it
-        came from a chip, a typed name or an import — one table decides, and it
-        is not the one in the browser."""
+        """File one typed feature and, optionally, its first cost atomically."""
         uid = _uid(info)
         if not label.strip():
             return ""
         import uuid as _uuid
-        cat, ico = _classify_feature(label)
+        key = type_key or feature_schema.infer_type_key(label)
+        schema = feature_schema.FEATURE_TYPE_BY_KEY.get(key)
+        if not schema:
+            return ""
+        try:
+            attrs = feature_schema.validate_attributes(key, attributes)
+            point = feature_schema.validate_point(geometry)
+        except ValueError:
+            return ""
+        coords = point.get("coordinates") or [0, 0]
+        lon, lat = _f(coords[0]), _f(coords[1])
         state = condition_state if condition_state in _STATES else ""
+        detail = spec.strip() or feature_schema.summary(key, attrs)
+        has_cost = purchase_amount > 0 or bool(receipt_file_ref.strip())
+        cost_kind = purchase_kind if purchase_kind in ("capital", "running") else "capital"
         async with _pool.connection() as conn:
             kind = await _record_kind(conn, uid, record_id)
             if not kind:
@@ -7067,17 +7539,36 @@ class WebMutation:
             await conn.execute(
                 "INSERT INTO land_features (id, owner_user_id, entity_type, entity_id,"
                 " category, label, condition, condition_state, spec, note, icon,"
-                " created_at, sort, lat, lon, pin_label, photo_count, actions)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,%s,0,'[]')",
-                # No coordinates and no pin: nothing here was stood next to.
-                # The card reads pin_label when lat is 0, so it says so plainly.
-                #
-                # Nor a condition: 'unknown', not 'good'. Nobody has looked at
-                # this yet, and a green dot on the strength of a name being
-                # typed is an assurance the app invented for itself.
-                (fid, uid, kind, record_id, (category or cat), label.strip(),
-                 condition, (state or "unknown"), spec, note,
-                 (icon or ico), _now_iso(), sort, "No pin yet"))
+                " created_at, sort, lat, lon, pin_label, photo_count, actions, type_key,"
+                " schema_version, attributes, geometry, version)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                " %s,%s,%s,%s,%s)",
+                (fid, uid, kind, record_id, schema["category"], label.strip(), condition,
+                 state or "unknown", detail, note, schema["icon"], _now_iso(), sort,
+                 lat, lon, pin_label.strip() or ("Pinned" if point else "No pin yet"),
+                 0, "[]", key, schema["schema_version"],
+                 json.dumps(attrs, separators=(",", ":")),
+                 json.dumps(point, separators=(",", ":")), 1))
+            if has_cost:
+                eid = f"exp-{_uuid.uuid4().hex[:12]}"
+                title = purchase_title.strip() or (
+                    f"{label.strip()} purchase" if cost_kind == "capital"
+                    else f"{label.strip()} service")
+                await conn.execute(
+                    "INSERT INTO land_expenses (id, owner_user_id, entity_type, entity_id,"
+                    " category, title, amount, spent_on, vendor, note, created_at, kind,"
+                    " subtitle, on_label, on_icon, feature_id, paid_by, recoverable,"
+                    " recoverable_note, has_receipt, fiscal_year, invoice_no, warranty_until,"
+                    " receipt_file_ref, receipt_file_name, receipt_mime_type, receipt_size_bytes)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                    " %s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (eid, uid, "record", record_id, "feature", title,
+                     max(0, purchase_amount), purchased_on, vendor.strip(), "",
+                     _now_iso(), cost_kind, invoice_no.strip(), label.strip(), schema["icon"],
+                     fid, "", False, "", bool(receipt_file_ref.strip()),
+                     _fiscal_year(purchased_on), invoice_no.strip(), warranty_until,
+                     receipt_file_ref.strip(), receipt_file_name.strip(),
+                     receipt_mime_type.strip(), max(0, receipt_size_bytes)))
             await _audit(conn, uid, "add_feature", record_id, f"Added a feature: {label.strip()}")
         return fid
 
@@ -7087,54 +7578,127 @@ class WebMutation:
         label: Optional[str] = None, category: Optional[str] = None,
         spec: Optional[str] = None, condition: Optional[str] = None,
         condition_state: Optional[str] = None, note: Optional[str] = None,
+        type_key: Optional[str] = None, schema_version: Optional[int] = None,
+        attributes: Optional[str] = None, geometry: Optional[str] = None,
+        pin_label: Optional[str] = None, expected_version: int = 0,
     ) -> bool:
-        """Edits a feature in place.
-
-        Omitted and empty are two different instructions, and the screen needs
-        both: a caller that does not send `note` leaves the note alone, and one
-        that sends an empty `note` is deleting it. The old rule — non-empty
-        wins, empty is silence — made a spec, a condition or a note
-        undeletable once typed, with the delete appearing to work until the
-        page was reloaded.
-
-        The name is the exception: a feature with no name is a row nobody can
-        find again, so an empty label is refused rather than obeyed."""
+        """Edit a typed feature, with optional optimistic concurrency."""
         uid = _uid(info)
-        sets, args = [], []
-        if label is not None and label.strip():
-            sets.append("label=%s")
-            args.append(label.strip())
-            # The name says what the thing is, so it also says how it is drawn
-            # and which chip it files under — unless the caller has decided
-            # that itself, in which case that decision stands.
-            if category is None:
-                cat, ico = _classify_feature(label)
-                sets += ["category=%s", "icon=%s"]
-                args += [cat, ico]
-        if category is not None and category.strip():
-            sets.append("category=%s")
-            args.append(category.strip())
-        for col, val in (("spec", spec), ("condition", condition), ("note", note)):
-            if val is not None:
-                sets.append(f"{col}=%s")
-                args.append(val)
-        # An unrecognised state would paint the card in no colour at all, so a
-        # bad one is dropped rather than stored.
-        if condition_state is not None and condition_state in _STATES:
-            sets.append("condition_state=%s")
-            args.append(condition_state)
-        if not sets:
-            return False
         async with _pool.connection() as conn:
             cur = await conn.execute(
+                "SELECT * FROM land_features WHERE id=%s AND owner_user_id=%s",
+                (feature_id, uid))
+            current = await cur.fetchone()
+            if not current:
+                return False
+            key = type_key or current.get("type_key") or feature_schema.infer_type_key(
+                label or current.get("label") or "")
+            schema = feature_schema.FEATURE_TYPE_BY_KEY.get(key)
+            if not schema:
+                return False
+            sets, args = [], []
+            if label is not None:
+                if not label.strip():
+                    return False
+                sets.append("label=%s")
+                args.append(label.strip())
+            if type_key is not None:
+                sets += ["type_key=%s", "schema_version=%s", "category=%s", "icon=%s"]
+                args += [key, schema["schema_version"], schema["category"], schema["icon"]]
+            elif category is not None and category.strip():
+                sets.append("category=%s")
+                args.append(category.strip())
+            if attributes is not None:
+                try:
+                    attrs = feature_schema.validate_attributes(key, attributes)
+                except ValueError:
+                    return False
+                sets += ["attributes=%s", "schema_version=%s", "spec=%s"]
+                args += [json.dumps(attrs, separators=(",", ":")),
+                         schema["schema_version"], feature_schema.summary(key, attrs)]
+            elif spec is not None:
+                sets.append("spec=%s")
+                args.append(spec)
+            if geometry is not None:
+                try:
+                    point = feature_schema.validate_point(geometry)
+                except ValueError:
+                    return False
+                coords = point.get("coordinates") or [0, 0]
+                sets += ["geometry=%s", "lon=%s", "lat=%s", "pin_label=%s"]
+                args += [json.dumps(point, separators=(",", ":")), _f(coords[0]), _f(coords[1]),
+                         (pin_label or "Pinned") if point else "No pin yet"]
+            elif pin_label is not None:
+                sets.append("pin_label=%s")
+                args.append(pin_label)
+            for col, val in (("condition", condition), ("note", note)):
+                if val is not None:
+                    sets.append(f"{col}=%s")
+                    args.append(val)
+            if condition_state is not None and condition_state in _STATES:
+                sets.append("condition_state=%s")
+                args.append(condition_state)
+            if not sets:
+                return False
+            sets.append("version=version+1")
+            where = " WHERE id=%s AND owner_user_id=%s"
+            tail: list = [feature_id, uid]
+            if expected_version > 0:
+                where += " AND version=%s"
+                tail.append(expected_version)
+            cur = await conn.execute(
                 f"UPDATE land_features SET {', '.join(sets)}"
-                " WHERE id=%s AND owner_user_id=%s RETURNING id, entity_id, label",
-                (*args, feature_id, uid))
+                + where + " RETURNING id, entity_id, label",
+                (*args, *tail))
             row = await cur.fetchone()
             if row:
                 await _audit(conn, uid, "update_feature", row["entity_id"],
                              f"Edited a feature: {row.get('label') or ''}".strip())
             return bool(row)
+
+    @strawberry.mutation
+    async def save_feature_cost(
+        self, info: strawberry.Info, feature_id: str, title: str, amount: float,
+        purchased_on: str = "", kind: str = "capital", vendor: str = "",
+        invoice_no: str = "", warranty_until: str = "", receipt_file_ref: str = "",
+        receipt_file_name: str = "", receipt_mime_type: str = "",
+        receipt_size_bytes: int = 0,
+    ) -> str:
+        """Append a purchase, service or receipt to one feature's ledger."""
+        uid = _uid(info)
+        if amount < 0 or (amount == 0 and not receipt_file_ref.strip()):
+            return ""
+        cost_kind = kind if kind in ("capital", "running") else "capital"
+        import uuid as _uuid
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT id, entity_id, label, icon FROM land_features"
+                " WHERE id=%s AND owner_user_id=%s", (feature_id, uid))
+            feature = await cur.fetchone()
+            if not feature:
+                return ""
+            eid = f"exp-{_uuid.uuid4().hex[:12]}"
+            cost_title = title.strip() or (
+                f"{feature['label']} purchase" if cost_kind == "capital"
+                else f"{feature['label']} service")
+            await conn.execute(
+                "INSERT INTO land_expenses (id, owner_user_id, entity_type, entity_id,"
+                " category, title, amount, spent_on, vendor, note, created_at, kind,"
+                " subtitle, on_label, on_icon, feature_id, paid_by, recoverable,"
+                " recoverable_note, has_receipt, fiscal_year, invoice_no, warranty_until,"
+                " receipt_file_ref, receipt_file_name, receipt_mime_type, receipt_size_bytes)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                " %s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (eid, uid, "record", feature["entity_id"], "feature", cost_title,
+                 amount, purchased_on, vendor.strip(), "", _now_iso(), cost_kind,
+                 invoice_no.strip(), feature["label"], feature.get("icon") or "feature",
+                 feature_id, "", False, "", bool(receipt_file_ref.strip()),
+                 _fiscal_year(purchased_on), invoice_no.strip(), warranty_until,
+                 receipt_file_ref.strip(), receipt_file_name.strip(),
+                 receipt_mime_type.strip(), max(0, receipt_size_bytes)))
+            await _audit(conn, uid, "add_feature_cost", feature["entity_id"],
+                         f"Recorded a cost for {feature['label']}: {cost_title}")
+            return eid
 
     @strawberry.mutation
     async def delete_feature(self, info: strawberry.Info, feature_id: str) -> bool:
@@ -7187,6 +7751,24 @@ class WebMutation:
     # the ticket, and is the copy the hash chain covers. Both writes sit inside
     # `_ticket_transaction`, so an event that exists is an event whose money
     # moved.
+
+    @strawberry.mutation
+    async def post_ticket_message(self, info: strawberry.Info, ticket_id: str,
+                                  message: str) -> bool:
+        """Add an owner message to the append-only job conversation."""
+        uid = _uid(info)
+        body = message.strip()
+        if not body or len(body) > 4000:
+            return False
+        async with _ticket_transaction() as conn:
+            row = await _ticket_row(conn, uid, ticket_id, lock=True)
+            if not row or _status_of(row) == "cancelled":
+                return False
+            await _event(
+                conn, uid, ticket_id, kind="message", action="message",
+                actor_kind="owner", actor_label="You",
+                headline="You sent a message", detail=body)
+            return True
 
     @strawberry.mutation
     async def fund_ticket(self, info: strawberry.Info, ticket_id: str) -> str:
@@ -8047,6 +8629,45 @@ class WebMutation:
                 " SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by,"
                 " updated_at=EXCLUDED.updated_at",
                 (",".join(have), me, _now_iso()))
+            return True
+
+    @strawberry.mutation
+    async def set_super_admin(self, info: strawberry.Info, uid: str,
+                              on: bool) -> bool:
+        """Grant or revoke compliance-policy administration.
+
+        Only an existing super-admin can change this separate role. The last
+        bootstrap principal cannot remove their own grant from the runtime
+        row, which prevents a UI action from locking policy administration.
+        """
+        me = _uid(info)
+        who = (uid or "").strip()
+        if not who:
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, me):
+                return False
+            if who == me and not on and me not in _super_admin_env():
+                return False
+            stored = await _setting(conn, "super_admin.uids")
+            have = [p.strip() for p in stored.split(",") if p.strip()]
+            if on and who not in have:
+                have.append(who)
+            elif not on and who in have:
+                have.remove(who)
+            else:
+                return False
+            await conn.execute(
+                "INSERT INTO platform_settings (key,value,updated_by,updated_at)"
+                " VALUES ('super_admin.uids',%s,%s,%s) ON CONFLICT (key) DO UPDATE"
+                " SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,"
+                " updated_at=EXCLUDED.updated_at",
+                (",".join(have), me, _now_iso()))
+            await conn.execute(
+                "INSERT INTO governance_policy_events (id,policy_id,actor,action,detail,created_at)"
+                " VALUES (%s,'role:super-admin',%s,%s,%s,%s)",
+                ("gpe-" + secrets.token_hex(8), me,
+                 "grant_role" if on else "revoke_role", who, _now_iso()))
             return True
 
     @strawberry.mutation

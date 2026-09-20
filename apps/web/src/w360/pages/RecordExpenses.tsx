@@ -30,6 +30,7 @@ import { Cell, Chip, Empty, Failed, Icon, Loading, csvCell, ddmmyyyy, inGroup, i
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { RecordCrumbs, useRecordCtx } from './Record';
+import { downloadBlob, fetchFileBlob } from '../../pages/documents/storage';
 
 const KINDS = ['Repair', 'Power bill', 'Labour', 'Seed & inputs', 'Tax / kist', 'Caretaker',
   'Legal', 'New work'];
@@ -269,6 +270,7 @@ export function ExpenseDrawer({
 
 export function RecordExpenses() {
   const rec = useRecordCtx();
+  const toast = useToast();
   const [year, setYear] = useState<string | undefined>();
   const [cat, setCat] = useState('all');
   const [drawer, setDrawer] = useState<'expense' | 'income' | null>(null);
@@ -290,6 +292,14 @@ export function RecordExpenses() {
    *  A real answer needs the server to send `isLet` off a lease or a tenant
    *  row in record_people. */
   const isLet = data.income > 0;
+
+  const downloadReceipt = async (fileRef: string, fileName: string) => {
+    try {
+      downloadBlob(await fetchFileBlob(fileRef), fileName || 'receipt');
+    } catch (cause) {
+      toast.bad('That receipt could not be opened.', cause);
+    }
+  };
 
   /** The visible list — the category filter included — as a file. The escaping
    *  is Properties.tsx's, down to the leading-quote guard and the BOM; the two
@@ -462,8 +472,16 @@ export function RecordExpenses() {
                       to everyone else. `titleAccess` gives the icon both an
                       accessible name and a hover tooltip. */}
                   <td className={r.hasReceipt ? 'up' : 'muted'}>
-                    {r.hasReceipt
-                      ? <ReceiptLongOutlined sx={{ fontSize: 15 }} titleAccess="Receipt filed" />
+                    {r.receiptFileRef
+                      ? (
+                        <button type="button" className="iconbtn"
+                                aria-label={`Download receipt for ${r.title}`}
+                                onClick={() => void downloadReceipt(r.receiptFileRef, r.receiptFileName)}>
+                          <ReceiptLongOutlined sx={{ fontSize: 15 }} />
+                        </button>
+                      )
+                      : r.hasReceipt
+                        ? <ReceiptLongOutlined sx={{ fontSize: 15 }} titleAccess="Receipt filed" />
                       : <PhotoCameraOutlined sx={{ fontSize: 15 }} titleAccess="No receipt yet" />}
                   </td>
                 </tr>

@@ -20,7 +20,8 @@ import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import IosShareOutlined from '@mui/icons-material/IosShareOutlined';
 
 import {
-  EMPTY_FILTER, useArchiveRecords, useCreateShareLink, useDeleteRecords, useNotes, useProperties,
+  EMPTY_FILTER, useArchiveRecords, useCreateShareLink, useDeleteRecords, useNotes, usePapers,
+  useProperties,
 } from '../api';
 import type { RecordDetail } from '../api';
 import { Crumbs, Icon, Menu, Pill, num, statusWord } from '../ui';
@@ -28,6 +29,7 @@ import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { useToast } from '../Toast';
 import { RecordDrawer } from './PropertyActions';
+import { SecureShareGuidance } from '../GovernanceGuidance';
 
 /** The nine hangers, in the order the strip draws them.
  *
@@ -153,7 +155,9 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
   const nav = useNavigate();
   const toast = useToast();
   const [panel, setPanel] = useState<'' | 'share'>('');
+  const papers = usePapers(panel === 'share' ? rec.id : undefined);
   const [audience, setAudience] = useState('');
+  const [shareDocs, setShareDocs] = useState<string[]>([]);
   const [shareErr, setShareErr] = useState('');
   const [sharePath, setSharePath] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
@@ -190,6 +194,7 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
   const closeShare = () => {
     setSharePath('');
     setShareErr('');
+    setShareDocs([]);
     setPanel('');
     requestAnimationFrame(() => shareTrigger.current?.focus());
   };
@@ -300,7 +305,7 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
             e.preventDefault();
             // The pending guard is what stops a fast second press minting a
             // second link now that a refusal leaves the panel open.
-            if (!audience.trim() || shared.isPending) return;
+            if (!audience.trim() || shareDocs.length === 0 || shared.isPending) return;
             setShareErr('');
             const who = audience.trim();
             try {
@@ -309,6 +314,7 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
               // closed and the field cleared whether or not a link existed.
               const id = (await shared.mutateAsync({
                 recordId: rec.id, audience: who, terms: 'view', days: 30,
+                documentIds: shareDocs,
               })).web.createShareLink;
               if (!id) {
                 setShareErr(`No link was made for ${who} — this record may no longer be yours to share.`);
@@ -331,9 +337,24 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
         >
           {sharePath ? <><ShareResult path={sharePath} /><button type="button" className="btn" onClick={closeShare}>Done</button></> : <>
           <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-            A link to this record's current papers, good for 30 days. Anyone with it can open and download those files.
+            A link to the papers you select, good for 30 days. Anyone with it can open and download those files.
             Revoke it any time from the Vault.
           </p>
+          <SecureShareGuidance district={rec.district || '*'} />
+          <fieldset className="share-paper-picker">
+            <legend>Choose papers for this purpose</legend>
+            {papers.isLoading && <p className="note">Checking this record's papers…</p>}
+            {papers.isError && <p className="note" role="alert">The papers could not be checked. Nothing can be shared yet.</p>}
+            {papers.data?.map((paper) => (
+              <label key={paper.id}>
+                <input type="checkbox" checked={shareDocs.includes(paper.id)}
+                       onChange={() => setShareDocs((current) => current.includes(paper.id)
+                         ? current.filter((id) => id !== paper.id) : [...current, paper.id])} />
+                <span><strong>{paper.title}</strong><small>{paper.detail || paper.shelf}</small></span>
+              </label>
+            ))}
+            {papers.data?.length === 0 && <p className="note">There are no papers on this record to share.</p>}
+          </fieldset>
           <div className="row tight">
             <span className="search" style={{ flex: '1 1 14rem', minWidth: 0 }}>
               <input value={audience} autoFocus aria-label="Who is it for"
@@ -341,7 +362,7 @@ export function RecordHead({ rec, here }: { rec: RecordDetail; here?: string }) 
                      onChange={(e) => setAudience(e.target.value)} />
             </span>
             <button type="submit" className="btn sm primary"
-                    disabled={!audience.trim() || shared.isPending}>
+                    disabled={!audience.trim() || shareDocs.length === 0 || shared.isPending}>
               {shared.isPending ? 'Making the link…' : 'Share'}
             </button>
             <button type="button" className="btn sm"

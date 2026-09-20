@@ -39,6 +39,7 @@ import LayersOutlined from '@mui/icons-material/LayersOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
 import NotificationsNoneOutlined from '@mui/icons-material/NotificationsNoneOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
+import PolicyOutlined from '@mui/icons-material/PolicyOutlined';
 import SaveAltOutlined from '@mui/icons-material/SaveAltOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ShieldOutlined from '@mui/icons-material/ShieldOutlined';
@@ -333,6 +334,12 @@ export function Shell() {
         { to: '/app/profile', label: 'Profile', icon: PersonOutlined },
       ],
     },
+    ...(portfolio.data?.isSuperAdmin ? [{
+      title: 'Administration',
+      items: [
+        { to: '/app/admin/compliance', label: 'Compliance rules', icon: PolicyOutlined },
+      ],
+    }] : []),
   ];
 
   return (

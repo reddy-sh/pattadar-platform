@@ -59,6 +59,7 @@ import {
   Card, Chip, Empty, Failed, Icon, KV, Loading, ddmmyyyy, inr, plural,
 } from '../ui';
 import { RecordCrumbs, useRecordCtx } from './Record';
+import { ServiceRequestGuidance } from '../GovernanceGuidance';
 
 // ── Words ──────────────────────────────────────────────────────────────
 
@@ -804,6 +805,8 @@ function TellStep(
         {offer.label} on {rec.title}. {inr(offer.price)} · about {offer.days} days once
         somebody is on it.
       </p>
+
+      <ServiceRequestGuidance serviceKind={offer.key} district={rec.district || '*'} />
 
       <Card title="The questions">
         {offer.fields.length === 0 ? (

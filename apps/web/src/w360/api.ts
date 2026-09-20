@@ -46,7 +46,7 @@ export interface Portfolio {
    *  decide whether one rail entry is drawn. Two scalars on a read the Shell
    *  already makes is the whole cost. `associateId` is '' for everyone until
    *  associates get accounts (phase 5); the rail reads it, nothing else does. */
-  isPlatformAdmin: boolean; associateId: string;
+  isPlatformAdmin: boolean; isSuperAdmin: boolean; associateId: string;
   tiles: Tile[]; waiting: WaitingItem[]; valueBars: ValueBar[]; recent: RecordCard[];
 }
 export interface FacetOption { key: string; label: string; count: number; active: boolean }
@@ -81,10 +81,21 @@ export interface Feature {
   id: string; label: string; spec: string; icon: string; category: string;
   condition: string; conditionState: string; note: string; lat: number; lon: number;
   pinLabel: string; photoCount: number; actions: string[];
+  typeKey: string; schemaVersion: number; attributes: string; geometry: string; version: number;
+  costTotal: number; costCount: number; receiptCount: number;
+}
+export interface FeatureFieldDefinition {
+  key: string; label: string; kind: 'text' | 'number' | 'date' | 'select' | 'boolean';
+  unit: string; placeholder: string; options: string[]; required: boolean;
+  dependsOn: string; dependsValue: string;
+}
+export interface FeatureTypeDefinition {
+  key: string; label: string; category: string; icon: string; geometryKind: string;
+  schemaVersion: number; fields: FeatureFieldDefinition[];
 }
 export interface FeatureList {
   features: Feature[]; total: number; needsRepair: number;
-  walkedOn: string; walkedBy: string; categories: FacetOption[];
+  walkedOn: string; walkedBy: string; categories: FacetOption[]; types: FeatureTypeDefinition[];
 }
 export interface Person {
   id: string; name: string; initials: string; role: string; badges: string[];
@@ -154,6 +165,8 @@ export interface Expense {
   id: string; title: string; subtitle: string; onLabel: string; onIcon: string;
   kind: string; paidBy: string; amount: number; spentOn: string; category: string;
   recoverable: boolean; recoverableNote: string; hasReceipt: boolean;
+  vendor: string; invoiceNo: string; warrantyUntil: string; receiptFileRef: string;
+  receiptFileName: string; receiptMimeType: string; receiptSizeBytes: number;
 }
 export interface ExpenseView {
   recordId: string; title: string; eyebrow: string; isBuilt: boolean; year: string;
@@ -200,6 +213,47 @@ export interface MapRecord {
 export interface SearchHit {
   id: string; kind: string; title: string; subtitle: string; route: string;
 }
+
+/** Portable governance document envelope. `document` stays JSON because the
+ * server stores and versions the same unit that will move to the planned
+ * document database; the UI validates the small shape it consumes. */
+export interface GovernancePolicy {
+  id: string; scopeKey: string; countryCode: string; stateCode: string;
+  districtCode: string; revision: number; status: string; schemaVersion: number;
+  document: string; sourceDigest: string; createdBy: string; createdAt: string;
+  publishedBy: string; publishedAt: string;
+}
+
+export interface GovernanceItem {
+  key: string; title: string; why: string; level: string; share: string; sourceIds: string[];
+}
+export interface GovernancePropertyType {
+  key: string; label: string; matches: string[]; items: GovernanceItem[];
+}
+export interface GovernanceGuide { key: string; label: string; items: string[] }
+export interface GovernanceServiceGuide {
+  key: string; label: string; purpose: string; share: string[]; doNotShare: string[];
+  controls: string[]; sourceIds: string[];
+}
+export interface GovernanceDocument {
+  schemaVersion: number;
+  jurisdiction: {
+    countryCode: string; countryName: string; stateCode: string; stateName: string;
+    districtCode: string; districtName: string; authorityName: string;
+    localTerms: Record<string, string>;
+  };
+  policy: { name: string; effectiveOn: string; reviewBy: string; legalNotice: string };
+  propertyTypes: GovernancePropertyType[];
+  guides: GovernanceGuide[];
+  serviceRequests: GovernanceServiceGuide[];
+  secureSharing: {
+    label: string; shareWhenNeeded: string[]; neverByDefault: string[];
+    controls: string[]; sourceIds: string[];
+  };
+  sources: {
+    id: string; authority: string; title: string; url: string; appliesTo: string[];
+  }[];
+}
 export interface MapView {
   areaLabel: string; records: MapRecord[]; counts: FacetOption[];
   insights: { id: string; title: string; detail: string }[];
@@ -222,6 +276,8 @@ export interface Order {
    *  has looked at yet — both aggregates, so a list of forty orders is still
    *  three queries and not eighty. */
   held: number; pendingReview: number;
+  /** Related jobs placed together. Empty on older and single-service orders. */
+  batchId: string; batchRef: string;
 }
 
 /** A label/value the server has already decided how to word. `k`/`v` rather
@@ -335,7 +391,11 @@ export interface ServiceField {
 }
 export interface ServiceOffer {
   key: string; label: string; price: number; group: string;
-  blurb: string; days: number; fields: ServiceField[];
+  blurb: string; days: number; shelves: string[]; fields: ServiceField[];
+}
+
+export interface ServiceBatchReceipt {
+  batchId: string; ref: string; orderCount: number; total: number;
 }
 
 // ── Query documents ────────────────────────────────────────────────────
@@ -348,7 +408,7 @@ const Q_PORTFOLIO = `{ web { portfolio {
   displayName
   farmExtent farmCount plotExtent plotCount builtExtent builtFlats builtShops
   invested worthNow gain loans managedCount watchedCount waitingCount runningCosts
-  paperCount backupVerifiedOn isPlatformAdmin associateId
+  paperCount backupVerifiedOn isPlatformAdmin isSuperAdmin associateId
   tiles { key label value unit note tone }
   waiting { id title detail icon actionLabel actionKind recordId }
   valueBars { label value share }
@@ -377,7 +437,10 @@ const Q_FEATURES = `query F($id:String!) { web { features(recordId:$id) {
   total needsRepair walkedOn walkedBy
   categories { key label count active }
   features { id label spec icon category condition conditionState note lat lon
-             pinLabel photoCount actions }
+             pinLabel photoCount actions typeKey schemaVersion attributes geometry version
+             costTotal costCount receiptCount }
+  types { key label category icon geometryKind schemaVersion
+          fields { key label kind unit placeholder options required dependsOn dependsValue } }
 } } }`;
 
 const Q_PEOPLE = `query PE($id:String!) { web { people(recordId:$id) {
@@ -416,7 +479,8 @@ const Q_EXPENSES = `query E($id:String!,$year:String) { web { expenses(recordId:
   categories { key label count active }
   featureOptions { key label }
   rows { id title subtitle onLabel onIcon kind paidBy amount spentOn category
-         recoverable recoverableNote hasReceipt }
+         recoverable recoverableNote hasReceipt vendor invoiceNo warrantyUntil
+         receiptFileRef receiptFileName receiptMimeType receiptSizeBytes }
 } } }`;
 
 const Q_VAULT = `{ web { vault {
@@ -471,6 +535,54 @@ export function usePortfolio() {
     queryKey: [KEY, 'portfolio'],
     staleTime: BADGE_STALE,
     queryFn: async () => (await gql<Wrapped<'portfolio', Portfolio>>(Q_PORTFOLIO)).web.portfolio,
+  });
+}
+
+const GOVERNANCE_FIELDS = `id scopeKey countryCode stateCode districtCode revision status
+  schemaVersion document sourceDigest createdBy createdAt publishedBy publishedAt`;
+
+export function parseGovernanceDocument(policy: GovernancePolicy | null | undefined): GovernanceDocument | null {
+  if (!policy?.document) return null;
+  try {
+    const value = JSON.parse(policy.document) as GovernanceDocument;
+    return value?.schemaVersion === 1 && Array.isArray(value.propertyTypes) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Published guidance is owner-visible. Draft and provenance access uses the
+ * separate admin query below and is denied by the server, not by this hook. */
+export function useGovernancePolicy(
+  countryCode = 'IN', stateCode = 'AP', districtCode = '*', enabled = true,
+) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'governance', countryCode, stateCode, districtCode],
+    staleTime: 15 * 60 * 1000,
+    queryFn: async () => (await gql<Wrapped<'governancePolicy', GovernancePolicy | null>>(
+      `query GP($countryCode:String!,$stateCode:String!,$districtCode:String!) {
+        web { governancePolicy(countryCode:$countryCode,stateCode:$stateCode,districtCode:$districtCode) {
+          ${GOVERNANCE_FIELDS}
+        } }
+      }`, { countryCode, stateCode, districtCode },
+    )).web.governancePolicy,
+  });
+}
+
+export function useGovernanceAdminPolicy(
+  countryCode = 'IN', stateCode = 'AP', districtCode = '*', enabled = true,
+) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'governanceAdmin', countryCode, stateCode, districtCode],
+    queryFn: async () => (await gql<Wrapped<'governanceAdminPolicy', GovernancePolicy | null>>(
+      `query GAP($countryCode:String!,$stateCode:String!,$districtCode:String!) {
+        web { governanceAdminPolicy(countryCode:$countryCode,stateCode:$stateCode,districtCode:$districtCode) {
+          ${GOVERNANCE_FIELDS}
+        } }
+      }`, { countryCode, stateCode, districtCode },
+    )).web.governanceAdminPolicy,
   });
 }
 
@@ -695,7 +807,7 @@ export function useSearch(q: string) {
 const Q_ORDERS = `query O($recordId:String,$includeClosed:Boolean) { web {
   orders(recordId:$recordId,includeClosed:$includeClosed) {
   id kind title detail assignee cost stage stageLabel needsYou dueDate recordId recordTitle params
-  status statusLabel statusState ref assigneeRef held pendingReview
+  status statusLabel statusState ref assigneeRef held pendingReview batchId batchRef
 } } }`;
 
 /** The whole ticket in one round trip. It is a lot of fields, but they are all
@@ -726,7 +838,7 @@ const Q_WALLET = `query WAL($limit:Int) { web { wallet(limit:$limit) {
 } } }`;
 
 const Q_SERVICES = `query SO($q:String,$key:String) { web { servicesOffered(q:$q,key:$key) {
-  key label price group blurb days fields { name label kind required options help }
+  key label price group blurb days shelves fields { name label kind required options help }
 } } }`;
 
 /** No `enabled`: the Shell asks for this on every route to count what is
@@ -952,14 +1064,35 @@ export const useDeleteExpense = () =>
     'Deleting that expense',
   );
 
-/** Files a feature by name alone. The category and the icon are NOT sent:
- *  the API reads them off the name (`_classify_feature`), so a bore filed
- *  from the chip row, from the "something else" box or from the phone lands
- *  in the same chip with the same icon. Returns the new feature's id. */
+export interface FeatureCostInput {
+  purchaseKind: string; purchaseTitle: string; purchaseAmount: number; purchasedOn: string;
+  vendor: string; invoiceNo: string; warrantyUntil: string; receiptFileRef: string;
+  receiptFileName: string; receiptMimeType: string; receiptSizeBytes: number;
+}
+
+/** Files the typed feature in one write. An optional first cost is inserted in
+ *  the same transaction, so a saved receipt never points at a missing feature. */
 export const useAddFeature = () =>
-  useW360Mutation<{ recordId: string; label: string }, Wrapped<'addFeature', string>>(
-    `mutation AF($recordId:String!,$label:String!) {
-       web { addFeature(recordId:$recordId,label:$label) } }`,
+  useW360Mutation<{
+    recordId: string; label: string; typeKey: string; schemaVersion: number;
+    attributes: string; geometry: string; pinLabel: string; condition: string;
+    conditionState: string; note: string;
+  } & FeatureCostInput, Wrapped<'addFeature', string>>(
+    `mutation AF($recordId:String!,$label:String!,$typeKey:String!,$schemaVersion:Int!,
+                 $attributes:String!,$geometry:String!,$pinLabel:String!,$condition:String!,
+                 $conditionState:String!,$note:String!,$purchaseKind:String!,
+                 $purchaseTitle:String!,$purchaseAmount:Float!,$purchasedOn:String!,
+                 $vendor:String!,$invoiceNo:String!,$warrantyUntil:String!,
+                 $receiptFileRef:String!,$receiptFileName:String!,$receiptMimeType:String!,
+                 $receiptSizeBytes:Int!) {
+       web { addFeature(recordId:$recordId,label:$label,typeKey:$typeKey,
+                        schemaVersion:$schemaVersion,attributes:$attributes,geometry:$geometry,
+                        pinLabel:$pinLabel,condition:$condition,conditionState:$conditionState,
+                        note:$note,purchaseKind:$purchaseKind,purchaseTitle:$purchaseTitle,
+                        purchaseAmount:$purchaseAmount,purchasedOn:$purchasedOn,vendor:$vendor,
+                        invoiceNo:$invoiceNo,warrantyUntil:$warrantyUntil,
+                        receiptFileRef:$receiptFileRef,receiptFileName:$receiptFileName,
+                        receiptMimeType:$receiptMimeType,receiptSizeBytes:$receiptSizeBytes) } }`,
     'That feature',
     false,
   );
@@ -970,13 +1103,37 @@ export const useAddFeature = () =>
 export const useUpdateFeature = () =>
   useW360Mutation<{
     featureId: string; label?: string; spec?: string; condition?: string;
-    conditionState?: string; note?: string;
+    conditionState?: string; note?: string; typeKey?: string; schemaVersion?: number;
+    attributes?: string; geometry?: string; pinLabel?: string; expectedVersion?: number;
   }, Wrapped<'updateFeature', boolean>>(
     `mutation UF($featureId:String!,$label:String,$spec:String,$condition:String,
-                 $conditionState:String,$note:String) {
+                 $conditionState:String,$note:String,$typeKey:String,$schemaVersion:Int,
+                 $attributes:String,$geometry:String,$pinLabel:String,$expectedVersion:Int) {
        web { updateFeature(featureId:$featureId,label:$label,spec:$spec,
-                           condition:$condition,conditionState:$conditionState,note:$note) } }`,
+                           condition:$condition,conditionState:$conditionState,note:$note,
+                           typeKey:$typeKey,schemaVersion:$schemaVersion,attributes:$attributes,
+                           geometry:$geometry,pinLabel:$pinLabel,
+                           expectedVersion:$expectedVersion) } }`,
     'That feature',
+    false,
+  );
+
+export const useSaveFeatureCost = () =>
+  useW360Mutation<{
+    featureId: string; title: string; amount: number; purchasedOn: string; kind: string;
+    vendor: string; invoiceNo: string; warrantyUntil: string; receiptFileRef: string;
+    receiptFileName: string; receiptMimeType: string; receiptSizeBytes: number;
+  }, Wrapped<'saveFeatureCost', string>>(
+    `mutation SFC($featureId:String!,$title:String!,$amount:Float!,$purchasedOn:String!,
+                  $kind:String!,$vendor:String!,$invoiceNo:String!,$warrantyUntil:String!,
+                  $receiptFileRef:String!,$receiptFileName:String!,$receiptMimeType:String!,
+                  $receiptSizeBytes:Int!) {
+       web { saveFeatureCost(featureId:$featureId,title:$title,amount:$amount,
+                             purchasedOn:$purchasedOn,kind:$kind,vendor:$vendor,
+                             invoiceNo:$invoiceNo,warrantyUntil:$warrantyUntil,
+                             receiptFileRef:$receiptFileRef,receiptFileName:$receiptFileName,
+                             receiptMimeType:$receiptMimeType,receiptSizeBytes:$receiptSizeBytes) } }`,
+    'That feature cost',
     false,
   );
 
@@ -1224,6 +1381,27 @@ export const useOrderService = (reportError = true) =>
     `mutation OS($recordIds:[String!]!,$kind:String!,$note:String,$params:String,$attachmentManifest:String! = "{}",$idempotencyKey:String! = "") {
        web { orderService(recordIds:$recordIds,kind:$kind,note:$note,params:$params,attachmentManifest:$attachmentManifest,idempotencyKey:$idempotencyKey) } }`,
     'That order',
+    reportError,
+  );
+
+export const useOrderServiceBatch = (reportError = true) =>
+  useW360Mutation<{
+    recordId: string; items: string; note?: string; idempotencyKey: string;
+  }, Wrapped<'orderServiceBatch', ServiceBatchReceipt | null>>(
+    `mutation OSB($recordId:String!,$items:String!,$note:String,$idempotencyKey:String!) {
+       web { orderServiceBatch(recordId:$recordId,items:$items,note:$note,
+                               idempotencyKey:$idempotencyKey) {
+         batchId ref orderCount total
+       } } }`,
+    'That batch request',
+    reportError,
+  );
+
+export const usePostTicketMessage = (reportError = true) =>
+  useW360Mutation<{ ticketId: string; message: string }, Wrapped<'postTicketMessage', boolean>>(
+    `mutation PTM($ticketId:String!,$message:String!) {
+       web { postTicketMessage(ticketId:$ticketId,message:$message) } }`,
+    'That message',
     reportError,
   );
 

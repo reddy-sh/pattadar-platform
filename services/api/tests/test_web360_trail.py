@@ -43,7 +43,8 @@ BASE = [
     "area_key TEXT DEFAULT '',area_label TEXT DEFAULT '',status TEXT DEFAULT '',"
     "status_at TEXT DEFAULT '',quoted DOUBLE PRECISION DEFAULT 0,"
     "payee_share DOUBLE PRECISION DEFAULT 0,assignee_ref TEXT DEFAULT '',"
-    "outcome_note TEXT DEFAULT '')",
+    "outcome_note TEXT DEFAULT '',batch_id TEXT DEFAULT '')",
+    "CREATE TABLE service_batches (id TEXT PRIMARY KEY,owner_user_id TEXT,record_id TEXT)",
     "CREATE TABLE boundary_marks (id TEXT PRIMARY KEY,record_id TEXT)",
     "CREATE TABLE record_people (id TEXT PRIMARY KEY,record_id TEXT)",
     "CREATE TABLE people_payments (id TEXT PRIMARY KEY,record_id TEXT)",

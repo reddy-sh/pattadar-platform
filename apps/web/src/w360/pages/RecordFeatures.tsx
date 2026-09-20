@@ -19,15 +19,19 @@ import ChecklistOutlined from '@mui/icons-material/ChecklistOutlined';
 import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined';
 import MyLocationOutlined from '@mui/icons-material/MyLocationOutlined';
+import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 
-import type { Feature } from '../api';
+import type { Feature, FeatureFieldDefinition, FeatureTypeDefinition } from '../api';
 import {
-  useAddFeature, useDeleteFeature, useFeatures, useOrders, useUpdateFeature,
+  useAddFeature, useDeleteFeature, useFeatures, useOrders, useSaveFeatureCost,
+  useUpdateFeature,
 } from '../api';
 import { Card, Chip, Failed, Icon, KV, Loading, State, ddmmyyyy, inr, plural } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
+import { uploadToDrive } from '../../pages/documents/storage';
 
 /** The starter kit on the "Add a feature" card. Naming your own is the last
  *  chip because most land has something the list did not think of.
@@ -35,10 +39,6 @@ import { SectionHead } from './RecordHead';
  *  These are names, not kinds: the API reads the kind off the name, so the
  *  chip row and the free-text box cannot drift into classifying the same word
  *  two different ways. */
-const TYPES = ['Bore', 'Well', 'Pond', 'Transformer', 'Meter', 'Solar', 'Fence', 'Gate',
-  'Shed', 'House', 'Compound wall', 'Trees', 'Crop', 'Road', 'Bund', 'Canal'];
-const OWN_TYPE = 'Something else';
-
 /** The four things a feature's condition can be, in the owner's words rather
  *  than the database's. "Not checked" is the one that matters: it is what a
  *  feature is until somebody has stood next to it. */
@@ -49,15 +49,21 @@ const STATES: { key: string; label: string }[] = [
   { key: 'unknown', label: 'Not checked' },
 ];
 
-interface Draft {
-  id: string; label: string; spec: string; condition: string;
-  conditionState: string; note: string;
-}
+type FeatureAttributes = Record<string, string | number | boolean>;
 
-const draftOf = (f: Feature): Draft => ({
-  id: f.id, label: f.label, spec: f.spec, condition: f.condition,
-  conditionState: f.conditionState || 'unknown', note: f.note,
-});
+const attributesOf = (feature?: Feature): FeatureAttributes => {
+  try {
+    const value = JSON.parse(feature?.attributes || '{}') as unknown;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as FeatureAttributes : {};
+  } catch {
+    return {};
+  }
+};
+
+const fieldIsVisible = (field: FeatureFieldDefinition, values: FeatureAttributes) => (
+  !field.dependsOn || String(values[field.dependsOn] ?? '').toLowerCase() === field.dependsValue
+);
 
 /** Where a seeded action label actually goes, or null when it goes nowhere.
  *
@@ -120,99 +126,193 @@ function destOf(label: string, recordId: string, f: Feature): string | null {
  * condition is asked for here, up front, and defaults to "Not checked" because
  * that is what a feature IS until somebody has stood next to it.
  *
- * It is still two mutations, because the API has no single call that takes a
- * feature and its detail: addFeature answers with an id, updateFeature fills
- * it in. `filedId` is what keeps a failure in the second half from being read
- * as a failure of the first — the feature exists by then, and a second press
- * must finish it rather than file a duplicate.
+ * New features are one transaction, including an optional first cost. Existing
+ * features use the same form and an optimistic version so one stale browser
+ * cannot quietly overwrite another visit's measurements.
  */
-function FeatureDrawer({ recordId, recordTitle, onClose, onFiled, returnFocus }: {
+function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved, returnFocus }: {
   recordId: string;
   recordTitle: string;
+  types: FeatureTypeDefinition[];
+  feature?: Feature;
   onClose: () => void;
-  /** The new feature's id, so the grid can flash the card it just gained. */
-  onFiled: (id: string) => void;
+  onSaved: (id: string) => void;
   returnFocus: React.RefObject<HTMLButtonElement | null>;
 }) {
   const addFeature = useAddFeature();
   const editFeature = useUpdateFeature();
-  /** Nothing is pre-selected. A pre-selected "Bore" is a feature filed by one
-   *  unread press of the primary — the same objection as a pre-selected role on
-   *  the People drawer, and worse here, because a feature is what photographs
-   *  and expenses hang off. With nothing chosen the primary refuses, which is
-   *  the honest state of a panel that has not been told what it is filing. */
-  const [type, setType] = useState('');
-  const [own, setOwn] = useState('');
-  const [spec, setSpec] = useState('');
-  const [condition, setCondition] = useState('');
-  const [state, setState] = useState('unknown');
-  const [note, setNote] = useState('');
+  const saveCost = useSaveFeatureCost();
+  const [typeKey, setTypeKey] = useState(feature?.typeKey || '');
+  const [label, setLabel] = useState(feature?.label || '');
+  const [attributes, setAttributes] = useState<FeatureAttributes>(attributesOf(feature));
+  const [condition, setCondition] = useState(feature?.condition || '');
+  const [state, setState] = useState(feature?.conditionState || 'unknown');
+  const [note, setNote] = useState(feature?.note || '');
+  const [lat, setLat] = useState(feature?.lat ? String(feature.lat) : '');
+  const [lon, setLon] = useState(feature?.lon ? String(feature.lon) : '');
+  const [pinSource, setPinSource] = useState(feature?.lat ? 'manual' : '');
+  const [accuracy, setAccuracy] = useState(0);
+  const [locating, setLocating] = useState(false);
+  const [addCost, setAddCost] = useState(false);
+  const [costKind, setCostKind] = useState('capital');
+  const [costTitle, setCostTitle] = useState('');
+  const [amount, setAmount] = useState('');
+  const [purchasedOn, setPurchasedOn] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [invoiceNo, setInvoiceNo] = useState('');
+  const [warrantyUntil, setWarrantyUntil] = useState('');
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const [uploaded, setUploaded] = useState<{
+    id: string; name: string; mimeType: string; sizeBytes: number;
+  } | null>(null);
+  const [version, setVersion] = useState(feature?.version || 0);
   const [err, setErr] = useState('');
-  /** Set once the feature exists, so a second press cannot create a duplicate
-   *  when only the detail half failed. */
-  const [filedId, setFiledId] = useState('');
+  const schema = types.find((item) => item.key === typeKey);
+  const busy = addFeature.isPending || editFeature.isPending || saveCost.isPending;
+  const dirty = !!(typeKey || label.trim() || Object.keys(attributes).length || condition.trim()
+    || note.trim() || lat || lon || addCost);
 
-  const label = (type === OWN_TYPE ? own : type).trim();
-  const busy = addFeature.isPending || editFeature.isPending;
-  const detail = !!(spec.trim() || condition.trim() || note.trim() || state !== 'unknown');
-  const dirty = !!(type || own.trim() || spec.trim() || condition.trim() || note.trim())
-    || state !== 'unknown';
+  const chooseType = (next: FeatureTypeDefinition) => {
+    if (next.key === typeKey) return;
+    setTypeKey(next.key);
+    setAttributes({});
+    if (!label.trim() || types.some((item) => item.label === label)) {
+      setLabel(next.key === 'custom' ? '' : next.label);
+    }
+  };
+
+  const setAttribute = (key: string, value: string | number | boolean) => {
+    setAttributes((current) => {
+      const next = { ...current };
+      if (value === '') delete next[key];
+      else next[key] = value;
+      return next;
+    });
+  };
+
+  const locate = () => {
+    if (!navigator.geolocation) {
+      setErr('This browser cannot read the device location. Enter the coordinates instead.');
+      return;
+    }
+    setLocating(true);
+    setErr('');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLat(position.coords.latitude.toFixed(6));
+        setLon(position.coords.longitude.toFixed(6));
+        setAccuracy(position.coords.accuracy || 0);
+        setPinSource('device');
+        setLocating(false);
+      },
+      () => {
+        setErr('The device location was not available. Allow location access or enter it manually.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+    );
+  };
 
   const file = async () => {
-    if (!label || busy) return;
+    if (!schema || !label.trim() || busy) return;
     setErr('');
-    let id = filedId;
+    const latitude = lat.trim() ? Number(lat) : 0;
+    const longitude = lon.trim() ? Number(lon) : 0;
+    if ((lat.trim() && !lon.trim()) || (!lat.trim() && lon.trim())
+        || (lat.trim() && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90))
+        || (lon.trim() && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180))) {
+      setErr('Enter both latitude and longitude using valid coordinates.');
+      return;
+    }
+    if (receipt && receipt.size > MAX_UPLOAD_BYTES) {
+      setErr(`${receipt.name} is ${mb(receipt.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)}.`);
+      return;
+    }
+    if (addCost && (!(Number(amount) > 0) && !receipt && !uploaded)) {
+      setErr('Enter a cost amount or attach the receipt before saving this cost.');
+      return;
+    }
     try {
-      if (!id) {
-        const res = await addFeature.mutateAsync({ recordId, label });
+      let stored = uploaded;
+      if (addCost && receipt && !stored) {
+        stored = await uploadToDrive(receipt);
+        setUploaded(stored);
+      }
+      const geometry = latitude && longitude ? JSON.stringify({
+        type: 'Point', coordinates: [longitude, latitude], source: pinSource || 'manual',
+        ...(accuracy > 0 ? { accuracyM: accuracy } : {}),
+      }) : '{}';
+      const cost = {
+        purchaseKind: addCost ? costKind : '',
+        purchaseTitle: addCost ? costTitle.trim() : '',
+        purchaseAmount: addCost ? Number(amount || 0) : 0,
+        purchasedOn: addCost ? purchasedOn : '',
+        vendor: addCost ? vendor.trim() : '',
+        invoiceNo: addCost ? invoiceNo.trim() : '',
+        warrantyUntil: addCost ? warrantyUntil : '',
+        receiptFileRef: addCost ? stored?.id || '' : '',
+        receiptFileName: addCost ? stored?.name || '' : '',
+        receiptMimeType: addCost ? stored?.mimeType || '' : '',
+        receiptSizeBytes: addCost ? stored?.sizeBytes || 0 : 0,
+      };
+      let id = feature?.id || '';
+      if (!feature) {
+        const res = await addFeature.mutateAsync({
+          recordId, label: label.trim(), typeKey: schema.key,
+          schemaVersion: schema.schemaVersion, attributes: JSON.stringify(attributes), geometry,
+          pinLabel: latitude ? (pinSource === 'device' ? 'Device location' : 'Entered location') : '',
+          condition: condition.trim(), conditionState: state, note: note.trim(), ...cost,
+        });
         id = res.web.addFeature;
-        // addFeature refuses by resolving '' rather than by raising — a label it
-        // will not take, or a record that is not this account's. Returning in
-        // silence is what made a chip press look as though it were swallowed.
         if (!id) {
-          setErr('That feature could not be filed. Reload the page and try again.');
+          setErr('The feature details were not accepted. Check the values and try again.');
           return;
         }
-        setFiledId(id);
-      }
-      // Only if there is anything to say. A feature filed as a name alone needs
-      // no second write, and sending one would be an edit nobody made.
-      if (detail) {
+      } else {
         const res = await editFeature.mutateAsync({
-          featureId: id,
-          label,
-          spec: spec.trim(),
-          condition: condition.trim(),
-          conditionState: state,
-          note: note.trim(),
+          featureId: feature.id, label: label.trim(), typeKey: schema.key,
+          schemaVersion: schema.schemaVersion, attributes: JSON.stringify(attributes), geometry,
+          pinLabel: latitude ? (pinSource === 'device' ? 'Device location' : 'Entered location') : '',
+          condition: condition.trim(), conditionState: state, note: note.trim(),
+          expectedVersion: version,
         });
         if (!res.web.updateFeature) {
-          setErr(`${label} was filed, but its detail was not saved. Press Save the detail to`
-            + ' try that half again, or close this and use the pencil on its card.');
+          setErr('This feature changed elsewhere or the values were not accepted. Reload and try again.');
           return;
         }
+        setVersion((current) => current + 1);
+        if (addCost) {
+          const saved = await saveCost.mutateAsync({
+            featureId: feature.id, title: costTitle.trim(), amount: Number(amount || 0),
+            purchasedOn, kind: costKind, vendor: vendor.trim(), invoiceNo: invoiceNo.trim(),
+            warrantyUntil, receiptFileRef: stored?.id || '', receiptFileName: stored?.name || '',
+            receiptMimeType: stored?.mimeType || '', receiptSizeBytes: stored?.sizeBytes || 0,
+          });
+          if (!saved.web.saveFeatureCost) {
+            setErr('The feature was updated, but its cost was not recorded. Check the amount or receipt.');
+            return;
+          }
+        }
       }
-      onFiled(id);
+      onSaved(id);
       onClose();
     } catch {
-      setErr(id
-        ? `${label} was filed, but its detail was not saved. What you typed is still here.`
-        : 'That feature did not save. What you typed is still here — try again.');
+      setErr('That feature did not save. What you entered is still here; try again.');
     }
   };
 
   return (
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'Features')}
-      title="Add a feature"
-      sub="A bore, a fence, a shed. It becomes a pin, a photo slot and a repair history of its own."
+      title={feature ? `Edit ${feature.label}` : 'Add a feature'}
+      sub="Keep its details, exact pin, receipts and repair history together."
       onClose={onClose}
       onSubmit={() => void file()}
       busy={busy}
-      dirty={dirty && !filedId}
+      dirty={dirty}
       discardCopy={{
-        title: 'Discard this feature?',
-        body: 'Nothing has been filed yet. Closing this panel loses the detail you have entered.',
+        title: feature ? 'Discard these changes?' : 'Discard this feature?',
+        body: 'Closing this panel loses the details entered here.',
       }}
       // The type chips, because picking one is the first thing to do and
       // nothing is picked for you. Not the Close button, which is what the
@@ -221,41 +321,92 @@ function FeatureDrawer({ recordId, recordTitle, onClose, onFiled, returnFocus }:
       returnFocus={returnFocus}
       primary={(
         <DrawerAction
-          label={filedId ? 'Save the detail' : 'Add the feature'}
-          working="Filing…"
+          label={feature ? 'Save changes' : 'Add the feature'}
+          working="Saving…"
           pending={busy}
-          paused={addFeature.isPaused || editFeature.isPaused}
-          disabled={!label}
+          paused={addFeature.isPaused || editFeature.isPaused || saveCost.isPaused}
+          disabled={!schema || !label.trim()}
         />
       )}
     >
-      {/* Names, not kinds: the API reads the kind and the icon off the name
-          (`_classify_feature`), so the chip row and the typed box cannot drift
-          into classifying the same word two different ways. */}
       <div className="field">
         <label>What it is</label>
         <div className="row tight" id="fa-kinds">
-          {[...TYPES, OWN_TYPE].map((t) => (
-            <Chip key={t} active={type === t} onClick={() => setType(type === t ? '' : t)}>
-              {t}
+          {types.map((item) => (
+            <Chip key={item.key} active={typeKey === item.key} onClick={() => chooseType(item)}>
+              {item.label}
             </Chip>
           ))}
         </div>
       </div>
 
-      {type === OWN_TYPE && (
+      {schema && (
         <div className="field">
-          <label htmlFor="fa-own">Name it</label>
-          <input id="fa-own" type="text" value={own} placeholder="Something else…"
-                 onChange={(e) => setOwn(e.target.value)} />
+          <label htmlFor="fa-name">Name on this record</label>
+          <input id="fa-name" type="text" value={label} placeholder={schema.label}
+                 onChange={(e) => setLabel(e.target.value)} />
         </div>
       )}
 
-      <div className="field">
-        <label htmlFor="fa-spec">Size, depth, year</label>
-        <input id="fa-spec" type="text" value={spec} placeholder="420 ft · 5 in · 2005"
-               onChange={(e) => setSpec(e.target.value)} />
-      </div>
+      {schema?.fields.filter((field) => fieldIsVisible(field, attributes)).map((field) => (
+        <div className="field" key={field.key}>
+          {field.kind === 'boolean' ? (
+            <label className="check" htmlFor={`fa-${field.key}`}>
+              <input id={`fa-${field.key}`} type="checkbox"
+                     checked={attributes[field.key] === true}
+                     onChange={(e) => setAttribute(field.key, e.target.checked)} />
+              <span>{field.label}</span>
+            </label>
+          ) : (
+            <>
+              <label htmlFor={`fa-${field.key}`}>
+                {field.label}{field.unit ? ` (${field.unit})` : ''}
+              </label>
+              {field.kind === 'select' ? (
+                <select id={`fa-${field.key}`} value={String(attributes[field.key] ?? '')}
+                        onChange={(e) => setAttribute(field.key, e.target.value)}>
+                  <option value="">Not specified</option>
+                  {field.options.map((option) => <option key={option}>{option}</option>)}
+                </select>
+              ) : (
+                <input id={`fa-${field.key}`} type={field.kind} min={field.kind === 'number' ? 0 : undefined}
+                       value={String(attributes[field.key] ?? '')} placeholder={field.placeholder}
+                       onChange={(e) => setAttribute(field.key, e.target.value)} />
+              )}
+            </>
+          )}
+        </div>
+      ))}
+
+      {schema && (
+        <div className="card" style={{ display: 'grid', gap: 'var(--space-sm)' }}>
+          <h3>Location</h3>
+          <div className="two">
+            <div className="field">
+              <label htmlFor="fa-lat">Latitude</label>
+              <input id="fa-lat" inputMode="decimal" value={lat}
+                     onChange={(e) => { setLat(e.target.value); setPinSource('manual'); }} />
+            </div>
+            <div className="field">
+              <label htmlFor="fa-lon">Longitude</label>
+              <input id="fa-lon" inputMode="decimal" value={lon}
+                     onChange={(e) => { setLon(e.target.value); setPinSource('manual'); }} />
+            </div>
+          </div>
+          <div className="row tight">
+            <button type="button" className="btn sm" onClick={locate} disabled={locating}>
+              <MyLocationOutlined sx={{ fontSize: 15 }} />
+              {locating ? 'Finding location…' : 'Use current location'}
+            </button>
+            {(lat || lon) && (
+              <button type="button" className="btn sm" onClick={() => {
+                setLat(''); setLon(''); setPinSource(''); setAccuracy(0);
+              }}>Clear pin</button>
+            )}
+          </div>
+          {accuracy > 0 && <span className="note">Device accuracy: about {Math.round(accuracy)} m</span>}
+        </div>
+      )}
 
       {/* "Not checked" is pre-selected and says so. A feature nobody has looked
           at must not start life with a green dot beside it. */}
@@ -275,17 +426,75 @@ function FeatureDrawer({ recordId, recordTitle, onClose, onFiled, returnFocus }:
         </span>
       </div>
 
+      {schema && (
+        <div className="card" style={{ display: 'grid', gap: 'var(--space-sm)' }}>
+          <label className="check" htmlFor="fa-cost">
+            <input id="fa-cost" type="checkbox" checked={addCost}
+                   onChange={(e) => setAddCost(e.target.checked)} />
+            <span>Add a purchase, service cost or receipt</span>
+          </label>
+          {addCost && (
+            <>
+              <div className="two">
+                <div className="field">
+                  <label htmlFor="fa-cost-kind">Cost type</label>
+                  <select id="fa-cost-kind" value={costKind} onChange={(e) => setCostKind(e.target.value)}>
+                    <option value="capital">Purchase or installation</option>
+                    <option value="running">Service or repair</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="fa-amount">Amount (₹)</label>
+                  <input id="fa-amount" type="number" min="0" step="0.01" value={amount}
+                         onChange={(e) => setAmount(e.target.value)} />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="fa-cost-title">What was purchased or serviced</label>
+                <input id="fa-cost-title" value={costTitle} placeholder={`${label || schema.label} purchase`}
+                       onChange={(e) => setCostTitle(e.target.value)} />
+              </div>
+              <div className="two">
+                <div className="field">
+                  <label htmlFor="fa-vendor">Shop or company</label>
+                  <input id="fa-vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="fa-invoice">Invoice number</label>
+                  <input id="fa-invoice" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
+                </div>
+              </div>
+              <div className="two">
+                <div className="field">
+                  <label htmlFor="fa-purchased">Purchased or serviced on</label>
+                  <input id="fa-purchased" type="date" value={purchasedOn}
+                         onChange={(e) => setPurchasedOn(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor="fa-warranty">Warranty until</label>
+                  <input id="fa-warranty" type="date" value={warrantyUntil}
+                         onChange={(e) => setWarrantyUntil(e.target.value)} />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="fa-receipt">Receipt</label>
+                <input id="fa-receipt" type="file" accept="image/*,application/pdf"
+                       onChange={(e) => { setReceipt(e.target.files?.[0] || null); setUploaded(null); }} />
+                <span className="note">
+                  {receipt ? `${receipt.name} · ${mb(receipt.size)}` : `Photo or PDF, up to ${mb(MAX_UPLOAD_BYTES)}`}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="field">
         <label htmlFor="fa-note">Note</label>
         <textarea id="fa-note" rows={3} value={note}
                   placeholder="What a visitor should know."
                   onChange={(e) => setNote(e.target.value)} />
       </div>
-
-      <p className="note" style={{ margin: 0 }}>
-        Its pin is set on the Location tab, and its photos are filed on Media. What a repair
-        or a bill cost is a row in this record&rsquo;s ledger, hung off this feature.
-      </p>
 
       {err && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>
@@ -299,14 +508,14 @@ export function RecordFeatures() {
   const { data, isLoading, error, refetch } = useFeatures(rec.id);
   const [cat, setCat] = useState('all');
   const delFeature = useDeleteFeature();
-  const editFeature = useUpdateFeature();
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Feature | null>(null);
   const [confirmId, setConfirmId] = useState('');
-  const [draft, setDraft] = useState<Draft | null>(null);
   const {
     data: orders, isPending: ordersPending, error: ordersError, refetch: refetchOrders,
   } = useOrders(rec.id);
   const editTriggers = useRef(new Map<string, HTMLButtonElement>());
+  const editReturnFocus = useRef<HTMLButtonElement>(null);
   const removeTriggers = useRef(new Map<string, HTMLButtonElement>());
   const addTrigger = useRef<HTMLButtonElement>(null);
   // One highlight, addressed by a feature's id: the card the drawer just filed.
@@ -320,7 +529,6 @@ export function RecordFeatures() {
   // the id of the card it belongs to: `delFeature` is one instance shared by
   // every card, and an unattributed message would print on all of them.
   // Filing's own reason went with the form, into the drawer.
-  const [saveErr, setSaveErr] = useState('');
   const [delErr, setDelErr] = useState<{ id: string; msg: string } | null>(null);
 
   const restoreRowFocus = (buttons: Map<string, HTMLButtonElement>, id: string) => {
@@ -336,33 +544,6 @@ export function RecordFeatures() {
     setCat('all');
     setFlash(id);
     window.setTimeout(() => setFlash((f) => (f === id ? '' : f)), 1600);
-  };
-
-  const save = async (d: Draft) => {
-    if (!d.label.trim()) return;
-    setSaveErr('');
-    try {
-      // The whole form goes, every field of it. A cleared spec is an edit —
-      // sending only what is non-empty is what made a typo permanent.
-      const res = await editFeature.mutateAsync({
-        featureId: d.id, label: d.label.trim(), spec: d.spec.trim(),
-        condition: d.condition.trim(), conditionState: d.conditionState, note: d.note.trim(),
-      });
-      // updateFeature answers false for a row that is not this account's, and
-      // the hook in api.ts does not declare a result type — so the payload
-      // arrives as unknown and has to be read for its answer here. Closing the
-      // editor on a false would put the old text back on the card as though
-      // the edit had been saved.
-      if (!res.web.updateFeature) {
-        setSaveErr('That change was not saved. Reload the page and try again.');
-        return;
-      }
-      setCat('all');
-      setDraft(null);
-      restoreRowFocus(editTriggers.current, d.id);
-    } catch {
-      setSaveErr('That change could not be saved. What you typed is still here.');
-    }
   };
 
   /** Remove a feature, with the confirm row held open until it is gone.
@@ -509,9 +690,22 @@ export function RecordFeatures() {
         <FeatureDrawer
           recordId={rec.id}
           recordTitle={rec.title}
+          types={data?.types ?? []}
           returnFocus={addTrigger}
-          onFiled={filed}
+          onSaved={filed}
           onClose={() => setAdding(false)}
+        />
+      )}
+
+      {editing && (
+        <FeatureDrawer
+          recordId={rec.id}
+          recordTitle={rec.title}
+          types={data?.types ?? []}
+          feature={editing}
+          returnFocus={editReturnFocus}
+          onSaved={(id) => { filed(id); setEditing(null); }}
+          onClose={() => setEditing(null)}
         />
       )}
 
@@ -568,68 +762,7 @@ export function RecordFeatures() {
                        className={`card ${f.conditionState === 'bad' ? 'alert' : ''}`
                          + (flash === f.id ? ' flash' : '')}
                        style={{ display: 'grid', gap: '0.5rem', alignContent: 'start' }}>
-                {draft?.id === f.id ? (
-                  /* The editor takes the whole card rather than a row of it: the
-                     fields it holds are the card, and typing a spec beside a stale
-                     copy of the same spec is how two of them end up disagreeing. */
-                  <form className="stack sm"
-                        onSubmit={(e) => { e.preventDefault(); void save(draft); }}>
-                    <div className="field">
-                      <label htmlFor={`fe-name-${f.id}`}>Name</label>
-                      <input id={`fe-name-${f.id}`} type="text" value={draft.label} autoFocus
-                             aria-label="Name"
-                             onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`fe-spec-${f.id}`}>What it is</label>
-                      <input id={`fe-spec-${f.id}`} type="text" value={draft.spec}
-                             aria-label="What it is" placeholder="420 ft · 5 in · 2005"
-                             onChange={(e) => setDraft({ ...draft, spec: e.target.value })} />
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`fe-cond-${f.id}`}>Condition</label>
-                      <input id={`fe-cond-${f.id}`} type="text" value={draft.condition}
-                             aria-label="Condition" placeholder="Working · Yield dropped · Locked"
-                             onChange={(e) => setDraft({ ...draft, condition: e.target.value })} />
-                      <span className="row tight" style={{ marginTop: '0.25rem' }}>
-                        {STATES.map((s) => (
-                          <Chip key={s.key} active={draft.conditionState === s.key}
-                                tone={s.key === 'bad' ? 'alert' : undefined}
-                                onClick={() => setDraft({ ...draft, conditionState: s.key })}>
-                            {s.label}
-                          </Chip>
-                        ))}
-                      </span>
-                    </div>
-                    <div className="field">
-                      <label htmlFor={`fe-note-${f.id}`}>Note</label>
-                      <textarea id={`fe-note-${f.id}`} rows={3} value={draft.note}
-                                aria-label="Note" placeholder="What a visitor should know."
-                                onChange={(e) => setDraft({ ...draft, note: e.target.value })} />
-                    </div>
-                    {/* A refused save left the editor open with the button back on
-                        "Save" and nothing else changed, so the only thing to do
-                        was press it again. The reason stays above the button that
-                        asked for it until the form is closed or reopened. */}
-                    {saveErr && (
-                      <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{saveErr}</p>
-                    )}
-                    <div className="row tight">
-                      <button type="submit" className="btn sm primary"
-                              disabled={!draft.label.trim() || editFeature.isPending}>
-                        {editFeature.isPending ? 'Saving…' : 'Save'}
-                      </button>
-                      <button type="button" className="btn sm"
-                              onClick={() => {
-                                const id = draft.id;
-                                setSaveErr('');
-                                setDraft(null);
-                                restoreRowFocus(editTriggers.current, id);
-                              }}>Cancel</button>
-                    </div>
-                  </form>
-                ) : (
-                  <>
+                <>
                     <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
                       <span className="row tight" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
                         <span className="muted" style={{ display: 'flex', paddingTop: '0.125rem', color: 'var(--w-info)' }}>
@@ -681,6 +814,15 @@ export function RecordFeatures() {
                       )}
                     </div>
 
+                    {f.costCount > 0 && (
+                      <Link to={`/app/records/${rec.id}/expenses`}
+                            className="note row tight accent" style={{ textDecoration: 'none' }}>
+                        <ReceiptLongOutlined sx={{ fontSize: 14 }} aria-hidden />
+                        {inr(f.costTotal)} · {plural(f.costCount, 'cost')}
+                        {f.receiptCount > 0 && ` · ${plural(f.receiptCount, 'receipt')}`}
+                      </Link>
+                    )}
+
                     <div className="row tight">
                       {/* These labels come from the record's own data and each names
                           a screen of its own — a bill history, the lease, this
@@ -718,7 +860,11 @@ export function RecordFeatures() {
                         <>
                           <button ref={(node) => { if (node) editTriggers.current.set(f.id, node); }}
                                   type="button" className="iconbtn" aria-label={`Edit ${f.label}`}
-                                  onClick={() => { setConfirmId(''); setSaveErr(''); setDraft(draftOf(f)); }}
+                                  onClick={(event) => {
+                                    editReturnFocus.current = event.currentTarget;
+                                    setConfirmId('');
+                                    setEditing(f);
+                                  }}
                                   style={{ border: 0, background: 'none' }}>
                             <EditOutlined sx={{ fontSize: 16 }} />
                           </button>
@@ -737,8 +883,7 @@ export function RecordFeatures() {
                     {delErr?.id === f.id && (
                       <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{delErr.msg}</p>
                     )}
-                  </>
-                )}
+                </>
               </article>
             ))}
 

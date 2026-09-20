@@ -5,7 +5,7 @@
  *  set aside on it — never just "in progress". The four pips stay, because they
  *  are what a glance down a list reads; the status word beside them is what the
  *  owner acts on, and "Sent out" and "Waiting on you" have no pip of their own. */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
@@ -156,10 +156,43 @@ function Rows({ orders, showRecord, closed, onShowAll, empty }: {
       </Empty>
     );
   }
+  const groups: { key: string; batchRef: string; items: Order[] }[] = [];
+  const seen = new Set<string>();
+  orders.forEach((order) => {
+    if (!order.batchId) {
+      groups.push({ key: order.id, batchRef: '', items: [order] });
+      return;
+    }
+    if (seen.has(order.batchId)) return;
+    seen.add(order.batchId);
+    groups.push({
+      key: order.batchId,
+      batchRef: order.batchRef,
+      items: orders.filter((candidate) => candidate.batchId === order.batchId),
+    });
+  });
   return (
     <div className="card" style={{ padding: 0 }}>
       <div className="rows boxed">
-        {orders.map((o) => (
+        {groups.map((group) => {
+          const done = group.items.filter(isClosed).length;
+          const needsYou = group.items.filter((item) => item.needsYou || item.pendingReview > 0).length;
+          const total = group.items.reduce((sum, item) => sum + item.cost, 0);
+          return (
+          <Fragment key={group.key}>
+            {group.batchRef && (
+              <div className="service-batch-head">
+                <strong>{group.batchRef}</strong>
+                <span>{plural(group.items.length, 'service')}</span>
+                <span className="num">{inr(total)}</span>
+                <span className="note">
+                  {needsYou > 0 ? `${needsYou} need you`
+                    : done === group.items.length ? 'Complete'
+                      : `${done} of ${group.items.length} complete`}
+                </span>
+              </div>
+            )}
+            {group.items.map((o) => (
           <div key={o.id}>
             <span className="avatarlg" style={{ width: '2.25rem', height: '2.25rem' }}>
               <HandshakeOutlined sx={{ fontSize: 18 }} />
@@ -261,7 +294,10 @@ function Rows({ orders, showRecord, closed, onShowAll, empty }: {
               {open === o.id ? 'Hide' : 'Track order'}
             </button>
           </div>
-        ))}
+            ))}
+          </Fragment>
+          );
+        })}
       </div>
     </div>
   );

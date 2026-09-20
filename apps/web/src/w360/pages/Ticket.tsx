@@ -56,13 +56,15 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import CallOutlined from '@mui/icons-material/CallOutlined';
 import MailOutlined from '@mui/icons-material/MailOutlined';
+import SendOutlined from '@mui/icons-material/SendOutlined';
 
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import {
   useAcceptTicket, useAddDeliverable, useAssignAssociate, useAssignRequest, useAssignable,
   useAssociatesForTicket, useCancelTicket, useDispatchTicket, useFundTicket, usePaymentConfig,
-  useRevokeDispatch, useReviewDeliverable, useSendBackTicket, useStartTicket, useTicket,
+  usePostTicketMessage, useRevokeDispatch, useReviewDeliverable, useSendBackTicket,
+  useStartTicket, useTicket,
 } from '../api';
 import type { TicketDeliverable, TicketDispatch, TicketView } from '../api';
 import type { MenuItem } from '../ui';
@@ -118,7 +120,7 @@ const Err = ({ children }: { children: ReactNode }) => (
  *  region it belongs to and `<Err>` is drawn as the last child of that region.
  *  `page` is the fallback for a kebab action whose owning card is not on
  *  screen — a kebab action must never be able to fail silently. */
-type Where = 'page' | 'came' | 'who' | 'money' | 'sent' | 'dialog';
+type Where = 'page' | 'came' | 'who' | 'money' | 'sent' | 'chat' | 'dialog';
 
 /** When the status last moved.
  *
@@ -823,6 +825,7 @@ export function Ticket() {
   const accept = useAcceptTicket();
   const sendBack = useSendBackTicket();
   const cancel = useCancelTicket();
+  const postMessage = usePostTicketMessage(false);
   // Taking the person off is `assignRequest` with an empty name — the server
   // routes that to `unassign` and clears both assignee columns, so there is no
   // second mutation to write.
@@ -835,6 +838,7 @@ export function Ticket() {
   const [dialog, setDialog] = useState<'' | 'send' | 'record' | 'cancel' | 'unassign' | 'accept'>('');
   const [inline, setInline] = useState<'' | 'sendback'>('');
   const [err, setErrAt] = useState<{ where: Where; msg: string }>({ where: 'page', msg: '' });
+  const [chatMessage, setChatMessage] = useState('');
   const came = useRef<HTMLDivElement>(null);
   // The file picker on "Record what came back" is a real button over this
   // input. A <label> wrapping a hidden input takes no focus and a `hidden`
@@ -896,6 +900,8 @@ export function Ticket() {
   const can = (a: string) => t.can.includes(a);
   const pending = t.deliverables.filter((d) => d.review === 'pending');
   const kept = t.deliverables.filter((d) => d.review === 'accepted');
+  const messages = t.events.filter((event) => event.kind === 'message');
+  const timeline = t.events.filter((event) => event.kind !== 'message');
   const liveDispatch = [...t.dispatches].reverse().find((d) => !d.revoked);
   const nobody = !t.assignedTo && !t.assignee;
   // Putting somebody on the job is deliberately NOT in here. It is the one
@@ -903,7 +909,7 @@ export function Ticket() {
   // review buttons while a name is being picked only ever confused people.
   const busy = fund.isPending || dispatch.isPending || revoke.isPending || start.isPending
     || addDeliverable.isPending || reviewDeliverable.isPending || accept.isPending
-    || sendBack.isPending || cancel.isPending || unassign.isPending;
+    || sendBack.isPending || cancel.isPending || unassign.isPending || postMessage.isPending;
 
   // ── What the buttons do ──────────────────────────────────────────────
 
@@ -929,6 +935,22 @@ export function Ticket() {
       const res = await start.mutateAsync({ ticketId: t.id, note: '' });
       if (!res.web.startTicket) fail('who', MOVE_FAILED);
     } catch { fail('who', MOVE_FAILED); }
+  };
+
+  const onPostMessage = async () => {
+    const message = chatMessage.trim();
+    if (!message) return;
+    clearErr();
+    try {
+      const res = await postMessage.mutateAsync({ ticketId: t.id, message });
+      if (!res.web.postTicketMessage) {
+        fail('chat', 'That message was not added. This conversation may be closed.');
+        return;
+      }
+      setChatMessage('');
+    } catch {
+      fail('chat', 'That message did not reach Pattadar. Nothing was sent — try again.');
+    }
   };
 
   const onSend = async () => {
@@ -1505,6 +1527,51 @@ export function Ticket() {
             </section>
           )}
 
+          <Card title="Conversation"
+                aside={messages.length > 0 ? <span className="num muted">{messages.length}</span> : undefined}>
+            {messages.length === 0 ? (
+              <p className="note svc-say" style={{ marginTop: 0 }}>
+                No messages yet. Updates sent from the worker link appear here with the
+                sender and time preserved.
+              </p>
+            ) : (
+              <div className="service-chat" role="log" aria-label="Service conversation">
+                {messages.map((message) => (
+                  <div key={message.id}
+                       className={`chat-message${message.actorKind === 'owner' ? ' owner' : ''}`}>
+                    <span className="note">
+                      {message.actorLabel || (message.actorKind === 'owner' ? 'You' : 'Pattadar desk')}
+                      {' · '}{message.atLabel}
+                    </span>
+                    <div className="chat-bubble">{message.detail || message.headline}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {t.status !== 'cancelled' && (
+              <form className="chat-compose" onSubmit={(event) => {
+                event.preventDefault();
+                void onPostMessage();
+              }}>
+                <label className="field">
+                  <span className="note">Message the person doing this work or the Pattadar desk</span>
+                  <textarea maxLength={4000} value={chatMessage}
+                            placeholder="Ask for an update or clarify what you need"
+                            onChange={(event) => setChatMessage(event.target.value)} />
+                </label>
+                <div className="row between">
+                  <span className="note">Visible only on this service and its active work link.</span>
+                  <button type="submit" className="btn sm primary"
+                          disabled={!chatMessage.trim() || postMessage.isPending}>
+                    <SendOutlined sx={{ fontSize: 15 }} aria-hidden />
+                    {postMessage.isPending ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
+              </form>
+            )}
+            {errIn('chat')}
+          </Card>
+
           {/* The trail, last and in the main column. No event is ever
               re-worded here: `headline` was composed at write time, so a 2027
               rewording cannot re-word a 2026 event.
@@ -1515,7 +1582,7 @@ export function Ticket() {
               a phone-placed order, or one restored without its events — and
               the note says which day it has instead of the trail it does not. */}
           <Card title="Everything that happened">
-            {t.events.length === 0 ? (
+            {timeline.length === 0 ? (
               <p className="note svc-say">
                 Nothing has been recorded against this job. It was placed on{' '}
                 {ddmmyyyy(t.createdAt)}, on a screen that did not keep a trail — anything
@@ -1523,7 +1590,7 @@ export function Ticket() {
               </p>
             ) : (
               <div className="rows boxed svc-rows">
-                {t.events.map((e) => (
+                {timeline.map((e) => (
                   <div key={e.id}>
                     <span className="avatarlg" style={{ width: '2.25rem', height: '2.25rem' }}>
                       <Icon name={EVENT_ICON[e.kind] ?? 'clock'} size={16} />

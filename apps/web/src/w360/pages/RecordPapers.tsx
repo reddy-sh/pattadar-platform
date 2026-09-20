@@ -18,10 +18,13 @@ import DocumentScannerOutlined from '@mui/icons-material/DocumentScannerOutlined
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import LinkOutlined from '@mui/icons-material/LinkOutlined';
 import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
+import ShoppingCartCheckoutOutlined from '@mui/icons-material/ShoppingCartCheckoutOutlined';
 
 import {
-  useAddPaper, useDeletePaper, useDocument, usePapers, useUpdatePaper,
+  useAddPaper, useDeletePaper, useDocument, useOrderServiceBatch, useOrders,
+  usePapers, useServicesOffered, useUpdatePaper,
 } from '../api';
+import type { ServiceBatchReceipt } from '../api';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { describeReading, unreadRow } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
@@ -445,8 +448,65 @@ export function RecordPapers() {
   // actually produce. This is the question a buyer or a bank opens with, and
   // the record had no way of putting it: the owner had to know for themselves
   // which of the eight shelves should not be empty.
-  const missing = EXPECTED_SHELVES[rec.kind === 'parcel' ? 'parcel' : 'built']
-    .filter((s) => !(papers ?? []).some((p) => p.shelf === s.shelf));
+  const missing = papers
+    ? EXPECTED_SHELVES[rec.kind === 'parcel' ? 'parcel' : 'built']
+      .filter((s) => !papers.some((p) => p.shelf === s.shelf))
+    : [];
+  const offers = useServicesOffered('', '', missing.length > 0);
+  const openOrders = useOrders(rec.id);
+  const placeBatch = useOrderServiceBatch(false);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [reviewingBatch, setReviewingBatch] = useState(false);
+  const [batchConfirmed, setBatchConfirmed] = useState(false);
+  const [batchError, setBatchError] = useState('');
+  const [batchReceipt, setBatchReceipt] = useState<ServiceBatchReceipt | null>(null);
+  const batchIntent = useRef({ fingerprint: '', key: '' });
+
+  const missingShelves = new Set(missing.map((m) => m.shelf));
+  const suggestedOffers = (offers.data ?? [])
+    .filter((o) => o.shelves.some((s) => missingShelves.has(s)));
+  const alreadyOpen = new Set((openOrders.data ?? []).map((o) => o.kind));
+  const availableOffers = suggestedOffers.filter((o) => !alreadyOpen.has(o.key));
+  const selectedOffers = suggestedOffers.filter((o) => selectedServices.includes(o.key));
+  const selectedTotal = selectedOffers.reduce((sum, o) => sum + o.price, 0);
+
+  const toggleService = (key: string) => {
+    setBatchError('');
+    setBatchReceipt(null);
+    setBatchConfirmed(false);
+    setReviewingBatch(false);
+    setSelectedServices((current) => current.includes(key)
+      ? current.filter((value) => value !== key)
+      : [...current, key]);
+  };
+
+  const submitBatch = async () => {
+    if (!batchConfirmed || selectedServices.length === 0) return;
+    setBatchError('');
+    const items = selectedServices.slice().sort().map((kind) => ({ kind, params: {} }));
+    const fingerprint = JSON.stringify([rec.id, items]);
+    if (batchIntent.current.fingerprint !== fingerprint) {
+      batchIntent.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    try {
+      const result = await placeBatch.mutateAsync({
+        recordId: rec.id,
+        items: JSON.stringify(items),
+        note: 'Requested from the missing papers list',
+        idempotencyKey: batchIntent.current.key,
+      });
+      if (!result.web.orderServiceBatch) {
+        setBatchError('That batch was not placed. Check the selection and try again.');
+        return;
+      }
+      setBatchReceipt(result.web.orderServiceBatch);
+      setSelectedServices([]);
+      setReviewingBatch(false);
+      setBatchConfirmed(false);
+    } catch {
+      setBatchError('The request did not reach Pattadar. Nothing was placed — try again.');
+    }
+  };
 
   // The title deed itself, for the rail. Read from the document rather than
   // parsed out of the row's display line — "Registered 2019-10-13 · Podili"
@@ -711,17 +771,120 @@ export function RecordPapers() {
               it already shows what is there. */}
           {missing.length > 0 && (
             <Card title="What is missing" className="railcard">
-              <ul className="railnotes">
-                {missing.map((m) => <li key={m.shelf}>{m.say}</li>)}
-              </ul>
-              <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                {/* Named as the reason rather than left to be inferred: an
-                    owner reads a list of absent documents as bureaucracy until
-                    somebody says which door it closes. */}
-                A buyer or a bank asks for {missing.length > 1 ? 'these' : 'this'} before
-                anything else. Pattadar can fetch the revenue and search papers from the
-                office — order it from the header.
+              <p className="note" style={{ marginTop: 0 }}>
+                {missing.length > 1
+                  ? 'A buyer or bank usually asks for these.'
+                  : 'A buyer or bank usually asks for this.'}
+                {' '}
+                Choose only what you need; each request is tracked separately.
               </p>
+
+              {offers.isLoading && <p className="note" role="status">Checking available services…</p>}
+              {!offers.isLoading && offers.error && (
+                <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
+                  Prices and services could not be loaded, so ordering is unavailable.
+                </p>
+              )}
+
+              <div className="missing-services">
+                {missing.map((m) => {
+                  const choices = suggestedOffers.filter((o) => o.shelves.includes(m.shelf));
+                  return (
+                    <section key={m.shelf} className="missing-group">
+                      <strong>{SHELF_WORD[m.shelf] ?? m.shelf}</strong>
+                      <span className="note">{m.say}</span>
+                      {choices.map((offer) => {
+                        const ordered = alreadyOpen.has(offer.key);
+                        return (
+                          <label key={offer.key} className={`service-choice${ordered ? ' disabled' : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedServices.includes(offer.key)}
+                              disabled={ordered || placeBatch.isPending}
+                              onChange={() => toggleService(offer.key)}
+                            />
+                            <span className="grow">
+                              <span className="row between tight">
+                                <span>{offer.label}</span>
+                                <span className="num">{inr(offer.price)}</span>
+                              </span>
+                              <span className="note">{offer.blurb}</span>
+                              <span className="note">
+                                {ordered ? 'Already on order' : `Usually within ${offer.days} days`}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                      {offers.data && choices.length === 0 && (
+                        <span className="note">No office-fetch service is available for this yet.</span>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+
+              {availableOffers.length > 1 && !reviewingBatch && (
+                <button type="button" className="link" onClick={() => {
+                  setSelectedServices(availableOffers.map((o) => o.key));
+                  setBatchReceipt(null);
+                }}>
+                  Add all available
+                </button>
+              )}
+
+              {selectedServices.length > 0 && !reviewingBatch && (
+                <button type="button" className="btn primary batch-review"
+                        onClick={() => setReviewingBatch(true)}>
+                  <ShoppingCartCheckoutOutlined sx={{ fontSize: 16 }} aria-hidden />
+                  Review {selectedServices.length === 1 ? 'request' : `${selectedServices.length} requests`}
+                  <span className="num">{inr(selectedTotal)}</span>
+                </button>
+              )}
+
+              {reviewingBatch && (
+                <div className="batch-review-panel">
+                  <div className="row between">
+                    <strong>{selectedServices.length} selected</strong>
+                    <strong className="num">{inr(selectedTotal)}</strong>
+                  </div>
+                  <p className="note">
+                    This is the combined quoted price. Nothing is charged now; money is
+                    handled on each service and released only after you accept its work.
+                  </p>
+                  <label className="check">
+                    <input type="checkbox" checked={batchConfirmed}
+                           onChange={(e) => setBatchConfirmed(e.target.checked)} />
+                    <span>{`I confirm these are the papers I want for ${rec.title}.`}</span>
+                  </label>
+                  <div className="row tight">
+                    <button type="button" className="btn" disabled={placeBatch.isPending}
+                            onClick={() => { setReviewingBatch(false); setBatchConfirmed(false); }}>
+                      Back
+                    </button>
+                    <button type="button" className="btn primary"
+                            disabled={!batchConfirmed || placeBatch.isPending}
+                            onClick={() => void submitBatch()}>
+                      {placeBatch.isPending ? 'Placing requests…' : 'Create batch request'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {batchReceipt && (
+                <div className="batch-success" role="status">
+                  <strong>{batchReceipt.ref} is placed</strong>
+                  <span className="note">
+                    {plural(batchReceipt.orderCount, 'service')} · {inr(batchReceipt.total)} quoted
+                  </span>
+                  <Link className="link accent" to={`/app/records/${rec.id}/services`}>
+                    Track the batch and each service ›
+                  </Link>
+                </div>
+              )}
+              {batchError && (
+                <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{batchError}</p>
+              )}
             </Card>
           )}
 
