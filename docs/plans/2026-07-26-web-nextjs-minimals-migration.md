@@ -1,5 +1,11 @@
 # Web Head Migration: Vite/MUI SPA → Next.js (Minimals) + rfactory Naming Purge — Implementation Plan
 
+> **Superseded (2026-09-20).** `apps/web-next` was removed from the repo: it
+> duplicated `apps/web` closely enough that every defect had to be fixed
+> twice, and it never reached deployable parity. This document is kept as
+> the record of what was decided and why, not as work to pick up. The
+> browser client is `apps/web`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > Adversarially verified 2026-07-26 (3-lens review: accuracy / coverage / feasibility); all confirmed findings are folded in below.

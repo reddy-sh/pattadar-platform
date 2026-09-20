@@ -11,7 +11,7 @@ Extracted from the predecessor platform (local Kind/k8s) per the design in [docs
 
 ## Architecture
 
-The active web application is `apps/web` (React/W360), and the native iOS application is `apps/ios` (SwiftUI). `apps/mobile` remains the Expo/Android compatibility client; `apps/web-next` is staged for an explicit future cutover. TypeScript clients share `packages/core`; Swift counterparts are checked against the same generated vectors and the parity contract.
+The active web application is `apps/web` (React/W360), and the native iOS application is `apps/ios` (SwiftUI). `apps/mobile` remains the Expo/Android compatibility client. TypeScript clients share `packages/core`; Swift counterparts are checked against the same generated vectors and the parity contract.
 
 ```
                     ┌───────────────────────────────┐
@@ -62,7 +62,6 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 | `apps/web` | Active React + MUI/Vite client: public/auth/legal pages, W360 app, public capability portals, assistant, and retained `/legacy` routes. |
 | `apps/ios` | Active native SwiftUI client with `PattadarKit`, vector/parity gates, and its own locked design authority. |
 | `apps/mobile` | Implemented Expo / React Native compatibility client with auth, records, family, maps/location, storage/capture, notifications, and offline behavior. Generated `ios/` and `android/` trees are not source. |
-| `apps/web-next` | Staged Next.js client. It builds, but production deployment refuses it until repaired-feature parity and explicit cutover review. |
 | `services/api` | FastAPI + Strawberry product service: root/cross-client schema, W360 domains, durable imports, account/privacy, payments, reference/geospatial data, notifications and cron. |
 | `services/gateway` | Internet-facing Cognito trust boundary, document storage, scoped capabilities/account/admin routes, buffered API proxy, and streaming assistant proxy. |
 | `services/assistant` | Deployed in-app assistant: durable PostgreSQL runs/messages, bounded UI/read-only public-record tools, SSE, and owner-scoped attachments. No external/public MCP service. |

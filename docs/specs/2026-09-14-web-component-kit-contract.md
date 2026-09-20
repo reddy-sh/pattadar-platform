@@ -1,5 +1,11 @@
 # Web component kit — locked contract
 
+> **Superseded (2026-09-20).** `apps/web-next` was removed from the repo: it
+> duplicated `apps/web` closely enough that every defect had to be fixed
+> twice, and it never reached deployable parity. This document is kept as
+> the record of what was decided and why, not as work to pick up. The
+> browser client is `apps/web`.
+
 > **Historical test references:** the `tests/e2e-ux` suite was retired on 2026-09-16. References to its former assertions remain in this contract as provenance for accessibility and behavior requirements; active coverage belongs in retained CI suites.
 
 This is the binding contract for the shared component kit of `apps/web-next`. Every primitive in it is extracted from `src/views/LandPropertiesPage.tsx` — the 828-line Land & Properties screen that the founder named as the core — and from the four files it is assembled out of (`components/holdingCards.tsx`, `components/PageHeader.tsx`, `components/tableSx.ts`, `components/Skeletons.tsx`). Properties is not copied into a template; it is dissolved: every reusable idea becomes a primitive that owns exactly one decision, and Properties is then rewritten as a consumer of `ListScreen`, so the reference screen is itself the migration proof. The governing design authority is `docs/specs/2026-07-26-ux-redesign-m3.md` (Material Design 3); the root `design.md` governs the OTHER app (`apps/web`, "Bloom") and does not apply here. Nothing in this contract may be renegotiated file-by-file during implementation: the API blocks below are the interface, the implementation briefs are the specification, and the **Do not** lists are the review checklist.

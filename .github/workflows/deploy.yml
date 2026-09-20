@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-      WEB_ORIGIN: ${{ vars.WEB_ORIGIN || 'spa' }}
       IDENTITY_LEGACY_BINDINGS: ${{ vars.IDENTITY_LEGACY_BINDINGS }}
       ADMIN_SUBJECT_IDS: ${{ vars.ADMIN_SUBJECT_IDS }}
       RELEASE_PREFLIGHT_S3_URI: ${{ vars.RELEASE_PREFLIGHT_S3_URI }}
@@ -27,15 +26,6 @@ jobs:
           fetch-depth: 0
       - name: Reject obsolete release
         run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA"
-      # WEB_ORIGIN=spa ships apps/web, which carries the repaired identity,
-      # sharing, consent and async-extraction work. Any other value ships the
-      # apps/web-next container, which carries none of it — a config flip would
-      # silently reinstate the defects this release exists to fix.
-      - name: Refuse to ship the unrepaired web client
-        if: env.WEB_ORIGIN != 'spa'
-        run: |
-          echo "::error::WEB_ORIGIN=$WEB_ORIGIN builds apps/web-next, which lacks scoped recipient access, the account data/consent screens and durable extraction. Ship apps/web (WEB_ORIGIN=spa) until web-next has been brought to parity and re-reviewed."
-          exit 1
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -76,26 +66,19 @@ jobs:
       - name: Build every image before changing a running service
         run: |
           set -euo pipefail
-          for service in gateway api assistant web; do
+          # The browser client is the static SPA built from apps/web and synced
+          # to the bucket by deploy-release.py. There is no web container: the
+          # Next.js app that would have produced one was removed.
+          for service in gateway api assistant; do
             repo="$(jq -r --arg service "$service" '.[$service] // empty' /tmp/release-repositories.json)"
             if [ -z "$repo" ]; then
-              if [ "$service" = web ] && [ "$WEB_ORIGIN" = spa ]; then continue; fi
               echo "::error::Missing ECR repository for $service"; exit 1
             fi
             aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin "${repo%%/*}"
-            if [ "$service" = web ]; then
-              docker buildx build --platform linux/arm64 --provenance=false -f apps/web-next/Dockerfile \
-                --build-arg NEXT_PUBLIC_COGNITO_AUTHORITY="$VITE_COGNITO_AUTHORITY" \
-                --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID="$VITE_COGNITO_CLIENT_ID" \
-                --build-arg NEXT_PUBLIC_COGNITO_DOMAIN="$VITE_COGNITO_DOMAIN" \
-                --build-arg NEXT_PUBLIC_COGNITO_REDIRECT_URI="$VITE_COGNITO_REDIRECT_URI" \
-                --tag "$repo:$RELEASE_SHA" --push .
-            else
-              docker buildx build --platform linux/arm64 --provenance=false --tag "$repo:$RELEASE_SHA" --push "services/$service"
-            fi
+            docker buildx build --platform linux/arm64 --provenance=false --tag "$repo:$RELEASE_SHA" --push "services/$service"
           done
       - name: Deploy matching backend and web revisions
-        run: python3 scripts/deploy-release.py --cluster "$CLUSTER" --repositories /tmp/release-repositories.json --sha "$RELEASE_SHA" --preflight /tmp/release-preflight.json --web-origin "$WEB_ORIGIN" --spa-bucket "$SPA_BUCKET" --distribution "$DISTRIBUTION_ID" --execute
+        run: python3 scripts/deploy-release.py --cluster "$CLUSTER" --repositories /tmp/release-repositories.json --sha "$RELEASE_SHA" --preflight /tmp/release-preflight.json --web-origin spa --spa-bucket "$SPA_BUCKET" --distribution "$DISTRIBUTION_ID" --execute
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

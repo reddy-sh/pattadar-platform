@@ -77,7 +77,6 @@ automation starts producing noise.
 **NOTE** — record it in the report, write no code.
 - `apps/web/src/w360/**` and `services/api/src/web360.py`. See the schema split.
 - `docs/specs/**` — a spec is a decision to read, not a diff to port.
-- `apps/web-next/**` — a stale parallel head.
 
 **IGNORE** — say nothing.
 - `infra/**`, `tests/**`, `scripts/seed-*.py`, `.github/**`

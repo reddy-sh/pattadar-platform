@@ -12,7 +12,6 @@ flowchart LR
     WEB[apps/web\nactive Vite W360 SPA]
     IOS[apps/ios\nactive SwiftUI + PattadarKit]
     MOB[apps/mobile\nExpo compatibility client]
-    NEXT[apps/web-next\nstaged / deploy-blocked]
   end
   CORE[packages/core\nTS API + domain + formats]
   TOK[packages/tokens\ndesign tokens]
@@ -41,7 +40,6 @@ flowchart LR
   GW & API & AST --> PG
   API & AST --> ANT
   PAY -->|signed webhook| GW
-  NEXT -. staged target .-> ALB
 ```
 
 `services/api` and `services/assistant` trust gateway-injected identity and must
@@ -198,6 +196,6 @@ attachments, and model-catalog consumption. Exact route ownership starts at
 
 CI covers TypeScript, Python, Web360 browser wiring/maps, iOS vectors/parity/
 Swift/simulator build, Terraform format/validation, and secret scanning. Deploy
-promotes one exact successful main SHA, refuses web-next, consumes private
+promotes one exact successful main SHA, consumes private
 migration evidence, and writes a release receipt. Green CI or declared Terraform
 does not prove production readiness or applied compliance controls.

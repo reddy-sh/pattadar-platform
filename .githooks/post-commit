@@ -37,7 +37,7 @@ short="$(git rev-parse --short "$sha")"
 # consumes; narrower in that apps/ios can never trigger a sweep of apps/ios.
 # The full band table lives in scripts/parity-map.json.
 files="$(git show --name-only --format= "$sha")"
-relevant="$(printf '%s\n' "$files" | grep -E '^(packages/(core|tokens)/|services/(api|gateway)/|apps/web/src/|apps/web-next/|design\.md$)' | grep -vE '^(apps/web/src/pages/landing/|apps/web/src/styles/site\.css)' || true)"
+relevant="$(printf '%s\n' "$files" | grep -E '^(packages/(core|tokens)/|services/(api|gateway)/|apps/web/src/|design\.md$)' | grep -vE '^(apps/web/src/pages/landing/|apps/web/src/styles/site\.css)' || true)"
 
 if [ -z "$relevant" ]; then
   exit 0

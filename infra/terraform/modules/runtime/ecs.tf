@@ -562,7 +562,9 @@ resource "aws_ecs_service" "assistant" {
 # --- Web (Next.js SSR; ALB-fronted, container port 3000) --------------------
 #
 # Cognito config is baked into the image at build time (NEXT_PUBLIC_* build
-# args, see apps/web-next/Dockerfile), so the task needs no runtime secrets.
+# args), so the task needs no runtime secrets. No image is published for it
+# today: the Next.js client that would have produced one was removed, and
+# the browser client ships as the static SPA from apps/web.
 # Not deployed until the web-migration cutover (D4); until then desired_count
 # is 0 in dev and the web target group simply has no registered targets.
 # Task definition + service are gated on local.web_enabled (web repo present

@@ -380,7 +380,8 @@ resource "aws_cloudfront_distribution" "web" {
   # apple-app-site-association). Origin follows the switch:
   #   spa mode -> S3 bucket (files uploaded there out-of-band).
   #   ecs mode -> ALB origin, so Next serves them from
-  #     apps/web-next/public/.well-known/ (decision D9).
+  #     the web container's public/.well-known/ (decision D9, now moot:
+  #     that client was removed and the SPA bucket serves these files).
   # CachingDisabled either way (app-link files must update promptly). The SPA
   # rewrite lives on the DEFAULT behavior only, so a missing file is a genuine
   # 404 here, not an index.html.

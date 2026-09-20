@@ -108,7 +108,7 @@ Marketing remains intentionally dark, independent of the signed-in app choice.
 
 ### Default scheme
 
-**Dark** in `apps/web`; **Light** in `apps/web-next`. The landing page remains
+**Dark** in `apps/web`. The landing page remains
 permanently dark, while every signed-in renderer provides all three choices.
 
 ## Typography
@@ -141,7 +141,7 @@ tokens.css). Pages must use named tokens, never raw values.
   by default; `reveal-in` is a progressive CSS view-timeline enhancement and
   never a JavaScript gate on readability.
 - **Animation engine: Motion** (`motion`, motion.dev, MIT), pinned exactly and
-  already the choice in `apps/web-next`. Import through `LazyMotion` with the `m`
+  Import through `LazyMotion` with the `m`
   component and asynchronously loaded `domAnimation` features, in `strict` mode,
   so a marketing page never pays for the full bundle. Motion+ and its private
   registry are out of scope: no paid token belongs in this repo. Hand-rolled
@@ -346,7 +346,7 @@ properties. Those values mirror the canonical tokens by hand, so a token change
 here must be reflected in `w360.css` too — `scripts/parity-check.ts` classifies
 the `w360/` tree as NOTE, not `adapt`, and does not enforce the mirror.
 Cross-app values (chart series, status hues): `packages/tokens/src/index.ts` —
-consumed by `apps/web` and `apps/web-next`, NOT by mobile/iOS.
+consumed by `apps/web`, NOT by mobile/iOS.
 No Tailwind/shadcn consumers exist in this repo; generate those formats from
 tokens.css on demand if ever needed.
 

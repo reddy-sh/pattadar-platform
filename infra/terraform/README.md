@@ -68,8 +68,10 @@ tasks get public IPs, with documented per-address cost), ALB (`idle_timeout =
 (gateway/API/assistant) plus an optional staged web service, RDS PG17,
 EventBridge Scheduler cron, CloudFront + WAF and the SPA bucket, alarms, and DNS.
 The ALB forwards only `/cron/inactivity-check` directly to API; `/api/*` goes to
-the gateway. Active SPA default content comes from CloudFront/S3; the ALB web
-target is for an explicit future web-next cutover.
+the gateway. The browser client is the static SPA served from CloudFront/S3. The
+ALB web target group and the `web` ECS service are dormant (`web_desired_count`
+is 0 and no image is published): they were staged for a Next.js client that has
+since been removed, and are candidates for deletion on the next infra pass.
 
 ### Down (`scripts/platform-down.sh`)
 
