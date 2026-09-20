@@ -7,7 +7,7 @@ python-dotenv==1.0.1
 python-jose==3.4.0
 cryptography==44.0.1
 boto3==1.43.63
-psycopg[binary]>=3.1
+psycopg[binary]>=3.3.5
 psycopg_pool>=3.2
 # strawberry-graphql's experimental.pydantic module imports
 # `is_new_type` from `pydantic._internal._typing_extra`, which pydantic
