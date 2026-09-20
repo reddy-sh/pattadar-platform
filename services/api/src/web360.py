@@ -210,7 +210,14 @@ _DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_service_batches_owner ON service_batches (owner_user_id, created_at)",
     "ALTER TABLE work_requests ADD COLUMN IF NOT EXISTS batch_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE work_requests ADD COLUMN IF NOT EXISTS service_key TEXT NOT NULL DEFAULT ''",
+    "UPDATE work_requests SET service_key=CASE kind"
+    " WHEN 'opinion' THEN 'title_opinion' WHEN 'visit' THEN 'site_visit' ELSE kind END"
+    " WHERE service_key=''",
     "CREATE INDEX IF NOT EXISTS idx_work_requests_batch ON work_requests (owner_user_id, batch_id) WHERE batch_id <> ''",
+    "CREATE INDEX IF NOT EXISTS idx_work_requests_active_service"
+    " ON work_requests (owner_user_id, entity_id, service_key)"
+    " WHERE closed=false AND entity_type='record' AND service_key <> ''",
 
     # W13 — "v1 kept, never deleted".
     """CREATE TABLE IF NOT EXISTS document_versions (
@@ -792,6 +799,19 @@ class GovernancePolicy:
     created_at: str = ""
     published_by: str = ""
     published_at: str = ""
+
+
+@strawberry.type
+class GovernancePolicyEvent:
+    id: str
+    policy_id: str
+    scope_key: str
+    revision: int
+    actor: str
+    action: str
+    detail: str
+    source_digest: str
+    created_at: str
 
 
 #: Facet key for "held in your own name, not by any group".
@@ -1425,6 +1445,13 @@ class Order:
     # money, assignee and acceptance decision.
     batch_id: str = ""
     batch_ref: str = ""
+    # Record context belongs on the list result. Without it the Services page
+    # can print "Sy 550" but cannot distinguish agricultural land from a plot,
+    # or narrow work by village / mandal / district without fetching every
+    # record again in the browser.
+    record_kind: str = ""
+    record_classification: str = ""
+    record_location: str = ""
 
 
 # An order moves through four visible states; the number in `work_requests.stage`
@@ -3109,6 +3136,47 @@ _KIND_LABEL = {k: str(v.get("label") or k) for k, v in SERVICE_CATALOGUE.items()
 _KIND_LABEL.update({"opinion": "Title opinion", "visit": "Site visit",
                     "fencing": "Fencing", "errand": "Errand"})
 
+# One stable name for a service everywhere it can be raised. The older custom
+# request path called two catalogue services `opinion` and `visit`; treating
+# those as different keys is how the same work could be opened twice.
+_SERVICE_KIND_ALIASES = {"opinion": "title_opinion", "visit": "site_visit"}
+
+
+def canonical_service_kind(kind: str) -> str:
+    key = (kind or "").strip().lower()
+    return _SERVICE_KIND_ALIASES.get(key, key)
+
+
+def _service_kind_variants(kind: str) -> list[str]:
+    canonical = canonical_service_kind(kind)
+    return sorted({canonical, *(old for old, new in _SERVICE_KIND_ALIASES.items()
+                                if new == canonical)})
+
+
+async def _active_service_request(conn, uid: str, record_id: str, kind: str,
+                                  lock: bool = True) -> dict:
+    """Return the one active equivalent request, serialising competing writes.
+
+    The transaction-scoped advisory lock closes the race between "none found"
+    and INSERT without imposing a unique index that would fail deployment on a
+    database containing historical duplicates. Existing duplicates remain
+    visible and cancellable; no new one can be added through any request path.
+    """
+    canonical = canonical_service_kind(kind)
+    if not canonical:
+        return {}
+    if lock:
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+            (f"service:{uid}:{record_id}:{canonical}",))
+    cur = await conn.execute(
+        "SELECT * FROM work_requests WHERE owner_user_id=%s AND entity_type='record'"
+        " AND entity_id=%s AND closed=false"
+        " AND (service_key=%s OR kind=ANY(%s))"
+        " ORDER BY created_at,id LIMIT 1",
+        (uid, record_id, canonical, _service_kind_variants(canonical)))
+    return await cur.fetchone() or {}
+
 #: A job counts as neglected after four days with nothing happening on it —
 #: the same threshold `TicketView.quiet` already uses, kept in one place so the
 #: owner's ticket and the desk can never disagree about whether somebody has
@@ -3232,17 +3300,40 @@ def _governance_policy(row: dict) -> GovernancePolicy:
 async def _policy_row(conn, country_code: str, state_code: str,
                       district_code: str, published_only: bool = True) -> dict:
     """Most-specific current policy: district, state wildcard, country wildcard."""
-    country = (country_code or "IN").strip().upper()[:8]
-    state = (state_code or "*").strip().upper()[:16]
-    district = (district_code or "*").strip().upper()[:80]
-    status = "AND status='published'" if published_only else ""
+    try:
+        country, state, district, _key = governance.normalize_scope(
+            country_code, state_code, district_code)
+    except ValueError:
+        return {}
+    status = ("AND status='published'" if published_only
+              else "AND status IN ('draft','published')")
     cur = await conn.execute(
         "SELECT * FROM governance_policy_sets WHERE country_code=%s "
         "AND state_code IN (%s,'*') AND district_code IN (%s,'*') " + status +
-        " ORDER BY CASE WHEN district_code=%s THEN 0 ELSE 1 END,"
-        " CASE WHEN state_code=%s THEN 0 ELSE 1 END, revision DESC LIMIT 1",
-        (country, state, district, district, state))
+        " ORDER BY (CASE WHEN state_code=%s THEN 2 ELSE 0 END"
+        " + CASE WHEN district_code=%s THEN 1 ELSE 0 END) DESC, revision DESC LIMIT 1",
+        (country, state, district, state, district))
     return await cur.fetchone() or {}
+
+
+def _governance_event(row: dict) -> GovernancePolicyEvent:
+    return GovernancePolicyEvent(
+        id=row.get("id") or "", policy_id=row.get("policy_id") or "",
+        scope_key=row.get("scope_key") or "", revision=_i(row.get("revision")),
+        actor=row.get("actor") or "", action=row.get("action") or "",
+        detail=row.get("detail") or "", source_digest=row.get("source_digest") or "",
+        created_at=row.get("created_at") or "")
+
+
+async def _record_governance_event(conn, policy: dict, actor: str,
+                                   action: str, detail: str = "") -> None:
+    await conn.execute(
+        "INSERT INTO governance_policy_events"
+        " (id,policy_id,actor,action,detail,created_at,scope_key,revision,source_digest)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        ("gpe-" + secrets.token_hex(8), policy.get("id") or "", actor, action,
+         detail[:4000], _now_iso(), policy.get("scope_key") or "",
+         _i(policy.get("revision")), policy.get("source_digest") or ""))
 
 
 async def _desk_read(conn, uid: str, scope: str, detail: str = "") -> None:
@@ -4391,6 +4482,42 @@ class WebQuery:
             return _governance_policy(row) if row else None
 
     @strawberry.field
+    async def governance_admin_policies(
+        self, info: strawberry.Info, country_code: str = "IN",
+    ) -> List[GovernancePolicy]:
+        """Latest revision at every scope, including archived and draft rows."""
+        uid = _uid(info)
+        try:
+            country, _state, _district, _key = governance.normalize_scope(
+                country_code, "*", "*")
+        except ValueError:
+            return []
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return []
+            cur = await conn.execute(
+                "SELECT DISTINCT ON (scope_key) * FROM governance_policy_sets"
+                " WHERE country_code=%s ORDER BY scope_key,revision DESC", (country,))
+            return [_governance_policy(row) for row in await cur.fetchall()]
+
+    @strawberry.field
+    async def governance_policy_history(
+        self, info: strawberry.Info, scope_key: str,
+    ) -> List[GovernancePolicyEvent]:
+        """Append-only policy trail: who did what, when, and for which scope."""
+        uid = _uid(info)
+        key = (scope_key or "").strip().upper()
+        if not key:
+            return []
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return []
+            cur = await conn.execute(
+                "SELECT * FROM governance_policy_events WHERE scope_key=%s"
+                " ORDER BY created_at DESC,id DESC", (key,))
+            return [_governance_event(row) for row in await cur.fetchall()]
+
+    @strawberry.field
     async def properties(
         self, info: strawberry.Info,
         kinds: Optional[List[str]] = None,
@@ -5415,7 +5542,7 @@ class WebQuery:
                      else " ORDER BY needs_you DESC, due_date")
             cur = await conn.execute(sql + order, args)
             rows = await cur.fetchall()
-            titles = {r["id"]: r["title"] for r in await _cards(conn, uid)}
+            cards = {r["id"]: r for r in await _cards(conn, uid)}
             # Money and unreviewed work, for the whole list in two queries
             # rather than two per row — the same reason `_covers` exists.
             cur = await conn.execute(
@@ -5432,6 +5559,7 @@ class WebQuery:
             out: List[Order] = []
             for r in rows:
                 status = _status_of(r)
+                card = cards.get(r.get("entity_id") or "", {})
                 out.append(Order(
                     id=r["id"], kind=r.get("kind") or "", title=r.get("title") or "",
                     detail=r.get("note") or "", assignee=r.get("assignee") or "",
@@ -5439,7 +5567,7 @@ class WebQuery:
                     stage_label=_STAGES[min(max(_i(r.get("stage")), 0), len(_STAGES) - 1)],
                     needs_you=bool(r.get("needs_you")), due_date=r.get("due_date") or "",
                     record_id=r.get("entity_id") or "",
-                    record_title=titles.get(r.get("entity_id") or "", ""),
+                    record_title=card.get("title") or "",
                     params=r.get("params") or "{}",
                     status=status, status_label=ticketing.label_of(status),
                     status_state=ticketing.state_of(status),
@@ -5448,7 +5576,12 @@ class WebQuery:
                     pending_review=waiting.get(r["id"], 0),
                     assignee_ref=r.get("assignee_ref") or "",
                     batch_id=r.get("batch_id") or "",
-                    batch_ref=_batch_ref(r.get("batch_id") or "")))
+                    batch_ref=_batch_ref(r.get("batch_id") or ""),
+                    record_kind=card.get("kind") or "",
+                    record_classification=card.get("classification") or "",
+                    record_location=_place_line(
+                        card.get("village") or "", card.get("mandal") or "",
+                        card.get("district") or "", card.get("state") or "")))
             return out
 
     @strawberry.field
@@ -6568,14 +6701,31 @@ class WebMutation:
                         (uid, idempotency_key))).fetchone()
                     return prior["order_count"] if prior and prior["request_hash"] == request_hash else 0
             from .capabilities import object_of, snapshot
-            # Validate every selection before creating any orders in this batch.
+            # Lock one canonical service slot per record before checking it.
+            # Sorting makes two overlapping bulk requests take locks in the
+            # same order, and `dict.fromkeys` removes a repeated record id.
+            owned = [rid for rid in dict.fromkeys(record_ids)
+                     if await _record_kind(conn, uid, rid)]
+            active: dict[str, dict] = {}
+            for rid in sorted(owned):
+                current = await _active_service_request(conn, uid, rid, kind)
+                if current:
+                    active[rid] = current
+            eligible = [rid for rid in owned if rid not in active]
+            if active:
+                await _audit(
+                    conn, uid, "service.duplicate_blocked", ",".join(active),
+                    f"Kept existing {canonical_service_kind(kind)} request on "
+                    f"{len(active)} record(s)")
+
+            # Validate every remaining selection before creating any orders.
             manifests = {}
-            for rid in dict.fromkeys(record_ids):
-                if await _record_kind(conn, uid, rid):
-                    try:
-                        manifests[rid] = await snapshot(conn, uid, rid, object_of(attachment_manifest))
-                    except ValueError:
-                        return 0
+            for rid in eligible:
+                try:
+                    manifests[rid] = await snapshot(
+                        conn, uid, rid, object_of(attachment_manifest))
+                except ValueError:
+                    return 0
             # Where each of these jobs is, stamped onto the ticket at order
             # time. One owner-scoped read of the caller's own records, outside
             # the loop — the same `_cards` shape `dispatch_ticket` and
@@ -6586,9 +6736,7 @@ class WebMutation:
             # dispatcher are cross-owner: neither can call `_cards(conn, owner)`
             # for somebody else's records to find out where a job is.
             cards = {c["id"]: c for c in await _cards(conn, uid)}
-            for rid in record_ids:
-                if not await _record_kind(conn, uid, rid):
-                    continue
+            for rid in eligible:
                 # `quoted` freezes the price on the day it was agreed, which is
                 # the number a dispute is about; `cost` is left free to follow a
                 # settlement so the Services list stops quoting a figure nobody
@@ -6604,14 +6752,14 @@ class WebMutation:
                     "INSERT INTO work_requests (id, owner_user_id, kind, title,"
                     " entity_type, entity_id, assignee, cost, stage, needs_you, note,"
                     " due_date, closed, created_at, params, status, status_at, quoted,"
-                    " payee_share, area_key, area_label)"
+                    " payee_share, area_key, area_label, service_key)"
                     " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s,%s,"
-                    " 'placed',%s,%s,%s,%s,%s)",
+                    " 'placed',%s,%s,%s,%s,%s,%s)",
                     (tid, uid, kind, title, rid,
                      price,
                      note or "Ordered from the properties list", due, _now_iso(),
                      json.dumps({**answers, "attachment_manifest": manifests[rid]}), _now_iso(), price, share,
-                     area_key, area_label))
+                     area_key, area_label, canonical_service_kind(kind)))
                 await _event(conn, uid, tid, kind="status", action="place",
                              to_status="placed",
                              headline=ticketing.event_headline(
@@ -6673,6 +6821,21 @@ class WebMutation:
                         batch_id=old["id"], ref=_batch_ref(old["id"]),
                         order_count=_i(old.get("item_count")), total=_f(old.get("total")))
 
+            # A batch is atomic: if any selected service already has active
+            # work on this record, place none of the batch. The UI can then
+            # show that existing request without leaving a partial receipt.
+            duplicates = []
+            for kind, _offer, _answers in sorted(checked, key=lambda item: item[0]):
+                current = await _active_service_request(conn, uid, record_id, kind)
+                if current:
+                    duplicates.append(current)
+            if duplicates:
+                await _audit(
+                    conn, uid, "service.batch_duplicate_blocked", record_id,
+                    "Kept existing requests: "
+                    + ", ".join(ticketing.ticket_ref(row["id"]) for row in duplicates))
+                return None
+
             from .capabilities import snapshot
             manifest = await snapshot(conn, uid, record_id, {})
             card = next((c for c in await _cards(conn, uid) if c["id"] == record_id), {})
@@ -6694,13 +6857,14 @@ class WebMutation:
                     "INSERT INTO work_requests (id, owner_user_id, kind, title,"
                     " entity_type, entity_id, assignee, cost, stage, needs_you, note,"
                     " due_date, closed, created_at, params, status, status_at, quoted,"
-                    " payee_share, area_key, area_label, batch_id)"
+                    " payee_share, area_key, area_label, batch_id, service_key)"
                     " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s,%s,"
-                    " 'placed',%s,%s,%s,%s,%s,%s)",
+                    " 'placed',%s,%s,%s,%s,%s,%s,%s)",
                     (tid, uid, kind, offer["label"], record_id, price,
                      note.strip() or "Requested from the missing papers list", due, now,
                      json.dumps({**answers, "attachment_manifest": manifest}), now,
-                     price, share, area_key, area_label, batch_id))
+                     price, share, area_key, area_label, batch_id,
+                     canonical_service_kind(kind)))
                 await _event(
                     conn, uid, tid, kind="status", action="place", to_status="placed",
                     headline=ticketing.event_headline(
@@ -7206,6 +7370,13 @@ class WebMutation:
         async with _ticket_transaction() as conn:
             if not await _record_kind(conn, uid, record_id):
                 return ""
+            existing = await _active_service_request(conn, uid, record_id, kind)
+            if existing:
+                await _audit(
+                    conn, uid, "service.duplicate_blocked", record_id,
+                    f"Opened existing {ticketing.ticket_ref(existing['id'])} instead of "
+                    f"creating another {canonical_service_kind(kind)} request")
+                return existing["id"]
             from .capabilities import object_of, snapshot
             try:
                 manifest = await snapshot(conn, uid, record_id, object_of(attachment_manifest))
@@ -7224,14 +7395,15 @@ class WebMutation:
                 "INSERT INTO work_requests (id, owner_user_id, kind, title, entity_type,"
                 " entity_id, assignee, cost, stage, needs_you, note, due_date, closed,"
                 " created_at, params, status, status_at, quoted, payee_share,"
-                " area_key, area_label)"
+                " area_key, area_label, service_key)"
                 " VALUES (%s,%s,%s,%s,'record',%s,'',0,0,false,%s,'',false,%s,%s,"
-                " 'placed',%s,0,%s,%s,%s)",
+                " 'placed',%s,0,%s,%s,%s,%s)",
                 (rid, uid, kind, titles.get(kind, "Work request"), record_id,
                  message.strip(), _now_iso(),
                  json.dumps({"requester": requester.strip(), "shared": shared.strip(),
                              "attachment_manifest": manifest}),
-                 _now_iso(), _payee_share(), area_key, area_label))
+                 _now_iso(), _payee_share(), area_key, area_label,
+                 canonical_service_kind(kind)))
             await _event(conn, uid, rid, kind="status", action="place",
                          to_status="placed",
                          headline=ticketing.event_headline(
@@ -7509,7 +7681,7 @@ class WebMutation:
     ) -> str:
         """File one typed feature and, optionally, its first cost atomically."""
         uid = _uid(info)
-        if not label.strip():
+        if not label.strip() or not math.isfinite(purchase_amount) or purchase_amount < 0:
             return ""
         import uuid as _uuid
         key = type_key or feature_schema.infer_type_key(label)
@@ -7666,7 +7838,8 @@ class WebMutation:
     ) -> str:
         """Append a purchase, service or receipt to one feature's ledger."""
         uid = _uid(info)
-        if amount < 0 or (amount == 0 and not receipt_file_ref.strip()):
+        if (not math.isfinite(amount) or amount < 0
+                or (amount == 0 and not receipt_file_ref.strip())):
             return ""
         cost_kind = kind if kind in ("capital", "running") else "capital"
         import uuid as _uuid
@@ -8629,6 +8802,128 @@ class WebMutation:
                 " SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by,"
                 " updated_at=EXCLUDED.updated_at",
                 (",".join(have), me, _now_iso()))
+            return True
+
+    @strawberry.mutation
+    async def save_governance_policy(
+        self, info: strawberry.Info, country_code: str, state_code: str,
+        district_code: str, document: str, reason: str = "",
+        expected_revision: int = 0,
+    ) -> Optional[GovernancePolicy]:
+        """Create a new immutable draft revision for one jurisdiction scope."""
+        uid = _uid(info)
+        if len(document) > 500_000 or len(reason) > 4000:
+            return None
+        try:
+            country, state, district, key = governance.normalize_scope(
+                country_code, state_code, district_code)
+            raw = json.loads(document)
+            if not isinstance(raw, dict):
+                return None
+            jurisdiction = raw.setdefault("jurisdiction", {})
+            jurisdiction["countryCode"] = country
+            jurisdiction["stateCode"] = state
+            jurisdiction["districtCode"] = district
+            checked = governance.validate_document(raw)
+            body = governance.canonical_json(checked)
+            source_digest = governance.digest(checked)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return None
+
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"governance:{key}",))
+            latest = await (await conn.execute(
+                "SELECT * FROM governance_policy_sets WHERE scope_key=%s"
+                " ORDER BY revision DESC LIMIT 1 FOR UPDATE", (key,))).fetchone()
+            if expected_revision and _i((latest or {}).get("revision")) != expected_revision:
+                return None
+            if (latest and latest.get("source_digest") == source_digest
+                    and latest.get("status") == "draft"):
+                return _governance_policy(latest)
+            revision = _i((latest or {}).get("revision")) + 1
+            now = _now_iso()
+            policy_id = "gps-" + secrets.token_hex(10)
+            row = await (await conn.execute(
+                "INSERT INTO governance_policy_sets"
+                " (id,scope_key,country_code,state_code,district_code,revision,status,"
+                " schema_version,document,source_digest,created_by,created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,'draft',1,%s,%s,%s,%s) RETURNING *",
+                (policy_id, key, country, state, district, revision, body,
+                 source_digest, uid, now))).fetchone()
+            await _record_governance_event(
+                conn, row, uid, "create" if not latest else "revise",
+                reason.strip() or ("Created jurisdiction policy" if not latest
+                                   else f"Revised from revision {latest['revision']}"))
+            return _governance_policy(row)
+
+    @strawberry.mutation
+    async def publish_governance_policy(
+        self, info: strawberry.Info, policy_id: str, reason: str = "",
+    ) -> Optional[GovernancePolicy]:
+        """Publish one draft and supersede the previous published revision."""
+        uid = _uid(info)
+        if len(reason) > 4000:
+            return None
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            row = await (await conn.execute(
+                "SELECT * FROM governance_policy_sets WHERE id=%s FOR UPDATE",
+                (policy_id,))).fetchone()
+            if not row or row.get("status") != "draft":
+                return None
+            key = row["scope_key"]
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"governance:{key}",))
+            await conn.execute(
+                "UPDATE governance_policy_sets SET status='superseded'"
+                " WHERE scope_key=%s AND status='published' AND id<>%s",
+                (key, policy_id))
+            now = _now_iso()
+            published = await (await conn.execute(
+                "UPDATE governance_policy_sets SET status='published',published_by=%s,"
+                " published_at=%s WHERE id=%s RETURNING *",
+                (uid, now, policy_id))).fetchone()
+            await _record_governance_event(
+                conn, published, uid, "publish", reason.strip() or "Published revision")
+            return _governance_policy(published)
+
+    @strawberry.mutation
+    async def archive_governance_policy(
+        self, info: strawberry.Info, policy_id: str, reason: str = "",
+    ) -> bool:
+        """Soft-delete a scope revision while preserving its evidence trail."""
+        uid = _uid(info)
+        if not reason.strip() or len(reason) > 4000:
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid):
+                return False
+            row = await (await conn.execute(
+                "SELECT * FROM governance_policy_sets WHERE id=%s FOR UPDATE",
+                (policy_id,))).fetchone()
+            if not row or row.get("status") == "archived":
+                return False
+            # The country fallback is the floor owner workflows stand on. It
+            # can be revised and republished, but never removed without a
+            # replacement already published at the same scope.
+            if row.get("state_code") == "*" and row.get("district_code") == "*":
+                replacement = await (await conn.execute(
+                    "SELECT id FROM governance_policy_sets WHERE scope_key=%s"
+                    " AND status='published' AND id<>%s LIMIT 1",
+                    (row["scope_key"], policy_id))).fetchone()
+                if not replacement:
+                    return False
+            archived = await (await conn.execute(
+                "UPDATE governance_policy_sets SET status='archived' WHERE id=%s RETURNING *",
+                (policy_id,))).fetchone()
+            await _record_governance_event(
+                conn, archived, uid, "archive", reason.strip())
             return True
 
     @strawberry.mutation

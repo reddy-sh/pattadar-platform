@@ -30,7 +30,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
 import SendOutlined from '@mui/icons-material/SendOutlined';
 
-import { useAddPaper, useBoundary, useCreateRequest, usePapers, usePhotos, useRecord } from '../api';
+import { useAddPaper, useBoundary, useCreateRequest, useOrders, usePapers, usePhotos, useRecord } from '../api';
+import { openSameJob } from '../orderFlow';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { Card, Chip, Failed, Loading, pairs } from '../ui';
@@ -86,6 +87,8 @@ export function RequestWork() {
   const { data: bound } = useBoundary(id);
   const { data: photos } = usePhotos(id);
   const { data: papers } = usePapers(id);
+  const { data: orders, isLoading: ordersLoading, error: ordersError } = useOrders(id);
+  const duplicate = openSameJob(orders, kind);
 
   const [asOwner, setAsOwner] = useState(true);
   const [who, setWho] = useState('');
@@ -125,12 +128,12 @@ export function RequestWork() {
 
   const attachmentCount =
     (sendGeo && surveyed ? 1 : 0) + pickedPhotos.length + pickedPapers.length + extra.length;
-  const busy = filing || raise.isPending;
+  const busy = filing || raise.isPending || ordersLoading;
 
   /** File the request. Nothing leaves the system here — what the owner
    *  allowed is named on the request, and assignment happens after. */
   async function raiseIt() {
-    if (!id) return;
+    if (!id || duplicate || ordersError || !orders) return;
     setSent('');
     const named = [
       ...(sendGeo && surveyed ? ['the boundary as GeoJSON'] : []),
@@ -230,7 +233,30 @@ export function RequestWork() {
         </div>
       </header>
 
-      <div className="split" style={{ marginTop: 'var(--space-md)', minWidth: 0 }}>
+      {duplicate && (
+        <Card className="alert" title="This request already exists">
+          <p className="note" style={{ marginTop: 0 }}>
+            {duplicate.title} is already running on {rec.title}. Open it to see its status,
+            messages and files, or cancel it before starting again.
+          </p>
+          <div className="row tight">
+            <Link className="btn primary" to={`/app/services/${duplicate.id}`}>Open request</Link>
+            <Link className="btn danger" to={`/app/services/${duplicate.id}?action=cancel`}>
+              Cancel request
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {!duplicate && ordersError && (
+        <Card className="alert" title="Existing requests could not be checked">
+          <p className="note" style={{ margin: 0 }}>
+            Nothing can be raised until Pattadar confirms that the same work is not already open.
+          </p>
+        </Card>
+      )}
+
+      {!duplicate && <div className="split" style={{ marginTop: 'var(--space-md)', minWidth: 0 }}>
         <div className="stack" style={{ minWidth: 0 }}>
           <Card title="Who is asking">
             <div className="row tight" style={{ marginBottom: 'var(--space-sm)' }}>
@@ -424,7 +450,7 @@ export function RequestWork() {
             </p>
           </Card>
         </aside>
-      </div>
+      </div>}
     </main>
   );
 }

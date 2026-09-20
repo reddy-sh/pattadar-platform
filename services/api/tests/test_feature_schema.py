@@ -47,6 +47,5 @@ def test_point_geometry_is_geojson_order_and_validated():
 
 def test_legacy_labels_map_to_versioned_types():
     assert feature_schema.infer_type_key("Borewell") == "bore"
-    assert feature_schema.infer_type_key("Neem tree") == "custom"
+    assert feature_schema.infer_type_key("Neem tree") == "tree"
     assert feature_schema.infer_type_key("Trees") == "tree"
-

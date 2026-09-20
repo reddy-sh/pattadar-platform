@@ -223,6 +223,10 @@ export interface GovernancePolicy {
   document: string; sourceDigest: string; createdBy: string; createdAt: string;
   publishedBy: string; publishedAt: string;
 }
+export interface GovernancePolicyEvent {
+  id: string; policyId: string; scopeKey: string; revision: number;
+  actor: string; action: string; detail: string; sourceDigest: string; createdAt: string;
+}
 
 export interface GovernanceItem {
   key: string; title: string; why: string; level: string; share: string; sourceIds: string[];
@@ -278,6 +282,8 @@ export interface Order {
   held: number; pendingReview: number;
   /** Related jobs placed together. Empty on older and single-service orders. */
   batchId: string; batchRef: string;
+  /** Record context for filtering the cross-record Services list. */
+  recordKind: string; recordClassification: string; recordLocation: string;
 }
 
 /** A label/value the server has already decided how to word. `k`/`v` rather
@@ -571,7 +577,7 @@ export function useGovernancePolicy(
 }
 
 export function useGovernanceAdminPolicy(
-  countryCode = 'IN', stateCode = 'AP', districtCode = '*', enabled = true,
+  countryCode = 'IN', stateCode = '*', districtCode = '*', enabled = true,
 ) {
   return useQuery({
     enabled,
@@ -583,6 +589,30 @@ export function useGovernanceAdminPolicy(
         } }
       }`, { countryCode, stateCode, districtCode },
     )).web.governanceAdminPolicy,
+  });
+}
+
+export function useGovernanceAdminPolicies(countryCode = 'IN', enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'governanceAdminPolicies', countryCode],
+    queryFn: async () => (await gql<Wrapped<'governanceAdminPolicies', GovernancePolicy[]>>(
+      `query GAPS($countryCode:String!) { web { governanceAdminPolicies(countryCode:$countryCode) {
+        ${GOVERNANCE_FIELDS}
+      } } }`, { countryCode },
+    )).web.governanceAdminPolicies,
+  });
+}
+
+export function useGovernancePolicyHistory(scopeKey: string, enabled = true) {
+  return useQuery({
+    enabled: enabled && !!scopeKey,
+    queryKey: [KEY, 'governancePolicyHistory', scopeKey],
+    queryFn: async () => (await gql<Wrapped<'governancePolicyHistory', GovernancePolicyEvent[]>>(
+      `query GPH($scopeKey:String!) { web { governancePolicyHistory(scopeKey:$scopeKey) {
+        id policyId scopeKey revision actor action detail sourceDigest createdAt
+      } } }`, { scopeKey },
+    )).web.governancePolicyHistory,
   });
 }
 
@@ -808,6 +838,7 @@ const Q_ORDERS = `query O($recordId:String,$includeClosed:Boolean) { web {
   orders(recordId:$recordId,includeClosed:$includeClosed) {
   id kind title detail assignee cost stage stageLabel needsYou dueDate recordId recordTitle params
   status statusLabel statusState ref assigneeRef held pendingReview batchId batchRef
+  recordKind recordClassification recordLocation
 } } }`;
 
 /** The whole ticket in one round trip. It is a lot of fields, but they are all
@@ -1395,6 +1426,36 @@ export const useOrderServiceBatch = (reportError = true) =>
        } } }`,
     'That batch request',
     reportError,
+  );
+
+export const useSaveGovernancePolicy = (reportError = true) =>
+  useW360Mutation<{
+    countryCode: string; stateCode: string; districtCode: string;
+    document: string; reason: string; expectedRevision: number;
+  }, Wrapped<'saveGovernancePolicy', GovernancePolicy | null>>(
+    `mutation SGP($countryCode:String!,$stateCode:String!,$districtCode:String!,
+                  $document:String!,$reason:String!,$expectedRevision:Int!) {
+       web { saveGovernancePolicy(countryCode:$countryCode,stateCode:$stateCode,
+              districtCode:$districtCode,document:$document,reason:$reason,
+              expectedRevision:$expectedRevision) { ${GOVERNANCE_FIELDS} } } }`,
+    'That policy draft', reportError,
+  );
+
+export const usePublishGovernancePolicy = (reportError = true) =>
+  useW360Mutation<{ policyId: string; reason: string },
+                   Wrapped<'publishGovernancePolicy', GovernancePolicy | null>>(
+    `mutation PGP($policyId:String!,$reason:String!) {
+       web { publishGovernancePolicy(policyId:$policyId,reason:$reason) {
+         ${GOVERNANCE_FIELDS}
+       } } }`,
+    'Publishing that policy', reportError,
+  );
+
+export const useArchiveGovernancePolicy = (reportError = true) =>
+  useW360Mutation<{ policyId: string; reason: string }, Wrapped<'archiveGovernancePolicy', boolean>>(
+    `mutation AGP($policyId:String!,$reason:String!) {
+       web { archiveGovernancePolicy(policyId:$policyId,reason:$reason) } }`,
+    'Archiving that policy', reportError,
   );
 
 export const usePostTicketMessage = (reportError = true) =>

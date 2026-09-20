@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -46,6 +47,11 @@ DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_governance_policy_events"
     " ON governance_policy_events (policy_id, created_at)",
+    "ALTER TABLE governance_policy_events ADD COLUMN IF NOT EXISTS scope_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE governance_policy_events ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE governance_policy_events ADD COLUMN IF NOT EXISTS source_digest TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS idx_governance_events_scope"
+    " ON governance_policy_events (scope_key, created_at)",
 ]
 
 
@@ -307,6 +313,73 @@ BASELINE_DOCUMENT: dict[str, Any] = {
 }
 
 
+# The country policy is intentionally conservative. It is the fallback for a
+# state that has not published its own vocabulary and office-specific rules;
+# AP's complete policy above remains the more-specific answer for AP records.
+# Keeping this as the same portable document shape means an admin can clone it
+# into a state or district scope without a second authoring model.
+GLOBAL_DOCUMENT: dict[str, Any] = deepcopy(BASELINE_DOCUMENT)
+GLOBAL_DOCUMENT["jurisdiction"] = {
+    "countryCode": "IN",
+    "countryName": "India",
+    "stateCode": "*",
+    "stateName": "All states and union territories",
+    "districtCode": "*",
+    "districtName": "All districts",
+    "authorityName": "Government of India",
+    "localTerms": {
+        "recordOfRights": "Record of Rights",
+        "cultivationRecord": "Cultivation / tenancy record",
+        "cadastralSketch": "Cadastral or field-measurement map",
+        "holdingAccount": "Landholding / municipal assessment account",
+        "subDistrict": "Sub-district / tehsil / taluk",
+        "registrationOffice": "Sub-Registrar Office",
+        "urbanAuthority": "Urban local body / development authority",
+    },
+}
+GLOBAL_DOCUMENT["policy"] = {
+    **GLOBAL_DOCUMENT["policy"],
+    "name": "India property-records and safe-sharing baseline",
+}
+_GLOBAL_SOURCE_IDS = {"dolr-registration-faq", "dolr-dilrmp", "dpdp-act", "dpdp-rules"}
+GLOBAL_DOCUMENT["sources"] = [
+    deepcopy(source) for source in SOURCES if source["id"] in _GLOBAL_SOURCE_IDS
+]
+for _checklist in GLOBAL_DOCUMENT["propertyTypes"]:
+    for _record_item in _checklist["items"]:
+        _record_item["sourceIds"] = [
+            source_id for source_id in _record_item.get("sourceIds", [])
+            if source_id in _GLOBAL_SOURCE_IDS
+        ] or ["dolr-registration-faq"]
+for _service in GLOBAL_DOCUMENT["serviceRequests"]:
+    _service["sourceIds"] = [
+        source_id for source_id in _service.get("sourceIds", [])
+        if source_id in _GLOBAL_SOURCE_IDS
+    ] or ["dpdp-act", "dpdp-rules"]
+
+# Names that imply one state's authority must not leak into the country
+# fallback. State policies are allowed to put them back, as AP does above.
+_GLOBAL_WORDING = {
+    "Pattadar passbook and current 1-B": "Current Record of Rights / landholding record",
+    "Current Adangal": "Current cultivation or tenancy record, where maintained",
+    "FMB / cadastral map": "Current cadastral or field-measurement map",
+    "AP RERA project record, if applicable": "State or UT RERA project record, if applicable",
+    "FMB, field sketch and ground boundary": "Cadastral map, field sketch and ground boundary",
+}
+for _checklist in GLOBAL_DOCUMENT["propertyTypes"]:
+    for _record_item in _checklist["items"]:
+        _record_item["title"] = _GLOBAL_WORDING.get(
+            _record_item["title"], _record_item["title"])
+        _record_item["why"] = _record_item["why"].replace(
+            "AP RERA", "the applicable state or UT RERA")
+GLOBAL_DOCUMENT["serviceRequests"][0]["sourceIds"] = [
+    "dolr-dilrmp", "dpdp-act", "dpdp-rules"
+]
+GLOBAL_DOCUMENT["serviceRequests"][1]["sourceIds"] = [
+    "dolr-registration-faq", "dpdp-act", "dpdp-rules"
+]
+
+
 def canonical_json(document: dict[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
@@ -339,6 +412,21 @@ def validate_document(document: Any) -> dict[str, Any]:
     sources = document.get("sources")
     if not isinstance(sources, list) or not sources:
         raise ValueError("Policy sources are required")
+    source_ids = {str(source.get("id") or "") for source in sources if isinstance(source, dict)}
+    if "" in source_ids or len(source_ids) != len(sources):
+        raise ValueError("Policy source ids must be present and unique")
+    used_sources: set[str] = set()
+    for checklist in property_types:
+        for item in checklist.get("items") or []:
+            if not isinstance(item, dict) or not str(item.get("key") or "").strip():
+                raise ValueError("Every checklist item needs a key")
+            used_sources.update(str(value) for value in item.get("sourceIds") or [])
+    for service in document.get("serviceRequests") or []:
+        used_sources.update(str(value) for value in service.get("sourceIds") or [])
+    used_sources.update(str(value) for value in (document.get("secureSharing") or {}).get("sourceIds") or [])
+    unknown = used_sources - source_ids
+    if unknown:
+        raise ValueError(f"Policy references unknown sources: {', '.join(sorted(unknown))}")
     return deepcopy(document)
 
 
@@ -350,25 +438,48 @@ def scope_key(country_code: str, state_code: str = "*", district_code: str = "*"
     return "/".join((country_code or "*", state_code or "*", district_code or "*")).upper()
 
 
+def normalize_scope(country_code: str, state_code: str = "*",
+                    district_code: str = "*") -> tuple[str, str, str, str]:
+    """Return a valid country/state/district scope and its stable key."""
+    country = re.sub(r"[^A-Z0-9-]", "", (country_code or "IN").strip().upper())[:8]
+    state = "*" if (state_code or "*").strip() == "*" else re.sub(
+        r"[^A-Z0-9-]", "", state_code.strip().upper())[:16]
+    district = "*" if (district_code or "*").strip() == "*" else re.sub(
+        r"[^A-Z0-9_-]", "", district_code.strip().upper().replace(" ", "_"))[:80]
+    if not country or not state or not district:
+        raise ValueError("Country, state and district codes are required")
+    if state == "*" and district != "*":
+        raise ValueError("A district override requires a state")
+    return country, state, district, scope_key(country, state, district)
+
+
 async def ensure_baseline(conn) -> None:
-    """Install the reviewed AP baseline once; never overwrite an admin revision."""
-    document = validate_document(BASELINE_DOCUMENT)
-    body = canonical_json(document)
-    source_digest = digest(document)
-    await conn.execute(
-        "INSERT INTO governance_policy_sets (id,scope_key,country_code,state_code,district_code,"
-        " revision,status,schema_version,document,source_digest,created_by,created_at,published_by,published_at)"
-        " VALUES ('gps-in-ap-all-v1','IN/AP/*','IN','AP','*',1,'published',1,%s,%s,"
-        " 'system-baseline','2026-09-20','system-baseline','2026-09-20')"
-        " ON CONFLICT (scope_key,revision) DO NOTHING",
-        (body, source_digest),
-    )
-    await conn.execute(
-        "INSERT INTO governance_policy_events (id,policy_id,actor,action,detail,created_at)"
-        " VALUES ('gpe-in-ap-all-v1','gps-in-ap-all-v1','system-baseline','publish',"
-        " 'Initial researched Andhra Pradesh baseline','2026-09-20')"
-        " ON CONFLICT (id) DO NOTHING"
-    )
+    """Install reviewed country and AP baselines; never overwrite admin revisions."""
+    baselines = [
+        ("gps-in-all-v1", "gpe-in-all-v1", "IN/*/*", "IN", "*", "*",
+         GLOBAL_DOCUMENT, "Initial researched India baseline"),
+        ("gps-in-ap-all-v1", "gpe-in-ap-all-v1", "IN/AP/*", "IN", "AP", "*",
+         BASELINE_DOCUMENT, "Initial researched Andhra Pradesh baseline"),
+    ]
+    for policy_id, event_id, key, country, state, district, raw, detail in baselines:
+        document = validate_document(raw)
+        body = canonical_json(document)
+        source_digest = digest(document)
+        await conn.execute(
+            "INSERT INTO governance_policy_sets (id,scope_key,country_code,state_code,district_code,"
+            " revision,status,schema_version,document,source_digest,created_by,created_at,published_by,published_at)"
+            " VALUES (%s,%s,%s,%s,%s,1,'published',1,%s,%s,"
+            " 'system-baseline','2026-09-20','system-baseline','2026-09-20')"
+            " ON CONFLICT (scope_key,revision) DO NOTHING",
+            (policy_id, key, country, state, district, body, source_digest),
+        )
+        await conn.execute(
+            "INSERT INTO governance_policy_events"
+            " (id,policy_id,actor,action,detail,created_at,scope_key,revision,source_digest)"
+            " VALUES (%s,%s,'system-baseline','publish',%s,'2026-09-20',%s,1,%s)"
+            " ON CONFLICT (id) DO NOTHING",
+            (event_id, policy_id, detail, key, source_digest),
+        )
 
 
 def record_checklist(document: dict[str, Any], kind: str, classification: str) -> dict[str, Any] | None:

@@ -183,8 +183,16 @@ def infer_type_key(label: str) -> str:
     }
     if folded in aliases:
         return aliases[folded]
+    words = set(folded.split())
+    if any(part in folded for part in ("borewell", "bore well")) or "bore" in words:
+        return "bore"
+    if "tree" in words or "trees" in words or "orchard" in words:
+        return "tree"
+    if "compound wall" in folded or "boundary wall" in folded:
+        return "compound_wall"
     for item in FEATURE_TYPES:
-        if item["key"] != "custom" and folded == item["label"].lower():
+        if item["key"] != "custom" and (
+                folded == item["label"].lower() or item["key"] in words):
             return item["key"]
     return "custom"
 
@@ -295,4 +303,3 @@ def summary(type_key: str, attributes: dict[str, Any]) -> str:
         if len(parts) == 3:
             break
     return " · ".join(parts)
-

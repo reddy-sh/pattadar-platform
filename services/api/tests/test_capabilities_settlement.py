@@ -27,11 +27,11 @@ BASE = [
     "CREATE TABLE land_features (id TEXT PRIMARY KEY)",
     "CREATE TABLE passbooks (id TEXT PRIMARY KEY,owner_user_id TEXT,pattadar_no TEXT,village TEXT,mandal TEXT,district TEXT,owner_name TEXT,state TEXT,group_id TEXT DEFAULT '')",
     "CREATE TABLE parcels (id TEXT PRIMARY KEY,passbook_id TEXT,survey_no TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '')",
-    "CREATE TABLE properties (id TEXT PRIMARY KEY,owner_user_id TEXT,label TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '',group_id TEXT DEFAULT '')",
+    "CREATE TABLE properties (id TEXT PRIMARY KEY,owner_user_id TEXT,label TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '',group_id TEXT DEFAULT '',type TEXT DEFAULT 'open_plot',locality TEXT DEFAULT '',city TEXT DEFAULT '',district TEXT DEFAULT '')",
     "CREATE TABLE documents (id TEXT PRIMARY KEY,owner_user_id TEXT,name TEXT DEFAULT '',record_id TEXT DEFAULT '',parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '',file_ref TEXT DEFAULT '',subtitle TEXT DEFAULT '',shelf TEXT DEFAULT '',doc_type TEXT DEFAULT '',page_count INT DEFAULT 0,size_bytes BIGINT DEFAULT 0,mime_type TEXT DEFAULT '',source TEXT DEFAULT '',order_ref TEXT DEFAULT '',created_at TEXT DEFAULT '',sort INT DEFAULT 0)",
     "CREATE TABLE parcel_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,parcel_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
     "CREATE TABLE property_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,property_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
-    "CREATE TABLE work_requests (id TEXT PRIMARY KEY,owner_user_id TEXT,kind TEXT DEFAULT 'ec',title TEXT DEFAULT 'EC',entity_type TEXT DEFAULT 'record',entity_id TEXT DEFAULT 'record-a',assignee TEXT DEFAULT '',cost DOUBLE PRECISION DEFAULT 1000,stage INT DEFAULT 0,needs_you BOOLEAN DEFAULT false,note TEXT DEFAULT '',due_date TEXT DEFAULT '',closed BOOLEAN DEFAULT false,created_at TEXT DEFAULT '',params TEXT DEFAULT '{}',area_key TEXT DEFAULT '',area_label TEXT DEFAULT '',status TEXT DEFAULT '',status_at TEXT DEFAULT '',quoted DOUBLE PRECISION DEFAULT 0,payee_share DOUBLE PRECISION DEFAULT 0,assignee_ref TEXT DEFAULT '')",
+    "CREATE TABLE work_requests (id TEXT PRIMARY KEY,owner_user_id TEXT,kind TEXT DEFAULT 'ec',service_key TEXT DEFAULT '',title TEXT DEFAULT 'EC',entity_type TEXT DEFAULT 'record',entity_id TEXT DEFAULT 'record-a',assignee TEXT DEFAULT '',cost DOUBLE PRECISION DEFAULT 1000,stage INT DEFAULT 0,needs_you BOOLEAN DEFAULT false,note TEXT DEFAULT '',due_date TEXT DEFAULT '',closed BOOLEAN DEFAULT false,created_at TEXT DEFAULT '',params TEXT DEFAULT '{}',area_key TEXT DEFAULT '',area_label TEXT DEFAULT '',status TEXT DEFAULT '',status_at TEXT DEFAULT '',quoted DOUBLE PRECISION DEFAULT 0,payee_share DOUBLE PRECISION DEFAULT 0,assignee_ref TEXT DEFAULT '')",
 ]
 
 
@@ -64,7 +64,7 @@ async def database():
                     await conn.execute(stmt)
             for stmt in t.DDL:
                 await conn.execute(stmt)
-            await conn.execute("INSERT INTO properties (id,owner_user_id,label,boundary) VALUES ('record-a','owner-a','Parcel A','17,82;17.01,82;17.01,82.01'),('record-b','owner-b','Parcel B','')")
+            await conn.execute("INSERT INTO properties (id,owner_user_id,label,boundary,locality,city,district) VALUES ('record-a','owner-a','Parcel A','17,82;17.01,82;17.01,82.01','Podili','Podili','Prakasam'),('record-b','owner-b','Parcel B','','Other','Other','Other')")
             await conn.execute("INSERT INTO documents (id,owner_user_id,record_id,file_ref,name) VALUES ('doc-a','owner-a','record-a','file-a','Deed'),('doc-b','owner-b','record-b','file-b','Private deed')")
         yield pool
     finally:
@@ -181,7 +181,20 @@ def test_order_manifest_idempotency_and_worker_scope(monkeypatch):
             args = dict(record_ids=['record-a'], kind='ec', attachment_manifest=manifest, idempotency_key='intent-a')
             assert await mutation.order_service('owner-a', **args) == 1
             assert await mutation.order_service('owner-a', **args) == 1
+            assert await mutation.order_service(
+                'owner-a', **{**args, 'idempotency_key': 'intent-b'}) == 0
+            assert await mutation.order_service_batch(
+                'owner-a', 'record-a', json.dumps([
+                    {'kind': 'ec', 'params': {}},
+                    {'kind': 'patta_copy', 'params': {}},
+                ])) is None
             assert await mutation.order_service('owner-a', **{**args, 'record_ids':['record-b']}) == 0
+            listed = await w.WebQuery().orders('owner-a')
+            assert len(listed) == 1
+            assert listed[0].record_title == 'Parcel A'
+            assert listed[0].record_kind == 'property'
+            assert listed[0].record_classification == 'open_plot'
+            assert listed[0].record_location == 'Podili, Prakasam'
             async with pool.connection() as conn:
                 rows = await (await conn.execute('SELECT * FROM work_requests')).fetchall()
                 assert len(rows) == 1

@@ -51,9 +51,9 @@
  *  — `money.headline`, `money.honesty`, `d.goesTo`, `e.headline` — so a figure
  *  and the sentence beside it cannot drift apart on one screen and not the
  *  other. */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import CallOutlined from '@mui/icons-material/CallOutlined';
 import MailOutlined from '@mui/icons-material/MailOutlined';
 import SendOutlined from '@mui/icons-material/SendOutlined';
@@ -813,6 +813,7 @@ function WhoCanDoThis({ t, className, error, onError }: {
 export function Ticket() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const [search, setSearch] = useSearchParams();
   const { data, isLoading, error } = useTicket(id);
   const paymentConfig = usePaymentConfig();
 
@@ -836,6 +837,7 @@ export function Ticket() {
   // how the accept dialog could open over a send form that was still on screen
   // behind it.
   const [dialog, setDialog] = useState<'' | 'send' | 'record' | 'cancel' | 'unassign' | 'accept'>('');
+  const actionHandled = useRef(false);
   const [inline, setInline] = useState<'' | 'sendback'>('');
   const [err, setErrAt] = useState<{ where: Where; msg: string }>({ where: 'page', msg: '' });
   const [chatMessage, setChatMessage] = useState('');
@@ -863,6 +865,19 @@ export function Ticket() {
 
   // Sending it back
   const [sbWhy, setSbWhy] = useState('');
+
+  // Duplicate-request notices link here with `?action=cancel`. The job page
+  // remains the single place that explains assignment and money consequences;
+  // the link opens its existing confirmation instead of inventing a second,
+  // less informed cancellation path in the order form.
+  useEffect(() => {
+    if (!data || actionHandled.current || search.get('action') !== 'cancel') return;
+    actionHandled.current = true;
+    if (data.can.includes('cancel')) setDialog('cancel');
+    const next = new URLSearchParams(search);
+    next.delete('action');
+    setSearch(next, { replace: true });
+  }, [data, search, setSearch]);
 
   // Three states, three sentences, and three nouns. The page-level ones name
   // the SERVICE — they are about the thing you tried to open, not about the

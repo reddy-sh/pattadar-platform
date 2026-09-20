@@ -24,12 +24,12 @@ import {
   useAddPaper, useDeletePaper, useDocument, useOrderServiceBatch, useOrders,
   usePapers, useServicesOffered, useUpdatePaper,
 } from '../api';
-import type { ServiceBatchReceipt } from '../api';
+import type { Order, ServiceBatchReceipt } from '../api';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { describeReading, unreadRow } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import {
-  Card, Chip, Failed, Icon, KV, Tag,
+  Card, Chip, Failed, Icon, KV, State, Tag,
   SHELF_WORD, ddmmyyyy, inr, nounFor, plural,
 } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
@@ -452,7 +452,9 @@ export function RecordPapers() {
     ? EXPECTED_SHELVES[rec.kind === 'parcel' ? 'parcel' : 'built']
       .filter((s) => !papers.some((p) => p.shelf === s.shelf))
     : [];
-  const offers = useServicesOffered('', '', missing.length > 0);
+  // Keep the paper-service catalogue available even after every shelf is
+  // filled: an active request still belongs on this page until it closes.
+  const offers = useServicesOffered('', '', true);
   const openOrders = useOrders(rec.id);
   const placeBatch = useOrderServiceBatch(false);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
@@ -465,10 +467,28 @@ export function RecordPapers() {
   const missingShelves = new Set(missing.map((m) => m.shelf));
   const suggestedOffers = (offers.data ?? [])
     .filter((o) => o.shelves.some((s) => missingShelves.has(s)));
-  const alreadyOpen = new Set((openOrders.data ?? []).map((o) => o.kind));
+  const openByKind = new Map((openOrders.data ?? []).map((o) => [o.kind, o]));
+  const alreadyOpen = new Set(openByKind.keys());
   const availableOffers = suggestedOffers.filter((o) => !alreadyOpen.has(o.key));
-  const selectedOffers = suggestedOffers.filter((o) => selectedServices.includes(o.key));
+  const selectedOffers = availableOffers.filter((o) => selectedServices.includes(o.key));
   const selectedTotal = selectedOffers.reduce((sum, o) => sum + o.price, 0);
+  const paperOfferByKind = new Map(
+    (offers.data ?? []).filter((offer) => offer.shelves.length > 0)
+      .map((offer) => [offer.key, offer]),
+  );
+  const requestedPaperOrders = (openOrders.data ?? [])
+    .filter((order) => paperOfferByKind.has(order.kind));
+  // A missing shelf disappears from the rail when every service that can fill
+  // it is already active. If another unraised option remains (EC is active but
+  // the tax receipt is not), the shelf stays and shows only that option.
+  const missingGroups = missing.map((item) => {
+    const known = suggestedOffers.filter((offer) => offer.shelves.includes(item.shelf));
+    return {
+      ...item,
+      choices: known.filter((offer) => !alreadyOpen.has(offer.key)),
+      allRequested: known.length > 0 && known.every((offer) => alreadyOpen.has(offer.key)),
+    };
+  }).filter((group) => !group.allRequested);
 
   const toggleService = (key: string) => {
     setBatchError('');
@@ -514,10 +534,13 @@ export function RecordPapers() {
   // the first time that sentence is reworded.
   const titlePaper = (papers ?? []).find((p) => p.shelf === 'title');
   const { data: deed } = useDocument(titlePaper?.id);
+  const hasRailContent = missingGroups.length > 0
+    || Boolean(deed && (deed.registeredOn || deed.office || deed.consideration > 0))
+    || Boolean(rec.khataNo || rec.ownerName);
 
   return (
     <>
-      <div className="split">
+      <div className={`split${hasRailContent ? '' : ' no-rail'}`}>
         <div>
           <SectionHead
             title="What is on paper"
@@ -585,6 +608,44 @@ export function RecordPapers() {
               the row that asked. */}
           {paperErr && (
             <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{paperErr}</p>
+          )}
+
+          {requestedPaperOrders.length > 0 && (
+            <section className="paper-requests" aria-labelledby="paper-requests-title">
+              <div className="paper-requests-head">
+                <div>
+                  <p className="eyebrow">Being requested</p>
+                  <h2 id="paper-requests-title">Papers on the way</h2>
+                </div>
+                <span className="mono note">{plural(requestedPaperOrders.length, 'request')}</span>
+              </div>
+              <div className="paper-request-grid">
+                {requestedPaperOrders.map((order: Order) => {
+                  const offer = paperOfferByKind.get(order.kind);
+                  return (
+                    <article key={order.id} className="paper-request-tile">
+                      <span className="avatarlg"><DocumentScannerOutlined sx={{ fontSize: 18 }} /></span>
+                      <span className="grow">
+                        <span className="row tight">
+                          <strong>{order.title}</strong>
+                          <span className="mono note">{order.ref}</span>
+                          <State state={order.statusState}>{order.statusLabel}</State>
+                        </span>
+                        <span className="note paper-request-purpose">
+                          {offer?.shelves.map((shelfKey) => SHELF_WORD[shelfKey] ?? shelfKey).join(' · ')}
+                          {order.dueDate && ` · due ${order.dueDate}`}
+                        </span>
+                      </span>
+                      <span className="num">{inr(order.cost)}</span>
+                      <span className="row tight paper-request-actions">
+                        <Link className="btn sm" to={`/app/services/${order.id}`}>Open request</Link>
+                        <Link className="btn sm" to={`/app/services/${order.id}?action=cancel`}>Cancel</Link>
+                      </span>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
           )}
 
           {/* The placeholder rows go INSIDE the list's own card, not above it.
@@ -769,10 +830,10 @@ export function RecordPapers() {
               four shelves should not carry an empty box headed "what is
               missing" — the absence IS the answer, and the papers list beside
               it already shows what is there. */}
-          {missing.length > 0 && (
+          {missingGroups.length > 0 && (
             <Card title="What is missing" className="railcard">
               <p className="note" style={{ marginTop: 0 }}>
-                {missing.length > 1
+                {missingGroups.length > 1
                   ? 'A buyer or bank usually asks for these.'
                   : 'A buyer or bank usually asks for this.'}
                 {' '}
@@ -787,20 +848,18 @@ export function RecordPapers() {
               )}
 
               <div className="missing-services">
-                {missing.map((m) => {
-                  const choices = suggestedOffers.filter((o) => o.shelves.includes(m.shelf));
+                {missingGroups.map((m) => {
+                  const { choices } = m;
                   return (
                     <section key={m.shelf} className="missing-group">
                       <strong>{SHELF_WORD[m.shelf] ?? m.shelf}</strong>
                       <span className="note">{m.say}</span>
-                      {choices.map((offer) => {
-                        const ordered = alreadyOpen.has(offer.key);
-                        return (
-                          <label key={offer.key} className={`service-choice${ordered ? ' disabled' : ''}`}>
+                      {choices.map((offer) => (
+                          <label key={offer.key} className="service-choice">
                             <input
                               type="checkbox"
                               checked={selectedServices.includes(offer.key)}
-                              disabled={ordered || placeBatch.isPending}
+                              disabled={placeBatch.isPending}
                               onChange={() => toggleService(offer.key)}
                             />
                             <span className="grow">
@@ -809,13 +868,10 @@ export function RecordPapers() {
                                 <span className="num">{inr(offer.price)}</span>
                               </span>
                               <span className="note">{offer.blurb}</span>
-                              <span className="note">
-                                {ordered ? 'Already on order' : `Usually within ${offer.days} days`}
-                              </span>
+                              <span className="note">Usually within {offer.days} days</span>
                             </span>
                           </label>
-                        );
-                      })}
+                        ))}
                       {offers.data && choices.length === 0 && (
                         <span className="note">No office-fetch service is available for this yet.</span>
                       )}

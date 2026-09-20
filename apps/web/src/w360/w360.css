@@ -862,6 +862,8 @@
 .w360 .stack.sm { gap: var(--space-xs); }
 .w360 .stack.lg { gap: var(--space-lg); }
 .w360 .split { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-lg); align-items: stretch; }
+.w360 .split.no-rail { grid-template-columns: minmax(0, 1fr); }
+.w360 .split.no-rail > aside { display: none; }
 .w360 .two { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: var(--space-lg); align-items: stretch; }
 .w360 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-md); }
 .w360 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-md); }
@@ -1121,6 +1123,72 @@
 }
 .w360 .batch-success { border-left: 2px solid var(--w-ok); padding-left: var(--space-sm); }
 
+/* Active document requests sit with the record's content. They are neither a
+   missing recommendation nor a filed paper yet, so a small repeated-item grid
+   gives that middle state its own readable place. */
+.w360 .paper-requests {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-md);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--w-line);
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .paper-requests-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.w360 .paper-requests-head .eyebrow { margin: 0 0 0.25rem; }
+.w360 .paper-requests-head h2 { margin: 0; font-size: 1.125rem; }
+.w360 .paper-request-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
+.w360 .paper-request-tile {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  align-items: start;
+  padding: var(--space-md);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm);
+  background: var(--w-surface);
+  min-width: 0;
+}
+.w360 .paper-request-tile .avatarlg { width: 2.25rem; height: 2.25rem; }
+.w360 .paper-request-tile strong { font-size: 0.875rem; }
+.w360 .paper-request-purpose { display: block; margin-top: 0.3125rem; line-height: 1.35; }
+.w360 .paper-request-actions { grid-column: 2 / -1; }
+
+/* Cross-record service filters. Search owns the flexible track; selects keep
+   stable widths so changing an option never shifts the list below them. */
+.w360 .service-order-filters {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1fr) repeat(4, minmax(9rem, 0.55fr)) auto auto;
+  gap: var(--space-sm);
+  align-items: end;
+  margin: var(--space-md) 0;
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--w-line);
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .service-order-search { width: auto; min-height: 2.375rem; align-self: end; }
+.w360 .service-filter-field { display: grid; gap: 0.3125rem; min-width: 0; }
+.w360 .service-filter-field > span {
+  color: var(--w-ink-3);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+}
+.w360 .service-filter-field select { width: 100%; min-width: 0; height: 2.375rem; }
+.w360 .service-filter-count {
+  align-self: center;
+  white-space: nowrap;
+  color: var(--w-ink-3);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.w360 .service-order-filters > .clearall { align-self: center; white-space: nowrap; }
+
 /* Batch headings divide one service list without nesting cards. */
 .w360 .service-batch-head {
   display: flex;
@@ -1132,6 +1200,20 @@
   font-size: 0.8125rem;
 }
 .w360 .service-batch-head .note { margin-left: auto; }
+
+@media (max-width: 1180px) {
+  .w360 .service-order-filters { grid-template-columns: minmax(14rem, 1fr) repeat(2, minmax(9rem, 0.65fr)); }
+  .w360 .service-filter-count,
+  .w360 .service-order-filters > .clearall { justify-self: start; }
+}
+
+@media (max-width: 720px) {
+  .w360 .service-order-filters { grid-template-columns: minmax(0, 1fr); }
+  .w360 .paper-request-grid { grid-template-columns: minmax(0, 1fr); }
+  .w360 .paper-request-tile { grid-template-columns: 2.25rem minmax(0, 1fr); }
+  .w360 .paper-request-tile > .num { grid-column: 2; }
+  .w360 .paper-request-actions { grid-column: 2; flex-wrap: wrap; }
+}
 
 /* A ticket conversation is intentionally quieter than the operational trail.
    Messages are still append-only evidence, but they read like dialogue. */
@@ -4144,6 +4226,10 @@
 .w360 .compliance-scope .field { margin: 0; }
 .w360 .compliance-review { display: grid; gap: 0.15rem; padding-bottom: 0.35rem; }
 .w360 .compliance-review small { color: var(--w-muted); }
+.w360 .compliance-scope-list {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs);
+  padding-bottom: var(--space-md); border-bottom: 1px solid var(--w-line);
+}
 .w360 .compliance-terms { display: grid; gap: var(--space-sm); }
 .w360 .compliance-term-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--w-line); }
 .w360 .compliance-term-grid > div {
@@ -4192,6 +4278,27 @@
 .w360 .compliance-source-list a:hover strong { color: var(--w-accent); }
 .w360 .compliance-source-list a > span { display: grid; gap: 0.15rem; }
 .w360 .compliance-source-list small { color: var(--w-muted); }
+.w360 .compliance-manage { display: grid; gap: var(--space-md); min-width: 0; }
+.w360 .compliance-manage h2 { margin: 0.15rem 0 0; font-size: 1.1rem; }
+.w360 .compliance-json {
+  width: 100%; min-height: 28rem; resize: vertical; padding: var(--space-sm);
+  font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.55;
+  white-space: pre; overflow: auto;
+}
+.w360 .compliance-archive-row {
+  display: flex; align-items: end; gap: var(--space-sm);
+  padding-block: var(--space-sm); border-block: 1px solid var(--w-line);
+}
+.w360 .compliance-archive-row .field { margin: 0; }
+.w360 .compliance-history { display: grid; border-top: 1px solid var(--w-line); }
+.w360 .compliance-history > .eyebrow { display: flex; align-items: center; gap: 0.35rem; padding-top: var(--space-md); }
+.w360 .compliance-history > div {
+  display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, auto) 6rem;
+  gap: var(--space-sm); align-items: center; padding: 0.7rem 0;
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .compliance-history > div > span:first-child { display: grid; gap: 0.15rem; }
+.w360 .compliance-history small { color: var(--w-muted); }
 .w360 .compliance-notice {
   display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-xs);
   align-items: start; color: var(--w-muted); font-size: 0.75rem;
@@ -4210,10 +4317,12 @@
   .w360 .compliance-term-grid > div:nth-child(2n) { border-right: 0; }
   .w360 .compliance-checklist-grid { grid-template-columns: 1fr; }
   .w360 .compliance-three { grid-template-columns: 1fr; gap: var(--space-md); }
+  .w360 .compliance-history > div { grid-template-columns: 1fr; gap: 0.2rem; }
 }
 @media (max-width: 600px) {
   .w360 .governance-columns, .w360 .compliance-scope, .w360 .compliance-term-grid { grid-template-columns: 1fr; }
   .w360 .compliance-term-grid > div { border-right: 0; }
   .w360 .compliance-notice { grid-template-columns: 1.25rem minmax(0, 1fr); }
   .w360 .compliance-notice .mono { grid-column: 2; }
+  .w360 .compliance-archive-row { align-items: stretch; flex-direction: column; }
 }

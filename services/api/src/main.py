@@ -3888,12 +3888,21 @@ class Mutation:
         uid = _uid_from_info(info)
         rid = new_id()
         async with pool.connection() as conn:
+            if entity_type == "record" and entity_id:
+                existing = await web360._active_service_request(
+                    conn, uid, entity_id, kind)
+                if existing:
+                    await log_audit(
+                        conn, uid, "service.duplicate_blocked", existing["id"],
+                        f"Kept existing {web360.canonical_service_kind(kind)} request")
+                    return to_type(WorkRequestType, existing)
             cur = await conn.execute(
                 "INSERT INTO work_requests (id, owner_user_id, kind, title, entity_type, "
-                "entity_id, assignee, cost, stage, needs_you, note, due_date, closed, created_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,FALSE,%s,%s,FALSE,%s) RETURNING *",
+                "entity_id, assignee, cost, stage, needs_you, note, due_date, closed, created_at, service_key) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,FALSE,%s,%s,FALSE,%s,%s) RETURNING *",
                 (rid, uid, kind, title, entity_type, entity_id, assignee, cost,
-                 note, due_date, datetime.utcnow().isoformat()),
+                 note, due_date, datetime.utcnow().isoformat(),
+                 web360.canonical_service_kind(kind)),
             )
             row = await cur.fetchone()
             # The ticket's own trail, which the audit log is not: the Ticket

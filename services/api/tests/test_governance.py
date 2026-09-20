@@ -20,6 +20,28 @@ def test_baseline_is_portable_and_covers_requested_property_types():
     assert len(governance.digest(document)) == 64
 
 
+def test_country_baseline_is_global_and_contains_no_unknown_sources():
+    document = governance.validate_document(governance.GLOBAL_DOCUMENT)
+    assert document["jurisdiction"]["stateCode"] == "*"
+    assert document["jurisdiction"]["districtCode"] == "*"
+    assert document["jurisdiction"]["authorityName"] == "Government of India"
+    assert {source["id"] for source in document["sources"]} == {
+        "dolr-registration-faq", "dolr-dilrmp", "dpdp-act", "dpdp-rules",
+    }
+
+
+def test_scope_normalisation_enforces_the_country_state_district_hierarchy():
+    assert governance.normalize_scope("in", "ap", "Prakasam") == (
+        "IN", "AP", "PRAKASAM", "IN/AP/PRAKASAM")
+    assert governance.normalize_scope("IN", "*", "*")[-1] == "IN/*/*"
+    try:
+        governance.normalize_scope("IN", "*", "PRAKASAM")
+    except ValueError as exc:
+        assert "requires a state" in str(exc)
+    else:
+        raise AssertionError("district without state was accepted")
+
+
 def test_property_matching_uses_government_property_classification():
     document = governance.BASELINE_DOCUMENT
     assert governance.record_checklist(document, "parcel", "agri")["key"] == "agricultural_land"

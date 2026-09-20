@@ -348,11 +348,9 @@ export function OrderService() {
   const [showErrors, setShowErrors] = useState(false);
   const [err, setErr] = useState('');
   const [placed, setPlaced] = useState<{ found: Order | null; read: 'ok' | 'flying' | 'failed' } | null>(null);
-  // Bumped whenever an intent is deliberately started over: after a refusal
-  // the owner goes back and comes forward again, and "place a second one
-  // anyway" means a genuinely second order. Both must mint a new key — the
-  // same key with the same request hash replays the previous count WITHOUT
-  // inserting, which would print "That is placed." over nothing at all.
+  // Bumped whenever a refused intent is deliberately taken back for changes.
+  // The same key with the same request hash replays the previous count without
+  // inserting, so a revised attempt needs a new intent key.
   const [attempt, setAttempt] = useState(0);
   const intent = useRef({ fp: '', key: '' });
   const headRef = useRef<HTMLHeadingElement | null>(null);
@@ -588,7 +586,6 @@ export function OrderService() {
               recordId={rec.id}
               onBack={() => { setAttempt((n) => n + 1); go({ step: 'tell' }); }}
               onPlace={() => { void submit(); }}
-              onPlaceAnyway={() => { setAttempt((n) => n + 1); void submit(); }}
             />
           )}
 
@@ -904,14 +901,14 @@ function TellStep(
 function CheckStep(
   { rec, offer, mapState, headRef, sheet, attachedPapers, attachedPhotos, sendBoundary,
     canSendBoundary, duplicate, duplicateUnknown, err, placing, recordId,
-    onBack, onPlace, onPlaceAnyway }: {
+    onBack, onPlace }: {
     rec: RecordDetail; offer: ServiceOffer; mapState: MapState;
     headRef: RefObject<HTMLHeadingElement | null>;
     sheet: Record<string, string>; attachedPapers: Paper[]; attachedPhotos: Photo[];
     sendBoundary: boolean; canSendBoundary: boolean;
     duplicate: Order | undefined; duplicateUnknown: boolean;
     err: string; placing: boolean; recordId: string;
-    onBack: () => void; onPlace: () => void; onPlaceAnyway: () => void;
+    onBack: () => void; onPlace: () => void;
   },
 ) {
   const answered = offer.fields
@@ -970,17 +967,21 @@ function CheckStep(
             {duplicate.stageLabel && ` — ${duplicate.stageLabel.toLowerCase()}`}
             {duplicate.cost > 0 && `, at ${inr(duplicate.cost)}`}.
           </p>
-          <Link className="btn" to={`/app/services/${duplicate.id}`}>Open the one you have</Link>
+          <div className="row tight">
+            <Link className="btn primary" to={`/app/services/${duplicate.id}`}>
+              Open request
+            </Link>
+            <Link className="btn danger" to={`/app/services/${duplicate.id}?action=cancel`}>
+              Cancel request
+            </Link>
+          </div>
         </Card>
       )}
-      {/* Warn, never block. This screen restates the whole order before
-          anything is committed, so an owner who means it can proceed; it is the
-          one-tap buttons elsewhere that need a hard stop. */}
       {duplicateUnknown && (
         <p className="note">
           We could not check what is already running on this land, so look under{' '}
           <Link className="link" to={`/app/records/${recordId}/services`}>Services</Link>{' '}
-          before you place a second one.
+          before trying again. Ordering is paused until that check succeeds.
         </p>
       )}
 
@@ -1002,10 +1003,13 @@ function CheckStep(
         <button type="button" className="btn" disabled={placing} onClick={onBack}>
           Go back and change something
         </button>
-        <button type="button" className="btn primary" disabled={placing}
-                onClick={duplicate ? onPlaceAnyway : onPlace}>
+        <button type="button" className="btn primary"
+                disabled={placing || !!duplicate || duplicateUnknown}
+                onClick={onPlace}>
           <HandshakeOutlined sx={{ fontSize: 16 }} />
-          {placing ? 'Placing…' : duplicate ? 'Place a second one anyway' : `Place the order · ${inr(offer.price)}`}
+          {placing ? 'Placing…' : duplicate ? 'Request already exists'
+            : duplicateUnknown ? 'Checking existing requests…'
+              : `Place the order · ${inr(offer.price)}`}
         </button>
       </div>
     </>

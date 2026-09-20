@@ -169,8 +169,14 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
   const [err, setErr] = useState('');
   const schema = types.find((item) => item.key === typeKey);
   const busy = addFeature.isPending || editFeature.isPending || saveCost.isPending;
-  const dirty = !!(typeKey || label.trim() || Object.keys(attributes).length || condition.trim()
-    || note.trim() || lat || lon || addCost);
+  const dirty = feature ? (
+    typeKey !== feature.typeKey || label !== feature.label
+    || JSON.stringify(attributes) !== JSON.stringify(attributesOf(feature))
+    || condition !== feature.condition || state !== (feature.conditionState || 'unknown')
+    || note !== feature.note || lat !== (feature.lat ? String(feature.lat) : '')
+    || lon !== (feature.lon ? String(feature.lon) : '') || addCost
+  ) : !!(typeKey || label.trim() || Object.keys(attributes).length || condition.trim()
+    || note.trim() || lat || lon || addCost || state !== 'unknown');
 
   const chooseType = (next: FeatureTypeDefinition) => {
     if (next.key === typeKey) return;
@@ -218,17 +224,27 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
     setErr('');
     const latitude = lat.trim() ? Number(lat) : 0;
     const longitude = lon.trim() ? Number(lon) : 0;
+    const costAmount = Number(amount || 0);
+    const hasPoint = !!(lat.trim() && lon.trim());
     if ((lat.trim() && !lon.trim()) || (!lat.trim() && lon.trim())
         || (lat.trim() && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90))
         || (lon.trim() && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180))) {
       setErr('Enter both latitude and longitude using valid coordinates.');
       return;
     }
+    if (hasPoint && latitude === 0 && longitude === 0) {
+      setErr('The location 0, 0 is not a usable land pin.');
+      return;
+    }
     if (receipt && receipt.size > MAX_UPLOAD_BYTES) {
       setErr(`${receipt.name} is ${mb(receipt.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)}.`);
       return;
     }
-    if (addCost && (!(Number(amount) > 0) && !receipt && !uploaded)) {
+    if (addCost && (!Number.isFinite(costAmount) || costAmount < 0)) {
+      setErr('Enter a valid cost amount.');
+      return;
+    }
+    if (addCost && (!(costAmount > 0) && !receipt && !uploaded)) {
       setErr('Enter a cost amount or attach the receipt before saving this cost.');
       return;
     }
@@ -238,14 +254,14 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
         stored = await uploadToDrive(receipt);
         setUploaded(stored);
       }
-      const geometry = latitude && longitude ? JSON.stringify({
+      const geometry = hasPoint ? JSON.stringify({
         type: 'Point', coordinates: [longitude, latitude], source: pinSource || 'manual',
         ...(accuracy > 0 ? { accuracyM: accuracy } : {}),
       }) : '{}';
       const cost = {
         purchaseKind: addCost ? costKind : '',
         purchaseTitle: addCost ? costTitle.trim() : '',
-        purchaseAmount: addCost ? Number(amount || 0) : 0,
+        purchaseAmount: addCost ? costAmount : 0,
         purchasedOn: addCost ? purchasedOn : '',
         vendor: addCost ? vendor.trim() : '',
         invoiceNo: addCost ? invoiceNo.trim() : '',
@@ -260,7 +276,7 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
         const res = await addFeature.mutateAsync({
           recordId, label: label.trim(), typeKey: schema.key,
           schemaVersion: schema.schemaVersion, attributes: JSON.stringify(attributes), geometry,
-          pinLabel: latitude ? (pinSource === 'device' ? 'Device location' : 'Entered location') : '',
+          pinLabel: hasPoint ? (pinSource === 'device' ? 'Device location' : 'Entered location') : '',
           condition: condition.trim(), conditionState: state, note: note.trim(), ...cost,
         });
         id = res.web.addFeature;
@@ -272,7 +288,7 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
         const res = await editFeature.mutateAsync({
           featureId: feature.id, label: label.trim(), typeKey: schema.key,
           schemaVersion: schema.schemaVersion, attributes: JSON.stringify(attributes), geometry,
-          pinLabel: latitude ? (pinSource === 'device' ? 'Device location' : 'Entered location') : '',
+          pinLabel: hasPoint ? (pinSource === 'device' ? 'Device location' : 'Entered location') : '',
           condition: condition.trim(), conditionState: state, note: note.trim(),
           expectedVersion: version,
         });
@@ -283,7 +299,7 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
         setVersion((current) => current + 1);
         if (addCost) {
           const saved = await saveCost.mutateAsync({
-            featureId: feature.id, title: costTitle.trim(), amount: Number(amount || 0),
+            featureId: feature.id, title: costTitle.trim(), amount: costAmount,
             purchasedOn, kind: costKind, vendor: vendor.trim(), invoiceNo: invoiceNo.trim(),
             warrantyUntil, receiptFileRef: stored?.id || '', receiptFileName: stored?.name || '',
             receiptMimeType: stored?.mimeType || '', receiptSizeBytes: stored?.sizeBytes || 0,

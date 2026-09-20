@@ -15,13 +15,14 @@
  * you just gave, and the whole value here is watching the total move.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import ViewSidebarOutlined from '@mui/icons-material/ViewSidebarOutlined';
 import { cornerLabel, fencePlan, ringSides } from '@pattadar/core';
 
-import { useCreateRequest } from './api';
+import { useCreateRequest, useOrders } from './api';
+import { openSameJob } from './orderFlow';
 import { MapCanvas } from './MapCanvasLazy';
 import { inrFull, num } from './ui';
 
@@ -129,6 +130,8 @@ export function FenceStudio({
 }: FenceStudioProps) {
   const nav = useNavigate();
   const ask = useCreateRequest();
+  const openOrders = useOrders(recordId || '');
+  const duplicate = openSameJob(openOrders.data, 'fencing');
   const [asked, setAsked] = useState('');
   const was = remembered();
   const [panel, setPanel] = useState<'left' | 'right'>('right');
@@ -195,7 +198,7 @@ export function FenceStudio({
    *  its message to Services and to whoever it is assigned to, so the message
    *  has to hold the whole bill — not "fencing needed". */
   const raise = async () => {
-    if (!recordId) return;
+    if (!recordId || duplicate || openOrders.error || !openOrders.data) return;
     setAsked('');
     const lines = [
       `Fence ${title}${subtitle ? ` (${subtitle})` : ''} — ${num(plan.perimeter, 1)} m`
@@ -411,10 +414,23 @@ export function FenceStudio({
             of those down would put a thing on the land that is not there. */}
         {recordId ? (
           <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-            <button type="button" className="btn sm primary" disabled={ask.isPending}
-                    onClick={() => void raise()}>
-              {ask.isPending ? 'Asking…' : `Ask for this on ${recordTitle ?? 'the record'}`}
-            </button>
+            {duplicate ? (
+              <>
+                <Link className="btn sm primary" to={`/app/services/${duplicate.id}`}>
+                  Open fencing request
+                </Link>
+                <Link className="btn sm danger" to={`/app/services/${duplicate.id}?action=cancel`}>
+                  Cancel request
+                </Link>
+              </>
+            ) : (
+              <button type="button" className="btn sm primary"
+                      disabled={ask.isPending || openOrders.isLoading || !!openOrders.error}
+                      onClick={() => void raise()}>
+                {ask.isPending ? 'Asking…' : openOrders.isLoading ? 'Checking requests…'
+                  : `Ask for this on ${recordTitle ?? 'the record'}`}
+              </button>
+            )}
             <button type="button" className="btn sm" onClick={() => window.print()}>
               <PrintOutlined sx={{ fontSize: 15 }} /> Print for the supplier
             </button>
@@ -423,6 +439,11 @@ export function FenceStudio({
           <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
             Print takes this to a supplier. To raise it as work, this plot has to
             be one of your records first — file it, and the request can hang off it.
+          </p>
+        )}
+        {openOrders.error && recordId && (
+          <p className="note" style={{ color: 'var(--w-danger)' }}>
+            Existing requests could not be checked, so a new one cannot be raised yet.
           </p>
         )}
         {asked && <p className="note" style={{ color: 'var(--w-danger)' }}>{asked}</p>}

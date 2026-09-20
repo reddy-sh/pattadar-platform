@@ -59,3 +59,10 @@ def test_batch_reference_is_stable_and_non_sequential():
     assert ref.startswith("BR-") and len(ref) == 7
     assert ref == w._batch_ref("sb-0123456789ab")
     assert ref != w._batch_ref("sb-fedcba987654")
+
+
+def test_service_kind_names_collapse_legacy_duplicates():
+    assert w.canonical_service_kind("opinion") == "title_opinion"
+    assert w.canonical_service_kind("title_opinion") == "title_opinion"
+    assert w.canonical_service_kind("visit") == "site_visit"
+    assert set(w._service_kind_variants("site_visit")) == {"site_visit", "visit"}

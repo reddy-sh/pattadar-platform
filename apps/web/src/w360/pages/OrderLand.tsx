@@ -43,6 +43,7 @@ import {
 import type { RecordCard, ServiceField, ServiceOffer } from '../api';
 import {
   ALSO_CALLED, MAP_WORD, PER_PROPERTY, artOf, bulkable, extentLine, mapStateOf, mintKey,
+  openSameJob,
 } from '../orderFlow';
 import { Dialog } from '../Dialog';
 import { useToast } from '../Toast';
@@ -325,6 +326,15 @@ export function OrderLand() {
     [visible, picked],
   );
   const armed = kind ? offers?.find((o) => o.key === kind) : undefined;
+  const duplicateOrders = useMemo(() => {
+    if (!armed || !orders) return [];
+    return chosenIds.flatMap((recordId) => {
+      const current = openSameJob(orders.filter((o) => o.recordId === recordId), armed.key);
+      return current ? [current] : [];
+    });
+  }, [armed, chosenIds, orders]);
+  const duplicateIds = new Set(duplicateOrders.map((o) => o.recordId));
+  const eligibleIds = chosenIds.filter((id) => !duplicateIds.has(id));
   const missing = (armed?.fields ?? []).filter(
     (f) => f.required && !String(answers[f.name] ?? '').trim());
 
@@ -348,7 +358,7 @@ export function OrderLand() {
   };
 
   async function placeForAll() {
-    if (!armed || chosenIds.length === 0 || missing.length > 0) return;
+    if (!armed || eligibleIds.length === 0 || missing.length > 0 || ordersErr) return;
     setOrderErr('');
     // Only the answers this service actually asked for. The state object
     // survives a change of service in the dialog, and posting a stale key
@@ -360,17 +370,17 @@ export function OrderLand() {
     });
     try {
       const filed = await placeOrder(order.mutateAsync, {
-        recordIds: chosenIds,
+        recordIds: eligibleIds,
         kind: armed.key,
-        note: `Ordered for ${plural(chosenIds.length, 'property', 'properties')} at once`,
+        note: `Ordered for ${plural(eligibleIds.length, 'property', 'properties')} at once`,
         params,
-        idempotencyKey: keyFor(armed.key, chosenIds, params),
+        idempotencyKey: keyFor(armed.key, eligibleIds, params),
       });
-      if (filed !== chosenIds.length) {
+      if (filed !== eligibleIds.length) {
         // Never "the order failed" over a batch that half landed: the count is
         // what the server actually filed, and the rest are still unordered.
         setOrderErr(filed > 0
-          ? `${filed} of ${chosenIds.length} were ordered. The rest were refused — reload and try those again.`
+          ? `${filed} of ${eligibleIds.length} were ordered. The rest were refused — reload and try those again.`
           : 'None of those were ordered, and nothing was charged. Reload the list and try again.');
         return;
       }
@@ -594,12 +604,15 @@ export function OrderLand() {
             <>
               <button type="button" className="btn" onClick={closeArmed}>Cancel</button>
               <button type="button" className="btn primary"
-                      disabled={!armed || missing.length > 0 || order.isPending}
+                      disabled={!armed || missing.length > 0 || order.isPending
+                        || eligibleIds.length === 0 || !!ordersErr}
                       onClick={() => void placeForAll()}>
                 {order.isPending
                   ? 'Placing…'
                   : armed
-                    ? `Place ${plural(chosenIds.length, 'order')} · ${inr(armed.price * chosenIds.length)}`
+                    ? eligibleIds.length > 0
+                      ? `Place ${plural(eligibleIds.length, 'order')} · ${inr(armed.price * eligibleIds.length)}`
+                      : 'Requests already exist'
                     : 'Choose a service'}
               </button>
             </>
@@ -653,9 +666,31 @@ export function OrderLand() {
 
               {armed && (
                 <p className="note" style={{ margin: 0 }}>
-                  {plural(chosenIds.length, 'job')} at {inr(armed.price)} each, about {armed.days} days.
+                  {plural(eligibleIds.length, 'new job')} at {inr(armed.price)} each, about {armed.days} days.
                   Nothing is charged now — the desk quotes each job and you pay when you choose to.
                 </p>
+              )}
+
+              {duplicateOrders.length > 0 && (
+                <div className="card alert" style={{ padding: 'var(--space-sm)' }}>
+                  <strong>{plural(duplicateOrders.length, 'request')} already exists</strong>
+                  <p className="note">
+                    Those properties are excluded from this order. Open or cancel each existing
+                    request before asking for the same work again.
+                  </p>
+                  <div className="row tight">
+                    {duplicateOrders.map((existing) => (
+                      <span className="row tight" key={existing.id}>
+                        <Link className="btn sm" to={`/app/services/${existing.id}`}>
+                          Open {existing.recordTitle || existing.ref}
+                        </Link>
+                        <Link className="btn sm danger" to={`/app/services/${existing.id}?action=cancel`}>
+                          Cancel
+                        </Link>
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {orderErr && (

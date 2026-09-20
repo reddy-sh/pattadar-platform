@@ -1,19 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import AddOutlined from '@mui/icons-material/AddOutlined';
+import ArchiveOutlined from '@mui/icons-material/ArchiveOutlined';
 import CheckCircleOutlineOutlined from '@mui/icons-material/CheckCircleOutlineOutlined';
+import EditOutlined from '@mui/icons-material/EditOutlined';
 import GavelOutlined from '@mui/icons-material/GavelOutlined';
+import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import LaunchOutlined from '@mui/icons-material/LaunchOutlined';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import PrivacyTipOutlined from '@mui/icons-material/PrivacyTipOutlined';
+import PublishOutlined from '@mui/icons-material/PublishOutlined';
 
 import {
   parseGovernanceDocument,
+  useArchiveGovernancePolicy,
+  useGovernanceAdminPolicies,
   useGovernanceAdminPolicy,
+  useGovernancePolicyHistory,
   usePortfolio,
+  usePublishGovernancePolicy,
+  useSaveGovernancePolicy,
   type GovernanceDocument,
 } from '../api';
 import { Card, Failed, Loading, Pill } from '../ui';
 
-type View = 'records' | 'buyer' | 'seller' | 'services' | 'sharing' | 'sources';
+type View = 'records' | 'buyer' | 'seller' | 'services' | 'sharing' | 'sources' | 'manage';
 
 const VIEWS: { key: View; label: string }[] = [
   { key: 'records', label: 'Property records' },
@@ -22,7 +32,16 @@ const VIEWS: { key: View; label: string }[] = [
   { key: 'services', label: 'Service requests' },
   { key: 'sharing', label: 'Secure sharing' },
   { key: 'sources', label: 'Sources' },
+  { key: 'manage', label: 'Manage' },
 ];
+
+const pretty = (raw: string) => {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
+};
+const code = (value: string, fallback = '*') => {
+  const out = value.trim().toUpperCase().replace(/\s+/g, '_').replace(/[^A-Z0-9_*-]/g, '');
+  return out || fallback;
+};
 
 function GuideList({ document, kind }: { document: GovernanceDocument; kind: 'buyer' | 'seller' }) {
   const guide = document.guides.find((item) => item.key === kind);
@@ -41,9 +60,115 @@ function GuideList({ document, kind }: { document: GovernanceDocument; kind: 'bu
 export function ComplianceAdmin() {
   const portfolio = usePortfolio();
   const allowed = !!portfolio.data?.isSuperAdmin;
-  const policy = useGovernanceAdminPolicy('IN', 'AP', '*', allowed);
+  const [stateCode, setStateCode] = useState('*');
+  const [districtCode, setDistrictCode] = useState('*');
+  const scopeKey = `IN/${code(stateCode)}/${code(districtCode)}`;
+  const policy = useGovernanceAdminPolicy('IN', code(stateCode), code(districtCode), allowed);
+  const policies = useGovernanceAdminPolicies('IN', allowed);
+  const history = useGovernancePolicyHistory(scopeKey, allowed);
   const document = useMemo(() => parseGovernanceDocument(policy.data), [policy.data]);
   const [view, setView] = useState<View>('records');
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [reason, setReason] = useState('');
+  const [manageError, setManageError] = useState('');
+  const save = useSaveGovernancePolicy(false);
+  const publish = usePublishGovernancePolicy(false);
+  const archive = useArchiveGovernancePolicy(false);
+
+  const exact = policy.data?.scopeKey === scopeKey;
+  const busy = save.isPending || publish.isPending || archive.isPending;
+
+  useEffect(() => {
+    if (!editing) setDraft(policy.data?.document ? pretty(policy.data.document) : '');
+  }, [policy.data?.id, policy.data?.document, editing]);
+
+  const chooseScope = (key: string) => {
+    const [, state = '*', district = '*'] = key.split('/');
+    setStateCode(state);
+    setDistrictCode(district);
+    setEditing(false);
+    setReason('');
+    setManageError('');
+  };
+
+  const beginOverride = () => {
+    if (!document) return;
+    const next = structuredClone(document);
+    next.jurisdiction.countryCode = 'IN';
+    next.jurisdiction.stateCode = code(stateCode);
+    next.jurisdiction.districtCode = code(districtCode);
+    if (code(stateCode) === '*') {
+      next.jurisdiction.stateName = 'All states and union territories';
+      next.jurisdiction.districtName = 'All districts';
+      next.jurisdiction.authorityName = 'Government of India';
+    } else {
+      if (next.jurisdiction.stateCode !== policy.data?.stateCode) {
+        next.jurisdiction.stateName = code(stateCode) === 'AP'
+          ? 'Andhra Pradesh' : code(stateCode).replaceAll('_', ' ');
+      }
+      next.jurisdiction.districtName = code(districtCode) === '*'
+        ? 'All districts' : code(districtCode).replaceAll('_', ' ');
+    }
+    setDraft(JSON.stringify(next, null, 2));
+    setEditing(true);
+    setView('manage');
+    setManageError('');
+  };
+
+  const saveDraft = async () => {
+    setManageError('');
+    if (!reason.trim()) {
+      setManageError('Record why this revision is needed.');
+      return;
+    }
+    try {
+      const result = await save.mutateAsync({
+        countryCode: 'IN', stateCode: code(stateCode), districtCode: code(districtCode),
+        document: draft, reason: reason.trim(),
+        expectedRevision: exact ? (policy.data?.revision ?? 0) : 0,
+      });
+      if (!result.web.saveGovernancePolicy) {
+        setManageError('The draft was not saved. Check the scope, document and current revision.');
+        return;
+      }
+      setEditing(false);
+      setReason('');
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : 'The draft was not saved.');
+    }
+  };
+
+  const publishDraft = async () => {
+    if (!policy.data || policy.data.status !== 'draft') return;
+    setManageError('');
+    try {
+      const result = await publish.mutateAsync({ policyId: policy.data.id, reason: reason.trim() });
+      if (!result.web.publishGovernancePolicy) setManageError('The draft was not published.');
+      else setReason('');
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : 'The draft was not published.');
+    }
+  };
+
+  const archivePolicy = async () => {
+    if (!policy.data || !reason.trim()) {
+      setManageError('Record why this scope is being archived.');
+      return;
+    }
+    setManageError('');
+    try {
+      const result = await archive.mutateAsync({ policyId: policy.data.id, reason: reason.trim() });
+      if (!result.web.archiveGovernancePolicy) {
+        setManageError('That revision cannot be archived. The global fallback must stay published.');
+      } else {
+        setReason('');
+        setEditing(false);
+      }
+    } catch (error) {
+      setManageError(error instanceof Error ? error.message : 'The policy was not archived.');
+    }
+  };
 
   if (portfolio.isLoading) return <main><Loading what="your administration access" h="24rem" /></main>;
   if (!allowed) {
@@ -52,7 +177,7 @@ export function ComplianceAdmin() {
         <div className="compliance-denied">
           <LockOutlined sx={{ fontSize: 28 }} aria-hidden />
           <h1>Compliance administration is restricted</h1>
-          <p>Only a super-admin can read policy drafts, source provenance and publication controls.</p>
+          <p>Only a super-admin can read policy drafts, provenance and publication controls.</p>
         </div>
       </main>
     );
@@ -71,10 +196,10 @@ export function ComplianceAdmin() {
         <div>
           <p className="eyebrow">Administration · Governance</p>
           <h1>Compliance rules</h1>
-          <p className="lede">The published baseline used when records are added, work is requested, and papers are shared.</p>
+          <p className="lede">Published guidance for records, service requests and secure sharing.</p>
         </div>
         <div className="row tight compliance-status">
-          <Pill kind="owned">Published</Pill>
+          <Pill kind={policy.data.status === 'published' ? 'owned' : 'managed'}>{policy.data.status}</Pill>
           <span className="mono">Revision {policy.data.revision}</span>
         </div>
       </header>
@@ -87,23 +212,37 @@ export function ComplianceAdmin() {
           </select>
         </div>
         <div className="field">
-          <label htmlFor="gov-state">State</label>
-          <select id="gov-state" value="AP" aria-readonly="true" onChange={() => {}}>
-            <option value="AP">Andhra Pradesh</option>
-          </select>
+          <label htmlFor="gov-state">State code</label>
+          <input id="gov-state" value={stateCode} maxLength={16}
+                 onChange={(e) => { setStateCode(code(e.target.value)); setDistrictCode('*'); setEditing(false); }} />
         </div>
         <div className="field">
-          <label htmlFor="gov-district">District scope</label>
-          <select id="gov-district" value="*" aria-readonly="true" onChange={() => {}}>
-            <option value="*">All districts</option>
-          </select>
+          <label htmlFor="gov-district">District code</label>
+          <input id="gov-district" value={districtCode} maxLength={80}
+                 disabled={code(stateCode) === '*'}
+                 onChange={(e) => { setDistrictCode(code(e.target.value)); setEditing(false); }} />
         </div>
         <div className="compliance-review">
-          <span className="eyebrow">Review by</span>
-          <strong>{document.policy.reviewBy}</strong>
-          <small>{document.jurisdiction.authorityName}</small>
+          <span className="eyebrow">Effective scope</span>
+          <strong>{policy.data.scopeKey}</strong>
+          <small>{exact ? 'Exact policy' : `Inherited by ${scopeKey}`}</small>
         </div>
       </section>
+
+      <div className="compliance-scope-list" aria-label="Configured policy scopes">
+        {(policies.data ?? []).map((item) => (
+          <button key={item.scopeKey} type="button" className="chip"
+                  aria-pressed={scopeKey === item.scopeKey}
+                  onClick={() => chooseScope(item.scopeKey)}>
+            {item.scopeKey} · r{item.revision} · {item.status}
+          </button>
+        ))}
+        {!exact && (
+          <button type="button" className="btn sm" onClick={beginOverride}>
+            <AddOutlined sx={{ fontSize: 15 }} /> Create {scopeKey} override
+          </button>
+        )}
+      </div>
 
       <section className="compliance-terms" aria-label="Government terminology">
         <span className="eyebrow">Government naming</span>
@@ -130,8 +269,7 @@ export function ComplianceAdmin() {
                   <div key={item.key} className="compliance-item">
                     <CheckCircleOutlineOutlined sx={{ fontSize: 18 }} aria-hidden />
                     <span>
-                      <strong>{item.title}</strong>
-                      <small>{item.why}</small>
+                      <strong>{item.title}</strong><small>{item.why}</small>
                       <span className="row tight">
                         <span className={`pill ${item.level === 'required' ? 'owned' : 'managed'}`}>{item.level}</span>
                         {item.sourceIds.slice(0, 2).map((id) => (
@@ -154,8 +292,7 @@ export function ComplianceAdmin() {
         <div className="compliance-service-list">
           {document.serviceRequests.map((service) => (
             <section key={service.key} className="compliance-guide-band">
-              <p className="eyebrow">{service.label}</p>
-              <h2>{service.purpose}</h2>
+              <p className="eyebrow">{service.label}</p><h2>{service.purpose}</h2>
               <div className="compliance-three">
                 <div><strong>Share</strong><ul>{service.share.map((item) => <li key={item}>{item}</li>)}</ul></div>
                 <div><strong>Do not share</strong><ul>{service.doNotShare.map((item) => <li key={item}>{item}</li>)}</ul></div>
@@ -189,6 +326,75 @@ export function ComplianceAdmin() {
             </a>
           ))}
         </div>
+      )}
+
+      {view === 'manage' && (
+        <section className="compliance-manage">
+          <div className="row between">
+            <div><p className="eyebrow">Policy document</p><h2>{scopeKey}</h2></div>
+            <div className="row tight">
+              {!editing && (
+                <button type="button" className="btn" onClick={beginOverride}>
+                  <EditOutlined sx={{ fontSize: 16 }} /> {exact ? 'Create revision' : 'Create override'}
+                </button>
+              )}
+              {exact && policy.data.status === 'draft' && !editing && (
+                <button type="button" className="btn primary" disabled={busy}
+                        onClick={() => void publishDraft()}>
+                  <PublishOutlined sx={{ fontSize: 16 }} /> Publish draft
+                </button>
+              )}
+            </div>
+          </div>
+
+          {editing && (
+            <>
+              <textarea className="input compliance-json" value={draft} spellCheck={false}
+                        aria-label="Policy JSON document" onChange={(e) => setDraft(e.target.value)} />
+              <div className="field">
+                <label htmlFor="gov-reason">Change reason</label>
+                <input id="gov-reason" value={reason} maxLength={4000}
+                       onChange={(e) => setReason(e.target.value)} />
+              </div>
+              <div className="row tight">
+                <button type="button" className="btn primary" disabled={busy}
+                        onClick={() => void saveDraft()}>Save draft</button>
+                <button type="button" className="btn" disabled={busy}
+                        onClick={() => { setEditing(false); setManageError(''); }}>Discard edits</button>
+              </div>
+            </>
+          )}
+
+          {!editing && exact && (
+            <div className="compliance-archive-row">
+              <div className="field grow">
+                <label htmlFor="gov-action-reason">Publication or archive reason</label>
+                <input id="gov-action-reason" value={reason} maxLength={4000}
+                       onChange={(e) => setReason(e.target.value)} />
+              </div>
+              <button type="button" className="btn danger" disabled={busy}
+                      onClick={() => void archivePolicy()}>
+                <ArchiveOutlined sx={{ fontSize: 16 }} /> Archive scope
+              </button>
+            </div>
+          )}
+
+          {manageError && <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{manageError}</p>}
+
+          <div className="compliance-history">
+            <p className="eyebrow"><HistoryOutlined sx={{ fontSize: 15 }} /> Change history</p>
+            {(history.data ?? []).map((event) => (
+              <div key={event.id}>
+                <span><strong>{event.action}</strong><small>{event.detail}</small></span>
+                <span className="note">r{event.revision} · {event.actor} · {event.createdAt}</span>
+                <span className="mono note">{event.sourceDigest.slice(0, 10)}</span>
+              </div>
+            ))}
+            {!history.isLoading && (history.data?.length ?? 0) === 0 && (
+              <p className="note">No changes have been recorded for {scopeKey}.</p>
+            )}
+          </div>
+        </section>
       )}
 
       <footer className="compliance-notice">
