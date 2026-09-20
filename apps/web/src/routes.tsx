@@ -339,6 +339,9 @@ export const router = createBrowserRouter([
       { path: 'wallet', element: suspended(W360Wallet) },
       { path: 'account', element: suspended(AccountDataPage) },
       { path: 'admin/compliance', element: suspended(W360ComplianceAdmin) },
+      { path: 'admin/members', element: suspended(W360DeskAssociates) },
+      { path: 'admin/members/enrol', element: suspended(W360DeskEnrol) },
+      { path: 'admin/members/:id', element: suspended(W360DeskAssociate) },
       // The desk. Inside the same shell as everything else on purpose: the
       // operator is also an owner with their own land, and a second shell
       // would mean a second wordmark, a second search box and a sign-out in a

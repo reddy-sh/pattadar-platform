@@ -339,6 +339,147 @@ export function PageHead({
   );
 }
 
+export interface FacetFilterOption {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface FacetFilterGroup {
+  key: string;
+  label: string;
+  options: FacetFilterOption[];
+}
+
+export interface FacetFilterChip {
+  id: string;
+  group: string;
+  label: string;
+  removeLabel: string;
+  onRemove: () => void;
+}
+
+/** The single faceted-filter surface used by list pages.
+ *
+ * Pages own only their filter values and domain labels. Opening, dismissal,
+ * active chips, counts and keyboard focus live here so a filter never changes
+ * its interaction model because the list underneath happens to be different. */
+export function FacetFilter({
+  groups, selected, onToggle, onClear, tally, trailing, extraChips = [],
+  groupLabel, missingOptionLabel, busy = false, ariaLabel = 'Narrow the list',
+}: {
+  groups: FacetFilterGroup[];
+  selected: Record<string, readonly string[]>;
+  onToggle: (groupKey: string, optionKey: string) => void;
+  onClear: () => void;
+  tally: ReactNode;
+  trailing?: ReactNode;
+  extraChips?: FacetFilterChip[];
+  groupLabel?: (groupKey: string, group?: FacetFilterGroup) => string;
+  missingOptionLabel?: (groupKey: string, optionKey: string) => string;
+  busy?: boolean;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wordFor = (key: string, group?: FacetFilterGroup) =>
+    groupLabel?.(key, group) ?? group?.label ?? statusWord(key);
+  const chips: FacetFilterChip[] = [
+    ...Object.entries(selected).flatMap(([groupKey, values]) => {
+      const group = groups.find((item) => item.key === groupKey);
+      const groupWord = wordFor(groupKey, group);
+      return values.map((optionKey) => {
+        const label = group?.options.find((option) => option.key === optionKey)?.label
+          ?? missingOptionLabel?.(groupKey, optionKey)
+          ?? statusWord(optionKey);
+        return {
+          id: `${groupKey}:${optionKey}`,
+          group: groupWord,
+          label,
+          removeLabel: `Remove filter ${groupWord} ${label}`,
+          onRemove: () => onToggle(groupKey, optionKey),
+        };
+      });
+    }),
+    ...extraChips,
+  ];
+  const visibleGroups = groups.filter((group) => group.options.length > 0);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const keys = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    window.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', keys);
+    return () => {
+      window.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', keys);
+    };
+  }, [open]);
+
+  return (
+    <div
+      className="filterbar" ref={rootRef} aria-busy={busy}
+      style={{ opacity: busy ? 0.6 : 1, transition: 'opacity var(--dur-fast) var(--ease-out)' }}
+    >
+      <button
+        ref={triggerRef} type="button" className="addfilter"
+        aria-expanded={open} aria-haspopup="true"
+        onClick={() => setOpen((shown) => !shown)}
+      >
+        + Filter
+      </button>
+
+      {chips.map((chip) => (
+        <span className="fchip" key={chip.id}>
+          <span className="grp">{chip.group}</span>
+          <span className="val">{chip.label}</span>
+          <button type="button" aria-label={chip.removeLabel} onClick={chip.onRemove}>×</button>
+        </span>
+      ))}
+
+      {chips.length > 0 && (
+        <button type="button" className="clearall" onClick={onClear}>Clear all</button>
+      )}
+
+      <span className="grow" />
+      <span className="tally" role="status">{tally}</span>
+      {trailing && <><span className="vrule" aria-hidden />{trailing}</>}
+
+      {open && (
+        <div className="fpop" role="group" aria-label={ariaLabel}>
+          {visibleGroups.map((group) => (
+            <div className="fgrp" key={group.key}>
+              <span className="eyebrow">{wordFor(group.key, group)}</span>
+              {group.options.map((option) => {
+                const on = (selected[group.key] ?? []).includes(option.key);
+                return (
+                  <button
+                    key={option.key} type="button" className="opt" aria-pressed={on}
+                    onClick={() => onToggle(group.key, option.key)}
+                  >
+                    <span className="box" aria-hidden>{on ? '✓' : ''}</span>
+                    <span className="lbl">{option.label}</span>
+                    <span className="n">{option.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Atoms ──────────────────────────────────────────────────────────────
 
 export function Chip({

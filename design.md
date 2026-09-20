@@ -322,6 +322,11 @@ again.
   finished amber line. `MuiLinearProgress` pins the track to `action.selected`.
 - **Content is measure-capped.** `AppShell` caps the routed area at `80rem`
   (`--max-width`) and centres it, so the app and marketing pages agree.
+- **A filter is one component, not a page treatment.** List pages use the
+  shared Web360 `FacetFilter`: one `+ Filter` trigger, checkbox facet groups,
+  counted options, removable active chips, `Clear all`, and an adjacent result
+  tally. Pages supply domain groups and values; they do not introduce their own
+  select bars, filter drawers, search-as-filter layouts, or dismissal behavior.
 
 ## Notes — anti-patterns NOT to carry over / reintroduce
 

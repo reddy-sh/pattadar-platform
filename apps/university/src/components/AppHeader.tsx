@@ -2,6 +2,7 @@ import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import ContrastRounded from '@mui/icons-material/ContrastRounded';
 import SchoolOutlined from '@mui/icons-material/SchoolOutlined';
 import SearchRounded from '@mui/icons-material/SearchRounded';
+import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import { Link, NavLink, useLocation } from 'react-router';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -9,11 +10,12 @@ export type ThemeChoice = 'light' | 'dark' | 'contrast';
 
 interface AppHeaderProps {
   onSearch: () => void;
+  onTutor: () => void;
   theme: ThemeChoice;
   onThemeChange: (theme: ThemeChoice) => void;
 }
 
-export function AppHeader({ onSearch, theme, onThemeChange }: AppHeaderProps) {
+export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeaderProps) {
   const { user, isLoading, isPreview, signIn, signOut } = useAuth();
   const location = useLocation();
   return (
@@ -29,7 +31,10 @@ export function AppHeader({ onSearch, theme, onThemeChange }: AppHeaderProps) {
           <kbd>⌘K</kbd>
         </button>
         <div className="app-header__actions">
-          <label className="theme-picker" title="Appearance">
+          <button className="icon-button mobile-tutor-button" type="button" onClick={onTutor} aria-label="Open AI tutor">
+            <SmartToyOutlined />
+          </button>
+          <label className="theme-picker">
             <ContrastRounded />
             <span className="sr-only">Appearance</span>
             <select value={theme} onChange={(event) => onThemeChange(event.target.value as ThemeChoice)}>
@@ -46,7 +51,7 @@ export function AppHeader({ onSearch, theme, onThemeChange }: AppHeaderProps) {
           ) : null}
           {user && isPreview ? <span className="preview-badge">Preview</span> : null}
           {user && !isPreview ? (
-            <button className="account-button" type="button" onClick={() => void signOut()} title="Sign out of Pattadar">
+            <button className="account-button" type="button" onClick={() => void signOut()} aria-label="Sign out of Pattadar">
               <AccountCircleOutlined /><span>{user.name}</span>
             </button>
           ) : null}

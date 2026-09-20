@@ -77,6 +77,7 @@ export function DeskAssociates() {
   const [q, setQ] = useState('');
   const [discipline, setDiscipline] = useState('');
   const [state, setState] = useState('');
+  const [readiness, setReadiness] = useState('');
 
   // Memoised on `data` so the three derivations below are not recomputed on
   // every keystroke: `data ?? []` is a fresh array identity each render, which
@@ -117,24 +118,29 @@ export function DeskAssociates() {
     return all.filter((a) => {
       if (discipline && !a.disciplines.some((d) => d.key === discipline)) return false;
       if (state && a.state !== state) return false;
+      if (readiness === 'certified'
+          && !a.disciplines.every((d) => ['verified', 'expiring'].includes(d.credentialState))) return false;
+      if (readiness === 'training' && !['required', 'in_training'].includes(a.trainingState)) return false;
+      if (readiness === 'working' && a.jobsOpen === 0) return false;
+      if (readiness === 'low_rating' && !(a.ratingCount >= 100 && a.ratingAverage < 3)) return false;
       if (needle && !haystack(a).includes(needle)) return false;
       return true;
     });
-  }, [all, q, discipline, state]);
+  }, [all, q, discipline, state, readiness]);
 
-  const narrowed = !!q.trim() || !!discipline || !!state;
-  const clear = () => { setQ(''); setDiscipline(''); setState(''); };
+  const narrowed = !!q.trim() || !!discipline || !!state || !!readiness;
+  const clear = () => { setQ(''); setDiscipline(''); setState(''); setReadiness(''); };
 
   return (
     <main>
       <PageHead
-        eyebrow="Pattadar desk"
-        title="Associates"
-        actions={<Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>}
+        eyebrow="Administration"
+        title="Company members"
+        actions={<Link className="btn primary" to="/app/admin/members/enrol">Add somebody</Link>}
       >
         <p className="lede" style={{ marginTop: '0.375rem' }}>
-          Everybody who takes jobs for Pattadar. Their numbers are on their own
-          pages, not on this list.
+          Surveyors, advocates, crews and other people who take company work.
+          Certification, workload and service ratings stay together here.
         </p>
       </PageHead>
 
@@ -144,7 +150,7 @@ export function DeskAssociates() {
           <Empty
             boxed h="18rem" icon="person" title="Nobody works for Pattadar yet."
             action={(
-              <Link className="btn primary" to="/app/desk/enrol">Add the first one</Link>
+              <Link className="btn primary" to="/app/admin/members/enrol">Add the first one</Link>
             )}
           >
             An associate is somebody who takes jobs — a surveyor, an advocate, a
@@ -182,6 +188,18 @@ export function DeskAssociates() {
                   onClick={() => setState((v) => (v === s.key ? '' : s.key))}
                 >
                   {s.word}
+                </Chip>
+              ))}
+              <span className="vrule" aria-hidden />
+              {[
+                { key: 'certified', label: 'Certified', count: all.filter((a) => a.disciplines.every((d) => ['verified', 'expiring'].includes(d.credentialState))).length },
+                { key: 'working', label: 'Working now', count: all.filter((a) => a.jobsOpen > 0).length },
+                { key: 'training', label: 'Needs training', count: all.filter((a) => ['required', 'in_training'].includes(a.trainingState)).length },
+                { key: 'low_rating', label: 'Below 3 after 100', count: all.filter((a) => a.ratingCount >= 100 && a.ratingAverage < 3).length },
+              ].filter((item) => item.count > 0).map((item) => (
+                <Chip key={item.key} count={item.count} active={readiness === item.key}
+                      onClick={() => setReadiness((v) => (v === item.key ? '' : item.key))}>
+                  {item.label}
                 </Chip>
               ))}
               {narrowed && (
@@ -247,6 +265,11 @@ export function DeskAssociates() {
                             {plural(a.jobsDone, 'job')} done
                           </span>
                         )}
+                        {a.ratingCount > 0 && (
+                          <span className="note" style={{ display: 'block' }}>
+                            {a.ratingAverage.toFixed(1)} / 5 · {plural(a.ratingCount, 'rating')}
+                          </span>
+                        )}
                         {/* The accept rate is hidden entirely below five
                             offers. Four out of four is 100% and means nothing
                             whatever; printed as a figure it is noise wearing a
@@ -262,7 +285,7 @@ export function DeskAssociates() {
                             : (a.whyNot.join(' · ') || 'Not taking work')}
                         </span>
                       </span>
-                      <Link className="btn sm" to={`/app/desk/associates/${a.id}`}>Open</Link>
+                      <Link className="btn sm" to={`/app/admin/members/${a.id}`}>Open</Link>
                     </div>
                   ))}
                 </div>

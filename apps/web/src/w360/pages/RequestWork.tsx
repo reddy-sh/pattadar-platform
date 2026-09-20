@@ -87,7 +87,8 @@ export function RequestWork() {
   const { data: bound } = useBoundary(id);
   const { data: photos } = usePhotos(id);
   const { data: papers } = usePapers(id);
-  const { data: orders, isLoading: ordersLoading, error: ordersError } = useOrders(id);
+  const { data: orders, isLoading: ordersLoading, error: ordersError } =
+    useOrders(id, false, true);
   const duplicate = openSameJob(orders, kind);
 
   const [asOwner, setAsOwner] = useState(true);

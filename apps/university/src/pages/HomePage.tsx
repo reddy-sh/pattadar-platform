@@ -27,7 +27,7 @@ export function HomePage({ onTutor }: HomePageProps) {
         <div className="catalog-intro__copy">
           <span className="context-line">Property learning · skills · supervised work</span>
           <h1>Learn the work behind land.</h1>
-          <p>Start as a buyer, seller, field professional, or Pattadar employee. Learn from reviewed material, practise with a mentor, earn a clear credential, and find work that matches the skill.</p>
+          <p>Explore pathways for buyers, sellers, field professionals, and Pattadar employees. Production courses will use reviewed material, supervised practice, governed credentials, and consented work matching.</p>
         </div>
         <div className="catalog-intro__status">
           <span>{enrollments.length ? `${enrollments.length} active learning path${enrollments.length === 1 ? '' : 's'}` : 'No course joined yet'}</span>
@@ -68,7 +68,7 @@ export function HomePage({ onTutor }: HomePageProps) {
           <header className="section-heading">
             <div>
               <h2>Learn toward real work</h2>
-              <p>Opportunities state the required course and human review step. A certificate never guarantees an assignment.</p>
+              <p>These proposed pathways show the required course and human review step. They are not open roles or guarantees of assignment.</p>
             </div>
             <Link className="text-action" to="/opportunities">View opportunities <ArrowForwardRounded /></Link>
           </header>
@@ -108,7 +108,7 @@ export function HomePage({ onTutor }: HomePageProps) {
         <header className="section-heading">
           <div>
             <h2 id="mentor-title">Practise with a mentor</h2>
-            <p>Mentors review field evidence and practice work. They do not silently complete assessments for learners.</p>
+            <p>These are mentor role profiles, not named or scheduled people. Production mentors require identity and qualification review.</p>
           </div>
         </header>
         <div className="mentor-list">

@@ -3,10 +3,8 @@
  *  This is the file somebody opens when an associate rings to ask why they
  *  stopped getting work, so it is built to answer that: what they do, where
  *  they work, what papers are on file and what state each is in, what they are
- *  holding right now, and an append-only trail of every decision anybody made
- *  about them. There is no rating and there is no score anywhere on this page.
- *  Neither exists, and inventing one here would be inventing a number that
- *  decides somebody's income.
+ *  holding right now, owner ratings, and an append-only trail of every
+ *  certification, training and company-message decision.
  *
  *  The number is masked until it is asked for. The roster deliberately carries
  *  no contact at all; this page carries one, behind a button, because revealing
@@ -24,8 +22,9 @@ import { Link, useParams } from 'react-router';
 
 import {
   useAssociate, useAssociateEvents, useDesk, useDeleteUnclaimedAssociate,
-  useDisciplines, useSetAssociateAreas, useSetAssociateDisciplines,
-  useSetAssociateState, useUpdateAssociate,
+  useDisciplines, useMessageAssociate, useSetAssociateAreas,
+  useSetAssociateCertification, useSetAssociateDisciplines,
+  useSetAssociateState, useSetAssociateTraining, useUpdateAssociate,
 } from '../api';
 import type { Associate, AssociateArea } from '../api';
 import { Dialog } from '../Dialog';
@@ -588,6 +587,12 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
   // only place in the API that knows which jobs are on which associate, and
   // "what are they holding" is the first question anybody opens this page with.
   const desk = useDesk('all');
+  const certification = useSetAssociateCertification();
+  const training = useSetAssociateTraining();
+  const message = useMessageAssociate();
+  const [memberError, setMemberError] = useState('');
+  const [companyMessage, setCompanyMessage] = useState('');
+  const [trainingNote, setTrainingNote] = useState(a.trainingNote);
 
   const [stateTo, setStateTo] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -610,6 +615,33 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
 
   const roles = a.disciplines.map((d) => d.label).join(', ');
   const places = a.areas.map((x) => x.label || x.name).join(', ');
+
+  const setCertified = async (discipline: string, certified: boolean) => {
+    setMemberError('');
+    try {
+      const res = await certification.mutateAsync({ id: a.id, discipline, certified });
+      if (!res.web.setAssociateCertification) setMemberError(WRITE_FAILED);
+    } catch { setMemberError(WRITE_FAILED); }
+  };
+
+  const setTraining = async (state: string) => {
+    setMemberError('');
+    try {
+      const res = await training.mutateAsync({ id: a.id, state, note: trainingNote.trim() });
+      if (!res.web.setAssociateTraining) setMemberError(WRITE_FAILED);
+    } catch { setMemberError(WRITE_FAILED); }
+  };
+
+  const sendCompanyMessage = async () => {
+    const body = companyMessage.trim();
+    if (!body) return;
+    setMemberError('');
+    try {
+      const res = await message.mutateAsync({ id: a.id, message: body });
+      if (!res.web.messageAssociate) { setMemberError(WRITE_FAILED); return; }
+      setCompanyMessage('');
+    } catch { setMemberError(WRITE_FAILED); }
+  };
 
   /** What the head menu offers, and nothing it cannot do. There is no Retire
    *  and no "send the claim link again": phase 1 mints no claim links and the
@@ -693,6 +725,13 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                     <span className="note mono" style={{ whiteSpace: 'nowrap' }}>
                       {d.openCount} of {d.capacity} in hand
                     </span>
+                    <button type="button" className="btn sm"
+                            disabled={certification.isPending}
+                            onClick={() => void setCertified(
+                              d.key, !['verified', 'expiring'].includes(d.credentialState))}>
+                      {['verified', 'expiring'].includes(d.credentialState)
+                        ? 'Revoke certification' : 'Mark certified'}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -731,9 +770,8 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           <Card title="Papers" aside={<span className="num muted">{a.credentials.length}</span>}>
             {a.credentials.length === 0 ? (
               <p className="note">
-                Nothing on file. A paper you have verified and that then expires will
-                pause that kind of work; a paper you never added does not — so an empty
-                list here stops nobody working.
+                Nothing is certified. This member cannot receive work until each active
+                discipline has verified evidence or a company verification.
               </p>
             ) : (
               <div className="rows">
@@ -764,11 +802,9 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                 })}
               </div>
             )}
-            {/* Verifying and refusing a paper is not in this phase, so no
-                button pretends to. What IS true today is said instead. */}
             <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-              Papers are recorded, not gating. Nothing here decides whether they can be
-              put on a job.
+              Certification is enforced by the server on owner assignment, desk assignment
+              and automatic candidate selection.
             </p>
           </Card>
 
@@ -831,6 +867,12 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           </Card>
 
           <Card title="How it has gone">
+            {a.ratingCount > 0 && (
+              <p style={{ marginBottom: 'var(--space-sm)' }}>
+                <strong>{a.ratingAverage.toFixed(1)} / 5</strong>{' '}
+                <span className="note">from {plural(a.ratingCount, 'completed service rating')}</span>
+              </p>
+            )}
             {a.offersSent === 0 ? (
               <p className="note">
                 Nothing has been offered to anybody yet. Pattadar does not send offers —
@@ -853,11 +895,41 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                 )}
               </div>
             )}
+            <div className="field" style={{ marginTop: 'var(--space-md)' }}>
+              <label htmlFor="training-note">Training decision</label>
+              <textarea id="training-note" rows={2} value={trainingNote}
+                        placeholder="Reason, course or company decision"
+                        onChange={(e) => setTrainingNote(e.target.value)} />
+            </div>
+            <div className="row tight">
+              <button type="button" className="btn sm" disabled={!trainingNote.trim() || training.isPending}
+                      onClick={() => void setTraining('required')}>Require training</button>
+              <button type="button" className="btn sm" disabled={!trainingNote.trim() || training.isPending}
+                      onClick={() => void setTraining('in_training')}>In training</button>
+              <button type="button" className="btn sm" disabled={training.isPending}
+                      onClick={() => void setTraining('cleared')}>Clear for work</button>
+            </div>
             <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-              Nothing here changes what they are offered. Stopping somebody is a decision
-              you make, not one the system makes.
+              Current training status: {humanise(a.trainingState)}. At 100 ratings, an
+              average below 3 automatically requires retraining and stops new allocation.
             </p>
           </Card>
+
+          <Card title="Message from the company">
+            <div className="field">
+              <label htmlFor="company-message">Message</label>
+              <textarea id="company-message" rows={3} value={companyMessage}
+                        placeholder="This is sent on their preferred channel and kept in the trail."
+                        onChange={(e) => setCompanyMessage(e.target.value)} />
+            </div>
+            <button type="button" className="btn primary"
+                    disabled={!companyMessage.trim() || message.isPending}
+                    onClick={() => void sendCompanyMessage()}>
+              {message.isPending ? 'Sending…' : 'Send message'}
+            </button>
+          </Card>
+
+          {memberError && <Refused>{memberError}</Refused>}
 
           <Card title="Everything that happened">
             {events.isLoading ? <Loading h="8rem" what="their trail" />
@@ -922,13 +994,13 @@ export function DeskAssociate() {
 
   return (
     <main>
-      <Crumbs trail={[{ label: 'The desk', to: '/app/desk' },
-                      { label: 'Associates', to: '/app/desk/associates' },
+      <Crumbs trail={[{ label: 'Administration', to: '/app/admin/members' },
+                      { label: 'Company members', to: '/app/admin/members' },
                       ...(data && !gone ? [{ label: data.name }] : [])]} />
       {gone ? (
         <Empty
           boxed h="18rem" icon="person" title="They have been removed."
-          action={<Link className="btn" to="/app/desk/associates">Back to the roster</Link>}
+          action={<Link className="btn" to="/app/admin/members">Back to the roster</Link>}
         >
           Nothing of theirs is kept. Nobody will be offered a job in their name again.
         </Empty>

@@ -1159,36 +1159,6 @@
 .w360 .paper-request-purpose { display: block; margin-top: 0.3125rem; line-height: 1.35; }
 .w360 .paper-request-actions { grid-column: 2 / -1; }
 
-/* Cross-record service filters. Search owns the flexible track; selects keep
-   stable widths so changing an option never shifts the list below them. */
-.w360 .service-order-filters {
-  display: grid;
-  grid-template-columns: minmax(15rem, 1fr) repeat(4, minmax(9rem, 0.55fr)) auto auto;
-  gap: var(--space-sm);
-  align-items: end;
-  margin: var(--space-md) 0;
-  padding: var(--space-md) 0;
-  border-top: 1px solid var(--w-line);
-  border-bottom: 1px solid var(--w-line);
-}
-.w360 .service-order-search { width: auto; min-height: 2.375rem; align-self: end; }
-.w360 .service-filter-field { display: grid; gap: 0.3125rem; min-width: 0; }
-.w360 .service-filter-field > span {
-  color: var(--w-ink-3);
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  text-transform: uppercase;
-}
-.w360 .service-filter-field select { width: 100%; min-width: 0; height: 2.375rem; }
-.w360 .service-filter-count {
-  align-self: center;
-  white-space: nowrap;
-  color: var(--w-ink-3);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-}
-.w360 .service-order-filters > .clearall { align-self: center; white-space: nowrap; }
-
 /* Batch headings divide one service list without nesting cards. */
 .w360 .service-batch-head {
   display: flex;
@@ -1201,14 +1171,7 @@
 }
 .w360 .service-batch-head .note { margin-left: auto; }
 
-@media (max-width: 1180px) {
-  .w360 .service-order-filters { grid-template-columns: minmax(14rem, 1fr) repeat(2, minmax(9rem, 0.65fr)); }
-  .w360 .service-filter-count,
-  .w360 .service-order-filters > .clearall { justify-self: start; }
-}
-
 @media (max-width: 720px) {
-  .w360 .service-order-filters { grid-template-columns: minmax(0, 1fr); }
   .w360 .paper-request-grid { grid-template-columns: minmax(0, 1fr); }
   .w360 .paper-request-tile { grid-template-columns: 2.25rem minmax(0, 1fr); }
   .w360 .paper-request-tile > .num { grid-column: 2; }
@@ -3995,6 +3958,16 @@
    in ink-3. Only its fixed two columns are wrong inside a main that is 20rem
    narrower than the record grid's. One line, one property. */
 .w360 .choice.svc { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.w360 .choice.svc .svc-existing {
+  text-align: left; padding: 0.625rem 0.75rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--w-line); background: var(--w-surface-2); color: var(--w-ink);
+}
+.w360 .choice.svc .svc-existing > .link {
+  display: inline-block; margin-top: var(--space-xs); font-size: 0.75rem; font-weight: 600;
+}
+.w360 .choice.svc button:disabled {
+  cursor: not-allowed; color: var(--w-ink-2); background: var(--w-surface-2); opacity: 0.72;
+}
 
 /* `.kv > div` is flex/space-between with no wrap and `.kv .v` is right-aligned
    mono. The server's own field labels are sentences — "Is a neighbour disputing

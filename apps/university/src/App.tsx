@@ -1,4 +1,3 @@
-import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import { useEffect, useState } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router';
 import { AiTutor } from './components/AiTutor';
@@ -33,6 +32,10 @@ export function App() {
     window.localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
   const openTutor = (course?: Course) => {
     setTutorCourse(course);
     setTutorOpen(true);
@@ -44,7 +47,7 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <AppHeader onSearch={() => setCommandOpen(true)} theme={theme} onThemeChange={setTheme} />
+      <AppHeader onSearch={() => setCommandOpen(true)} onTutor={() => openTutor()} theme={theme} onThemeChange={setTheme} />
       <Routes>
         <Route path="/" element={<HomePage onTutor={openTutor} />} />
         <Route path="/courses/:slug" element={<CoursePage onTutor={openTutor} />} />
@@ -60,9 +63,6 @@ export function App() {
         )} />
       </Routes>
       <Footer />
-      <button className="tutor-launcher" type="button" onClick={() => openTutor()} aria-label="Open AI tutor" title="Open AI tutor">
-        <SmartToyOutlined /><span>AI tutor</span>
-      </button>
       <CommandPalette open={commandOpen} onOpen={() => setCommandOpen(true)} onClose={() => setCommandOpen(false)} />
       <AiTutor open={tutorOpen} course={tutorCourse} onClose={() => setTutorOpen(false)} />
     </div>

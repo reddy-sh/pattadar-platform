@@ -31,9 +31,9 @@ export function LocationPage() {
           <p>{campus.mode}</p>
         </div>
       </header>
-      <div className="location-notice"><strong>Address pending approval</strong><span>{campus.address}</span></div>
+      <div className="location-notice"><strong>Proposed location</strong><span>{campus.address}</span></div>
       <section aria-labelledby="local-courses-title">
-        <header className="section-heading"><div><h2 id="local-courses-title">Courses at this location</h2><p>Online lessons remain available everywhere; these paths include local mentor or field sessions.</p></div></header>
+        <header className="section-heading"><div><h2 id="local-courses-title">Planned courses for this location</h2><p>Online lessons can remain available everywhere; these paths are candidates for local mentor or field sessions after approval.</p></div></header>
         <div className="course-grid">
           {localCourses.map((course) => (
             <CourseCard key={course.id} course={course} enrollment={enrollmentFor(course.id)} onJoin={joinCourse} />
@@ -41,7 +41,7 @@ export function LocationPage() {
         </div>
       </section>
       <section className="location-mentors" aria-labelledby="local-mentors-title">
-        <header className="section-heading"><div><h2 id="local-mentors-title">Local mentors</h2><p>Availability is published only after identity and qualification review.</p></div></header>
+        <header className="section-heading"><div><h2 id="local-mentors-title">Planned mentor roles</h2><p>Named people and availability are published only after identity and qualification review.</p></div></header>
         {localMentors.length ? localMentors.map((mentor) => (
           <article className="mentor-row" key={mentor.id}>
             <span className="mentor-row__initials" aria-hidden="true">{mentor.name.split(' ').map((part) => part[0]).join('')}</span>

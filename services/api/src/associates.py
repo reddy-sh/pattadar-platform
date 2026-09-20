@@ -78,6 +78,8 @@ DDL: tuple = (
         token_expires_on TEXT NOT NULL DEFAULT '',
         enrolled_by TEXT NOT NULL DEFAULT '',
         last_offered_at TEXT NOT NULL DEFAULT '',
+        training_state TEXT NOT NULL DEFAULT 'not_required',
+        training_note TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT ''
     )""",
     # One human, one row. The fold happens in Python (`contact_key` below),
@@ -90,6 +92,10 @@ DDL: tuple = (
     " ON associates (recipient_user_id) WHERE recipient_user_id <> ''",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_associates_token"
     " ON associates (token_hash) WHERE token_hash <> ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS training_state"
+    " TEXT NOT NULL DEFAULT 'not_required'",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS training_note"
+    " TEXT NOT NULL DEFAULT ''",
 
     # ── What they do ───────────────────────────────────────────────────
     #
@@ -142,10 +148,8 @@ DDL: tuple = (
 
     # ── What they can prove ────────────────────────────────────────────
     #
-    # Recorded, not gating — until one has been verified and then lapses.
-    # Requiring a licence PDF before anybody can be dispatched empties the
-    # roster for the whole of the cold-start period, which is the period
-    # that decides whether there is a marketplace at all.
+    # Gating by discipline. Regulated work uses its licence; other work uses a
+    # company verification, so every allocation has an explicit approval.
     #
     # The number is masked for display and encrypted at rest, the same
     # posture the Aadhaar decision set for this codebase.
@@ -171,6 +175,22 @@ DDL: tuple = (
     "CREATE INDEX IF NOT EXISTS idx_assoc_cred ON associate_credentials (associate_id)",
     "CREATE INDEX IF NOT EXISTS idx_assoc_cred_expiry"
     " ON associate_credentials (expires_on) WHERE review = 'verified'",
+    # One owner verdict per completed service. Aggregates are derived in the
+    # roster query so a corrected review cannot leave a stale score behind.
+    """CREATE TABLE IF NOT EXISTS associate_reviews (
+        id TEXT PRIMARY KEY,
+        associate_id TEXT NOT NULL,
+        ticket_id TEXT NOT NULL,
+        owner_user_id TEXT NOT NULL,
+        rating INTEGER NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_assoc_review_ticket"
+    " ON associate_reviews (ticket_id)",
+    "CREATE INDEX IF NOT EXISTS idx_assoc_reviews_member"
+    " ON associate_reviews (associate_id, rating)",
 
     # ── Their trail ────────────────────────────────────────────────────
     #
@@ -375,6 +395,8 @@ DISCIPLINES: dict = {
                    "village", "", 3),
         Discipline("landscaper", "Landscaping & plantation", ("fencing",),
                    "village", "", 3),
+        Discipline("developer", "Property developer", ("fencing", "visit"),
+                   "district", "RERA / company verification", 2),
         Discipline("labour", "Labour & crew", ("fencing", "visit"),
                    "village", "", 2),
     )
@@ -398,10 +420,9 @@ AREA_RANK: dict = {level: i for i, level in enumerate(AREA_LEVELS)}
 #: is the desk's decision and requires a reason.
 STATES: tuple = ("invited", "active", "paused", "blocked")
 
-#: A state that can be offered work. `invited` is included deliberately: the
-#: desk enrols somebody precisely so it can send them a job, and a roster
-#: where the first offer requires a second click to "activate" is a roster
-#: that is always one step out of date.
+#: A state that may be considered for work. Certification is a separate gate,
+#: so a newly invited member appears in candidate explanations but cannot be
+#: allocated a task until their active discipline is verified.
 OFFERABLE: frozenset = frozenset(("invited", "active"))
 
 
@@ -426,6 +447,16 @@ def disciplines_for(kind: str) -> tuple:
 def label_of(discipline: str) -> str:
     d = DISCIPLINES.get((discipline or "").strip())
     return d.label if d else (discipline or "").replace("_", " ").strip().capitalize()
+
+
+def credential_for(discipline: str) -> str:
+    """The evidence required before this line of work can be dispatched.
+
+    Regulated work names its licence. Other work still needs a company review;
+    "no statutory licence" must never be mistaken for "not verified".
+    """
+    d = DISCIPLINES.get((discipline or "").strip())
+    return (d.credential if d and d.credential else "Company verification")
 
 
 # ── Folding names ──────────────────────────────────────────────────────
@@ -627,6 +658,20 @@ def dispatchable(associate: dict, discipline: str, open_jobs: int) -> tuple:
         return False, associate.get("discipline_reason") or f"{label_of(discipline)} suspended"
     if d_state != "on":
         return False, f"Not offering {label_of(discipline).lower()}"
+    credential_state = (associate.get("credential_state") or "").strip()
+    if credential_state not in ("verified", "expiring"):
+        if credential_state == "lapsed":
+            return False, f"{credential_for(discipline)} lapsed"
+        if credential_state == "rejected":
+            return False, f"{credential_for(discipline)} was not approved"
+        return False, f"{credential_for(discipline)} must be verified"
+    reviews = int(associate.get("rating_count") or 0)
+    average = float(associate.get("rating_average") or 0)
+    training = (associate.get("training_state") or "not_required").strip()
+    if training in ("required", "in_training"):
+        return False, associate.get("training_note") or "Retraining required"
+    if reviews >= 100 and average < 3 and training != "cleared":
+        return False, "Rating below 3 after 100 services; retraining required"
     cap = associate.get("capacity")
     cap = int(cap) if cap is not None else 3
     top = associate.get("max_open")

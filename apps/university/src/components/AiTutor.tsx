@@ -68,7 +68,7 @@ export function AiTutor({ open, course, onClose }: AiTutorProps) {
       <div className="tutor-dialog__head">
         <span className="icon-box"><SmartToyOutlined /></span>
         <div><strong>AI tutor</strong><small>{course?.title ?? 'Pattadar University'}</small></div>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Close AI tutor" title="Close AI tutor">
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close AI tutor">
           <CloseRounded />
         </button>
       </div>
@@ -99,11 +99,11 @@ export function AiTutor({ open, course, onClose }: AiTutorProps) {
           placeholder="Ask about this course"
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button className="icon-button icon-button--accent" type="submit" aria-label="Send question" title="Send question" disabled={!draft.trim()}>
+        <button className="icon-button icon-button--accent" type="submit" aria-label="Send question" disabled={!draft.trim()}>
           <SendRounded />
         </button>
       </form>
-      <p className="tutor-dialog__note">Answers use approved course material. Live property, legal, or safety decisions go to a qualified person.</p>
+      <p className="tutor-dialog__note">This preview uses the course outline. Production answers will cite approved passages; live property, legal, or safety decisions go to a qualified person.</p>
     </dialog>
   );
 }

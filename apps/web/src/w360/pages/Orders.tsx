@@ -10,13 +10,13 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
-import SearchOutlined from '@mui/icons-material/SearchOutlined';
 
 import { useAssignRequest, useAssignable, useOrders, useRecordHistory } from '../api';
 import type { Order } from '../api';
 import {
-  Card, Chip, Empty, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, ddmmyyyy, inr, plural,
+  Card, Chip, Empty, FacetFilter, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, ddmmyyyy, inr, plural,
 } from '../ui';
+import type { FacetFilterGroup } from '../ui';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
 
@@ -44,6 +44,12 @@ const recordTypeLabel = (order: Order) => {
   };
   return known[key] ?? key.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase());
 };
+
+type ServiceFilterKey = 'record' | 'service' | 'propertyType' | 'location' | 'status';
+type ServiceFilters = Record<ServiceFilterKey, string[]>;
+const emptyServiceFilters = (): ServiceFilters => ({
+  record: [], service: [], propertyType: [], location: [], status: [],
+});
 
 /** The stored answers, as label/value pairs a person can read.
  *
@@ -529,52 +535,60 @@ export function Assigned() {
 
 export function Services() {
   const [closed, setClosed] = useState(false);
-  const [query, setQuery] = useState('');
-  const [serviceKind, setServiceKind] = useState('');
-  const [recordType, setRecordType] = useState('');
-  const [location, setLocation] = useState('');
-  const [status, setStatus] = useState('');
+  const [filters, setFilters] = useState<ServiceFilters>(emptyServiceFilters);
   const { data, isLoading, error } = useOrders(undefined, closed);
   const bare = !closed && !isLoading && !!data && data.length === 0;
-  const options = useMemo(() => {
+  const groups = useMemo<FacetFilterGroup[]>(() => {
     const rows = data ?? [];
-    const services = new Map<string, string>();
-    const records = new Map<string, string>();
-    const statuses = new Map<string, string>();
-    const locations = new Set<string>();
-    rows.forEach((order) => {
-      services.set(order.kind, order.title);
-      const recordKey = `${order.recordKind}:${order.recordClassification}`;
-      if (order.recordKind || order.recordClassification) records.set(recordKey, recordTypeLabel(order));
-      if (order.recordLocation) locations.add(order.recordLocation);
-      statuses.set(order.status, order.statusLabel);
-    });
-    return {
-      services: [...services].sort((a, b) => a[1].localeCompare(b[1])),
-      records: [...records].sort((a, b) => a[1].localeCompare(b[1])),
-      locations: [...locations].sort((a, b) => a.localeCompare(b)),
-      statuses: [...statuses].sort((a, b) => a[1].localeCompare(b[1])),
+    const facet = (
+      key: ServiceFilterKey, label: string,
+      valueOf: (order: Order) => string, labelOf: (order: Order) => string,
+    ): FacetFilterGroup => {
+      const options = new Map<string, { label: string; count: number }>();
+      rows.forEach((order) => {
+        const value = valueOf(order);
+        if (!value) return;
+        const current = options.get(value);
+        options.set(value, { label: current?.label ?? labelOf(order), count: (current?.count ?? 0) + 1 });
+      });
+      return {
+        key, label,
+        options: [...options].map(([optionKey, option]) => ({ key: optionKey, ...option }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      };
     };
+    return [
+      facet('record', 'Survey / property', (order) => order.recordId, (order) => order.recordTitle),
+      facet('service', 'Service', (order) => order.kind, (order) => order.title),
+      facet('propertyType', 'Property type',
+        (order) => `${order.recordKind}:${order.recordClassification}`, recordTypeLabel),
+      facet('location', 'Location', (order) => order.recordLocation, (order) => order.recordLocation),
+      facet('status', 'Status', (order) => order.status, (order) => order.statusLabel),
+    ];
   }, [data]);
   const filtered = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
+    const accepts = (key: ServiceFilterKey, value: string) =>
+      filters[key].length === 0 || filters[key].includes(value);
     return (data ?? []).filter((order) => {
       const recordKey = `${order.recordKind}:${order.recordClassification}`;
-      const haystack = [
-        order.recordTitle, order.recordLocation, order.title, order.ref,
-        order.batchRef, order.assignee, recordTypeLabel(order), order.statusLabel,
-      ].join(' ').toLocaleLowerCase();
-      return (!needle || haystack.includes(needle))
-        && (!serviceKind || order.kind === serviceKind)
-        && (!recordType || recordKey === recordType)
-        && (!location || order.recordLocation === location)
-        && (!status || order.status === status);
+      return accepts('record', order.recordId)
+        && accepts('service', order.kind)
+        && accepts('propertyType', recordKey)
+        && accepts('location', order.recordLocation)
+        && accepts('status', order.status);
     });
-  }, [data, location, query, recordType, serviceKind, status]);
-  const hasFilters = !!(query.trim() || serviceKind || recordType || location || status);
-  const clearFilters = () => {
-    setQuery(''); setServiceKind(''); setRecordType(''); setLocation(''); setStatus('');
+  }, [data, filters]);
+  const hasFilters = Object.values(filters).some((values) => values.length > 0);
+  const toggleFilter = (groupKey: string, optionKey: string) => {
+    const key = groupKey as ServiceFilterKey;
+    setFilters((current) => ({
+      ...current,
+      [key]: current[key].includes(optionKey)
+        ? current[key].filter((value) => value !== optionKey)
+        : [...current[key], optionKey],
+    }));
   };
+  const clearFilters = () => setFilters(emptyServiceFilters());
   return (
     <main>
       <PageHead
@@ -605,46 +619,14 @@ export function Services() {
       </PageHead>
       {!bare && <OpenFilter closed={closed} setClosed={setClosed} />}
       {!isLoading && data && data.length > 0 && (
-        <section className="service-order-filters" aria-label="Filter service requests">
-          <span className="search service-order-search">
-            <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
-            <input value={query} onChange={(e) => setQuery(e.target.value)}
-                   aria-label="Search by survey, property, location or request"
-                   placeholder="Survey, property, location or request" />
-          </span>
-          <label className="service-filter-field">
-            <span>Service</span>
-            <select value={serviceKind} onChange={(e) => setServiceKind(e.target.value)}>
-              <option value="">All services</option>
-              {options.services.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-            </select>
-          </label>
-          <label className="service-filter-field">
-            <span>Property type</span>
-            <select value={recordType} onChange={(e) => setRecordType(e.target.value)}>
-              <option value="">All property types</option>
-              {options.records.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-            </select>
-          </label>
-          <label className="service-filter-field">
-            <span>Location</span>
-            <select value={location} onChange={(e) => setLocation(e.target.value)}>
-              <option value="">All locations</option>
-              {options.locations.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="service-filter-field">
-            <span>Status</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All statuses</option>
-              {options.statuses.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-            </select>
-          </label>
-          <span className="service-filter-count">
-            {hasFilters ? `${filtered.length} of ${data.length}` : plural(data.length, 'request')}
-          </span>
-          {hasFilters && <button type="button" className="clearall" onClick={clearFilters}>Clear filters</button>}
-        </section>
+        <FacetFilter
+          groups={groups}
+          selected={filters}
+          onToggle={toggleFilter}
+          onClear={clearFilters}
+          tally={`${filtered.length} of ${data.length} shown`}
+          ariaLabel="Filter service requests"
+        />
       )}
       {isLoading ? <Loading h="14rem" />
         : !data ? <Failed what="Work you have ordered" error={error} boxed h="16rem" />

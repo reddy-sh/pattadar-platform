@@ -10,7 +10,7 @@ import { CourseVisual } from '../components/CourseVisual';
 import { courseBySlug, roleLabels } from '../data/catalog';
 import { progressFor } from '../domain/learning';
 import type { Course } from '../domain/types';
-import { downloadCertificate, downloadCourseGuide } from '../pdf/coursePdf';
+import { downloadCompletionPreview, downloadCourseGuide } from '../pdf/coursePdf';
 import { useUniversity } from '../state/UniversityProvider';
 
 export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
@@ -34,7 +34,7 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
   const completed = new Set(enrollment?.completedModuleIds ?? []);
 
   return (
-    <main className={enrollment ? 'course-page' : 'course-page course-page--with-sticky'}>
+    <main className="course-page">
       <div className="page-shell">
         <Link className="back-link" to="/"><ArrowBackRounded /> Course catalog</Link>
         <section className="course-overview">
@@ -87,17 +87,17 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
             <div><span>Content version</span><strong>{course.contentVersion}</strong></div>
             <div className="course-resources">
               <span>Resources</span>
-              <button className="resource-button" type="button" disabled={!enrollment} onClick={() => downloadCourseGuide(course)}>
+              <button className="resource-button" type="button" disabled={!enrollment} onClick={() => void downloadCourseGuide(course)}>
                 <DownloadRounded /> Download course guide <small>PDF</small>
               </button>
               <button
                 className="resource-button"
                 type="button"
                 disabled={progress !== 100}
-                title={progress === 100 ? 'Download certificate' : 'Complete every module to unlock the certificate'}
-                onClick={() => downloadCertificate(course, user?.name ?? 'Pattadar learner')}
+                aria-label={progress === 100 ? 'Download completion preview' : 'Completion preview locked until every module is complete'}
+                onClick={() => void downloadCompletionPreview(course, user?.name ?? 'Pattadar learner')}
               >
-                <WorkspacePremiumOutlined /> Download certificate <small>{progress === 100 ? 'PDF' : 'Locked'}</small>
+                <WorkspacePremiumOutlined /> Completion preview <small>{progress === 100 ? 'PDF' : 'Locked'}</small>
               </button>
             </div>
             <p className="boundary-note">This course teaches a repeatable process. Live legal, survey, engineering, or safety decisions still require a qualified professional.</p>
@@ -105,12 +105,6 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
         </section>
       </div>
 
-      {!enrollment ? (
-        <aside className="join-bar" aria-label="Join this course">
-          <span><strong>{course.title}</strong><small>{course.priceLabel} · Terms shown before any paid enrollment</small></span>
-          <button className="button button--primary" type="button" onClick={() => void joinCourse(course.id)}>Join course</button>
-        </aside>
-      ) : null}
     </main>
   );
 }

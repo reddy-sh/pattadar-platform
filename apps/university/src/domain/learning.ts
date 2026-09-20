@@ -67,24 +67,24 @@ export function answerTutor(course: Course | undefined, question: string): Tutor
   }
   if (/certificate|certification|credential/.test(normalized)) {
     return {
-      text: 'Complete every module and its assessment to unlock the Pattadar skill certificate. It is an industry credential from Pattadar, not a government licence unless a course explicitly says otherwise.',
-      sources: course ? [`${course.title} · credential policy`] : ['Credential policy'],
+      text: 'In this preview, completing every module unlocks a clearly marked completion record. Production credentials also require the published assessment, reviewer approval, and a server-issued verification record. They are not government licences unless a course explicitly proves otherwise.',
+      sources: course ? [`Preview outline · ${course.title} · credential policy`] : ['Preview credential policy'],
       needsHuman: false,
     };
   }
   if (/job|work|employment|mentor/.test(normalized)) {
     return {
-      text: 'Finish the practitioner modules, publish your verified skill profile, then review matching work under Opportunities. A mentor can review your first field submission before you make the profile visible.',
-      sources: ['Employment pathway', 'Mentor review standard'],
+      text: 'The preview shows planned pathways under Opportunities. In production, a learner would finish the required modules, pass human review, and explicitly consent before a verified employer can receive a skill profile.',
+      sources: ['Preview employment pathway', 'Proposed mentor review standard'],
       needsHuman: false,
     };
   }
   const moduleTitles = course?.modules.slice(0, 3).map((module) => module.title) ?? [];
   return {
     text: course
-      ? `Start with ${moduleTitles.join(', ')}. I will answer from this course and name the lesson I used; for a live parcel or client matter, ask a Pattadar professional to review the actual records.`
-      : 'Choose a course and I will teach from its approved lessons, quiz you on the key decisions, and point to a human mentor when the question depends on live records.',
-    sources: course ? moduleTitles.map((title) => `${course.title} · ${title}`) : ['Tutor use policy'],
+      ? `Start with ${moduleTitles.join(', ')}. This preview can guide you through the outline; the production tutor will cite approved passages. For a live parcel or client matter, ask a qualified person to review the actual records.`
+      : 'Choose a course to explore its preview outline. The production tutor will teach from approved lessons, quiz key decisions, and route live-record questions to a qualified person.',
+    sources: course ? moduleTitles.map((title) => `Preview outline · ${course.title} · ${title}`) : ['Preview tutor use policy'],
     needsHuman: false,
   };
 }

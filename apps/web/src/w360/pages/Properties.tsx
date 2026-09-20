@@ -58,7 +58,7 @@ import type { FacetGroup, PropertyFilter, PropertyList, RecordCard } from '../ap
 import { mintKey } from '../orderFlow';
 import type { MenuItem } from '../ui';
 import {
-  Chip, Empty, Failed, Icon, Menu, PageHead, PhotoImg, Pill, Tag,
+  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, Tag,
   coords, csvCell, inr, inrOr, num, plural, statusWord,
 } from '../ui';
 import { Sk, SkPortfolioMap, SkRecordCards, SkRecordTable } from '../skeletons';
@@ -339,7 +339,7 @@ const GROUP_WORD: Record<string, string> = {
   kind: 'Kind', status: 'Status', stake: 'My stake',
   derived: 'Village & khata', tags: 'Your tags', group: 'Family / group',
 };
-const groupWord = (key: string, g?: FacetGroup) => GROUP_WORD[key] ?? g?.label ?? key;
+const groupWord = (key: string, g?: Pick<FacetGroup, 'label'>) => GROUP_WORD[key] ?? g?.label ?? key;
 
 /** How many cards the grid draws before it offers to draw more. */
 const PAGE = 24;
@@ -364,11 +364,8 @@ export function Properties() {
   const [lit, setLit] = useState<string | null>(null);
   const mapRef = useRef<PortfolioCanvasHandle>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
-  const filterBtnRef = useRef<HTMLButtonElement>(null);
   const [sort, setSort] = useState<Sort>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [filterOpen, setFilterOpen] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const [drawer, setDrawer] = useState<{ card: RecordCard | null } | null>(null);
   const [confirm, setConfirm] =
@@ -526,11 +523,7 @@ export function Properties() {
   const archivedCount = (data?.facets ?? []).find((g) => g.key === 'status')
     ?.options.find((o) => o.key === 'archived')?.count ?? 0;
 
-  /** The groups the popover draws. A group the server sent no options for is
-   *  dropped here rather than rendered as a heading with nothing under it —
-   *  which is exactly what the rail did with "Derived" and "Your tags" on an
-   *  account that had neither. */
-  const groups = (data?.facets ?? []).filter((g) => g.options.length > 0);
+  const groups = data?.facets ?? [];
 
   /** Everything currently narrowing the list, as one flat list of chips.
    *
@@ -547,35 +540,9 @@ export function Properties() {
    *  The group's word rides on each chip because two groups can offer the same
    *  word — "Owned" is both a status and a stake — and a bare chip saying
    *  "Owned" would not say which one came off when it was dismissed. */
-  const chips = [
-    ...Object.entries(FIELD).flatMap(([key, field]) => {
-      const g = (data?.facets ?? []).find((x) => x.key === key);
-      return (filter[field] ?? []).map((value) => {
-        // A tag and a village name are already the words the owner uses; only
-        // the system's own keys need humanising.
-        const label = g?.options.find((o) => o.key === value)?.label
-          ?? (key === 'tags' || key === 'derived' ? value : statusWord(value));
-        return {
-          id: `${key}:${value}`,
-          group: groupWord(key, g),
-          label,
-          removeLabel: `Remove filter ${groupWord(key, g)} ${label}`,
-          off: () => toggle(key, value),
-        };
-      });
-    }),
-    // The search is a chip like any other facet, because it narrows the same
-    // list. Its dismiss keeps the accessible name it had in the page head:
-    // that name is the only handle anything has ever had on a search that
-    // arrived from the jump box.
-    ...(q ? [{
-      id: 'q',
-      group: 'Search',
-      label: params.get('q') ?? '',
-      removeLabel: `Clear the search for ${params.get('q')}`,
-      off: dropQ,
-    }] : []),
-  ];
+  const facetSelection = Object.fromEntries(
+    Object.entries(FIELD).map(([key, field]) => [key, filter[field]]),
+  );
 
   /** The map draws `cards` — the filtered list — and not every record the
    *  account holds. The facets, the search box and the map are then three views
@@ -627,33 +594,6 @@ export function Properties() {
   const narrowKey = [...Object.values(PARAM).map((prm) => params.getAll(prm).join(',')),
     params.get('q') ?? ''].join('|');
   useEffect(() => { setSelected(new Set()); setLimit(PAGE); }, [narrowKey]);
-
-  /** The popover closes on a click anywhere else and on Escape.
-   *
-   *  Both listeners are on the window, not on the button: the handoff points at
-   *  the jump box in Shell.tsx, but that one's Escape is an `onKeyDown` on its
-   *  own <input>, which stops firing the moment focus moves into the list it
-   *  opened. The Menu component's effect in ui.tsx is the pattern that actually
-   *  works, and this mirrors it — including handing focus back to the trigger,
-   *  so Escape does not drop a keyboard user at the top of the document. */
-  useEffect(() => {
-    if (!filterOpen) return;
-    const away = (e: PointerEvent) => {
-      if (!filterRef.current?.contains(e.target as Node)) setFilterOpen(false);
-    };
-    const keys = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      setFilterOpen(false);
-      filterBtnRef.current?.focus();
-    };
-    window.addEventListener('pointerdown', away);
-    window.addEventListener('keydown', keys);
-    return () => {
-      window.removeEventListener('pointerdown', away);
-      window.removeEventListener('keydown', keys);
-    };
-  }, [filterOpen]);
 
   // `?new=1` opens the add drawer on arrival, so "Add" elsewhere in the app is
   // one click rather than two — it used to land you on this list with the
@@ -949,73 +889,33 @@ export function Properties() {
             nothing to narrow, and a row of controls over an empty page is the
             furniture problem the rail had, moved sideways. */}
         {data && !virgin && (
-          <div className="filterbar" ref={filterRef} aria-busy={isFetching} style={settling}>
-            <button
-              ref={filterBtnRef}
-              type="button" className="addfilter"
-              aria-expanded={filterOpen} aria-haspopup="true"
-              onClick={() => setFilterOpen((on) => !on)}
-            >
-              + Filter
-            </button>
-
-            {chips.map((c) => (
-              <span className="fchip" key={c.id}>
-                <span className="grp">{c.group}</span>
-                <span className="val">{c.label}</span>
-                <button type="button" aria-label={c.removeLabel} onClick={c.off}>×</button>
-              </span>
-            ))}
-
-            {chips.length > 0 && (
-              <button type="button" className="clearall" onClick={clearAll}>Clear all</button>
+          <FacetFilter
+            groups={groups}
+            selected={facetSelection}
+            onToggle={toggle}
+            onClear={clearAll}
+            tally={`${shownCount} of ${data.total} shown`}
+            busy={isFetching}
+            groupLabel={groupWord}
+            missingOptionLabel={(key, value) =>
+              key === 'tags' || key === 'derived' ? value : statusWord(value)}
+            extraChips={q ? [{
+              id: 'q', group: 'Search', label: params.get('q') ?? '',
+              removeLabel: `Clear the search for ${params.get('q')}`,
+              onRemove: dropQ,
+            }] : []}
+            trailing={(
+              <button
+                type="button" className="sortcycle"
+                onClick={() => {
+                  const at = SORT_PRESETS.findIndex((p) => p.label === sortLabel(sort));
+                  setSort(SORT_PRESETS[(at + 1 + SORT_PRESETS.length) % SORT_PRESETS.length].sort);
+                }}
+              >
+                Sort: {sortLabel(sort)} ⌄
+              </button>
             )}
-
-            <span className="grow" />
-
-            {/* The same words the count has always used, in the place the
-                count now belongs: beside the filter it is a fact about, rather
-                than in an amber chip next to the headline where it read as a
-                fact about the land. */}
-            <span className="tally" role="status">
-              {shownCount} of {data.total} shown
-            </span>
-            <span className="vrule" aria-hidden />
-            {/* One chip that cycles, rather than a select: there are four
-                orderings and three of them are one click away at any moment. */}
-            <button
-              type="button" className="sortcycle"
-              onClick={() => {
-                const at = SORT_PRESETS.findIndex((p) => p.label === sortLabel(sort));
-                setSort(SORT_PRESETS[(at + 1 + SORT_PRESETS.length) % SORT_PRESETS.length].sort);
-              }}
-            >
-              Sort: {sortLabel(sort)} ⌄
-            </button>
-
-            {filterOpen && (
-              <div className="fpop" role="group" aria-label="Narrow the list">
-                {groups.map((g) => (
-                  <div className="fgrp" key={g.key}>
-                    <span className="eyebrow">{groupWord(g.key, g)}</span>
-                    {g.options.map((o) => {
-                      const on = (filter[FIELD[g.key]] ?? []).includes(o.key);
-                      return (
-                        <button
-                          key={o.key} type="button" className="opt" aria-pressed={on}
-                          onClick={() => toggle(g.key, o.key)}
-                        >
-                          <span className="box" aria-hidden>{on ? '✓' : ''}</span>
-                          <span className="lbl">{o.label}</span>
-                          <span className="n">{o.count}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          />
         )}
 
         {/* Loading looks like whatever you were looking at. A reader who

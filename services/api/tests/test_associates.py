@@ -228,7 +228,9 @@ def test_somebody_enrolled_nowhere_covers_nothing():
 
 # ── Who may be offered a job ───────────────────────────────────────────
 
-ACTIVE = {"state": "active", "discipline_state": "on", "capacity": 3, "max_open": 3}
+ACTIVE = {"state": "active", "discipline_state": "on", "capacity": 3, "max_open": 3,
+          "credential_state": "verified", "rating_count": 0, "rating_average": 0,
+          "training_state": "not_required"}
 
 
 def test_an_active_associate_with_room_is_offered_the_job():
@@ -236,10 +238,15 @@ def test_an_active_associate_with_room_is_offered_the_job():
     assert ok and why == ""
 
 
-def test_somebody_newly_enrolled_can_be_offered_work_without_a_second_click():
-    """A roster where the first offer needs an 'activate' step is a roster
-    that is always one step out of date."""
-    ok, _ = a.dispatchable({**ACTIVE, "state": "invited"}, "surveyor", 0)
+def test_somebody_newly_enrolled_needs_certification_before_work():
+    ok, why = a.dispatchable(
+        {**ACTIVE, "state": "invited", "credential_state": ""}, "surveyor", 0)
+    assert not ok and "verified" in why
+
+
+def test_company_verification_covers_work_without_a_statutory_licence():
+    assert a.credential_for("caretaker") == "Company verification"
+    ok, _ = a.dispatchable(ACTIVE, "caretaker", 0)
     assert ok
 
 
@@ -262,6 +269,32 @@ def test_a_suspended_discipline_does_not_suspend_the_whole_person():
                "discipline_reason": "Survey licence lapsed"}
     ok, why = a.dispatchable(blocked, "surveyor", 0)
     assert not ok and why == "Survey licence lapsed"
+
+
+def test_a_lapsed_credential_is_refused_even_when_the_member_is_active():
+    ok, why = a.dispatchable({**ACTIVE, "credential_state": "lapsed"}, "surveyor", 0)
+    assert not ok and why == "Survey licence lapsed"
+
+
+def test_one_hundred_ratings_below_three_requires_retraining():
+    ok, why = a.dispatchable(
+        {**ACTIVE, "rating_count": 100, "rating_average": 2.99}, "surveyor", 0)
+    assert not ok and "retraining" in why.lower()
+
+
+def test_a_documented_training_clearance_can_return_a_member_to_work():
+    ok, why = a.dispatchable(
+        {**ACTIVE, "rating_count": 120, "rating_average": 2.8,
+         "training_state": "cleared"}, "surveyor", 0)
+    assert ok and why == ""
+
+
+def test_training_in_progress_blocks_even_a_high_rated_member():
+    ok, why = a.dispatchable(
+        {**ACTIVE, "rating_count": 140, "rating_average": 4.8,
+         "training_state": "in_training", "training_note": "Safety refresher"},
+        "surveyor", 0)
+    assert not ok and why == "Safety refresher"
 
 
 def test_somebody_at_capacity_is_refused_and_told_how_many_they_hold():
@@ -431,3 +464,13 @@ def test_the_per_round_index_excludes_the_winners_own_later_dispatches():
     inside accept and roll back filing, ledger and trail."""
     idx = [s for s in a.DDL if "uq_dispatch_one_per_round" in s][0]
     assert "purpose = 'offer'" in idx
+
+
+def test_one_owner_rating_is_kept_per_completed_service():
+    idx = [s for s in a.DDL if "uq_assoc_review_ticket" in s][0]
+    assert "associate_reviews (ticket_id)" in idx
+
+
+def test_training_state_is_added_to_existing_rosters_idempotently():
+    statements = [s for s in a.DDL if "ADD COLUMN IF NOT EXISTS training_" in s]
+    assert len(statements) == 2

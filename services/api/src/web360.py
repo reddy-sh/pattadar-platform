@@ -1414,6 +1414,9 @@ class SearchHit:
 class Order:
     id: str
     kind: str
+    # Stable catalogue identity. `kind` remains for legacy workflow names such
+    # as opinion/visit; clients use this field for duplicate prevention.
+    service_key: str
     title: str
     detail: str
     assignee: str
@@ -2193,8 +2196,8 @@ class AssociateDiscipline:
 
 @strawberry.type
 class AssociateCredential:
-    """A paper somebody can show. Recorded, not gating — until one has been
-    verified and then lapses, which is the only case that stops work.
+    """A paper somebody can show. Every active discipline requires a verified
+    paper or company verification before work can be allocated.
 
     The number is masked here and encrypted at rest; nothing on any screen
     prints a licence number in full."""
@@ -2223,7 +2226,8 @@ class Associate:
     shape — AssociateCard, AssignedPerson — carries either no number at all or
     one that has passed the four conditions listed over AssignedPerson.
 
-    There is no rating and no score on this type. Neither exists."""
+    Ratings are owner verdicts on completed services. They are aggregated here;
+    individual owner identities never leave the service trail."""
     id: str
     name: str
     firm: str
@@ -2245,6 +2249,10 @@ class Associate:
     why_not: List[str]
     jobs_open: int
     jobs_done: int
+    rating_average: float
+    rating_count: int
+    training_state: str
+    training_note: str
     offers_sent: int
     offers_taken: int
     offers_declined: int
@@ -2531,6 +2539,8 @@ class TicketView:
     # Call control at all. `dispatch_state` is '' until a dispatcher exists.
     assigned_to: Optional[AssignedPerson] = None
     dispatch_state: str = ""
+    my_rating: int = 0
+    my_rating_note: str = ""
 
 
 @strawberry.type
@@ -3558,7 +3568,10 @@ def _credential_state(rows: List[dict], discipline: str, today: str) -> str:
             continue
         review = c.get("review") or "pending"
         if review != "verified":
-            best = best or "pending"
+            if review == "rejected" and not best:
+                best = "rejected"
+            elif review == "pending" and best not in ("rejected",):
+                best = best or "pending"
             continue
         expires = (c.get("expires_on") or "").strip()
         if expires and expires < today:
@@ -3592,12 +3605,18 @@ async def _roster(conn, *, ids: Optional[List[str]] = None, q: str = "",
     that read stops being the right shape and needs the candidate SQL
     associates.py's area_slots() was written for."""
     sql = ["SELECT a.*, COALESCE(j.open_jobs, 0) AS open_jobs,"
-           " COALESCE(j.done_jobs, 0) AS done_jobs FROM associates a"
+           " COALESCE(j.done_jobs, 0) AS done_jobs,"
+           " COALESCE(rv.rating_count, 0) AS rating_count,"
+           " COALESCE(rv.rating_average, 0) AS rating_average FROM associates a"
            " LEFT JOIN (SELECT assignee_ref,"
            "   COUNT(*) FILTER (WHERE closed = false) AS open_jobs,"
            "   COUNT(*) FILTER (WHERE closed = true)  AS done_jobs"
            "   FROM work_requests WHERE assignee_ref <> ''"
            "   GROUP BY assignee_ref) j ON j.assignee_ref = a.id"
+           " LEFT JOIN (SELECT associate_id, COUNT(*) AS rating_count,"
+           " AVG(rating)::double precision AS rating_average"
+           " FROM associate_reviews GROUP BY associate_id) rv"
+           " ON rv.associate_id = a.id"
            " WHERE true"]
     args: list = []
     if ids is not None:
@@ -3676,7 +3695,7 @@ def _attribute_open(row: dict) -> dict:
     return out
 
 
-def _dispatch_view(row: dict) -> tuple:
+def _dispatch_view(row: dict, today: str) -> tuple:
     """(dispatchable, why_not) for the whole person, over every line of work.
 
     Somebody is dispatchable if any one of their disciplines can take a job
@@ -3691,7 +3710,9 @@ def _dispatch_view(row: dict) -> tuple:
         ok, reason = associates.dispatchable(
             {**row, "discipline_state": d.get("state") or "on",
              "discipline_reason": d.get("state_reason") or "",
-             "capacity": _i(d.get("capacity")) or 3},
+             "capacity": _i(d.get("capacity")) or 3,
+             "credential_state": _credential_state(
+                 row.get("credentials") or [], key, today)},
             key, per.get(key, open_jobs))
         if ok:
             return True, []
@@ -3745,7 +3766,7 @@ def _associate_of(row: dict, today: str) -> Associate:
     conditions over its own definition hold."""
     per = _attribute_open(row)
     state = row.get("state") or "invited"
-    ok, why = _dispatch_view(row)
+    ok, why = _dispatch_view(row, today)
     contact = row.get("contact") or ""
     return Associate(
         id=row["id"], name=row.get("name") or "", firm=row.get("firm") or "",
@@ -3771,6 +3792,10 @@ def _associate_of(row: dict, today: str) -> Associate:
         claimed=bool((row.get("recipient_user_id") or "").strip()),
         dispatchable=ok, why_not=why,
         jobs_open=_i(row.get("open_jobs")), jobs_done=_i(row.get("done_jobs")),
+        rating_average=round(_f(row.get("rating_average")), 2),
+        rating_count=_i(row.get("rating_count")),
+        training_state=row.get("training_state") or "not_required",
+        training_note=row.get("training_note") or "",
         # Phase 1 sends no offers, so these are zero by construction rather
         # than by a query over columns nothing writes yet. The accept rate a
         # screen hides below five offers is the same number either way.
@@ -3921,7 +3946,9 @@ def _candidates_from(roster: List[dict], kind: str, area_key: str,
             ok, why_not = associates.dispatchable(
                 {**row, "discipline_state": drow.get("state") or "on",
                  "discipline_reason": drow.get("state_reason") or "",
-                 "capacity": _i(drow.get("capacity")) or 3},
+                 "capacity": _i(drow.get("capacity")) or 3,
+                 "credential_state": _credential_state(
+                     row.get("credentials") or [], d.key, today)},
                 d.key, per.get(d.key, _i(row.get("open_jobs"))))
             if not covered:
                 ok, why_not = False, why_not or "Does not work in this area"
@@ -5562,6 +5589,8 @@ class WebQuery:
                 card = cards.get(r.get("entity_id") or "", {})
                 out.append(Order(
                     id=r["id"], kind=r.get("kind") or "", title=r.get("title") or "",
+                    service_key=(r.get("service_key")
+                                 or canonical_service_kind(r.get("kind") or "")),
                     detail=r.get("note") or "", assignee=r.get("assignee") or "",
                     cost=_f(r.get("cost")), stage=_i(r.get("stage")),
                     stage_label=_STAGES[min(max(_i(r.get("stage")), 0), len(_STAGES) - 1)],
@@ -5614,6 +5643,10 @@ class WebQuery:
                 " ORDER BY sort, id", (id, uid))
             dispatches = [_dx(r) for r in await cur.fetchall()]
             ledger = await _ledger_of(conn, uid, id)
+            cur = await conn.execute(
+                "SELECT rating,note FROM associate_reviews"
+                " WHERE ticket_id=%s AND owner_user_id=%s", (id, uid))
+            own_review = dict(await cur.fetchone() or {})
             # "Nothing has moved for nine days" is the only honest thing a
             # tracking screen can say while a surveyor is not answering his
             # phone, and it needs a date to say it from.
@@ -5645,7 +5678,9 @@ class WebQuery:
                 # is what the card reads to know it must not offer a Call
                 # control it cannot honour.
                 assigned_to=await _assigned_person(conn, uid, row),
-                dispatch_state=row.get("dispatch_state") or "")
+                dispatch_state=row.get("dispatch_state") or "",
+                my_rating=_i(own_review.get("rating")),
+                my_rating_note=own_review.get("note") or "")
 
     @strawberry.field
     async def wallet(self, info: strawberry.Info, limit: int = 60) -> WalletView:
@@ -6077,7 +6112,8 @@ class WebQuery:
                 key = associates.area_key_of(card)[0] if card else ""
             roster = [r for r in await _roster(conn, limit=500)
                       if (r.get("state") or "") in associates.OFFERABLE]
-            found = _candidates_from(roster, row.get("kind") or "", key, _today())
+            today = _today()
+            found = _candidates_from(roster, row.get("kind") or "", key, today)
             if not found:
                 # A kind no discipline covers — 'other', the legacy 'errand' —
                 # still needs a picker. Everybody available is a better answer
@@ -6086,7 +6122,7 @@ class WebQuery:
                     "id": r["id"], "name": r.get("name") or "",
                     "open_jobs": _i(r.get("open_jobs")),
                     "last_offered_at": r.get("last_offered_at") or "",
-                    "eligible": _dispatch_view(r)[0]} for r in roster], _today())
+                    "eligible": _dispatch_view(r, today)[0]} for r in roster], today)
             by_id = {r["id"]: r for r in roster}
             out: List[AssociateCard] = []
             for c in found:
@@ -8358,10 +8394,9 @@ class WebMutation:
         A name, a number, at least one kind of work and at least one place —
         that is everything Pattadar needs to send them a job, and anything less
         is refused here rather than landing a row that can never be dispatched.
-        They start at 'invited', which is offerable: the desk enrols somebody
-        precisely so it can send them a job, and a roster where the first offer
-        needs a second click to 'activate' is a roster that is always one step
-        out of date.
+        They start at 'invited' and appear in candidate explanations, but no
+        allocation path accepts them until the relevant discipline has been
+        certified.
 
         A number already on the roster answers with the EXISTING associate's
         id. The leak that argues for "" — telling somebody that a number is
@@ -8629,6 +8664,142 @@ class WebMutation:
             return True
 
     @strawberry.mutation
+    async def set_associate_certification(
+        self, info: strawberry.Info, id: str, discipline: str,
+        certified: bool, note: str = "", authority: str = "Pattadar",
+        expires_on: str = "",
+    ) -> bool:
+        """Approve or refuse the evidence for one enrolled discipline.
+
+        The review is a durable credential row and an append-only event. Work
+        allocation reads that same row, so this control cannot disagree with
+        dispatch about whether somebody is certified.
+        """
+        uid = _uid(info)
+        import uuid as _uuid
+        aid, key = (id or "").strip(), (discipline or "").strip()
+        if not aid or key not in associates.DISCIPLINES:
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_admin(conn, uid):
+                return False
+            cur = await conn.execute(
+                "SELECT 1 FROM associate_disciplines WHERE associate_id=%s"
+                " AND discipline=%s", (aid, key))
+            if not await cur.fetchone():
+                return False
+            kind = associates.credential_for(key)
+            review = "verified" if certified else "rejected"
+            cur = await conn.execute(
+                "SELECT id FROM associate_credentials WHERE associate_id=%s"
+                " AND discipline=%s ORDER BY created_at DESC LIMIT 1", (aid, key))
+            existing = await cur.fetchone()
+            if existing:
+                await conn.execute(
+                    "UPDATE associate_credentials SET kind=%s,authority=%s,expires_on=%s,"
+                    " review=%s,review_note=%s,reviewed_by=%s,reviewed_at=%s WHERE id=%s",
+                    (kind, (authority or "Pattadar").strip(), (expires_on or "").strip(),
+                     review, (note or "").strip(), uid, _now_iso(), existing["id"]))
+            else:
+                await conn.execute(
+                    "INSERT INTO associate_credentials"
+                    " (id,associate_id,discipline,kind,authority,expires_on,review,"
+                    " review_note,reviewed_by,reviewed_at,created_at)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (f"ac-{_uuid.uuid4().hex[:12]}", aid, key, kind,
+                     (authority or "Pattadar").strip(), (expires_on or "").strip(),
+                     review, (note or "").strip(), uid, _now_iso(), _now_iso()))
+            await _assoc_event(
+                conn, aid, kind="certification",
+                headline=f"{associates.label_of(key)} certification {review}",
+                detail=(note or "").strip(), actor=uid)
+            await _desk_audit(conn, uid, "associate.certification", aid,
+                              f"{key} · {review}")
+            return True
+
+    @strawberry.mutation
+    async def set_associate_training(self, info: strawberry.Info, id: str,
+                                     state: str, note: str = "") -> bool:
+        """Record the company's retraining decision after a rating hold."""
+        uid = _uid(info)
+        aid, want = (id or "").strip(), (state or "").strip()
+        if not aid or want not in ("not_required", "required", "in_training", "cleared"):
+            return False
+        if want in ("required", "in_training") and not (note or "").strip():
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_admin(conn, uid) or not await _associate_row(conn, aid):
+                return False
+            await conn.execute(
+                "UPDATE associates SET training_state=%s,training_note=%s WHERE id=%s",
+                (want, (note or "").strip(), aid))
+            await _assoc_event(conn, aid, kind="training",
+                               headline=f"Training status: {want.replace('_', ' ')}",
+                               detail=(note or "").strip(), actor=uid)
+            return True
+
+    @strawberry.mutation
+    async def message_associate(self, info: strawberry.Info, id: str,
+                                message: str) -> bool:
+        """Send one company message and retain the exact text in the trail."""
+        uid = _uid(info)
+        aid, body = (id or "").strip(), (message or "").strip()
+        if not aid or not body or len(body) > 4000:
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_admin(conn, uid):
+                return False
+            row = await _associate_row(conn, aid)
+            if not row or not (row.get("contact") or "").strip():
+                return False
+            channel = associates.channel_for(row.get("contact") or "",
+                                             row.get("channel") or "auto")
+            sent = await _send(conn, uid, channel, row.get("contact") or "", {
+                "subject": "A message from Pattadar", "body": body,
+            })
+            await _assoc_event(
+                conn, aid, kind="message", headline="Pattadar sent a message",
+                detail=body, actor=uid)
+            return sent.get("status") in ("logged", "sent")
+
+    @strawberry.mutation
+    async def rate_associate(self, info: strawberry.Info, ticket_id: str,
+                             rating: int, note: str = "") -> bool:
+        """Record the owner's 1–5 verdict after a completed service."""
+        uid = _uid(info)
+        stars = _i(rating)
+        if stars < 1 or stars > 5 or len((note or "").strip()) > 2000:
+            return False
+        import uuid as _uuid
+        async with _ticket_transaction() as conn:
+            row = await _ticket_row(conn, uid, ticket_id, lock=True)
+            aid = (row.get("assignee_ref") or "").strip() if row else ""
+            if not row or not row.get("closed") or not aid:
+                return False
+            await conn.execute(
+                "INSERT INTO associate_reviews"
+                " (id,associate_id,ticket_id,owner_user_id,rating,note,created_at,updated_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (ticket_id) DO UPDATE SET rating=EXCLUDED.rating,"
+                " note=EXCLUDED.note,updated_at=EXCLUDED.updated_at",
+                (f"ar-{_uuid.uuid4().hex[:12]}", aid, ticket_id, uid, stars,
+                 (note or "").strip(), _now_iso(), _now_iso()))
+            cur = await conn.execute(
+                "SELECT COUNT(*) AS n,AVG(rating)::double precision AS avg"
+                " FROM associate_reviews WHERE associate_id=%s", (aid,))
+            score = dict(await cur.fetchone() or {})
+            if _i(score.get("n")) >= 100 and _f(score.get("avg")) < 3:
+                await conn.execute(
+                    "UPDATE associates SET training_state='required',"
+                    " training_note='Rating below 3 after 100 services' WHERE id=%s",
+                    (aid,))
+            await _assoc_event(
+                conn, aid, kind="rating", headline=f"A customer rated this service {stars} of 5",
+                detail=(note or "").strip(), actor=uid, actor_kind="owner",
+                actor_label="A customer", ref_table="work_requests", ref_id=ticket_id)
+            return True
+
+    @strawberry.mutation
     async def delete_unclaimed_associate(self, info: strawberry.Info, id: str) -> bool:
         """Remove somebody who was written down by mistake. The only hard
         delete in this feature.
@@ -8685,10 +8856,11 @@ class WebMutation:
             row = await _ticket_row(conn, uid, request_id, lock=True)
             if not row or row.get("closed"):
                 return False
-            assoc = await _associate_row(conn, aid)
-            # 'blocked' is the desk's decision that this person takes no more
-            # work, and it has to mean that on every path or it means nothing.
-            if not assoc or (assoc.get("state") or "") == "blocked":
+            roster = await _roster(conn, ids=[aid], limit=1)
+            assoc = roster[0] if roster else {}
+            # Every allocation path applies the same certification, rating,
+            # training, state and capacity policy as the shortlist.
+            if not assoc or not _dispatch_view(assoc, _today())[0]:
                 return False
             return await _put_on_job(conn, uid, row, assoc, actor=uid,
                                      actor_kind="owner", actor_label="You")
@@ -8719,8 +8891,9 @@ class WebMutation:
             row = await _desk_ticket_row(conn, ticket_id, lock=True)
             if not row or row.get("closed"):
                 return False
-            assoc = await _associate_row(conn, aid)
-            if not assoc or (assoc.get("state") or "") == "blocked":
+            roster = await _roster(conn, ids=[aid], limit=1)
+            assoc = roster[0] if roster else {}
+            if not assoc or not _dispatch_view(assoc, _today())[0]:
                 return False
             owner = row.get("owner_user_id") or ""
             if not owner:

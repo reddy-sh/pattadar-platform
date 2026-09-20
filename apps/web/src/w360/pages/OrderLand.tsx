@@ -242,7 +242,7 @@ export function OrderLand() {
   // `undefined`, deliberately, and NOT '' — see the note over `openSameJob` in
   // orderFlow.ts. Here every open order on the account is exactly what is
   // wanted: the cards are counted from it.
-  const { data: orders, error: ordersErr } = useOrders(undefined);
+  const { data: orders, error: ordersErr } = useOrders(undefined, false, true);
   // Only when a key was actually given. `servicesOffered` with an empty key
   // answers the whole catalogue, so taking [0] of it would silently re-head
   // this page after whichever service happens to sort first.

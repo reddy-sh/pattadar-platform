@@ -331,8 +331,9 @@ export function OrderService() {
   // filter and answer with every open order on the account. That cannot happen
   // here by construction now: the record is a path segment.
   const {
-    data: existing, error: existingErr, refetch: refetchExisting,
-  } = useOrders(rec.id);
+    data: existing, isLoading: existingLoading, isFetching: existingFetching,
+    error: existingErr, refetch: refetchExisting,
+  } = useOrders(rec.id, false, true);
   const { data: papers, error: papersErr, refetch: refetchPapers } = usePapers(rec.id);
   const { data: photos, error: photosErr, refetch: refetchPhotos } = usePhotos(rec.id);
   const order = useOrderService(false);
@@ -454,6 +455,18 @@ export function OrderService() {
   const canSendBoundary = !!offer && groundService(offer) && mapState === 'mapped';
 
   const duplicate = offer ? openSameJob(existing, offer.key) : undefined;
+  const existingChecking = existingLoading || existingFetching;
+  const existingUnavailable = existingChecking || !!existingErr || !existing;
+
+  // A deep link or a second tab can reach the answer/review step before the
+  // authoritative active-request read lands. Once it does, take the owner
+  // back to the catalogue where the existing request is visible and openable.
+  useEffect(() => {
+    if (duplicate && (step === 'tell' || step === 'check')) {
+      setParams({ service: offer?.key ?? service, ...(why ? { why } : {}), step: 'pick' },
+        { replace: true });
+    }
+  }, [duplicate?.id, step, offer?.key, service, why, setParams]);
 
   // ── Filing it ────────────────────────────────────────────────────────
 
@@ -465,7 +478,9 @@ export function OrderService() {
   );
 
   async function submit() {
-    if (!offer) return;
+    // The API repeats this check under a transaction lock. This client guard
+    // keeps a stale/deep-linked review screen from even attempting the write.
+    if (!offer || duplicate || existingUnavailable) return;
     setErr('');
     // What the worker is given to look at, by NAME. Kept from the old screen:
     // a surveyor sent to the wrong field can be shown what they were actually
@@ -500,6 +515,13 @@ export function OrderService() {
       return;
     }
     if (!count) {
+      // Another tab may have filed the same service after this review loaded.
+      // Refresh that fact before describing the zero as an attachment error.
+      const current = await refetchExisting();
+      if (openSameJob(current.data, offer.key)) {
+        setErr('');
+        return;
+      }
       // Go and look at what is actually filed, then say what changed under the
       // owner's feet. This is the best that can be said without a per-record
       // outcome from the mutation.
@@ -547,9 +569,10 @@ export function OrderService() {
           {step === 'pick' && (
             <PickStep
               rec={rec} offers={offers} loading={offersLoading} error={offersErr}
-              existing={existing} existingErr={existingErr}
+              existing={existing} existingChecking={existingChecking} existingErr={existingErr}
               mapState={mapState} group={group} setGroup={setGroup}
               service={service} headRef={headRef}
+              onRetryExisting={() => { void refetchExisting(); }}
               onPick={(k) => go({ service: k, step: 'pick' })}
               onNext={() => go({ step: 'tell' })}
             />
@@ -581,7 +604,8 @@ export function OrderService() {
               rec={rec} offer={offer} mapState={mapState} headRef={headRef}
               sheet={sheet} attachedPapers={attachedPapers} attachedPhotos={attachedPhotos}
               sendBoundary={sendBoundary && canSendBoundary} canSendBoundary={canSendBoundary}
-              duplicate={duplicate} duplicateUnknown={!!existingErr && !existing}
+              duplicate={duplicate} duplicateUnknown={existingUnavailable}
+              duplicateChecking={existingChecking}
               err={err} placing={order.isPending}
               recordId={rec.id}
               onBack={() => { setAttempt((n) => n + 1); go({ step: 'tell' }); }}
@@ -626,12 +650,14 @@ export function OrderService() {
 // ── Step 2 ─────────────────────────────────────────────────────────────
 
 function PickStep(
-  { rec, offers, loading, error, existing, existingErr, mapState, group, setGroup,
-    service, headRef, onPick, onNext }: {
+  { rec, offers, loading, error, existing, existingChecking, existingErr, mapState,
+    group, setGroup, service, headRef, onRetryExisting, onPick, onNext }: {
     rec: RecordDetail; offers: ServiceOffer[] | undefined; loading: boolean; error: unknown;
-    existing: Order[] | undefined; existingErr: unknown; mapState: MapState;
+    existing: Order[] | undefined; existingChecking: boolean; existingErr: unknown;
+    mapState: MapState;
     group: string; setGroup: (g: string) => void; service: string;
     headRef: RefObject<HTMLHeadingElement | null>;
+    onRetryExisting: () => void;
     onPick: (k: string) => void; onNext: () => void;
   },
 ) {
@@ -716,8 +742,11 @@ function PickStep(
             </div>
           )}
 
-          {existingErr && !existing && (
-            <p className="note">We could not check what is already running on this land.</p>
+          {existingErr && (
+            <Failed
+              what="Existing service requests" error={existingErr}
+              onRetry={onRetryExisting}
+            />
           )}
 
           {shown.length === 0 ? (
@@ -737,14 +766,29 @@ function PickStep(
                 const sub = groundService(o) ? LAND_SENTENCE[o.key]?.[mapState]
                   : already ? 'You already have one of these running here.'
                   : DELIVERABLE[o.key] ?? ALSO_CALLED[o.key] ?? o.blurb;
+                if (already) {
+                  return (
+                    <div key={o.key} className="svc-existing">
+                      <span className="row tight between svchead">
+                        <strong>{o.label}</strong>
+                        <Chip>{already.statusLabel || 'Already requested'}</Chip>
+                      </span>
+                      <small>{already.stageLabel || 'In progress'} · {already.ref}</small>
+                      <small>You already have one of these running on this land.</small>
+                      <Link className="link" to={`/app/services/${already.id}`}>Open request</Link>
+                    </div>
+                  );
+                }
                 return (
-                  <button key={o.key} type="button" aria-pressed={on} onClick={() => onPick(o.key)}>
+                  <button key={o.key} type="button" aria-pressed={on}
+                          disabled={existingChecking || !!existingErr || !existing}
+                          onClick={() => onPick(o.key)}>
                     <span className="row tight between svchead">
                       <strong>{o.label}</strong>
                       <Chip>{inr(o.price)}</Chip>
                     </span>
                     <small>about {o.days} days</small>
-                    <small>{sub ?? o.blurb}</small>
+                    <small>{existingChecking ? 'Checking existing requests…' : (sub ?? o.blurb)}</small>
                     {on && groundService(o) && mapState !== 'mapped' && (
                       <small>
                         <Link className="link" to={drawBack(rec.id, o.key)}
@@ -767,7 +811,10 @@ function PickStep(
           </p>
 
           <div className="row tight">
-            <button type="button" className="btn primary" disabled={!service} onClick={onNext}>
+            <button type="button" className="btn primary"
+                    disabled={!service || existingChecking || !!existingErr || !existing
+                      || !!openSameJob(existing, service)}
+                    onClick={onNext}>
               <HandshakeOutlined sx={{ fontSize: 16 }} /> Answer what it needs
             </button>
           </div>
@@ -900,13 +947,13 @@ function TellStep(
 
 function CheckStep(
   { rec, offer, mapState, headRef, sheet, attachedPapers, attachedPhotos, sendBoundary,
-    canSendBoundary, duplicate, duplicateUnknown, err, placing, recordId,
+    canSendBoundary, duplicate, duplicateUnknown, duplicateChecking, err, placing, recordId,
     onBack, onPlace }: {
     rec: RecordDetail; offer: ServiceOffer; mapState: MapState;
     headRef: RefObject<HTMLHeadingElement | null>;
     sheet: Record<string, string>; attachedPapers: Paper[]; attachedPhotos: Photo[];
     sendBoundary: boolean; canSendBoundary: boolean;
-    duplicate: Order | undefined; duplicateUnknown: boolean;
+    duplicate: Order | undefined; duplicateUnknown: boolean; duplicateChecking: boolean;
     err: string; placing: boolean; recordId: string;
     onBack: () => void; onPlace: () => void;
   },
@@ -979,9 +1026,13 @@ function CheckStep(
       )}
       {duplicateUnknown && (
         <p className="note">
-          We could not check what is already running on this land, so look under{' '}
-          <Link className="link" to={`/app/records/${recordId}/services`}>Services</Link>{' '}
-          before trying again. Ordering is paused until that check succeeds.
+          {duplicateChecking
+            ? 'Checking whether this service is already running on this land. Ordering is paused.'
+            : <>
+                We could not check what is already running on this land, so look under{' '}
+                <Link className="link" to={`/app/records/${recordId}/services`}>Services</Link>{' '}
+                before trying again. Ordering is paused until that check succeeds.
+              </>}
         </p>
       )}
 

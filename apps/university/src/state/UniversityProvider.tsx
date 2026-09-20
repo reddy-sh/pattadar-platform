@@ -2,24 +2,28 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { courseById } from '../data/catalog';
-import { BrowserLearningRepository } from '../data/repository';
+import { BrowserLearningRepository, BrowserOpportunityInterestRepository } from '../data/repository';
 import { createEnrollment, toggleModule } from '../domain/learning';
 import type { Enrollment } from '../domain/types';
 
 interface UniversityContextValue {
   enrollments: Enrollment[];
+  interestedOpportunityIds: string[];
   isReady: boolean;
   joinCourse: (courseId: string) => Promise<Enrollment | undefined>;
   toggleCourseModule: (courseId: string, moduleId: string) => Promise<void>;
+  toggleOpportunityInterest: (opportunityId: string) => Promise<void>;
   enrollmentFor: (courseId: string) => Enrollment | undefined;
 }
 
-const repository = new BrowserLearningRepository();
+const learningRepository = new BrowserLearningRepository();
+const opportunityInterestRepository = new BrowserOpportunityInterestRepository();
 const UniversityContext = createContext<UniversityContextValue | null>(null);
 
 export function UniversityProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [interestedOpportunityIds, setInterestedOpportunityIds] = useState<string[]>([]);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
@@ -27,12 +31,17 @@ export function UniversityProvider({ children }: { children: ReactNode }) {
     setIsReady(false);
     if (!user) {
       setEnrollments([]);
+      setInterestedOpportunityIds([]);
       setIsReady(true);
       return () => { cancelled = true; };
     }
-    repository.load(user.id).then((snapshot) => {
+    Promise.all([
+      learningRepository.load(user.id),
+      opportunityInterestRepository.load(user.id),
+    ]).then(([snapshot, opportunityIds]) => {
       if (!cancelled) {
         setEnrollments(snapshot.enrollments);
+        setInterestedOpportunityIds(opportunityIds);
         setIsReady(true);
       }
     });
@@ -41,6 +50,7 @@ export function UniversityProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<UniversityContextValue>(() => ({
     enrollments,
+    interestedOpportunityIds,
     isReady,
     enrollmentFor: (courseId) => enrollments.find((enrollment) => enrollment.courseId === courseId),
     joinCourse: async (courseId) => {
@@ -50,7 +60,7 @@ export function UniversityProvider({ children }: { children: ReactNode }) {
       const course = courseById(courseId);
       if (!course) return undefined;
       const enrollment = createEnrollment(user.id, course);
-      await repository.save(enrollment);
+      await learningRepository.save(enrollment);
       setEnrollments((current) => [...current, enrollment]);
       return enrollment;
     },
@@ -59,10 +69,15 @@ export function UniversityProvider({ children }: { children: ReactNode }) {
       const current = enrollments.find((enrollment) => enrollment.courseId === courseId);
       if (!course || !current) return;
       const next = toggleModule(course, current, moduleId);
-      await repository.save(next);
+      await learningRepository.save(next);
       setEnrollments((items) => items.map((item) => (item.id === next.id ? next : item)));
     },
-  }), [enrollments, isReady, user]);
+    toggleOpportunityInterest: async (opportunityId) => {
+      if (!user) return;
+      const next = await opportunityInterestRepository.toggle(user.id, opportunityId);
+      setInterestedOpportunityIds(next);
+    },
+  }), [enrollments, interestedOpportunityIds, isReady, user]);
 
   return <UniversityContext.Provider value={value}>{children}</UniversityContext.Provider>;
 }

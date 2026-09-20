@@ -337,6 +337,7 @@ export function Shell() {
     ...(portfolio.data?.isSuperAdmin ? [{
       title: 'Administration',
       items: [
+        { to: '/app/admin/members', label: 'Company members', icon: GroupsOutlined },
         { to: '/app/admin/compliance', label: 'Compliance rules', icon: PolicyOutlined },
       ],
     }] : []),

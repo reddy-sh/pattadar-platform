@@ -5,7 +5,7 @@ import { Link } from 'react-router';
 import { useAuth } from '../auth/AuthProvider';
 import { courseById } from '../data/catalog';
 import { progressFor } from '../domain/learning';
-import { downloadCertificate, downloadCourseGuide } from '../pdf/coursePdf';
+import { downloadCompletionPreview, downloadCourseGuide } from '../pdf/coursePdf';
 import { useUniversity } from '../state/UniversityProvider';
 
 export function LearningPage() {
@@ -47,15 +47,15 @@ export function LearningPage() {
             </div>
             <div className="learning-row__actions">
               <Link className="button button--primary" to={`/courses/${course.slug}`}>Continue <ArrowForwardRounded /></Link>
-              <button className="button button--quiet" type="button" onClick={() => downloadCourseGuide(course)}><DownloadRounded /> Guide</button>
+              <button className="button button--quiet" type="button" onClick={() => void downloadCourseGuide(course)}><DownloadRounded /> Guide</button>
               <button
                 className="button button--quiet"
                 type="button"
                 disabled={progress !== 100}
-                title={progress === 100 ? 'Download certificate' : 'Complete every module to unlock the certificate'}
-                onClick={() => downloadCertificate(course, user?.name ?? 'Pattadar learner')}
+                aria-label={progress === 100 ? 'Download completion preview' : 'Completion preview locked until every module is complete'}
+                onClick={() => void downloadCompletionPreview(course, user?.name ?? 'Pattadar learner')}
               >
-                <WorkspacePremiumOutlined /> Certificate
+                <WorkspacePremiumOutlined /> Completion preview
               </button>
             </div>
           </article>

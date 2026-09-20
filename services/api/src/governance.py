@@ -309,6 +309,50 @@ BASELINE_DOCUMENT: dict[str, Any] = {
         "controls": ["Name the recipient and purpose", "Select individual documents", "Use the shortest practical expiry", "Prefer view-only or watermarked access", "Keep open/download events", "Allow immediate revocation", "Do not reuse a service-provider link for a buyer or broker"],
         "sourceIds": ["dpdp-act", "dpdp-rules"],
     },
+    "workforceCompliance": [
+        {
+            "key": "certification-before-allocation",
+            "category": "certification",
+            "title": "Certification before allocation",
+            "rule": "Every active discipline needs a verified statutory credential or a recorded company verification before the member can receive a task.",
+            "enforcement": "Server-side on candidate selection, owner assignment and desk assignment.",
+        },
+        {
+            "key": "credential-expiry",
+            "category": "certification",
+            "title": "Expired or refused evidence stops that discipline",
+            "rule": "A lapsed or rejected credential blocks only the affected discipline; other independently certified disciplines remain available.",
+            "enforcement": "Derived from the current credential review and expiry date.",
+        },
+        {
+            "key": "rating-retraining-threshold",
+            "category": "quality",
+            "title": "Low-rating retraining hold",
+            "rule": "At 100 or more completed-service ratings, an average below 3.0 blocks new task allocation.",
+            "enforcement": "The next rating places the member in training-required state; dispatch also re-checks the aggregate.",
+        },
+        {
+            "key": "training-clearance",
+            "category": "training",
+            "title": "Company decision after retraining",
+            "rule": "A member held for quality may return only after the company records training completion or a documented clearance decision.",
+            "enforcement": "Every state change is retained in the member's append-only history.",
+        },
+        {
+            "key": "minimum-data",
+            "category": "privacy",
+            "title": "Share only task-relevant information",
+            "rule": "Members receive property, geography and service details needed for the job, not unrelated owner identity, family, bank or authentication data.",
+            "enforcement": "Purpose-scoped service links and masked contact details.",
+        },
+        {
+            "key": "company-communications",
+            "category": "audit",
+            "title": "Company messages and decisions are traceable",
+            "rule": "Certification, training, state and company-message actions record who acted, what changed and when.",
+            "enforcement": "Append-only member events plus the platform audit trail.",
+        },
+    ],
     "sources": SOURCES,
 }
 
@@ -423,6 +467,12 @@ def validate_document(document: Any) -> dict[str, Any]:
             used_sources.update(str(value) for value in item.get("sourceIds") or [])
     for service in document.get("serviceRequests") or []:
         used_sources.update(str(value) for value in service.get("sourceIds") or [])
+    workforce = document.get("workforceCompliance")
+    if not isinstance(workforce, list) or not workforce:
+        raise ValueError("Workforce compliance rules are required")
+    workforce_keys = [str(rule.get("key") or "") for rule in workforce if isinstance(rule, dict)]
+    if len(workforce_keys) != len(workforce) or "" in workforce_keys or len(set(workforce_keys)) != len(workforce_keys):
+        raise ValueError("Workforce compliance rule keys must be present and unique")
     used_sources.update(str(value) for value in (document.get("secureSharing") or {}).get("sourceIds") or [])
     unknown = used_sources - source_ids
     if unknown:
@@ -472,6 +522,13 @@ async def ensure_baseline(conn) -> None:
             " 'system-baseline','2026-09-20','system-baseline','2026-09-20')"
             " ON CONFLICT (scope_key,revision) DO NOTHING",
             (policy_id, key, country, state, district, body, source_digest),
+        )
+        # System baselines are code-owned. Refresh only those rows; an admin
+        # revision has a different creator and is never overwritten here.
+        await conn.execute(
+            "UPDATE governance_policy_sets SET document=%s,source_digest=%s"
+            " WHERE id=%s AND created_by='system-baseline'",
+            (body, source_digest, policy_id),
         )
         await conn.execute(
             "INSERT INTO governance_policy_events"

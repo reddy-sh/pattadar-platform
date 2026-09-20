@@ -12,15 +12,15 @@ const course: Course = {
   level: 'Foundation',
   durationMinutes: 60,
   language: 'English',
-  priceLabel: 'Free foundation',
-  credential: 'Pattadar skill certificate',
+  priceLabel: 'Free access proposed',
+  credential: 'Pattadar skill certificate pathway',
   tone: 'records',
   locationSlugs: ['hyderabad'],
   modules: [
     { id: 'm1', title: 'Record names', minutes: 20, kind: 'lesson' },
     { id: 'm2', title: 'Review practice', minutes: 40, kind: 'assessment' },
   ],
-  contentVersion: '2026.09',
+  contentVersion: 'preview-2026.09',
 };
 
 describe('learning domain', () => {
@@ -49,5 +49,11 @@ describe('learning domain', () => {
     const reply = answerTutor(course, 'Should I buy this land dispute?');
     expect(reply.needsHuman).toBe(true);
     expect(reply.text).toContain('cannot');
+  });
+
+  test('does not present a preview completion record as a verified credential', () => {
+    const reply = answerTutor(course, 'How does the certificate work?');
+    expect(reply.text).toContain('preview');
+    expect(reply.text).toContain('reviewer approval');
   });
 });

@@ -239,6 +239,9 @@ export interface GovernanceServiceGuide {
   key: string; label: string; purpose: string; share: string[]; doNotShare: string[];
   controls: string[]; sourceIds: string[];
 }
+export interface GovernanceWorkforceRule {
+  key: string; category: string; title: string; rule: string; enforcement: string;
+}
 export interface GovernanceDocument {
   schemaVersion: number;
   jurisdiction: {
@@ -254,6 +257,7 @@ export interface GovernanceDocument {
     label: string; shareWhenNeeded: string[]; neverByDefault: string[];
     controls: string[]; sourceIds: string[];
   };
+  workforceCompliance?: GovernanceWorkforceRule[];
   sources: {
     id: string; authority: string; title: string; url: string; appliesTo: string[];
   }[];
@@ -263,7 +267,7 @@ export interface MapView {
   insights: { id: string; title: string; detail: string }[];
 }
 export interface Order {
-  id: string; kind: string; title: string; detail: string; assignee: string;
+  id: string; kind: string; serviceKey: string; title: string; detail: string; assignee: string;
   cost: number; stage: number; stageLabel: string; needsYou: boolean;
   dueDate: string; recordId: string; recordTitle: string; params: string;
   /** The eight-valued truth behind the four-valued `stage`. `stageLabel` still
@@ -372,6 +376,7 @@ export interface TicketView {
    *  a word — nobody yet, on somebody, asked and waiting — and is deliberately
    *  not another status: `status`/`stage` are untouched by any of this. */
   assignedTo: AssignedPerson | null; dispatchState: string;
+  myRating: number; myRatingNote: string;
   events: TicketEvent[]; deliverables: TicketDeliverable[];
   dispatches: TicketDispatch[]; ledger: TicketLedgerRow[];
 }
@@ -836,7 +841,7 @@ export function useSearch(q: string) {
  *  would be paid for on screens that draw neither. */
 const Q_ORDERS = `query O($recordId:String,$includeClosed:Boolean) { web {
   orders(recordId:$recordId,includeClosed:$includeClosed) {
-  id kind title detail assignee cost stage stageLabel needsYou dueDate recordId recordTitle params
+  id kind serviceKey title detail assignee cost stage stageLabel needsYou dueDate recordId recordTitle params
   status statusLabel statusState ref assigneeRef held pendingReview batchId batchRef
   recordKind recordClassification recordLocation
 } } }`;
@@ -850,6 +855,7 @@ const Q_TICKET = `query TKT($id:String!) { web { ticket(id:$id) {
   assignee dueDate quietDays quiet outcomeNote acceptedAt createdAt
   can answers { k v }
   dispatchState
+  myRating myRatingNote
   assignedTo { associateId name firm initials discipline disciplineLabel
                contact contactShown contactWhy jobsOpen assignedAt via }
   money { quoted held released fee returned payeeShare provider live funded headline honesty }
@@ -875,10 +881,11 @@ const Q_SERVICES = `query SO($q:String,$key:String) { web { servicesOffered(q:$q
 /** No `enabled`: the Shell asks for this on every route to count what is
  *  waiting on you. `includeClosed` defaults false so every caller that was
  *  written before tickets existed asks for, and gets, exactly what it did. */
-export function useOrders(recordId?: string, includeClosed = false) {
+export function useOrders(recordId?: string, includeClosed = false, alwaysFresh = false) {
   return useQuery({
     queryKey: [KEY, 'orders', recordId ?? '', includeClosed],
-    staleTime: BADGE_STALE,
+    staleTime: alwaysFresh ? 0 : BADGE_STALE,
+    refetchOnMount: alwaysFresh ? 'always' : true,
     queryFn: async () =>
       (await gql<Wrapped<'orders', Order[]>>(Q_ORDERS, {
         recordId: recordId ?? null,
@@ -1703,6 +1710,8 @@ export interface Associate {
   credentials: AssociateCredential[];
   claimed: boolean; dispatchable: boolean; whyNot: string[];
   jobsOpen: number; jobsDone: number;
+  ratingAverage: number; ratingCount: number;
+  trainingState: string; trainingNote: string;
   offersSent: number; offersTaken: number; offersDeclined: number;
   acceptRate: number; lastOfferedAt: string;
   note: string; createdAt: string;
@@ -1789,7 +1798,8 @@ const ASSOCIATE_CREDENTIAL = `id discipline kind numberMasked authority expiresO
 
 const ASSOCIATE = `id name firm initials contact contactMasked contactVisible
   state stateWord stateState stateReason claimed dispatchable whyNot
-  jobsOpen jobsDone offersSent offersTaken offersDeclined acceptRate lastOfferedAt
+  jobsOpen jobsDone ratingAverage ratingCount trainingState trainingNote
+  offersSent offersTaken offersDeclined acceptRate lastOfferedAt
   note createdAt
   disciplines { ${ASSOCIATE_DISCIPLINE} }
   areas { ${ASSOCIATE_AREA} }
@@ -1932,7 +1942,7 @@ export function useDeskTasks() {
   });
 }
 
-/** The nine disciplines. Pure reference data — no database behind it, the same
+/** The company disciplines. Pure reference data — no database behind it, the same
  *  answer for everybody, and it cannot change while a tab is open.
  *
  *  Keyed OUTSIDE the `w360` tree on purpose. Every write in this module
@@ -1982,8 +1992,8 @@ export function useAssociatesForTicket(ticketId?: string) {
  *  work and one place are all required, and a contact already on the roster is
  *  refused rather than duplicated.
  *
- *  They can take work from this moment: an invited associate is offerable, and
- *  no account, no claim and no verified licence is needed first. */
+ *  They appear on the roster immediately, but allocation waits until each
+ *  active discipline has a verified credential or company verification. */
 export const useInviteAssociate = (reportError = true) =>
   useW360Mutation<{
     name: string; contact: string; disciplines: string[]; areas: string[];
@@ -2054,6 +2064,41 @@ export const useSetAssociateState = () =>
     `mutation SAS($id:String!,$state:String!,$reason:String! = "") {
        web { setAssociateState(id:$id,state:$state,reason:$reason) } }`,
     'Their state',
+  );
+
+export const useSetAssociateCertification = () =>
+  useW360Mutation<{
+    id: string; discipline: string; certified: boolean;
+    note?: string; authority?: string; expiresOn?: string;
+  }, Wrapped<'setAssociateCertification', boolean>>(
+    `mutation SAC($id:String!,$discipline:String!,$certified:Boolean!,
+                  $note:String! = "",$authority:String! = "Pattadar",$expiresOn:String! = "") {
+       web { setAssociateCertification(id:$id,discipline:$discipline,certified:$certified,
+                                       note:$note,authority:$authority,expiresOn:$expiresOn) } }`,
+    'That certification',
+  );
+
+export const useSetAssociateTraining = () =>
+  useW360Mutation<{ id: string; state: string; note?: string },
+                   Wrapped<'setAssociateTraining', boolean>>(
+    `mutation SAT($id:String!,$state:String!,$note:String! = "") {
+       web { setAssociateTraining(id:$id,state:$state,note:$note) } }`,
+    'That training decision',
+  );
+
+export const useMessageAssociate = () =>
+  useW360Mutation<{ id: string; message: string }, Wrapped<'messageAssociate', boolean>>(
+    `mutation MAS($id:String!,$message:String!) {
+       web { messageAssociate(id:$id,message:$message) } }`,
+    'That message',
+  );
+
+export const useRateAssociate = () =>
+  useW360Mutation<{ ticketId: string; rating: number; note?: string },
+                   Wrapped<'rateAssociate', boolean>>(
+    `mutation RAS($ticketId:String!,$rating:Int!,$note:String! = "") {
+       web { rateAssociate(ticketId:$ticketId,rating:$rating,note:$note) } }`,
+    'That rating',
   );
 
 /** The one hard delete on this surface, and it is narrow on purpose: somebody

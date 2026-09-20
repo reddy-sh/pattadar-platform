@@ -63,7 +63,7 @@ import ShareResult from '../components/ShareResult';
 import {
   useAcceptTicket, useAddDeliverable, useAssignAssociate, useAssignRequest, useAssignable,
   useAssociatesForTicket, useCancelTicket, useDispatchTicket, useFundTicket, usePaymentConfig,
-  usePostTicketMessage, useRevokeDispatch, useReviewDeliverable, useSendBackTicket,
+  usePostTicketMessage, useRateAssociate, useRevokeDispatch, useReviewDeliverable, useSendBackTicket,
   useStartTicket, useTicket,
 } from '../api';
 import type { TicketDeliverable, TicketDispatch, TicketView } from '../api';
@@ -827,6 +827,7 @@ export function Ticket() {
   const sendBack = useSendBackTicket();
   const cancel = useCancelTicket();
   const postMessage = usePostTicketMessage(false);
+  const rateAssociate = useRateAssociate();
   // Taking the person off is `assignRequest` with an empty name — the server
   // routes that to `unassign` and clears both assignee columns, so there is no
   // second mutation to write.
@@ -841,6 +842,9 @@ export function Ticket() {
   const [inline, setInline] = useState<'' | 'sendback'>('');
   const [err, setErrAt] = useState<{ where: Where; msg: string }>({ where: 'page', msg: '' });
   const [chatMessage, setChatMessage] = useState('');
+  const [memberRating, setMemberRating] = useState(0);
+  const [ratingNote, setRatingNote] = useState('');
+  const [ratingError, setRatingError] = useState('');
   const came = useRef<HTMLDivElement>(null);
   // The file picker on "Record what came back" is a real button over this
   // input. A <label> wrapping a hidden input takes no focus and a `hidden`
@@ -878,6 +882,12 @@ export function Ticket() {
     next.delete('action');
     setSearch(next, { replace: true });
   }, [data, search, setSearch]);
+
+  useEffect(() => {
+    if (!data) return;
+    setMemberRating(data.myRating);
+    setRatingNote(data.myRatingNote);
+  }, [data?.id, data?.myRating, data?.myRatingNote]);
 
   // Three states, three sentences, and three nouns. The page-level ones name
   // the SERVICE — they are about the thing you tried to open, not about the
@@ -965,6 +975,19 @@ export function Ticket() {
       setChatMessage('');
     } catch {
       fail('chat', 'That message did not reach Pattadar. Nothing was sent — try again.');
+    }
+  };
+
+  const onRateAssociate = async () => {
+    if (!memberRating) return;
+    setRatingError('');
+    try {
+      const res = await rateAssociate.mutateAsync({
+        ticketId: t.id, rating: memberRating, note: ratingNote.trim(),
+      });
+      if (!res.web.rateAssociate) setRatingError('That rating was not saved. Reload and try again.');
+    } catch {
+      setRatingError('That rating was not saved. Reload and try again.');
     }
   };
 
@@ -1540,6 +1563,36 @@ export function Ticket() {
                 </button>
               )}
             </section>
+          )}
+
+          {t.closed && t.assignedTo && (
+            <Card title="Rate this service">
+              <p className="note" style={{ marginTop: 0 }}>
+                Your rating helps Pattadar monitor {t.assignedTo.name}. Members with at
+                least 100 ratings and an average below 3 stop receiving new work until
+                the company records a training decision.
+              </p>
+              <div className="row tight" role="group" aria-label="Service rating">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button key={value} type="button"
+                          className={`chip${memberRating === value ? ' active' : ''}`}
+                          aria-pressed={memberRating === value}
+                          onClick={() => setMemberRating(value)}>{value}</button>
+                ))}
+                <span className="note">out of 5</span>
+              </div>
+              <label className="field" style={{ marginTop: 'var(--space-sm)' }}>
+                <span>What should the company know?</span>
+                <textarea rows={2} maxLength={2000} value={ratingNote}
+                          onChange={(event) => setRatingNote(event.target.value)} />
+              </label>
+              <button type="button" className="btn primary"
+                      disabled={!memberRating || rateAssociate.isPending}
+                      onClick={() => void onRateAssociate()}>
+                {rateAssociate.isPending ? 'Saving…' : t.myRating ? 'Update rating' : 'Save rating'}
+              </button>
+              {ratingError && <Err>{ratingError}</Err>}
+            </Card>
           )}
 
           <Card title="Conversation"

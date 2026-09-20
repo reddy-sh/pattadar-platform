@@ -180,14 +180,16 @@ export const ALSO_CALLED: Record<string, string> = {
  *  keys from `orderService`, and the `survey`/`visit`/`opinion` openers from
  *  `createRequest` — so an owner who asked a surveyor directly last week and
  *  orders a re-survey today is doing the same thing twice under two names. */
-export const SAME_JOB: Record<string, string[]> = {
-  survey: ['survey'],
-  site_visit: ['site_visit', 'visit'],
-  title_opinion: ['title_opinion', 'opinion'],
-  ec: ['ec'],
-  mutation: ['mutation'],
-  patta_copy: ['patta_copy'],
+export const SAME_JOB: Record<string, string> = {
+  opinion: 'title_opinion',
+  visit: 'site_visit',
 };
+
+/** The API persists `serviceKey` as the stable identity and keeps `kind` for
+ * historical display/workflow compatibility. Older responses have no stable
+ * key, so canonicalised `kind` remains the fallback. */
+export const serviceKeyOf = (order: Pick<Order, 'kind' | 'serviceKey'>): string =>
+  order.serviceKey || SAME_JOB[order.kind] || order.kind;
 
 /** NOTE for whoever is here next: `useOrders(undefined)` and `useOrders('')`
  *  are not the same question. The resolver drops the filter when the id is
@@ -197,7 +199,7 @@ export const SAME_JOB: Record<string, string[]> = {
  *  survey on an unrelated parcel with "Already ordered here". In this design
  *  the record is a path segment, so the flow cannot mount without one. */
 export const openSameJob = (orders: Order[] | undefined, key: string): Order | undefined =>
-  (orders ?? []).find((o) => (SAME_JOB[key] ?? [key]).includes(o.kind));
+  (orders ?? []).find((o) => serviceKeyOf(o) === (SAME_JOB[key] || key));
 
 // ── Where an order came from ───────────────────────────────────────────
 

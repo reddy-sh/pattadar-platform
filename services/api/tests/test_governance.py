@@ -30,6 +30,13 @@ def test_country_baseline_is_global_and_contains_no_unknown_sources():
     }
 
 
+def test_workforce_rules_include_certification_and_rating_retraining():
+    rules = {rule["key"]: rule for rule in governance.BASELINE_DOCUMENT["workforceCompliance"]}
+    assert "certification-before-allocation" in rules
+    threshold = rules["rating-retraining-threshold"]["rule"]
+    assert "100" in threshold and "below 3.0" in threshold
+
+
 def test_scope_normalisation_enforces_the_country_state_district_hierarchy():
     assert governance.normalize_scope("in", "ap", "Prakasam") == (
         "IN", "AP", "PRAKASAM", "IN/AP/PRAKASAM")

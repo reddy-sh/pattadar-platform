@@ -130,7 +130,7 @@ export function FenceStudio({
 }: FenceStudioProps) {
   const nav = useNavigate();
   const ask = useCreateRequest();
-  const openOrders = useOrders(recordId || '');
+  const openOrders = useOrders(recordId || '', false, true);
   const duplicate = openSameJob(openOrders.data, 'fencing');
   const [asked, setAsked] = useState('');
   const was = remembered();

@@ -23,13 +23,14 @@ import {
 } from '../api';
 import { Card, Failed, Loading, Pill } from '../ui';
 
-type View = 'records' | 'buyer' | 'seller' | 'services' | 'sharing' | 'sources' | 'manage';
+type View = 'records' | 'buyer' | 'seller' | 'services' | 'workforce' | 'sharing' | 'sources' | 'manage';
 
 const VIEWS: { key: View; label: string }[] = [
   { key: 'records', label: 'Property records' },
   { key: 'buyer', label: 'Buyer' },
   { key: 'seller', label: 'Seller' },
   { key: 'services', label: 'Service requests' },
+  { key: 'workforce', label: 'Company members' },
   { key: 'sharing', label: 'Secure sharing' },
   { key: 'sources', label: 'Sources' },
   { key: 'manage', label: 'Manage' },
@@ -68,6 +69,7 @@ export function ComplianceAdmin() {
   const history = useGovernancePolicyHistory(scopeKey, allowed);
   const document = useMemo(() => parseGovernanceDocument(policy.data), [policy.data]);
   const [view, setView] = useState<View>('records');
+  const [workforceCategory, setWorkforceCategory] = useState('');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [reason, setReason] = useState('');
@@ -301,6 +303,39 @@ export function ComplianceAdmin() {
             </section>
           ))}
         </div>
+      )}
+
+      {view === 'workforce' && (
+        <section className="compliance-guide-band">
+          <p className="eyebrow">Workforce governance</p>
+          <h2>Who may receive company work</h2>
+          <div className="row tight" style={{ marginBottom: 'var(--space-md)' }}>
+            {[...new Set((document.workforceCompliance ?? []).map((rule) => rule.category))].map((category) => (
+              <button key={category} type="button" className="chip"
+                      aria-pressed={workforceCategory === category}
+                      onClick={() => setWorkforceCategory((value) => value === category ? '' : category)}>
+                {category.replaceAll('_', ' ')}
+              </button>
+            ))}
+            {workforceCategory && (
+              <button type="button" className="clearall" onClick={() => setWorkforceCategory('')}>Clear</button>
+            )}
+          </div>
+          <div className="compliance-items">
+            {(document.workforceCompliance ?? [])
+              .filter((rule) => !workforceCategory || rule.category === workforceCategory)
+              .map((rule) => (
+                <div key={rule.key} className="compliance-item">
+                  <CheckCircleOutlineOutlined sx={{ fontSize: 18 }} aria-hidden />
+                  <span>
+                    <strong>{rule.title}</strong>
+                    <small>{rule.rule}</small>
+                    <span className="note">Enforced: {rule.enforcement}</span>
+                  </span>
+                </div>
+              ))}
+          </div>
+        </section>
       )}
 
       {view === 'sharing' && (

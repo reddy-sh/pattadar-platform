@@ -5,30 +5,23 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { campusBySlug, opportunities, roleLabels } from '../data/catalog';
 import type { AudienceRole } from '../domain/types';
+import { useUniversity } from '../state/UniversityProvider';
 
 export function OpportunitiesPage() {
   const [role, setRole] = useState<AudienceRole | 'all'>('all');
-  const [saved, setSaved] = useState<Set<string>>(() => new Set());
+  const { interestedOpportunityIds, toggleOpportunityInterest } = useUniversity();
+  const saved = useMemo(() => new Set(interestedOpportunityIds), [interestedOpportunityIds]);
   const visible = useMemo(
     () => role === 'all' ? opportunities : opportunities.filter((opportunity) => opportunity.role === role),
     [role],
   );
-
-  const toggleSaved = (id: string) => {
-    setSaved((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   return (
     <main className="page-shell interior-page">
       <header className="page-heading">
         <span className="context-line">Employment and assignment pathways</span>
         <h1>Opportunities</h1>
-        <p>Match learning to supervised work. Listings show the preparation needed; saving interest is not an offer or guarantee.</p>
+        <p>Preview how learning can lead to supervised work. These planned pathways are not open roles, offers, or guarantees.</p>
       </header>
       <div className="role-filter" role="group" aria-label="Filter opportunities by role">
         <button type="button" aria-pressed={role === 'all'} onClick={() => setRole('all')}>All roles</button>
@@ -53,14 +46,14 @@ export function OpportunitiesPage() {
                 <p>{opportunity.requirement}</p>
                 {campus ? <Link to={`/locations/${campus.slug}`}><LocationOnOutlined /> {campus.name}</Link> : null}
               </div>
-              <button className={isSaved ? 'button button--saved' : 'button button--quiet'} type="button" onClick={() => toggleSaved(opportunity.id)}>
+              <button className={isSaved ? 'button button--saved' : 'button button--quiet'} type="button" onClick={() => void toggleOpportunityInterest(opportunity.id)}>
                 {isSaved ? <CheckRounded /> : null}{isSaved ? 'Interest saved' : 'Save interest'}
               </button>
             </article>
           );
         })}
       </div>
-      <p className="governance-callout">Before an application is shared, Pattadar should collect explicit consent, disclose fees or commissions, verify the role owner, and show how to withdraw.</p>
+      <p className="governance-callout">Saved interest stays in this browser preview. Production applications require explicit sharing consent, fee or commission disclosure, a verified role owner, and a withdrawal path.</p>
     </main>
   );
 }

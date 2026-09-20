@@ -66,7 +66,8 @@ export async function completeSignIn(): Promise<string> {
   if (!userManager) return '/';
   const user = await userManager.signinRedirectCallback();
   const state = user.state as { returnTo?: string } | undefined;
-  return state?.returnTo ?? '/learn';
+  const returnTo = state?.returnTo;
+  return returnTo?.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/learn';
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);

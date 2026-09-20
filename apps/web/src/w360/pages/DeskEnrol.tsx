@@ -139,7 +139,7 @@ export function DeskEnrol() {
           return;
         }
       }
-      nav(`/app/desk/associates/${id}`);
+      nav(`/app/admin/members/${id}`);
     } catch {
       // The reason itself arrives as a toast from the shared mutation helper;
       // this line is what the form says about its own state.
@@ -150,7 +150,7 @@ export function DeskEnrol() {
   return (
     <main>
       <Crumbs trail={[{ label: 'The desk', to: '/app/desk' },
-                      { label: 'Associates', to: '/app/desk/associates' },
+                      { label: 'Company members', to: '/app/admin/members' },
                       { label: 'Add somebody' }]} />
       <PageHead eyebrow="Pattadar desk" title="Add an associate">
         <p className="lede" style={{ marginTop: '0.375rem' }}>
@@ -303,8 +303,8 @@ export function DeskEnrol() {
             {err}
             {' '}
             {halfDone
-              ? <Link className="link" to={`/app/desk/associates/${halfDone}`}>Open their page</Link>
-              : <Link className="link" to="/app/desk/associates">Open the roster</Link>}
+              ? <Link className="link" to={`/app/admin/members/${halfDone}`}>Open their page</Link>
+              : <Link className="link" to="/app/admin/members">Open the roster</Link>}
           </p>
         )}
 
@@ -312,7 +312,7 @@ export function DeskEnrol() {
           <button type="submit" className="btn primary" disabled={!ready || invite.isPending}>
             {invite.isPending ? 'Adding them…' : 'Add them'}
           </button>
-          <Link className="btn" to="/app/desk/associates">Cancel</Link>
+          <Link className="btn" to="/app/admin/members">Cancel</Link>
           {!ready && (
             <Why>
               A name, a number, one kind of work and one place — that is everything

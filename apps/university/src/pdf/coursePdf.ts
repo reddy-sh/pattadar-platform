@@ -1,11 +1,26 @@
-import { jsPDF } from 'jspdf';
 import type { Course } from '../domain/types';
 
 function safeFilename(value: string): string {
   return value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-export function downloadCourseGuide(course: Course): void {
+interface PdfOutput {
+  output: (type: 'blob') => Blob;
+}
+
+function savePdf(doc: PdfOutput, filename: string): void {
+  const url = URL.createObjectURL(doc.output('blob'));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+export async function downloadCourseGuide(course: Course): Promise<void> {
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const left = 52;
   let y = 58;
@@ -44,19 +59,20 @@ export function downloadCourseGuide(course: Course): void {
     left,
     y,
   );
-  doc.save(`${safeFilename(course.title)}-guide.pdf`);
+  savePdf(doc, `${safeFilename(course.title)}-guide.pdf`);
 }
 
-export function downloadCertificate(course: Course, learnerName: string): void {
+export async function downloadCompletionPreview(course: Course, learnerName: string): Promise<void> {
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   doc.setLineWidth(1);
   doc.rect(36, 36, 770, 523);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.text('PATTADAR UNIVERSITY', 421, 105, { align: 'center' });
+  doc.text('PATTADAR UNIVERSITY · PREVIEW', 421, 105, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(34);
-  doc.text('Certificate of completion', 421, 190, { align: 'center' });
+  doc.text('Learning completion preview', 421, 190, { align: 'center' });
   doc.setFontSize(14);
   doc.text('awarded to', 421, 235, { align: 'center' });
   doc.setFont('helvetica', 'bold');
@@ -71,6 +87,6 @@ export function downloadCertificate(course: Course, learnerName: string): void {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text(`${course.credential} · Content ${course.contentVersion}`, 421, 430, { align: 'center' });
-  doc.text('Industry learning credential. Verify status with Pattadar before relying on it.', 421, 478, { align: 'center' });
-  doc.save(`${safeFilename(course.title)}-certificate.pdf`);
+  doc.text('Prototype only. Production credentials require assessment, reviewer approval, and a verification ID.', 421, 478, { align: 'center' });
+  savePdf(doc, `${safeFilename(course.title)}-completion-preview.pdf`);
 }

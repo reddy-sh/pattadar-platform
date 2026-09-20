@@ -57,6 +57,31 @@
         "typescript": "~6.0.3",
       },
     },
+    "apps/university": {
+      "name": "@pattadar/university",
+      "version": "0.1.0",
+      "dependencies": {
+        "@emotion/react": "^11.14.0",
+        "@emotion/styled": "^11.14.0",
+        "@fontsource/atkinson-hyperlegible": "5.3.0",
+        "@fontsource/inter-tight": "^5.3.0",
+        "@fontsource/jetbrains-mono": "^5.3.0",
+        "@mui/icons-material": "9.2.0",
+        "@mui/material": "9.2.0",
+        "jspdf": "4.2.1",
+        "oidc-client-ts": "3.5.0",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
+        "react-router": "8.3.0",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "@vitejs/plugin-react": "6.0.4",
+        "typescript": "7.0.2",
+        "vite": "8.1.5",
+      },
+    },
     "apps/web": {
       "name": "@pattadar/web",
       "version": "0.1.0",
@@ -439,6 +464,8 @@
     "@pattadar/mobile": ["@pattadar/mobile@workspace:apps/mobile"],
 
     "@pattadar/tokens": ["@pattadar/tokens@workspace:packages/tokens"],
+
+    "@pattadar/university": ["@pattadar/university@workspace:apps/university"],
 
     "@pattadar/web": ["@pattadar/web@workspace:apps/web"],
 
@@ -1563,6 +1590,10 @@
     "@expo/ws-tunnel/ws": ["ws@8.21.1", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw=="],
 
     "@pattadar/mobile/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@pattadar/university/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
+
+    "@pattadar/university/react-dom": ["react-dom@19.2.8", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.8" } }, "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="],
 
     "@pattadar/web/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
 
