@@ -13,7 +13,8 @@
  *  scan-first flow converges on (cheque deposit, Stripe Identity, passport
  *  readers):
  *
- *    idle    — the scan IS the screen. Hand entry is one quiet link.
+ *    idle    — the scan IS the screen. Hand entry and the map are two quiet
+ *              links.
  *    reading — an honest clock, and permission to look away.
  *    failed  — the scan collapses to a single retry, the reason is stated in
  *              plain words, and the form opens by itself. When the automatic
@@ -60,13 +61,16 @@ const hasCamera = () =>
   && typeof window.matchMedia === 'function'
   && window.matchMedia('(pointer: coarse)').matches;
 
-export function ScanFirst({ manualOpen, onManualOpenChange, onRead }: {
+export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMap }: {
   /** Whether the caller is currently showing the hand-entry form. */
   manualOpen: boolean;
   onManualOpenChange: (open: boolean) => void;
   /** Hands the caller the reading to fill its form from. Returns the plain
    *  words for what it actually filled, so this card can say so. */
   onRead: (read: DeedRead) => string[];
+  /** The third way in: leave the drawer for Village Maps, where the plot is
+   *  found by its shape rather than read or typed. */
+  onPickFromMap: () => void;
 }) {
   const [reading, setReading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -245,10 +249,17 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead }: {
           <span>{got ? 'check and correct' : 'enter by hand'}</span>
         </p>
       ) : (
-        // One quiet link, not a second primary action competing with the scan.
-        <button type="button" className="linkbtn" onClick={() => onManualOpenChange(true)}>
-          Enter the details by hand instead
-        </button>
+        // Two quiet links, not a second primary action competing with the
+        // scan: typing it in, or finding the plot's shape on Village Maps.
+        <div className="row tight">
+          <button type="button" className="linkbtn" onClick={() => onManualOpenChange(true)}>
+            Enter the details by hand instead
+          </button>
+          <span className="note" aria-hidden>·</span>
+          <button type="button" className="linkbtn" onClick={onPickFromMap}>
+            Pick it from the map instead
+          </button>
+        </div>
       )}
     </>
   );

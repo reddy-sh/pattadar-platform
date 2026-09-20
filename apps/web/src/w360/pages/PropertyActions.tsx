@@ -24,6 +24,7 @@
  *  its rules about what may be sent, and nothing about being a panel. */
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
+import { useNavigate } from 'react-router';
 
 import { parseAreaSqYd } from '@pattadar/core';
 
@@ -152,6 +153,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
   onClose: () => void;
   onCreated?: (id: string) => void;
 }) {
+  const nav = useNavigate();
   const save = useSaveRecord();
   const addPaper = useAddPaper();
   const editing = !!card;
@@ -306,6 +308,16 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     if (!res.web.addPaper) throw new Error('the record would not accept it');
   }
 
+  /** The map is the third way into this drawer: instead of reading a deed or
+   *  typing the survey number, find the plot's own shape on Village Maps and
+   *  add it from there — the same "Add to Properties" that screen already
+   *  offers. Nothing here has been saved yet, so this leaves the same way
+   *  Cancel does: at once, with no discard prompt. */
+  const pickFromMap = () => {
+    onClose();
+    nav('/app/villages');
+  };
+
   const submit = async () => {
     // The record already exists and only its deed failed to file; the button
     // is now just a way out, not a second save.
@@ -456,7 +468,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
             record without somebody saying so. */}
         {!editing && (
           <ScanFirst manualOpen={manualOpen} onManualOpenChange={setManualOpen}
-                     onRead={applyReading} />
+                     onRead={applyReading} onPickFromMap={pickFromMap} />
         )}
 
         {manualOpen && (
@@ -590,7 +602,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
             else, so it says why. */}
         {!manualOpen && (
           <p className="note" style={{ margin: 0 }}>
-            Read the deed above, or open the form to fill it in by hand.
+            Read the deed above, open the form to fill it in by hand, or find the plot on the map.
           </p>
         )}
     </Drawer>
