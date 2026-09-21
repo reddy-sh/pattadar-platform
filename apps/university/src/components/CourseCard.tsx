@@ -1,7 +1,9 @@
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
+import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined';
 import { Link } from 'react-router';
+import { universityStates } from '../data/catalog';
 import { progressFor } from '../domain/learning';
 import type { Course, Enrollment } from '../domain/types';
 import { CourseVisual } from './CourseVisual';
@@ -20,16 +22,21 @@ function durationLabel(minutes: number): string {
 
 export function CourseCard({ course, enrollment, onJoin }: CourseCardProps) {
   const progress = progressFor(course, enrollment);
+  const stateNames = course.stateCodes.map((code) => universityStates.find((state) => state.code === code)?.name ?? code);
+  const jurisdictionLabel = course.jurisdictionScope === 'india-general'
+    ? 'All India · general practice'
+    : stateNames.join(' · ');
   return (
     <article className="course-card">
       <Link className="course-card__media" to={`/courses/${course.slug}`} aria-label={`Open ${course.title}`}>
-        <CourseVisual tone={course.tone} />
+        <CourseVisual course={course} />
       </Link>
       <div className="course-card__body">
         <div className="course-card__meta">
           <span>{course.level}</span>
           <span className="course-card__duration"><AccessTimeOutlined />{durationLabel(course.durationMinutes)}</span>
         </div>
+        <span className="course-card__states"><LocationOnOutlined /> {jurisdictionLabel}</span>
         <h3><Link to={`/courses/${course.slug}`}>{course.title}</Link></h3>
         <p>{course.summary}</p>
         <div className="course-card__foot">

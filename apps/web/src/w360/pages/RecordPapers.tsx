@@ -39,6 +39,7 @@ import { readDocument } from '../../pages/documents/upload';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
 import { PaperPreview } from '../paper/PaperPreview';
+import { ServiceVisual } from '../ServiceVisual';
 
 /** What a record of each kind is asked to produce, and why the asker wants it.
  *
@@ -454,7 +455,7 @@ export function RecordPapers() {
     : [];
   // Keep the paper-service catalogue available even after every shelf is
   // filled: an active request still belongs on this page until it closes.
-  const offers = useServicesOffered('', '', true);
+  const offers = useServicesOffered('', '', true, rec.id);
   const openOrders = useOrders(rec.id);
   const placeBatch = useOrderServiceBatch(false);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
@@ -624,7 +625,8 @@ export function RecordPapers() {
                   const offer = paperOfferByKind.get(order.kind);
                   return (
                     <article key={order.id} className="paper-request-tile">
-                      <span className="avatarlg"><DocumentScannerOutlined sx={{ fontSize: 18 }} /></span>
+                      <ServiceVisual serviceKey={order.kind} label={order.title}
+                                     visual={offer?.visual} variant="thumb" />
                       <span className="grow">
                         <span className="row tight">
                           <strong>{order.title}</strong>
@@ -862,12 +864,14 @@ export function RecordPapers() {
                               disabled={placeBatch.isPending}
                               onChange={() => toggleService(offer.key)}
                             />
+                            <ServiceVisual serviceKey={offer.key} label={offer.label}
+                                           visual={offer.visual} variant="thumb" />
                             <span className="grow">
                               <span className="row between tight">
                                 <span>{offer.label}</span>
                                 <span className="num">{inr(offer.price)}</span>
                               </span>
-                              <span className="note">{offer.blurb}</span>
+                              <span className="note">{offer.visual.caption}</span>
                               <span className="note">Usually within {offer.days} days</span>
                             </span>
                           </label>

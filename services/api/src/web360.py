@@ -1256,6 +1256,21 @@ class ServiceField:
 
 
 @strawberry.type
+class ServiceVisual:
+    """The plain-language image attached to one service.
+
+    Only bundled asset keys are exposed.  The policy can remap them by
+    jurisdiction, while the API remains the boundary that prevents an
+    arbitrary remote image from becoming trusted owner guidance.
+    """
+    asset_key: str
+    src: str
+    alt: str
+    caption: str
+    source_scope: str
+
+
+@strawberry.type
 class ServiceOffer:
     key: str
     label: str
@@ -1265,6 +1280,7 @@ class ServiceOffer:
     days: int
     shelves: List[str]
     fields: List[ServiceField]
+    visual: ServiceVisual
 
 
 @strawberry.type
@@ -1411,6 +1427,50 @@ class SearchHit:
 
 
 @strawberry.type
+class AssignedProfessionalCredential:
+    """The professional proof an owner may see for somebody on their job.
+
+    The reference stays masked and the uploaded evidence never leaves the
+    desk. Dates, authority and live review state are enough for the owner to
+    understand why this person was eligible without exposing their document.
+    """
+    kind: str
+    number_masked: str
+    authority: str
+    issued_on: str
+    expires_on: str
+    state: str
+
+
+@strawberry.type
+class AssignedTrainingCertificate:
+    """A public Pattadar University credential attached to an assigned worker."""
+    certificate_no: str
+    course_title: str
+    course_code: str
+    issued_on: str
+    valid_until: str
+    verification_state: str
+    verification_code: str
+
+
+@strawberry.type
+class AssignedResourceTrust:
+    """The transparent, owner-safe proof behind a roster assignment."""
+    associate_id: str
+    name: str
+    firm: str
+    initials: str
+    role: str
+    rating_average: float
+    rating_count: int
+    jobs_open: int
+    professional_verified: bool
+    professional_credentials: List[AssignedProfessionalCredential]
+    training_certificates: List[AssignedTrainingCertificate]
+
+
+@strawberry.type
 class Order:
     id: str
     kind: str
@@ -1453,6 +1513,7 @@ class Order:
     # or narrow work by village / mandal / district without fetching every
     # record again in the browser.
     record_kind: str = ""
+    assigned_resource: Optional[AssignedResourceTrust] = None
     record_classification: str = ""
     record_location: str = ""
 
@@ -1666,6 +1727,39 @@ SERVICE_CATALOGUE: dict = {
         ],
     },
 }
+
+
+_DEFAULT_SERVICE_VISUALS = {
+    str(item.get("serviceKey") or ""): item
+    for item in governance.BASELINE_DOCUMENT.get("serviceVisuals") or []
+    if isinstance(item, dict) and item.get("serviceKey")
+}
+_SERVICE_VISUAL_ASSET_KEYS = frozenset(SERVICE_CATALOGUE)
+
+
+def _service_visual_for(service_key: str, document: dict,
+                        source_scope: str) -> ServiceVisual:
+    """Resolve a governed mapping with a complete, bundled fallback."""
+    fallback = _DEFAULT_SERVICE_VISUALS.get(service_key) or {
+        "serviceKey": service_key,
+        "assetKey": service_key,
+        "alt": f"An illustration explaining {SERVICE_CATALOGUE[service_key]['label']}.",
+        "caption": SERVICE_CATALOGUE[service_key]["blurb"],
+    }
+    mapped = next((item for item in document.get("serviceVisuals") or []
+                   if isinstance(item, dict)
+                   and item.get("serviceKey") == service_key), None) or fallback
+    asset_key = str(mapped.get("assetKey") or fallback["assetKey"])
+    if asset_key not in _SERVICE_VISUAL_ASSET_KEYS:
+        asset_key = str(fallback["assetKey"])
+        mapped = fallback
+    return ServiceVisual(
+        asset_key=asset_key,
+        src=f"/service-visuals/{asset_key}.webp",
+        alt=str(mapped.get("alt") or fallback["alt"]),
+        caption=str(mapped.get("caption") or fallback["caption"]),
+        source_scope=source_scope or "IN/AP/*",
+    )
 
 
 def _service_batch_items(raw: str) -> Optional[list[tuple[str, dict, dict]]]:
@@ -2206,6 +2300,7 @@ class AssociateCredential:
     kind: str
     number_masked: str
     authority: str
+    issued_on: str
     expires_on: str           # DD/MM/YYYY, the way every date is read here
     days_left: int
     expiring: bool
@@ -2214,6 +2309,8 @@ class AssociateCredential:
     review_note: str
     file_ref: str
     file_name: str
+    reviewed_by: str
+    reviewed_at: str
 
 
 @strawberry.type
@@ -2237,6 +2334,15 @@ class Associate:
     contact_visible: bool
     alt_contact: str
     channel: str              # auto | sms | whatsapp | email
+    address_line: str
+    village_locality: str
+    post_office: str
+    mandal_city: str
+    district: str
+    state_name: str
+    postal_code: str
+    address_label: str
+    address_complete: bool
     state: str                # invited | active | paused | blocked
     state_word: str
     state_state: str          # good | warn | bad | unknown
@@ -2249,6 +2355,7 @@ class Associate:
     why_not: List[str]
     jobs_open: int
     jobs_done: int
+    last_completed_at: str
     rating_average: float
     rating_count: int
     training_state: str
@@ -2297,6 +2404,39 @@ class AssociateEvent:
     actor_kind: str
     at: str
     at_label: str
+
+
+@strawberry.type
+class TrainingCertificate:
+    """A Pattadar University internal training credential.
+
+    The public shape is deliberately the same one the admin previews: it has
+    the issued snapshot and verification result, but no contact details,
+    private evidence contents, or signing secret.
+    """
+    id: str
+    certificate_no: str
+    associate_id: str
+    recipient_name: str
+    course_code: str
+    course_title: str
+    course_version: str
+    trainer_name: str
+    trainer_ref: str
+    completed_on: str
+    issued_on: str
+    valid_until: str
+    hours: float
+    skills: List[str]
+    evidence_ref: str
+    note: str
+    status: str
+    verification_state: str
+    verification_code: str
+    intact: bool
+    revoked_at: str
+    revoke_reason: str
+    issued_by: str
 
 
 @strawberry.type
@@ -2389,7 +2529,14 @@ class CoverageCell:
     """One place against one line of work. A zero here is a service Pattadar
     can sell in that place with nobody to do it."""
     level: str
+    scope_key: str
     name: str
+    state_key: str
+    state_name: str
+    district_key: str
+    district_name: str
+    mandal_key: str
+    mandal_name: str
     discipline: str
     discipline_label: str
     active_count: int
@@ -2538,6 +2685,7 @@ class TicketView:
     # which is what the owner's card reads to know whether it may offer a
     # Call control at all. `dispatch_state` is '' until a dispatcher exists.
     assigned_to: Optional[AssignedPerson] = None
+    assigned_resource: Optional[AssignedResourceTrust] = None
     dispatch_state: str = ""
     my_rating: int = 0
     my_rating_note: str = ""
@@ -3279,6 +3427,50 @@ def _super_admin_env() -> set:
     return {p.strip() for p in _env("SUPER_ADMIN_UIDS").split(",") if p.strip()}
 
 
+def _certificate_secret() -> str:
+    """Deployment-held key for training credential signatures.
+
+    A fixed local-only key keeps preview and end-to-end tests deterministic
+    across API restarts. A deployed process must opt into that insecure posture
+    explicitly or provide its own high-entropy secret.
+    """
+    secret = _env("CERTIFICATE_SIGNING_SECRET").strip()
+    if secret:
+        return secret
+    if _env("ALLOW_INSECURE_LOCAL") == "1":
+        return "pattadar-local-training-certificate-signing-key-v1"
+    raise RuntimeError("CERTIFICATE_SIGNING_SECRET is required")
+
+
+def _training_certificate_of(row: dict, *, public: bool = False) -> TrainingCertificate:
+    secret = _certificate_secret()
+    intact = associates.training_certificate_intact(row, secret)
+    expired = bool((row.get("valid_until") or "") and row["valid_until"] < _today())
+    stored = row.get("status") or "active"
+    state = "tampered" if not intact else "revoked" if stored == "revoked" \
+        else "expired" if expired else "valid"
+    try:
+        skills = [str(item) for item in json.loads(row.get("skills_json") or "[]")
+                  if str(item).strip()]
+    except (TypeError, ValueError):
+        skills = []
+    return TrainingCertificate(
+        id=row.get("id") or "", certificate_no=row.get("certificate_no") or "",
+        associate_id="" if public else row.get("associate_id") or "",
+        recipient_name=row.get("recipient_name") or "",
+        course_code=row.get("course_code") or "", course_title=row.get("course_title") or "",
+        course_version=row.get("course_version") or "", trainer_name=row.get("trainer_name") or "",
+        trainer_ref=row.get("trainer_ref") or "", completed_on=row.get("completed_on") or "",
+        issued_on=row.get("issued_on") or "", valid_until=row.get("valid_until") or "",
+        hours=_f(row.get("hours")), skills=skills,
+        evidence_ref="" if public else row.get("evidence_ref") or "",
+        note="" if public else row.get("note") or "", status=stored, verification_state=state,
+        verification_code=associates.training_verification_code(row.get("id") or "", secret),
+        intact=intact, revoked_at=row.get("revoked_at") or "",
+        revoke_reason=row.get("revoke_reason") or "",
+        issued_by="" if public else row.get("issued_by") or "")
+
+
 async def _is_super_admin(conn, uid: str) -> bool:
     """May this principal read unpublished governance and change policy roles?
 
@@ -3606,11 +3798,14 @@ async def _roster(conn, *, ids: Optional[List[str]] = None, q: str = "",
     associates.py's area_slots() was written for."""
     sql = ["SELECT a.*, COALESCE(j.open_jobs, 0) AS open_jobs,"
            " COALESCE(j.done_jobs, 0) AS done_jobs,"
+           " COALESCE(j.last_completed_at, '') AS last_completed_at,"
            " COALESCE(rv.rating_count, 0) AS rating_count,"
            " COALESCE(rv.rating_average, 0) AS rating_average FROM associates a"
            " LEFT JOIN (SELECT assignee_ref,"
            "   COUNT(*) FILTER (WHERE closed = false) AS open_jobs,"
-           "   COUNT(*) FILTER (WHERE closed = true)  AS done_jobs"
+           "   COUNT(*) FILTER (WHERE closed = true)  AS done_jobs,"
+           "   MAX(COALESCE(NULLIF(status_at, ''), created_at))"
+           "     FILTER (WHERE closed = true) AS last_completed_at"
            "   FROM work_requests WHERE assignee_ref <> ''"
            "   GROUP BY assignee_ref) j ON j.assignee_ref = a.id"
            " LEFT JOIN (SELECT associate_id, COUNT(*) AS rating_count,"
@@ -3640,9 +3835,12 @@ async def _roster(conn, *, ids: Optional[List[str]] = None, q: str = "",
     if (q or "").strip():
         like = f"%{q.strip()}%"
         sql.append(" AND (a.name ILIKE %s OR a.firm ILIKE %s OR a.contact ILIKE %s"
+                   " OR a.village_locality ILIKE %s OR a.mandal_city ILIKE %s"
+                   " OR a.district ILIKE %s OR a.state_name ILIKE %s"
+                   " OR a.postal_code ILIKE %s"
                    " OR EXISTS (SELECT 1 FROM associate_areas ar"
                    " WHERE ar.associate_id = a.id AND ar.name ILIKE %s))")
-        args += [like, like, like, like]
+        args += [like, like, like, like, like, like, like, like, like]
     sql.append(" ORDER BY a.name, a.id LIMIT %s")
     args.append(max(1, min(_i(limit) or 200, 500)))
     cur = await conn.execute("".join(sql), tuple(args))
@@ -3739,12 +3937,16 @@ def _assoc_credentials(row: dict, today: str) -> List[AssociateCredential]:
         out.append(AssociateCredential(
             id=c.get("id") or "", discipline=c.get("discipline") or "",
             kind=c.get("kind") or "", number_masked=c.get("number_masked") or "",
-            authority=c.get("authority") or "", expires_on=_ddmmyyyy(expires),
+            authority=c.get("authority") or "",
+            issued_on=_ddmmyyyy(c.get("issued_on") or ""),
+            expires_on=_ddmmyyyy(expires),
             days_left=left,
             expiring=bool(verified and expires and 0 <= left <= _CRED_WARN_DAYS),
             lapsed=bool(verified and expires and expires < today),
             review=c.get("review") or "pending", review_note=c.get("review_note") or "",
-            file_ref=c.get("file_ref") or "", file_name=c.get("file_name") or ""))
+            file_ref=c.get("file_ref") or "", file_name=c.get("file_name") or "",
+            reviewed_by=c.get("reviewed_by") or "",
+            reviewed_at=_ddmmyyyy(c.get("reviewed_at") or "")))
     return out
 
 
@@ -3775,6 +3977,15 @@ def _associate_of(row: dict, today: str) -> Associate:
         contact_visible=bool(row.get("contact_visible")),
         alt_contact=row.get("alt_contact") or "",
         channel=row.get("channel") or "auto",
+        address_line=row.get("address_line") or "",
+        village_locality=row.get("village_locality") or "",
+        post_office=row.get("post_office") or "",
+        mandal_city=row.get("mandal_city") or "",
+        district=row.get("district") or "",
+        state_name=row.get("state_name") or "",
+        postal_code=row.get("postal_code") or "",
+        address_label=associates.address_label(row),
+        address_complete=associates.address_complete(row),
         state=state, state_word=_ASSOC_WORD.get(state, state),
         state_state=_ASSOC_STATE.get(state, "unknown"),
         state_reason=row.get("state_reason") or "",
@@ -3792,6 +4003,7 @@ def _associate_of(row: dict, today: str) -> Associate:
         claimed=bool((row.get("recipient_user_id") or "").strip()),
         dispatchable=ok, why_not=why,
         jobs_open=_i(row.get("open_jobs")), jobs_done=_i(row.get("done_jobs")),
+        last_completed_at=row.get("last_completed_at") or "",
         rating_average=round(_f(row.get("rating_average")), 2),
         rating_count=_i(row.get("rating_count")),
         training_state=row.get("training_state") or "not_required",
@@ -3984,6 +4196,78 @@ async def _assignees_of(conn, rows: List[dict]) -> dict:
     return {r["id"]: dict(r) for r in await cur.fetchall()}
 
 
+async def _owner_assignee_proofs(conn, rows: List[dict]) -> tuple[dict, dict]:
+    """Roster rows and training credentials for this owner's visible jobs.
+
+    The caller has already scoped `rows` to one owner. Deriving ids only from
+    those rows is the authorization boundary: an owner cannot use this helper
+    to browse the company roster. Both collections are fetched in batches so
+    a service list remains a fixed number of queries as it grows.
+    """
+    ids = sorted({(r.get("assignee_ref") or "").strip() for r in rows
+                  if (r.get("assignee_ref") or "").strip()})
+    if not ids:
+        return {}, {}
+    people = {r["id"]: r for r in await _roster(conn, ids=ids, limit=len(ids))}
+    cur = await conn.execute(
+        "SELECT * FROM associate_training_certificates"
+        " WHERE associate_id = ANY(%s) ORDER BY issued_on DESC,id", (ids,))
+    certificates: dict = {}
+    for row in await cur.fetchall():
+        certificates.setdefault(row["associate_id"], []).append(dict(row))
+    return people, certificates
+
+
+def _professional_credential_state(row: dict, today: str) -> str:
+    review = row.get("review") or "pending"
+    if review != "verified":
+        return review
+    expires = (row.get("expires_on") or "").strip()
+    if expires and expires < today:
+        return "lapsed"
+    if expires and ticketing.days_between(today, expires) <= _CRED_WARN_DAYS:
+        return "expiring"
+    return "verified"
+
+
+def _assigned_resource_of(row: dict, certificates: List[dict], kind: str,
+                          today: str) -> Optional[AssignedResourceTrust]:
+    """Owner-safe proof for the person assigned to one service."""
+    if not row:
+        return None
+    held = [d.get("discipline") or "" for d in row.get("disciplines") or []]
+    wanted = [d.key for d in associates.disciplines_for(kind)]
+    discipline = next((key for key in wanted if key in held), held[0] if held else "")
+    relevant = [c for c in row.get("credentials") or []
+                if not discipline or (c.get("discipline") or "") == discipline]
+    professional = [AssignedProfessionalCredential(
+        kind=c.get("kind") or "Professional credential",
+        number_masked=c.get("number_masked") or "",
+        authority=c.get("authority") or "",
+        issued_on=_ddmmyyyy(c.get("issued_on") or ""),
+        expires_on=_ddmmyyyy(c.get("expires_on") or ""),
+        state=_professional_credential_state(c, today)) for c in relevant]
+    training: List[AssignedTrainingCertificate] = []
+    for raw in certificates:
+        certificate = _training_certificate_of(raw, public=True)
+        training.append(AssignedTrainingCertificate(
+            certificate_no=certificate.certificate_no,
+            course_title=certificate.course_title,
+            course_code=certificate.course_code,
+            issued_on=_ddmmyyyy(certificate.issued_on),
+            valid_until=_ddmmyyyy(certificate.valid_until),
+            verification_state=certificate.verification_state,
+            verification_code=certificate.verification_code))
+    return AssignedResourceTrust(
+        associate_id=row.get("id") or "", name=row.get("name") or "",
+        firm=row.get("firm") or "", initials=_initials(row.get("name") or ""),
+        role=associates.label_of(discipline) if discipline else "Pattadar associate",
+        rating_average=round(_f(row.get("rating_average")), 2),
+        rating_count=_i(row.get("rating_count")), jobs_open=_i(row.get("open_jobs")),
+        professional_verified=any(c.state in ("verified", "expiring") for c in professional),
+        professional_credentials=professional, training_certificates=training)
+
+
 async def _associate_row(conn, aid: str) -> dict:
     cur = await conn.execute("SELECT * FROM associates WHERE id=%s", ((aid or "").strip(),))
     return dict(await cur.fetchone() or {})
@@ -4045,55 +4329,91 @@ def _desk_actor(status: str, action: str) -> str:
 
 # ── Where the work is, and who covers it ──────────────────────────────
 
-async def _coverage_rows(conn, level: str) -> List[dict]:
+_STATE_NOT_RECORDED = "State not recorded"
+
+
+def _coverage_scope_key(level: str, state_key: str, district_key: str = "",
+                        mandal_key: str = "", place_key: str = "") -> str:
+    """Stable, hierarchy-bearing key for this aggregate location.
+
+    It is deliberately display-name independent and denormalised. That makes
+    the same key usable by a later location-targeted advert without a join to
+    recover which state a district belonged to, and it ports cleanly to a
+    document store."""
+    parts = [level, state_key]
+    if level in ("district", "mandal", "village"):
+        parts.append(district_key)
+    if level in ("mandal", "village"):
+        parts.append(mandal_key)
+    if level == "village":
+        parts.append(place_key)
+    return "|".join(parts)
+
+
+async def _coverage_rows(conn, level: str, state_key: str = "",
+                         district_key: str = "") -> List[dict]:
     """Every place Pattadar holds land, at one administrative grain.
 
-    Aggregate-only and cross-owner: place names and counts, no record ids, no
-    owners. `properties` has no mandal column, so its locality/city/district
-    stand in the village/mandal/district slots exactly as `_cards` maps them —
-    and the flag is carried through so a mandal named Peddapuram is never
-    matched by somebody enrolled for a Peddapuram locality of a city."""
-    lvl = (level or "mandal").strip()
-    if lvl not in ("village", "mandal", "district"):
-        lvl = "mandal"
-    col = {"village": ("village", "locality"), "mandal": ("mandal", "city"),
-           "district": ("district", "district")}[lvl]
+    Aggregate-only and cross-owner: location hierarchy and counts, no record
+    ids and no owners. Parent filters are folded stable keys, not display names.
+    Properties currently have no state column, so they remain honestly grouped
+    under "State not recorded" until that record captures one."""
+    lvl = (level or "state").strip()
+    if lvl not in ("state", "district", "mandal", "village"):
+        lvl = "state"
+    want_state = (state_key or "").strip()
+    want_district = (district_key or "").strip()
     cells: dict = {}
 
-    def add(flag: str, name: str, mandal: str, district: str, n: int) -> None:
-        if not (name or "").strip():
+    def add(flag: str, state: str, district: str, mandal: str,
+            village: str, n: int) -> None:
+        state_name = (state or "").strip() or _STATE_NOT_RECORDED
+        district_name = (district or "").strip()
+        mandal_name = (mandal or "").strip()
+        village_name = (village or "").strip()
+        sk = associates.fold(state_name)
+        dk = associates.fold(district_name)
+        mk = associates.fold(mandal_name)
+        vk = associates.fold(village_name)
+        if want_state and sk != want_state:
             return
-        key = associates.fold(name)
-        cell = cells.setdefault(key, {"key": key, "name": name.strip(), "records": 0,
-                                      "keys": set(), "level": lvl})
+        if want_district and dk != want_district:
+            return
+        name = {"state": state_name, "district": district_name,
+                "mandal": mandal_name, "village": village_name}[lvl]
+        place_key = {"state": sk, "district": dk, "mandal": mk, "village": vk}[lvl]
+        if not name or not place_key:
+            return
+        scope_key = _coverage_scope_key(lvl, sk, dk, mk, vk)
+        cell = cells.setdefault(scope_key, {
+            "scope_key": scope_key, "name": name, "records": 0,
+            "keys": set(), "level": lvl,
+            "state_key": sk, "state_name": state_name,
+            "district_key": dk, "district_name": district_name,
+            "mandal_key": mk, "mandal_name": mandal_name,
+        })
         cell["records"] += n
-        # The area_key this cell is tested against, built at the grain asked
-        # for so a district-level associate still covers a mandal cell.
-        slots = {"village": "", "mandal": "", "district": associates.fold(district)}
-        if lvl == "village":
-            slots["village"], slots["mandal"] = key, associates.fold(mandal)
-        elif lvl == "mandal":
-            slots["mandal"] = key
-        else:
-            slots["district"] = key
-        cell["keys"].add(
-            f"{flag}|{slots['village']}|{slots['mandal']}|{slots['district']}")
+        # Full operational keys, even when this row is state- or district-level.
+        # They let live jobs be attributed without inventing state in the older
+        # four-slot work_request key.
+        cell["keys"].add(f"{flag}|{vk}|{mk}|{dk}")
 
     cur = await conn.execute(
-        f"SELECT pb.{col[0]} AS name, pb.mandal AS mandal, pb.district AS district,"
-        " COUNT(*) AS n FROM parcels p JOIN passbooks pb ON pb.id = p.passbook_id"
-        f" WHERE p.archived = false AND pb.{col[0]} <> ''"
-        f" GROUP BY pb.{col[0]}, pb.mandal, pb.district")
+        "SELECT pb.state AS state, pb.district AS district, pb.mandal AS mandal,"
+        " pb.village AS village, COUNT(*) AS n"
+        " FROM parcels p JOIN passbooks pb ON pb.id = p.passbook_id"
+        " WHERE p.archived = false"
+        " GROUP BY pb.state, pb.district, pb.mandal, pb.village")
     for r in await cur.fetchall():
-        add("p", r.get("name") or "", r.get("mandal") or "", r.get("district") or "",
-            _i(r.get("n")))
+        add("p", r.get("state") or "", r.get("district") or "",
+            r.get("mandal") or "", r.get("village") or "", _i(r.get("n")))
     cur = await conn.execute(
-        f"SELECT {col[1]} AS name, city AS mandal, district AS district, COUNT(*) AS n"
-        f" FROM properties WHERE archived = false AND {col[1]} <> ''"
-        f" GROUP BY {col[1]}, city, district")
+        "SELECT '' AS state, district, city AS mandal, locality AS village,"
+        " COUNT(*) AS n FROM properties WHERE archived = false"
+        " GROUP BY district, city, locality")
     for r in await cur.fetchall():
-        add("u", r.get("name") or "", r.get("mandal") or "", r.get("district") or "",
-            _i(r.get("n")))
+        add("u", r.get("state") or "", r.get("district") or "",
+            r.get("mandal") or "", r.get("village") or "", _i(r.get("n")))
     return sorted(cells.values(), key=lambda c: (-c["records"], c["name"]))
 
 
@@ -4122,14 +4442,12 @@ def _coverage_cells(places: List[dict], roster: List[dict], open_by_area: dict,
 
     A zero with jobs behind it is a gap — a service Pattadar is selling in a
     place with nobody to do it. A zero with no jobs behind it is just a fact."""
-    idx = {"village": 1, "mandal": 2, "district": 3}.get(level, 2)
     offerable = [r for r in roster if (r.get("state") or "") in associates.OFFERABLE]
     out: List[dict] = []
     for cell in places:
         needed: dict = {}
         for (area_key, kind), n in open_by_area.items():
-            parts = (area_key or "").split("|")
-            if len(parts) != 4 or parts[idx] != cell["key"]:
+            if area_key not in cell["keys"]:
                 continue
             for d in associates.disciplines_for(kind):
                 needed[d.key] = needed.get(d.key, 0) + n
@@ -4140,12 +4458,19 @@ def _coverage_cells(places: List[dict], roster: List[dict], open_by_area: dict,
                              if (x.get("discipline") or "") == key), None)
                 if not drow or (drow.get("state") or "on") != "on":
                     continue
-                if any(associates.covers(k, r.get("areas") or [], d.grain)
+                if any(associates.covers(
+                        k, r.get("areas") or [], d.grain, cell["state_key"])
                        for k in cell["keys"]):
                     active += 1
             jobs = needed.get(key, 0)
             out.append({
-                "level": cell["level"], "name": cell["name"], "discipline": key,
+                "level": cell["level"], "scope_key": cell["scope_key"],
+                "name": cell["name"],
+                "state_key": cell["state_key"], "state_name": cell["state_name"],
+                "district_key": cell["district_key"],
+                "district_name": cell["district_name"],
+                "mandal_key": cell["mandal_key"], "mandal_name": cell["mandal_name"],
+                "discipline": key,
                 "discipline_label": d.label, "active_count": active,
                 "open_jobs": jobs, "records": cell["records"],
                 "risk": ("gap" if (not active and jobs) else
@@ -4856,11 +5181,41 @@ class WebQuery:
 
     @strawberry.field
     async def services_offered(self, info: strawberry.Info, q: str = "",
-                               key: str = "") -> List[ServiceOffer]:
+                               key: str = "", record_id: str = "") -> List[ServiceOffer]:
         """The catalogue, searchable. `key` returns exactly one.
 
         Searched server-side so the client never has to hold the whole list:
-        four services fit in a row of buttons, four hundred do not."""
+        four services fit in a row of buttons, four hundred do not.  A record
+        id selects the most-specific published visual mapping for that land;
+        an unscoped catalogue uses the Andhra Pradesh baseline."""
+        uid = _uid(info)
+        visual_document: dict = governance.BASELINE_DOCUMENT
+        source_scope = "IN/AP/*"
+        async with _pool.connection() as conn:
+            state_code = "AP"
+            district = "*"
+            if record_id:
+                record = next((item for item in await _cards(conn, uid)
+                               if item.get("id") == record_id), None)
+                if record:
+                    state_name = str(record.get("state") or "").strip().lower()
+                    if state_name and state_name not in {"ap", "andhra pradesh"}:
+                        # This schema stores state names, while governance uses
+                        # official codes. Unknown names inherit the country
+                        # baseline until a canonical state code is available.
+                        state_code = "*"
+                    if state_code != "*":
+                        district = str(record.get("district") or "*")
+            policy_row = await _policy_row(conn, "IN", state_code, district, True)
+            if policy_row:
+                try:
+                    candidate = json.loads(policy_row.get("document") or "{}")
+                    if isinstance(candidate, dict):
+                        visual_document = candidate
+                        source_scope = str(policy_row.get("scope_key") or source_scope)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    pass
+
         def build(k: str, v: dict) -> ServiceOffer:
             return ServiceOffer(
                 key=k, label=v["label"], price=v["price"], group=v["group"],
@@ -4868,7 +5223,8 @@ class WebQuery:
                 shelves=list(v.get("shelves") or []),
                 fields=[ServiceField(name=n, label=lb, kind=ty, required=req,
                                      options=list(opts), help=hlp)
-                        for (n, lb, ty, req, opts, hlp) in v["fields"]])
+                        for (n, lb, ty, req, opts, hlp) in v["fields"]],
+                visual=_service_visual_for(k, visual_document, source_scope))
 
         if key:
             v = SERVICE_CATALOGUE.get(key)
@@ -5570,6 +5926,7 @@ class WebQuery:
             cur = await conn.execute(sql + order, args)
             rows = await cur.fetchall()
             cards = {r["id"]: r for r in await _cards(conn, uid)}
+            people, training = await _owner_assignee_proofs(conn, rows)
             # Money and unreviewed work, for the whole list in two queries
             # rather than two per row — the same reason `_covers` exists.
             cur = await conn.execute(
@@ -5604,6 +5961,10 @@ class WebQuery:
                     held=max(0.0, held.get(r["id"], 0.0)),
                     pending_review=waiting.get(r["id"], 0),
                     assignee_ref=r.get("assignee_ref") or "",
+                    assigned_resource=_assigned_resource_of(
+                        people.get((r.get("assignee_ref") or "").strip(), {}),
+                        training.get((r.get("assignee_ref") or "").strip(), []),
+                        r.get("kind") or "", _today()),
                     batch_id=r.get("batch_id") or "",
                     batch_ref=_batch_ref(r.get("batch_id") or ""),
                     record_kind=card.get("kind") or "",
@@ -5647,6 +6008,8 @@ class WebQuery:
                 "SELECT rating,note FROM associate_reviews"
                 " WHERE ticket_id=%s AND owner_user_id=%s", (id, uid))
             own_review = dict(await cur.fetchone() or {})
+            people, training = await _owner_assignee_proofs(conn, [row])
+            assignee_id = (row.get("assignee_ref") or "").strip()
             # "Nothing has moved for nine days" is the only honest thing a
             # tracking screen can say while a surveyor is not answering his
             # phone, and it needs a date to say it from.
@@ -5678,6 +6041,9 @@ class WebQuery:
                 # is what the card reads to know it must not offer a Call
                 # control it cannot honour.
                 assigned_to=await _assigned_person(conn, uid, row),
+                assigned_resource=_assigned_resource_of(
+                    people.get(assignee_id, {}), training.get(assignee_id, []),
+                    kind, _today()),
                 dispatch_state=row.get("dispatch_state") or "",
                 my_rating=_i(own_review.get("rating")),
                 my_rating_note=own_review.get("note") or "")
@@ -5980,6 +6346,67 @@ class WebQuery:
                 for r in await cur.fetchall()]
 
     @strawberry.field
+    async def associate_jobs(self, info: strawberry.Info, id: str,
+                             include_closed: bool = True) -> List[DeskJob]:
+        """Every job currently or historically assigned to one roster member.
+
+        This is intentionally not the dispatch desk query. The desk contains
+        only unassigned and neglected jobs; a normally progressing assignment
+        disappearing from a member's own record was the defect this read fixes.
+        """
+        uid, aid = _uid(info), (id or "").strip()
+        if not aid:
+            return []
+        async with _pool.connection() as conn:
+            if not await _is_admin(conn, uid):
+                return []
+            await _desk_read(conn, uid, "associate_jobs", aid)
+            cur = await conn.execute(
+                "SELECT * FROM work_requests WHERE assignee_ref=%s" +
+                ("" if include_closed else " AND closed=false") +
+                " ORDER BY closed, COALESCE(NULLIF(status_at,''),created_at) DESC LIMIT 500",
+                (aid,))
+            rows = [dict(row) for row in await cur.fetchall()]
+            places = await _place_of(conn, rows)
+            held = await _held_of(conn, [row["id"] for row in rows])
+            people = await _assignees_of(conn, rows)
+            today = _today()
+            return [_desk_job_of(
+                row, place=places.get(row["id"], ("", "")),
+                held=held.get(row["id"], 0.0),
+                assignee=people.get((row.get("assignee_ref") or "").strip()),
+                candidates=0, today=today) for row in rows]
+
+    @strawberry.field
+    async def associate_training_certificates(
+            self, info: strawberry.Info, id: str) -> List[TrainingCertificate]:
+        """All issued training credentials for one member, newest first."""
+        uid, aid = _uid(info), (id or "").strip()
+        if not aid:
+            return []
+        async with _pool.connection() as conn:
+            if not await _is_admin(conn, uid):
+                return []
+            await _desk_read(conn, uid, "associate_training_certificates", aid)
+            cur = await conn.execute(
+                "SELECT * FROM associate_training_certificates WHERE associate_id=%s"
+                " ORDER BY issued_on DESC,created_at DESC", (aid,))
+            return [_training_certificate_of(dict(row)) for row in await cur.fetchall()]
+
+    @strawberry.field
+    async def training_certificate(self, code: str) -> Optional[TrainingCertificate]:
+        """Public verification by an authenticated, non-enumerable code."""
+        certificate_id = associates.training_id_from_code(code, _certificate_secret())
+        if not certificate_id:
+            return None
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM associate_training_certificates WHERE id=%s",
+                (certificate_id,))
+            row = await cur.fetchone()
+            return _training_certificate_of(dict(row), public=True) if row else None
+
+    @strawberry.field
     async def candidates(self, info: strawberry.Info, ticket_id: str,
                          limit: int = 12) -> List[Candidate]:
         """Who could take this one job, best first, with the reasons.
@@ -6015,8 +6442,8 @@ class WebQuery:
                 for c in found[:max(1, min(_i(limit) or 12, 50))]]
 
     @strawberry.field
-    async def coverage(self, info: strawberry.Info,
-                       level: str = "mandal") -> List[CoverageCell]:
+    async def coverage(self, info: strawberry.Info, level: str = "state",
+                       state_key: str = "", district_key: str = "") -> List[CoverageCell]:
         """Every place Pattadar holds land, against every line of work.
 
         A zero with a live job behind it is a service being sold in a place
@@ -6026,18 +6453,65 @@ class WebQuery:
         async with _pool.connection() as conn:
             if not await _is_admin(conn, uid):
                 return []
-            await _desk_read(conn, uid, "coverage", level)
-            lvl = (level or "mandal").strip()
-            if lvl not in ("village", "mandal", "district"):
-                lvl = "mandal"
-            cells = _coverage_cells(await _coverage_rows(conn, lvl),
+            lvl = (level or "state").strip()
+            if lvl not in ("state", "district", "mandal", "village"):
+                lvl = "state"
+            sk = associates.fold(state_key)
+            dk = associates.fold(district_key)
+            await _desk_read(conn, uid, "coverage", f"{lvl}:{sk}:{dk}")
+            cells = _coverage_cells(await _coverage_rows(conn, lvl, sk, dk),
                                     await _roster(conn, limit=500),
                                     await _open_by_area(conn), lvl)
             return [CoverageCell(
-                level=c["level"], name=c["name"], discipline=c["discipline"],
+                level=c["level"], scope_key=c["scope_key"], name=c["name"],
+                state_key=c["state_key"], state_name=c["state_name"],
+                district_key=c["district_key"], district_name=c["district_name"],
+                mandal_key=c["mandal_key"], mandal_name=c["mandal_name"],
+                discipline=c["discipline"],
                 discipline_label=c["discipline_label"], active_count=c["active_count"],
                 open_jobs=c["open_jobs"], records=c["records"], risk=c["risk"])
                 for c in cells]
+
+    @strawberry.field
+    async def coverage_associates(self, info: strawberry.Info,
+                                  scope_key: str) -> List[Associate]:
+        """Active roster members whose enrolled area reaches one village.
+
+        The scope key comes from `coverage`, not from user-entered display text.
+        The resolver remains admin-only and leaves the same cross-owner read
+        trail as the grid."""
+        uid = _uid(info)
+        parts = (scope_key or "").split("|")
+        if len(parts) != 5 or parts[0] != "village" or not all(parts[1:]):
+            return []
+        sk, dk, _mk, _vk = parts[1:]
+        async with _pool.connection() as conn:
+            if not await _is_admin(conn, uid):
+                return []
+            await _desk_read(conn, uid, "coverage_associates", scope_key)
+            places = await _coverage_rows(conn, "village", sk, dk)
+            cell = next((p for p in places if p["scope_key"] == scope_key), None)
+            if not cell:
+                return []
+            roster = await _roster(conn, limit=500)
+            found: List[dict] = []
+            for row in roster:
+                if (row.get("state") or "") not in associates.OFFERABLE:
+                    continue
+                serves = False
+                for drow in row.get("disciplines") or []:
+                    if (drow.get("state") or "on") != "on":
+                        continue
+                    discipline = associates.DISCIPLINES.get(drow.get("discipline") or "")
+                    if discipline and any(associates.covers(
+                            key, row.get("areas") or [], discipline.grain, sk)
+                            for key in cell["keys"]):
+                        serves = True
+                        break
+                if serves:
+                    found.append(row)
+            today = _today()
+            return [_associate_of(row, today) for row in found]
 
     @strawberry.field
     async def desk_tasks(self, info: strawberry.Info, limit: int = 100) -> List[DeskTask]:
@@ -8388,12 +8862,16 @@ class WebMutation:
     async def invite_associate(self, info: strawberry.Info, name: str, contact: str,
                                disciplines: List[str], areas: List[str],
                                firm: str = "", note: str = "",
-                               channel: str = "auto") -> str:
+                               channel: str = "auto", address_line: str = "",
+                               village_locality: str = "", post_office: str = "",
+                               mandal_city: str = "", district: str = "",
+                               state_name: str = "", postal_code: str = "") -> str:
         """Write down somebody the desk already phones. Returns their id, or "".
 
-        A name, a number, at least one kind of work and at least one place —
-        that is everything Pattadar needs to send them a job, and anything less
-        is refused here rather than landing a row that can never be dispatched.
+        A name, a number, a complete postal hierarchy, at least one kind of work
+        and at least one coverage area are required. Address and coverage are
+        deliberately different records: a district-wide service area cannot
+        stand in for the member's postal address.
         They start at 'invited' and appear in candidate explanations, but no
         allocation path accepts them until the relevant discipline has been
         certified.
@@ -8412,7 +8890,13 @@ class WebMutation:
         keys = [d.strip() for d in (disciplines or [])
                 if d and d.strip() in associates.DISCIPLINES]
         places = _parse_areas(areas)
-        if not person or not number or not keys or not places:
+        postal = {
+            "village_locality": village_locality, "mandal_city": mandal_city,
+            "district": district, "state_name": state_name, "postal_code": postal_code,
+        }
+        if (not person or not number or not keys or not places
+                or not associates.address_complete(postal)
+                or not re.fullmatch(r"\d{6}", (postal_code or "").strip())):
             return ""
         want = (channel or "auto").strip().lower()
         chan = want if want in ("auto", "sms", "whatsapp", "email") else "auto"
@@ -8423,12 +8907,17 @@ class WebMutation:
             aid = f"as-{_uuid.uuid4().hex[:12]}"
             cur = await conn.execute(
                 "INSERT INTO associates (id, name, firm, contact, contact_key, channel,"
-                " state, note, enrolled_by, created_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,'invited',%s,%s,%s)"
+                " state, note, address_line, village_locality, post_office, mandal_city,"
+                " district, state_name, postal_code, enrolled_by, created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,'invited',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
                 " ON CONFLICT (contact_key) WHERE contact_key <> '' DO NOTHING"
                 " RETURNING id",
                 (aid, person, (firm or "").strip(), number, ckey, chan,
-                 (note or "").strip(), uid, _now_iso()))
+                 (note or "").strip(), (address_line or "").strip(),
+                 (village_locality or "").strip(), (post_office or "").strip(),
+                 (mandal_city or "").strip(), (district or "").strip(),
+                 (state_name or "").strip(), (postal_code or "").strip(),
+                 uid, _now_iso()))
             if not await cur.fetchone():
                 # Nothing was inserted, which can only be the unique index on
                 # a folded number. A contact that folds to '' — a name, a
@@ -8470,7 +8959,11 @@ class WebMutation:
     async def update_associate(self, info: strawberry.Info, id: str, name: str = "",
                                contact: str = "", alt_contact: str = "",
                                firm: str = "", note: str = "", channel: str = "",
-                               contact_visible: Optional[bool] = None) -> bool:
+                               contact_visible: Optional[bool] = None,
+                               address_line: str = "", village_locality: str = "",
+                               post_office: str = "", mandal_city: str = "",
+                               district: str = "", state_name: str = "",
+                               postal_code: str = "") -> bool:
         """Change what the desk knows about somebody.
 
         Every string field means "leave it alone" when empty — the convention
@@ -8529,6 +9022,33 @@ class WebMutation:
                 args.append(bool(contact_visible))
                 changed.append("owners may see the number"
                                if contact_visible else "owners may not see the number")
+            incoming_address = {
+                "address_line": address_line, "village_locality": village_locality,
+                "post_office": post_office, "mandal_city": mandal_city,
+                "district": district, "state_name": state_name,
+                "postal_code": postal_code,
+            }
+            if any((value or "").strip() for value in incoming_address.values()):
+                merged_address = {
+                    key: ((value or "").strip() or row.get(key) or "")
+                    for key, value in incoming_address.items()
+                }
+                if (not associates.address_complete(merged_address)
+                        or not re.fullmatch(r"\d{6}", merged_address["postal_code"])):
+                    return False
+            for column, value, label in (
+                ("address_line", address_line, "address line"),
+                ("village_locality", village_locality, "village or locality"),
+                ("post_office", post_office, "post office"),
+                ("mandal_city", mandal_city, "mandal or city"),
+                ("district", district, "district"),
+                ("state_name", state_name, "state"),
+                ("postal_code", postal_code, "PIN code"),
+            ):
+                if (value or "").strip():
+                    sets.append(f"{column}=%s")
+                    args.append(value.strip())
+                    changed.append(label)
             if not sets:
                 return False
             args += [aid]
@@ -8667,7 +9187,8 @@ class WebMutation:
     async def set_associate_certification(
         self, info: strawberry.Info, id: str, discipline: str,
         certified: bool, note: str = "", authority: str = "Pattadar",
-        expires_on: str = "",
+        issued_on: str = "", expires_on: str = "", credential_ref: str = "",
+        evidence_ref: str = "", evidence_name: str = "",
     ) -> bool:
         """Approve or refuse the evidence for one enrolled discipline.
 
@@ -8680,6 +9201,19 @@ class WebMutation:
         aid, key = (id or "").strip(), (discipline or "").strip()
         if not aid or key not in associates.DISCIPLINES:
             return False
+        kind = associates.credential_for(key)
+        regulated = kind != "Company verification"
+        if certified and (not (authority or "").strip() or not (issued_on or "").strip()):
+            return False
+        if certified and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", issued_on.strip()):
+            return False
+        if certified and (expires_on or "").strip() and not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}", expires_on.strip()):
+            return False
+        if certified and regulated and not (credential_ref or "").strip():
+            return False
+        if not certified and not (note or "").strip():
+            return False
         async with _ticket_transaction() as conn:
             if not await _is_admin(conn, uid):
                 return False
@@ -8688,31 +9222,44 @@ class WebMutation:
                 " AND discipline=%s", (aid, key))
             if not await cur.fetchone():
                 return False
-            kind = associates.credential_for(key)
             review = "verified" if certified else "rejected"
             cur = await conn.execute(
                 "SELECT id FROM associate_credentials WHERE associate_id=%s"
                 " AND discipline=%s ORDER BY created_at DESC LIMIT 1", (aid, key))
             existing = await cur.fetchone()
             if existing:
-                await conn.execute(
-                    "UPDATE associate_credentials SET kind=%s,authority=%s,expires_on=%s,"
-                    " review=%s,review_note=%s,reviewed_by=%s,reviewed_at=%s WHERE id=%s",
-                    (kind, (authority or "Pattadar").strip(), (expires_on or "").strip(),
-                     review, (note or "").strip(), uid, _now_iso(), existing["id"]))
+                if certified:
+                    await conn.execute(
+                        "UPDATE associate_credentials SET kind=%s,number_masked=%s,"
+                        " authority=%s,issued_on=%s,expires_on=%s,file_ref=%s,file_name=%s,"
+                        " review=%s,review_note=%s,reviewed_by=%s,reviewed_at=%s WHERE id=%s",
+                        (kind, associates.mask_credential_ref(credential_ref),
+                         authority.strip(), issued_on.strip(), (expires_on or "").strip(),
+                         (evidence_ref or "").strip(), (evidence_name or "").strip(),
+                         review, (note or "").strip(), uid, _now_iso(), existing["id"]))
+                else:
+                    await conn.execute(
+                        "UPDATE associate_credentials SET review=%s,review_note=%s,"
+                        " reviewed_by=%s,reviewed_at=%s WHERE id=%s",
+                        (review, note.strip(), uid, _now_iso(), existing["id"]))
             else:
                 await conn.execute(
                     "INSERT INTO associate_credentials"
-                    " (id,associate_id,discipline,kind,authority,expires_on,review,"
-                    " review_note,reviewed_by,reviewed_at,created_at)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    " (id,associate_id,discipline,kind,number_masked,authority,issued_on,"
+                    " expires_on,file_ref,file_name,review,review_note,reviewed_by,reviewed_at,created_at)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (f"ac-{_uuid.uuid4().hex[:12]}", aid, key, kind,
-                     (authority or "Pattadar").strip(), (expires_on or "").strip(),
-                     review, (note or "").strip(), uid, _now_iso(), _now_iso()))
+                     associates.mask_credential_ref(credential_ref),
+                     (authority or "Pattadar").strip(), (issued_on or "").strip(),
+                     (expires_on or "").strip(), (evidence_ref or "").strip(),
+                     (evidence_name or "").strip(), review, (note or "").strip(),
+                     uid, _now_iso(), _now_iso()))
             await _assoc_event(
                 conn, aid, kind="certification",
                 headline=f"{associates.label_of(key)} certification {review}",
-                detail=(note or "").strip(), actor=uid)
+                detail=" · ".join(x for x in [kind, (authority or "").strip(),
+                                                 (issued_on or "").strip(),
+                                                 (note or "").strip()] if x), actor=uid)
             await _desk_audit(conn, uid, "associate.certification", aid,
                               f"{key} · {review}")
             return True
@@ -8736,6 +9283,125 @@ class WebMutation:
             await _assoc_event(conn, aid, kind="training",
                                headline=f"Training status: {want.replace('_', ' ')}",
                                detail=(note or "").strip(), actor=uid)
+            return True
+
+    @strawberry.mutation
+    async def issue_training_certificate(
+        self, info: strawberry.Info, id: str, course_code: str, course_title: str,
+        course_version: str, trainer_name: str, completed_on: str,
+        trainer_ref: str = "", valid_until: str = "", hours: float = 0,
+        skills: Optional[List[str]] = None, evidence_ref: str = "", note: str = "",
+    ) -> str:
+        """Issue one signed Pattadar University training credential.
+
+        Repeating the same member/course/version/completion date returns the
+        existing credential instead of creating a duplicate. The certificate
+        clears a training hold but never substitutes for a professional licence.
+        """
+        uid = _uid(info)
+        aid = (id or "").strip()
+        code = re.sub(r"[^A-Z0-9-]", "", (course_code or "").strip().upper())[:32]
+        title = (course_title or "").strip()[:160]
+        version = (course_version or "").strip()[:24]
+        trainer = (trainer_name or "").strip()[:120]
+        done = (completed_on or "").strip()
+        until = (valid_until or "").strip()
+        evidence = (evidence_ref or "").strip()[:500]
+        learned = list(dict.fromkeys((item or "").strip()[:120]
+                                     for item in (skills or []) if (item or "").strip()))[:20]
+        if not all((aid, code, title, version, trainer, done, evidence)):
+            return ""
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", done):
+            return ""
+        if until and (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", until) or until < done):
+            return ""
+        if _f(hours) <= 0 or _f(hours) > 1000:
+            return ""
+        secret = _certificate_secret()
+        async with _ticket_transaction() as conn:
+            if not await _is_admin(conn, uid):
+                return ""
+            member = await _associate_row(conn, aid)
+            if not member:
+                return ""
+            cur = await conn.execute(
+                "SELECT id FROM associate_training_certificates WHERE associate_id=%s"
+                " AND course_code=%s AND course_version=%s AND completed_on=%s"
+                " AND status='active' LIMIT 1", (aid, code, version, done))
+            existing = await cur.fetchone()
+            if existing:
+                return existing["id"]
+
+            now = _now_iso()
+            certificate_id = "putc-" + secrets.token_hex(16)
+            certificate_no = f"PU-{_today()[:4]}-{secrets.token_hex(6).upper()}"
+            course_id = "puc-" + hashlib.sha256(f"{code}|{version}".encode()).hexdigest()[:20]
+            await conn.execute(
+                "INSERT INTO associate_training_courses"
+                " (id,code,title,version,hours,active,created_by,created_at,updated_at)"
+                " VALUES (%s,%s,%s,%s,%s,true,%s,%s,%s)"
+                " ON CONFLICT (code,version) DO UPDATE SET title=EXCLUDED.title,"
+                " hours=EXCLUDED.hours,active=true,updated_at=EXCLUDED.updated_at",
+                (course_id, code, title, version, _f(hours), uid, now, now))
+            row = {
+                "id": certificate_id, "certificate_no": certificate_no,
+                "associate_id": aid, "recipient_name": member.get("name") or "",
+                "course_code": code, "course_title": title, "course_version": version,
+                "trainer_name": trainer, "trainer_ref": (trainer_ref or "").strip()[:120],
+                "completed_on": done, "issued_on": _today(), "valid_until": until,
+                "hours": _f(hours), "skills_json": json.dumps(learned, separators=(",", ":")),
+                "evidence_ref": evidence, "note": (note or "").strip()[:2000],
+                "issued_by": uid, "created_at": now,
+            }
+            payload_hash = associates.training_certificate_hash(row)
+            signature = associates.training_certificate_signature(row, secret)
+            await conn.execute(
+                "INSERT INTO associate_training_certificates"
+                " (id,certificate_no,associate_id,course_id,recipient_name,course_code,"
+                " course_title,course_version,trainer_name,trainer_ref,completed_on,issued_on,"
+                " valid_until,hours,skills_json,evidence_ref,note,status,payload_hash,signature,"
+                " issued_by,created_at) VALUES"
+                " (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s,%s,%s)",
+                (certificate_id, certificate_no, aid, course_id, row["recipient_name"], code,
+                 title, version, trainer, row["trainer_ref"], done, row["issued_on"], until,
+                 row["hours"], row["skills_json"], evidence, row["note"], payload_hash,
+                 signature, uid, now))
+            await conn.execute(
+                "UPDATE associates SET training_state='cleared',training_note=%s WHERE id=%s",
+                (f"{title} {version} completed {done}", aid))
+            await _assoc_event(
+                conn, aid, kind="training_certificate",
+                headline=f"Pattadar University certificate issued: {title}",
+                detail=f"{certificate_no} · trained by {trainer} · completed {done}", actor=uid,
+                ref_table="associate_training_certificates", ref_id=certificate_id)
+            await _desk_audit(conn, uid, "associate.training_certificate_issued", aid,
+                              certificate_no)
+            return certificate_id
+
+    @strawberry.mutation
+    async def revoke_training_certificate(self, info: strawberry.Info, id: str,
+                                          reason: str) -> bool:
+        """Revoke an issued credential while preserving its public history."""
+        uid, cid, why = _uid(info), (id or "").strip(), (reason or "").strip()
+        if not cid or not why:
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_admin(conn, uid):
+                return False
+            cur = await conn.execute(
+                "UPDATE associate_training_certificates SET status='revoked',revoked_at=%s,"
+                " revoked_by=%s,revoke_reason=%s WHERE id=%s AND status='active' RETURNING *",
+                (_now_iso(), uid, why[:2000], cid))
+            row = await cur.fetchone()
+            if not row:
+                return False
+            await _assoc_event(
+                conn, row["associate_id"], kind="training_certificate",
+                headline=f"Training certificate revoked: {row['course_title']}",
+                detail=f"{row['certificate_no']} · {why}", actor=uid,
+                ref_table="associate_training_certificates", ref_id=cid)
+            await _desk_audit(conn, uid, "associate.training_certificate_revoked",
+                              row["associate_id"], row["certificate_no"])
             return True
 
     @strawberry.mutation
@@ -8825,6 +9491,11 @@ class WebMutation:
                 return False
             cur = await conn.execute(
                 "SELECT 1 FROM work_requests WHERE assignee_ref=%s LIMIT 1", (aid,))
+            if await cur.fetchone():
+                return False
+            cur = await conn.execute(
+                "SELECT 1 FROM associate_training_certificates WHERE associate_id=%s LIMIT 1",
+                (aid,))
             if await cur.fetchone():
                 return False
             for table in ("associate_disciplines", "associate_areas",

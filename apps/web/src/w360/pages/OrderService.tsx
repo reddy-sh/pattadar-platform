@@ -55,6 +55,7 @@ import {
 import type { MapState } from '../orderFlow';
 import { pairRing } from '../portfolioGeo';
 import { MapThumb } from '../MapThumb';
+import { ServiceVisual } from '../ServiceVisual';
 import {
   Card, Chip, Empty, Failed, Icon, KV, Loading, ddmmyyyy, inr, plural,
 } from '../ui';
@@ -326,7 +327,7 @@ export function OrderService() {
 
   const mapState = useMemo(() => mapStateOf(rec), [rec.ring, rec.lat, rec.lon]);
 
-  const { data: offers, isLoading: offersLoading, error: offersErr } = useServicesOffered('');
+  const { data: offers, isLoading: offersLoading, error: offersErr } = useServicesOffered('', '', true, rec.id);
   // Always the record's own id — never '', which makes the resolver drop the
   // filter and answer with every open order on the account. That cannot happen
   // here by construction now: the record is a path segment.
@@ -769,13 +770,16 @@ function PickStep(
                 if (already) {
                   return (
                     <div key={o.key} className="svc-existing">
-                      <span className="row tight between svchead">
-                        <strong>{o.label}</strong>
-                        <Chip>{already.statusLabel || 'Already requested'}</Chip>
+                      <ServiceVisual serviceKey={o.key} label={o.label} visual={o.visual} variant="card" />
+                      <span className="service-pick-copy">
+                        <span className="row tight between svchead">
+                          <strong>{o.label}</strong>
+                          <Chip>{already.statusLabel || 'Already requested'}</Chip>
+                        </span>
+                        <small>{already.stageLabel || 'In progress'} · {already.ref}</small>
+                        <small>You already have one of these running on this land.</small>
+                        <Link className="link" to={`/app/services/${already.id}`}>Open request</Link>
                       </span>
-                      <small>{already.stageLabel || 'In progress'} · {already.ref}</small>
-                      <small>You already have one of these running on this land.</small>
-                      <Link className="link" to={`/app/services/${already.id}`}>Open request</Link>
                     </div>
                   );
                 }
@@ -783,20 +787,24 @@ function PickStep(
                   <button key={o.key} type="button" aria-pressed={on}
                           disabled={existingChecking || !!existingErr || !existing}
                           onClick={() => onPick(o.key)}>
-                    <span className="row tight between svchead">
-                      <strong>{o.label}</strong>
-                      <Chip>{inr(o.price)}</Chip>
+                    <ServiceVisual serviceKey={o.key} label={o.label} visual={o.visual} variant="card" />
+                    <span className="service-pick-copy">
+                      <span className="row tight between svchead">
+                        <strong>{o.label}</strong>
+                        <Chip>{inr(o.price)}</Chip>
+                      </span>
+                      <small>{o.visual.caption}</small>
+                      <small>about {o.days} days</small>
+                      <small>{existingChecking ? 'Checking existing requests…' : (sub ?? o.blurb)}</small>
+                      {on && groundService(o) && mapState !== 'mapped' && (
+                        <small>
+                          <Link className="link" to={drawBack(rec.id, o.key)}
+                                onClick={(e) => e.stopPropagation()}>
+                            {MAP_LINK[mapState]}
+                          </Link>
+                        </small>
+                      )}
                     </span>
-                    <small>about {o.days} days</small>
-                    <small>{existingChecking ? 'Checking existing requests…' : (sub ?? o.blurb)}</small>
-                    {on && groundService(o) && mapState !== 'mapped' && (
-                      <small>
-                        <Link className="link" to={drawBack(rec.id, o.key)}
-                              onClick={(e) => e.stopPropagation()}>
-                          {MAP_LINK[mapState]}
-                        </Link>
-                      </small>
-                    )}
                   </button>
                 );
               })}

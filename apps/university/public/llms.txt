@@ -1,0 +1,49 @@
+# Pattadar University
+
+Pattadar University is an educational property and land-record literacy product for India.
+
+## State and union territory guides
+
+The jurisdiction library covers all 28 states and 8 union territories. Each guide explains local record names, official access, mutation, survey and map use, registration boundaries, evidence limits, and source-review status. External references are restricted to government domains.
+
+- [India jurisdiction library](https://university.pattadar.com/states)
+- [Andhra Pradesh land records](https://university.pattadar.com/states/andhra-pradesh)
+- [Arunachal Pradesh land records](https://university.pattadar.com/states/arunachal-pradesh)
+- [Assam land records](https://university.pattadar.com/states/assam)
+- [Bihar land records](https://university.pattadar.com/states/bihar)
+- [Chhattisgarh land records](https://university.pattadar.com/states/chhattisgarh)
+- [Goa land records](https://university.pattadar.com/states/goa)
+- [Gujarat land records](https://university.pattadar.com/states/gujarat)
+- [Haryana land records](https://university.pattadar.com/states/haryana)
+- [Himachal Pradesh land records](https://university.pattadar.com/states/himachal-pradesh)
+- [Jharkhand land records](https://university.pattadar.com/states/jharkhand)
+- [Karnataka land records](https://university.pattadar.com/states/karnataka)
+- [Kerala land records](https://university.pattadar.com/states/kerala)
+- [Madhya Pradesh land records](https://university.pattadar.com/states/madhya-pradesh)
+- [Maharashtra land records](https://university.pattadar.com/states/maharashtra)
+- [Manipur land records](https://university.pattadar.com/states/manipur)
+- [Meghalaya land records](https://university.pattadar.com/states/meghalaya)
+- [Mizoram land records](https://university.pattadar.com/states/mizoram)
+- [Nagaland land records](https://university.pattadar.com/states/nagaland)
+- [Odisha land records](https://university.pattadar.com/states/odisha)
+- [Punjab land records](https://university.pattadar.com/states/punjab)
+- [Rajasthan land records](https://university.pattadar.com/states/rajasthan)
+- [Sikkim land records](https://university.pattadar.com/states/sikkim)
+- [Tamil Nadu land records](https://university.pattadar.com/states/tamil-nadu)
+- [Telangana land records](https://university.pattadar.com/states/telangana)
+- [Tripura land records](https://university.pattadar.com/states/tripura)
+- [Uttar Pradesh land records](https://university.pattadar.com/states/uttar-pradesh)
+- [Uttarakhand land records](https://university.pattadar.com/states/uttarakhand)
+- [West Bengal land records](https://university.pattadar.com/states/west-bengal)
+- [Andaman and Nicobar Islands land records](https://university.pattadar.com/states/andaman-and-nicobar-islands)
+- [Chandigarh land records](https://university.pattadar.com/states/chandigarh)
+- [Dadra and Nagar Haveli and Daman and Diu land records](https://university.pattadar.com/states/dadra-and-nagar-haveli-and-daman-and-diu)
+- [Delhi land records](https://university.pattadar.com/states/delhi)
+- [Jammu and Kashmir land records](https://university.pattadar.com/states/jammu-and-kashmir)
+- [Ladakh land records](https://university.pattadar.com/states/ladakh)
+- [Lakshadweep land records](https://university.pattadar.com/states/lakshadweep)
+- [Puducherry land records](https://university.pattadar.com/states/puducherry)
+
+## Important boundary
+
+The guides are education, not title certificates, legal opinions, survey demarcations, or government services. Portal records must be reconciled with certified records, registration, mutation, survey, restrictions, and competent professional or authority review where needed.

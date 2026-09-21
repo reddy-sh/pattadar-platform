@@ -10,6 +10,8 @@ export function Footer() {
         </div>
         <div className="site-footer__links">
           <Link to="/">Course catalog</Link>
+          <Link to="/compliance">Training coverage</Link>
+          <Link to="/states">State guides</Link>
           <Link to="/opportunities">Work paths</Link>
           <Link to="/locations/hyderabad">Learning centres</Link>
         </div>

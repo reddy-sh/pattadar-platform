@@ -51,6 +51,31 @@ export interface Portfolio {
 }
 export interface FacetOption { key: string; label: string; count: number; active: boolean }
 export interface FacetGroup { key: string; label: string; options: FacetOption[] }
+export interface GeographyRow {
+  id: string; name: string; code: string; lgdCode: string; nameLocal: string;
+  sourceId: string; sourceUrl: string; sourceEffectiveAt: string; active: boolean;
+  stateId?: string; stateName?: string; stateLgdCode?: string;
+  districtId?: string; districtName?: string; districtLgdCode?: string;
+  mandalId?: string; mandalName?: string; mandalLgdCode?: string;
+  governmentLevelName?: string; census2011Code?: string;
+}
+export interface ReferenceDataSource {
+  id: string; name: string; authority: string; description: string;
+  catalogUrl: string; publisherUrl: string; licenseName: string; licenseUrl: string;
+  cadence: string; updatedAt: string;
+}
+export interface ReferenceDataSyncRun {
+  id: string; sourceId: string; mode: string; status: string; sourceEffectiveAt: string;
+  startedAt: string; finishedAt: string; countsJson: string;
+}
+export interface GeographyReference {
+  states: GeographyRow[]; districts: GeographyRow[]; mandals: GeographyRow[];
+  villages: GeographyRow[]; sources: ReferenceDataSource[]; runs: ReferenceDataSyncRun[];
+  summary: {
+    states: number; districts: number; mandals: number; villages: number;
+    lastCompletedAt: string; sourceName: string;
+  };
+}
 export interface PropertyList {
   shown: number; total: number; hidden: number; filterSummary: string;
   hiddenPlaces: string[]; activeCount: number; cards: RecordCard[]; facets: FacetGroup[];
@@ -239,6 +264,9 @@ export interface GovernanceServiceGuide {
   key: string; label: string; purpose: string; share: string[]; doNotShare: string[];
   controls: string[]; sourceIds: string[];
 }
+export interface GovernanceServiceVisual {
+  serviceKey: string; assetKey: string; alt: string; caption: string;
+}
 export interface GovernanceWorkforceRule {
   key: string; category: string; title: string; rule: string; enforcement: string;
 }
@@ -253,6 +281,7 @@ export interface GovernanceDocument {
   propertyTypes: GovernancePropertyType[];
   guides: GovernanceGuide[];
   serviceRequests: GovernanceServiceGuide[];
+  serviceVisuals?: GovernanceServiceVisual[];
   secureSharing: {
     label: string; shareWhenNeeded: string[]; neverByDefault: string[];
     controls: string[]; sourceIds: string[];
@@ -265,6 +294,20 @@ export interface GovernanceDocument {
 export interface MapView {
   areaLabel: string; records: MapRecord[]; counts: FacetOption[];
   insights: { id: string; title: string; detail: string }[];
+}
+export interface AssignedProfessionalCredential {
+  kind: string; numberMasked: string; authority: string;
+  issuedOn: string; expiresOn: string; state: string;
+}
+export interface AssignedTrainingCertificate {
+  certificateNo: string; courseTitle: string; courseCode: string;
+  issuedOn: string; validUntil: string; verificationState: string; verificationCode: string;
+}
+export interface AssignedResourceTrust {
+  associateId: string; name: string; firm: string; initials: string; role: string;
+  ratingAverage: number; ratingCount: number; jobsOpen: number; professionalVerified: boolean;
+  professionalCredentials: AssignedProfessionalCredential[];
+  trainingCertificates: AssignedTrainingCertificate[];
 }
 export interface Order {
   id: string; kind: string; serviceKey: string; title: string; detail: string; assignee: string;
@@ -288,6 +331,9 @@ export interface Order {
   batchId: string; batchRef: string;
   /** Record context for filtering the cross-record Services list. */
   recordKind: string; recordClassification: string; recordLocation: string;
+  /** Public proof for the roster member assigned to this owner's service.
+   * Contact details and uploaded evidence are intentionally absent. */
+  assignedResource: AssignedResourceTrust | null;
 }
 
 /** A label/value the server has already decided how to word. `k`/`v` rather
@@ -375,7 +421,8 @@ export interface TicketView {
   /** Who is on it, and where the job stands with the desk. `dispatchState` is
    *  a word — nobody yet, on somebody, asked and waiting — and is deliberately
    *  not another status: `status`/`stage` are untouched by any of this. */
-  assignedTo: AssignedPerson | null; dispatchState: string;
+  assignedTo: AssignedPerson | null; assignedResource: AssignedResourceTrust | null;
+  dispatchState: string;
   myRating: number; myRatingNote: string;
   events: TicketEvent[]; deliverables: TicketDeliverable[];
   dispatches: TicketDispatch[]; ledger: TicketLedgerRow[];
@@ -400,9 +447,13 @@ export interface ServiceField {
   name: string; label: string; kind: string;
   required: boolean; options: string[]; help: string;
 }
+export interface ServiceVisual {
+  assetKey: string; src: string; alt: string; caption: string; sourceScope: string;
+}
 export interface ServiceOffer {
   key: string; label: string; price: number; group: string;
   blurb: string; days: number; shelves: string[]; fields: ServiceField[];
+  visual: ServiceVisual;
 }
 
 export interface ServiceBatchReceipt {
@@ -546,6 +597,56 @@ export function usePortfolio() {
     queryKey: [KEY, 'portfolio'],
     staleTime: BADGE_STALE,
     queryFn: async () => (await gql<Wrapped<'portfolio', Portfolio>>(Q_PORTFOLIO)).web.portfolio,
+  });
+}
+
+export function useGeographyReference(
+  stateId: string, districtId: string, mandalId: string, enabled = true,
+) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'geographyReference', stateId, districtId, mandalId],
+    staleTime: 15 * 60 * 1000,
+    queryFn: async () => {
+      const data = await gql<{
+        states: GeographyRow[];
+        districtsByState: GeographyRow[];
+        mandalsByDistrict: GeographyRow[];
+        villagesByMandal: GeographyRow[];
+        referenceDataSources: ReferenceDataSource[];
+        referenceDataSyncRuns: ReferenceDataSyncRun[];
+        referenceDataSummary: GeographyReference['summary'];
+      }>(`query GeographyReference($stateId:String!,$districtId:String!,$mandalId:String!) {
+        states { id name code lgdCode nameLocal sourceId sourceUrl sourceEffectiveAt active }
+        districtsByState(stateId:$stateId) {
+          id name code lgdCode nameLocal stateId stateName stateLgdCode
+          sourceId sourceUrl sourceEffectiveAt active
+        }
+        mandalsByDistrict(districtId:$districtId) {
+          id name code lgdCode nameLocal districtId districtName districtLgdCode
+          stateId stateName stateLgdCode governmentLevelName
+          sourceId sourceUrl sourceEffectiveAt active
+        }
+        villagesByMandal(mandalId:$mandalId) {
+          id name code lgdCode nameLocal mandalId mandalName mandalLgdCode
+          districtId districtName districtLgdCode stateId stateName stateLgdCode
+          census2011Code sourceId sourceUrl sourceEffectiveAt active
+        }
+        referenceDataSources {
+          id name authority description catalogUrl publisherUrl licenseName licenseUrl cadence updatedAt
+        }
+        referenceDataSyncRuns(limit:20) {
+          id sourceId mode status sourceEffectiveAt startedAt finishedAt countsJson
+        }
+        referenceDataSummary { states districts mandals villages lastCompletedAt sourceName }
+      }`, { stateId, districtId, mandalId });
+      return {
+        states: data.states ?? [], districts: data.districtsByState ?? [],
+        mandals: data.mandalsByDistrict ?? [], villages: data.villagesByMandal ?? [],
+        sources: data.referenceDataSources ?? [], runs: data.referenceDataSyncRuns ?? [],
+        summary: data.referenceDataSummary,
+      } satisfies GeographyReference;
+    },
   });
 }
 
@@ -844,6 +945,9 @@ const Q_ORDERS = `query O($recordId:String,$includeClosed:Boolean) { web {
   id kind serviceKey title detail assignee cost stage stageLabel needsYou dueDate recordId recordTitle params
   status statusLabel statusState ref assigneeRef held pendingReview batchId batchRef
   recordKind recordClassification recordLocation
+  assignedResource { associateId name firm initials role ratingAverage ratingCount jobsOpen professionalVerified
+    professionalCredentials { kind numberMasked authority issuedOn expiresOn state }
+    trainingCertificates { certificateNo courseTitle courseCode issuedOn validUntil verificationState verificationCode } }
 } } }`;
 
 /** The whole ticket in one round trip. It is a lot of fields, but they are all
@@ -858,6 +962,9 @@ const Q_TICKET = `query TKT($id:String!) { web { ticket(id:$id) {
   myRating myRatingNote
   assignedTo { associateId name firm initials discipline disciplineLabel
                contact contactShown contactWhy jobsOpen assignedAt via }
+  assignedResource { associateId name firm initials role ratingAverage ratingCount jobsOpen professionalVerified
+    professionalCredentials { kind numberMasked authority issuedOn expiresOn state }
+    trainingCertificates { certificateNo courseTitle courseCode issuedOn validUntil verificationState verificationCode } }
   money { quoted held released fee returned payeeShare provider live funded headline honesty }
   events { id kind action headline detail actorLabel actorKind tone at atLabel }
   deliverables { id kind label note fileRef fileName mimeType sizeBytes payload
@@ -874,8 +981,9 @@ const Q_WALLET = `query WAL($limit:Int) { web { wallet(limit:$limit) {
   rows { id entry label amount fromBucket toBucket payee provider simulated status note ticketId ticketRef at }
 } } }`;
 
-const Q_SERVICES = `query SO($q:String,$key:String) { web { servicesOffered(q:$q,key:$key) {
+const Q_SERVICES = `query SO($q:String,$key:String,$recordId:String) { web { servicesOffered(q:$q,key:$key,recordId:$recordId) {
   key label price group blurb days shelves fields { name label kind required options help }
+  visual { assetKey src alt caption sourceScope }
 } } }`;
 
 /** No `enabled`: the Shell asks for this on every route to count what is
@@ -1399,12 +1507,12 @@ export function useRecordHistory(id: string | undefined) {
 }
 
 /** The service catalogue, searched server-side so the client never holds it all. */
-export function useServicesOffered(q: string, key = '', enabled = true) {
+export function useServicesOffered(q: string, key = '', enabled = true, recordId = '') {
   return useQuery({
     enabled,
-    queryKey: [KEY, 'services', q, key],
+    queryKey: [KEY, 'services', q, key, recordId],
     queryFn: async () =>
-      (await gql<Wrapped<'servicesOffered', ServiceOffer[]>>(Q_SERVICES, { q, key }))
+      (await gql<Wrapped<'servicesOffered', ServiceOffer[]>>(Q_SERVICES, { q, key, recordId }))
         .web.servicesOffered,
   });
 }
@@ -1684,9 +1792,10 @@ export interface AssociateDiscipline {
  *  copy of somebody's enrolment number sitting in a browser cache. */
 export interface AssociateCredential {
   id: string; discipline: string; kind: string; numberMasked: string;
-  authority: string; expiresOn: string; daysLeft: number;
+  authority: string; issuedOn: string; expiresOn: string; daysLeft: number;
   expiring: boolean; lapsed: boolean;
   review: string; reviewNote: string; fileRef: string; fileName: string;
+  reviewedBy: string; reviewedAt: string;
 }
 
 /** One person on the roster, as the desk sees them.
@@ -1705,11 +1814,14 @@ export interface AssociateCredential {
 export interface Associate {
   id: string; name: string; firm: string; initials: string;
   contact: string; contactMasked: string; contactVisible: boolean;
+  addressLine: string; villageLocality: string; postOffice: string;
+  mandalCity: string; district: string; stateName: string; postalCode: string;
+  addressLabel: string; addressComplete: boolean;
   state: string; stateWord: string; stateState: string; stateReason: string;
   disciplines: AssociateDiscipline[]; areas: AssociateArea[];
   credentials: AssociateCredential[];
   claimed: boolean; dispatchable: boolean; whyNot: string[];
-  jobsOpen: number; jobsDone: number;
+  jobsOpen: number; jobsDone: number; lastCompletedAt: string;
   ratingAverage: number; ratingCount: number;
   trainingState: string; trainingNote: string;
   offersSent: number; offersTaken: number; offersDeclined: number;
@@ -1736,13 +1848,33 @@ export interface AssociateEvent {
   actorLabel: string; actorKind: string; at: string; atLabel: string;
 }
 
+/** A signed Pattadar University internal training credential. Professional
+ * licensing remains the separate AssociateCredential gate above. */
+export interface TrainingCertificate {
+  id: string; certificateNo: string; associateId: string; recipientName: string;
+  courseCode: string; courseTitle: string; courseVersion: string;
+  trainerName: string; trainerRef: string; completedOn: string; issuedOn: string;
+  validUntil: string; hours: number; skills: string[]; evidenceRef: string; note: string;
+  status: string; verificationState: string; verificationCode: string; intact: boolean;
+  revokedAt: string; revokeReason: string; issuedBy: string;
+}
+
 /** One square of the coverage grid: a place against a line of work.
  *  `activeCount` 0 with `openJobs` above it is a problem; 0 with no open job
  *  is only a fact, and `risk` is the server saying which of the two this is
  *  rather than the grid guessing from the numbers. */
 export interface CoverageCell {
-  level: string; name: string; discipline: string; disciplineLabel: string;
+  level: string; scopeKey: string; name: string;
+  stateKey: string; stateName: string; districtKey: string; districtName: string;
+  mandalKey: string; mandalName: string;
+  discipline: string; disciplineLabel: string;
   activeCount: number; openJobs: number; records: number; risk: string;
+}
+
+export interface CoverageAssociate {
+  id: string; name: string; firm: string; initials: string;
+  state: string; stateWord: string; stateState: string; jobsOpen: number;
+  disciplines: AssociateDiscipline[]; areas: AssociateArea[];
 }
 
 /** Something the desk needs to look at. Written by the paths that cannot ask a
@@ -1793,12 +1925,14 @@ const ASSOCIATE_AREA = `id level name label`;
 
 const ASSOCIATE_DISCIPLINE = `key label state stateWord capacity openCount credentialState`;
 
-const ASSOCIATE_CREDENTIAL = `id discipline kind numberMasked authority expiresOn daysLeft
-  expiring lapsed review reviewNote fileRef fileName`;
+const ASSOCIATE_CREDENTIAL = `id discipline kind numberMasked authority issuedOn expiresOn daysLeft
+  expiring lapsed review reviewNote fileRef fileName reviewedBy reviewedAt`;
 
 const ASSOCIATE = `id name firm initials contact contactMasked contactVisible
+  addressLine villageLocality postOffice mandalCity district stateName postalCode
+  addressLabel addressComplete
   state stateWord stateState stateReason claimed dispatchable whyNot
-  jobsOpen jobsDone ratingAverage ratingCount trainingState trainingNote
+  jobsOpen jobsDone lastCompletedAt ratingAverage ratingCount trainingState trainingNote
   offersSent offersTaken offersDeclined acceptRate lastOfferedAt
   note createdAt
   disciplines { ${ASSOCIATE_DISCIPLINE} }
@@ -1809,6 +1943,10 @@ const DESK_JOB = `ticketId ref kind serviceLabel place status statusLabel status
   assignee assigneeRef assigneeContact orderedAt ageDays dueDate overdue quiet quietDays
   quoted held dispatchState dispatchRound nextRoundAt offersOut offersDeclined
   lastResponse candidateCount stuck`;
+
+export const TRAINING_CERTIFICATE = `id certificateNo associateId recipientName courseCode
+  courseTitle courseVersion trainerName trainerRef completedOn issuedOn validUntil hours skills
+  evidenceRef note status verificationState verificationCode intact revokedAt revokeReason issuedBy`;
 
 const Q_DESK = `query DSK($scope:String!) { web { desk(scope:$scope) {
   mode modeWord unassigned ageing silentCount stuck
@@ -1826,9 +1964,24 @@ const Q_ASSOCIATE_EVENTS = `query AEV($id:String!) { web { associateEvents(id:$i
   id kind headline detail actorLabel actorKind at atLabel
 } } }`;
 
-const Q_COVERAGE = `query COV($level:String!) { web { coverage(level:$level) {
-  level name discipline disciplineLabel activeCount openJobs records risk
+const Q_ASSOCIATE_JOBS = `query AJB($id:String!,$includeClosed:Boolean!) {
+  web { associateJobs(id:$id,includeClosed:$includeClosed) { ${DESK_JOB} } } }`;
+
+const Q_ASSOCIATE_TRAINING_CERTIFICATES = `query ATC($id:String!) {
+  web { associateTrainingCertificates(id:$id) { ${TRAINING_CERTIFICATE} } } }`;
+
+const Q_COVERAGE = `query COV($level:String!,$stateKey:String!,$districtKey:String!) {
+  web { coverage(level:$level,stateKey:$stateKey,districtKey:$districtKey) {
+  level scopeKey name stateKey stateName districtKey districtName mandalKey mandalName
+  discipline disciplineLabel activeCount openJobs records risk
 } } }`;
+
+const Q_COVERAGE_ASSOCIATES = `query COVA($scopeKey:String!) {
+  web { coverageAssociates(scopeKey:$scopeKey) {
+    id name firm initials state stateWord stateState jobsOpen
+    disciplines { ${ASSOCIATE_DISCIPLINE} }
+    areas { ${ASSOCIATE_AREA} }
+  } } }`;
 
 const Q_DESK_TASKS = `{ web { deskTasks {
   id kind headline detail associateId ticketId to at
@@ -1921,14 +2074,49 @@ export function useAssociateEvents(id?: string) {
   });
 }
 
+/** All current and historical assignments for this member. Unlike the desk
+ * query this includes normally progressing jobs, which is the point here. */
+export function useAssociateJobs(id?: string, includeClosed = true) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'associateJobs', id, includeClosed],
+    queryFn: async () =>
+      (await gql<Wrapped<'associateJobs', DeskJob[]>>(Q_ASSOCIATE_JOBS, { id, includeClosed }))
+        .web.associateJobs,
+  });
+}
+
+export function useAssociateTrainingCertificates(id?: string) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'associateTrainingCertificates', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'associateTrainingCertificates', TrainingCertificate[]>>(
+        Q_ASSOCIATE_TRAINING_CERTIFICATES, { id })).web.associateTrainingCertificates,
+  });
+}
+
 /** The grid of places against lines of work. One flat list of cells, not a
  *  matrix: the screen decides which are rows and which are columns, and a flat
  *  list survives a place with no records and a discipline with nobody in it. */
-export function useCoverage(level = 'mandal') {
+export function useCoverage(level = 'state', stateKey = '', districtKey = '') {
   return useQuery({
-    queryKey: [KEY, 'coverage', level],
+    queryKey: [KEY, 'coverage', level, stateKey, districtKey],
     queryFn: async () =>
-      (await gql<Wrapped<'coverage', CoverageCell[]>>(Q_COVERAGE, { level })).web.coverage,
+      (await gql<Wrapped<'coverage', CoverageCell[]>>(
+        Q_COVERAGE, { level, stateKey, districtKey },
+      )).web.coverage,
+  });
+}
+
+export function useCoverageAssociates(scopeKey = '') {
+  return useQuery({
+    enabled: !!scopeKey,
+    queryKey: [KEY, 'coverage-associates', scopeKey],
+    queryFn: async () =>
+      (await gql<Wrapped<'coverageAssociates', CoverageAssociate[]>>(
+        Q_COVERAGE_ASSOCIATES, { scopeKey },
+      )).web.coverageAssociates,
   });
 }
 
@@ -1988,9 +2176,9 @@ export function useAssociatesForTicket(ticketId?: string) {
 // happened. There is an error to catch only for the network.
 
 /** Writes somebody down and sends them their link. Resolves to the new
- *  associate's id, or '' when it was refused — a name, a contact, one kind of
- *  work and one place are all required, and a contact already on the roster is
- *  refused rather than duplicated.
+ *  associate's id, or '' when it was refused — a name, contact, complete postal
+ *  hierarchy, one kind of work and one coverage area are required, and a
+ *  contact already on the roster is refused rather than duplicated.
  *
  *  They appear on the roster immediately, but allocation waits until each
  *  active discipline has a verified credential or company verification. */
@@ -1998,11 +2186,19 @@ export const useInviteAssociate = (reportError = true) =>
   useW360Mutation<{
     name: string; contact: string; disciplines: string[]; areas: string[];
     firm?: string; note?: string; channel?: string;
+    addressLine?: string; villageLocality?: string; postOffice?: string;
+    mandalCity?: string; district?: string; stateName?: string; postalCode?: string;
   }, Wrapped<'inviteAssociate', string>>(
     `mutation INV($name:String!,$contact:String!,$disciplines:[String!]!,$areas:[String!]!,
-                  $firm:String! = "",$note:String! = "",$channel:String! = "auto") {
+                  $firm:String! = "",$note:String! = "",$channel:String! = "auto",
+                  $addressLine:String! = "",$villageLocality:String! = "",$postOffice:String! = "",
+                  $mandalCity:String! = "",$district:String! = "",$stateName:String! = "",
+                  $postalCode:String! = "") {
        web { inviteAssociate(name:$name,contact:$contact,disciplines:$disciplines,
-                             areas:$areas,firm:$firm,note:$note,channel:$channel) } }`,
+                             areas:$areas,firm:$firm,note:$note,channel:$channel,
+                             addressLine:$addressLine,villageLocality:$villageLocality,
+                             postOffice:$postOffice,mandalCity:$mandalCity,district:$district,
+                             stateName:$stateName,postalCode:$postalCode) } }`,
     'That associate',
     reportError,
   );
@@ -2019,13 +2215,20 @@ export const useUpdateAssociate = () =>
   useW360Mutation<{
     id: string; name?: string; contact?: string; altContact?: string;
     firm?: string; note?: string; channel?: string; contactVisible?: boolean | null;
+    addressLine?: string; villageLocality?: string; postOffice?: string;
+    mandalCity?: string; district?: string; stateName?: string; postalCode?: string;
   }, Wrapped<'updateAssociate', boolean>>(
     `mutation UAS($id:String!,$name:String! = "",$contact:String! = "",$altContact:String! = "",
                   $firm:String! = "",$note:String! = "",$channel:String! = "",
-                  $contactVisible:Boolean) {
+                  $contactVisible:Boolean,$addressLine:String! = "",$villageLocality:String! = "",
+                  $postOffice:String! = "",$mandalCity:String! = "",$district:String! = "",
+                  $stateName:String! = "",$postalCode:String! = "") {
        web { updateAssociate(id:$id,name:$name,contact:$contact,altContact:$altContact,
                              firm:$firm,note:$note,channel:$channel,
-                             contactVisible:$contactVisible) } }`,
+                             contactVisible:$contactVisible,addressLine:$addressLine,
+                             villageLocality:$villageLocality,postOffice:$postOffice,
+                             mandalCity:$mandalCity,district:$district,stateName:$stateName,
+                             postalCode:$postalCode) } }`,
     'That associate',
   );
 
@@ -2069,12 +2272,17 @@ export const useSetAssociateState = () =>
 export const useSetAssociateCertification = () =>
   useW360Mutation<{
     id: string; discipline: string; certified: boolean;
-    note?: string; authority?: string; expiresOn?: string;
+    note?: string; authority?: string; issuedOn?: string; expiresOn?: string;
+    credentialRef?: string; evidenceRef?: string; evidenceName?: string;
   }, Wrapped<'setAssociateCertification', boolean>>(
     `mutation SAC($id:String!,$discipline:String!,$certified:Boolean!,
-                  $note:String! = "",$authority:String! = "Pattadar",$expiresOn:String! = "") {
+                  $note:String! = "",$authority:String! = "Pattadar",$issuedOn:String! = "",
+                  $expiresOn:String! = "",$credentialRef:String! = "",
+                  $evidenceRef:String! = "",$evidenceName:String! = "") {
        web { setAssociateCertification(id:$id,discipline:$discipline,certified:$certified,
-                                       note:$note,authority:$authority,expiresOn:$expiresOn) } }`,
+                                       note:$note,authority:$authority,issuedOn:$issuedOn,
+                                       expiresOn:$expiresOn,credentialRef:$credentialRef,
+                                       evidenceRef:$evidenceRef,evidenceName:$evidenceName) } }`,
     'That certification',
   );
 
@@ -2084,6 +2292,30 @@ export const useSetAssociateTraining = () =>
     `mutation SAT($id:String!,$state:String!,$note:String! = "") {
        web { setAssociateTraining(id:$id,state:$state,note:$note) } }`,
     'That training decision',
+  );
+
+export const useIssueTrainingCertificate = () =>
+  useW360Mutation<{
+    id: string; courseCode: string; courseTitle: string; courseVersion: string;
+    trainerName: string; trainerRef?: string; completedOn: string; validUntil?: string;
+    hours: number; skills?: string[]; evidenceRef: string; note?: string;
+  }, Wrapped<'issueTrainingCertificate', string>>(
+    `mutation ITC($id:String!,$courseCode:String!,$courseTitle:String!,$courseVersion:String!,
+                  $trainerName:String!,$trainerRef:String! = "",$completedOn:String!,
+                  $validUntil:String! = "",$hours:Float!,$skills:[String!],
+                  $evidenceRef:String!,$note:String! = "") {
+       web { issueTrainingCertificate(id:$id,courseCode:$courseCode,courseTitle:$courseTitle,
+              courseVersion:$courseVersion,trainerName:$trainerName,trainerRef:$trainerRef,
+              completedOn:$completedOn,validUntil:$validUntil,hours:$hours,skills:$skills,
+              evidenceRef:$evidenceRef,note:$note) } }`,
+    'That training certificate',
+  );
+
+export const useRevokeTrainingCertificate = () =>
+  useW360Mutation<{ id: string; reason: string }, Wrapped<'revokeTrainingCertificate', boolean>>(
+    `mutation RTC($id:String!,$reason:String!) {
+       web { revokeTrainingCertificate(id:$id,reason:$reason) } }`,
+    'That training certificate',
   );
 
 export const useMessageAssociate = () =>

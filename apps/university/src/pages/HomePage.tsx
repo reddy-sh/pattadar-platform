@@ -1,12 +1,17 @@
 import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined';
+import SearchOffRounded from '@mui/icons-material/SearchOffRounded';
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import WorkOutlineRounded from '@mui/icons-material/WorkOutlineRounded';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router';
-import { campuses, courses, mentors, opportunities, roleLabels } from '../data/catalog';
-import type { AudienceRole, Course } from '../domain/types';
 import { CourseCard } from '../components/CourseCard';
+import { DiscoveryFilters } from '../components/DiscoveryFilters';
+import { campuses, courses, mentors, opportunities, roleLabels } from '../data/catalog';
+import { stateLandRecordByCode } from '../data/stateLandRecords';
+import { filterCoursesByDiscovery, filterOpportunitiesByDiscovery } from '../domain/discovery';
+import type { Course } from '../domain/types';
+import { useDiscoveryFilters } from '../state/useDiscoveryFilters';
 import { useUniversity } from '../state/UniversityProvider';
 
 interface HomePageProps {
@@ -14,12 +19,22 @@ interface HomePageProps {
 }
 
 export function HomePage({ onTutor }: HomePageProps) {
-  const [role, setRole] = useState<AudienceRole | 'all'>('all');
   const { enrollments, joinCourse, enrollmentFor } = useUniversity();
-  const visibleCourses = useMemo(
-    () => role === 'all' ? courses : courses.filter((course) => course.roles.includes(role)),
-    [role],
+  const { filters, updateFilters, clearFilters, hasActiveFilters } = useDiscoveryFilters();
+  const selectedState = filters.stateCode === 'all' ? undefined : stateLandRecordByCode(filters.stateCode);
+  const visibleCourses = useMemo(() => filterCoursesByDiscovery(courses, filters), [filters]);
+  const visibleOpportunities = useMemo(() => filterOpportunitiesByDiscovery(opportunities, campuses, {
+    careerRole: filters.goal === 'career' ? filters.careerRole : 'all',
+    stateCode: filters.stateCode,
+  }), [filters]);
+  const visibleCampuses = useMemo(
+    () => filters.stateCode === 'all' ? campuses : campuses.filter((campus) => campus.stateCode === filters.stateCode),
+    [filters.stateCode],
   );
+  const opportunityParams = new URLSearchParams();
+  if (filters.stateCode !== 'all') opportunityParams.set('state', filters.stateCode);
+  if (filters.goal === 'career' && filters.careerRole !== 'all') opportunityParams.set('role', filters.careerRole);
+  const opportunityHref = opportunityParams.size ? `/opportunities?${opportunityParams.toString()}` : '/opportunities';
 
   return (
     <main>
@@ -45,22 +60,39 @@ export function HomePage({ onTutor }: HomePageProps) {
             <SmartToyOutlined /> Ask the AI tutor
           </button>
         </header>
-        <div className="role-filter" role="group" aria-label="Filter courses by role">
-          <button type="button" aria-pressed={role === 'all'} onClick={() => setRole('all')}>All paths</button>
-          {(Object.entries(roleLabels) as Array<[AudienceRole, string]>).map(([value, label]) => (
-            <button key={value} type="button" aria-pressed={role === value} onClick={() => setRole(value)}>{label}</button>
-          ))}
-        </div>
-        <div className="course-grid" aria-live="polite">
-          {visibleCourses.map((course) => (
-            <CourseCard
-              key={course.id}
-              course={course}
-              enrollment={enrollmentFor(course.id)}
-              onJoin={joinCourse}
-            />
-          ))}
-        </div>
+        <DiscoveryFilters
+          idPrefix="catalog"
+          filters={filters}
+          hasActiveFilters={hasActiveFilters}
+          resultCount={visibleCourses.length}
+          totalCount={courses.length}
+          onChange={updateFilters}
+          onClear={clearFilters}
+        />
+        {selectedState ? (
+          <aside className="selected-state-guide">
+            <div><span>Land-record guide</span><strong>{selectedState.primaryRecordLabel}</strong><p>{selectedState.coverageNote}</p></div>
+            <Link className="text-action" to={`/states/${selectedState.slug}`}>Open {selectedState.name} guide <ArrowForwardRounded /></Link>
+          </aside>
+        ) : null}
+        {visibleCourses.length ? (
+          <div className="course-grid" aria-live="polite">
+            {visibleCourses.map((course) => (
+              <CourseCard
+                key={course.id}
+                course={course}
+                enrollment={enrollmentFor(course.id)}
+                onJoin={joinCourse}
+              />
+            ))}
+          </div>
+        ) : (
+          <section className="filter-empty" aria-live="polite">
+            <SearchOffRounded />
+            <div><h3>No courses match</h3><p>Try another goal, career discipline, or state.</p></div>
+            <button className="button button--quiet" type="button" onClick={clearFilters}>Clear filters</button>
+          </section>
+        )}
       </section>
 
       <section className="work-band">
@@ -70,17 +102,18 @@ export function HomePage({ onTutor }: HomePageProps) {
               <h2>Learn toward real work</h2>
               <p>These proposed pathways show the required course and human review step. They are not open roles or guarantees of assignment.</p>
             </div>
-            <Link className="text-action" to="/opportunities">View opportunities <ArrowForwardRounded /></Link>
+            <Link className="text-action" to={opportunityHref}>View opportunities <ArrowForwardRounded /></Link>
           </header>
           <div className="opportunity-preview">
-            {opportunities.slice(0, 3).map((opportunity) => (
-              <Link key={opportunity.id} to="/opportunities" className="opportunity-preview__row">
+            {visibleOpportunities.slice(0, 3).map((opportunity) => (
+              <Link key={opportunity.id} to={opportunityHref} className="opportunity-preview__row">
                 <WorkOutlineRounded />
                 <span><strong>{opportunity.title}</strong><small>{opportunity.organization} · {opportunity.engagement}</small></span>
                 <span>{roleLabels[opportunity.role]}</span>
                 <ArrowForwardRounded />
               </Link>
             ))}
+            {visibleOpportunities.length === 0 ? <p className="band-empty">No proposed work pathways match this state and discipline yet.</p> : null}
           </div>
         </div>
       </section>
@@ -93,7 +126,7 @@ export function HomePage({ onTutor }: HomePageProps) {
           </div>
         </header>
         <div className="location-grid">
-          {campuses.map((campus) => (
+          {visibleCampuses.map((campus) => (
             <Link key={campus.id} to={`/locations/${campus.slug}`} className="location-row">
               <LocationOnOutlined />
               <span><strong>{campus.name}</strong><small>{campus.mode}</small></span>
@@ -101,6 +134,7 @@ export function HomePage({ onTutor }: HomePageProps) {
               <ArrowForwardRounded />
             </Link>
           ))}
+          {visibleCampuses.length === 0 ? <p className="band-empty">No proposed learning centre is listed for this state yet.</p> : null}
         </div>
       </section>
 

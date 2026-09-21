@@ -17,6 +17,7 @@ export const NAV_LINKS: [string, string][] = [
   ['Pattadar AI', 'ai'],
   ['How it works', 'how'],
   ['6 Pillars', 'pillars'],
+  ['University', 'university'],
   ['Services', 'services'],
   ['FAQ', 'faq'],
 ];
@@ -266,6 +267,32 @@ export const WALLET = {
   body: 'Pay stamp duty, registration fees and family expenses from one secure balance — with every transaction recorded next to the land it belongs to.',
 };
 
+/** User-authorized addition to the otherwise frozen landing copy. */
+export const UNIVERSITY = {
+  eyebrow: 'Pattadar University',
+  h2: 'Training people you can trust with your land',
+  intro:
+    'Pattadar University helps surveyors, advocates, field teams and other property-service professionals learn the standards behind careful work: owner privacy, evidence handling, field safety and local compliance.',
+  points: [
+    {
+      title: 'Learn for the work',
+      body: 'Role-specific courses connect practical field skills with the rules and responsibilities that protect property owners.',
+    },
+    {
+      title: 'Prove what was completed',
+      body: 'Eligible learners can receive a signed Pattadar credential with a live status, validity dates and a public verification code.',
+    },
+    {
+      title: 'See who is serving you',
+      body: 'When a professional is assigned to a service, the owner can view their current Pattadar training credentials from that request.',
+    },
+  ],
+  cta: 'Explore Pattadar University',
+  note: 'Courses, credentials, mentoring and property-sector opportunities.',
+  disclaimer:
+    'Pattadar University credentials confirm Pattadar training. They do not replace a government licence or professional registration.',
+};
+
 export const ROADMAP = {
   eyebrow: 'Beyond record-keeping',
   h2: "Services we're building next",
@@ -328,6 +355,7 @@ export const FINAL_CTA = {
 
 export const FOOTER = {
   copyrightTail: ' Pattadar · Katragunta, Prakasam, Andhra Pradesh · San Francisco, California',
+  university: 'Pattadar University',
   privacy: 'Privacy',
   terms: 'Terms',
   grievance: 'Grievance: grievance@pattadar.com',

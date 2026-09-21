@@ -51,6 +51,7 @@ import { pairRing } from '../portfolioGeo';
 import { surveyNumber } from '../surveyNumber';
 import { SkRecordCards } from '../skeletons';
 import { MapThumb } from '../MapThumb';
+import { ServiceVisual } from '../ServiceVisual';
 import {
   Chip, Empty, Failed, Icon, Loading, PageHead, PhotoImg, inr, num, plural,
 } from '../ui';
@@ -189,15 +190,18 @@ function Answer({ f, value, onChange }: {
 function OfferTile({ o, q }: { o: ServiceOffer; q: string }) {
   const to = `/app/order?service=${o.key}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
   return (
-    <Link className="rec" to={to} style={{ padding: 'var(--space-md)' }}>
-      <span className="row tight between svchead">
-        <strong style={{ fontSize: '0.9375rem' }}>{o.label}</strong>
-        <Chip>{inr(o.price)}</Chip>
-      </span>
-      <span className="note" style={{ display: 'block', marginTop: '0.25rem' }}>{o.blurb}</span>
-      <span className="note" style={{ display: 'block', marginTop: '0.25rem' }}>
-        about {o.days} days
-        {ALSO_CALLED[o.key] && ` · ${ALSO_CALLED[o.key]}`}
+    <Link className="rec service-catalog-tile" to={to}>
+      <ServiceVisual serviceKey={o.key} label={o.label} visual={o.visual} variant="card" />
+      <span className="service-catalog-copy">
+        <span className="row tight between svchead">
+          <strong style={{ fontSize: '0.9375rem' }}>{o.label}</strong>
+          <Chip>{inr(o.price)}</Chip>
+        </span>
+        <span className="note service-meaning">{o.visual.caption}</span>
+        <span className="note" style={{ display: 'block', marginTop: '0.25rem' }}>
+          about {o.days} days
+          {ALSO_CALLED[o.key] && ` · ${ALSO_CALLED[o.key]}`}
+        </span>
       </span>
     </Link>
   );

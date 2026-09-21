@@ -991,6 +991,126 @@ html:has(.site) body {
 
 .cols__col .card__h { margin: 0; }
 
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
+ * Pattadar University is a ruled institutional band, not another card grid. */
+.university {
+  position: relative;
+  border-block: var(--rule-hair) solid var(--color-rule);
+  background: var(--color-paper-2);
+}
+
+.university::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--rule-bold);
+  background: var(--color-accent);
+}
+
+.university__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(var(--space-2xl), 7vw, var(--space-4xl));
+  align-items: start;
+}
+
+.university__intro,
+.university__proof { min-width: 0; }
+
+.university__mark {
+  width: 4.5rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  position: relative;
+  margin-bottom: var(--space-xl);
+  border: var(--rule-hair) solid var(--color-accent);
+  border-radius: 50%;
+  color: var(--color-accent);
+}
+
+.university__mark::after {
+  content: "";
+  position: absolute;
+  inset: var(--space-2xs);
+  border: var(--rule-hair) solid var(--color-rule-strong);
+  border-radius: 50%;
+}
+
+.university__mark svg { width: 1.35rem; height: 1.35rem; transform: translateY(-0.35rem); }
+.university__mark span {
+  position: absolute;
+  bottom: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 500;
+}
+
+.university__intro .section-head { margin-bottom: var(--space-lg); }
+.university__intro .section-lead { max-width: 54ch; }
+.university__cta { width: max-content; max-width: 100%; white-space: nowrap; }
+.university__cta svg { width: 1.125rem; height: 1.125rem; }
+.university__note {
+  max-width: 48ch;
+  margin: var(--space-sm) 0 0;
+  color: var(--color-ink-3);
+  font-size: var(--text-xs);
+}
+
+.university__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.university__steps li {
+  display: grid;
+  grid-template-columns: 2.25rem 2.75rem minmax(0, 1fr);
+  gap: var(--space-md);
+  align-items: start;
+  padding: var(--space-lg) 0;
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+
+.university__steps li:last-child { border-bottom: var(--rule-hair) solid var(--color-rule); }
+.university__index {
+  padding-top: var(--space-xs);
+  color: var(--color-ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.university__icon {
+  width: 2.75rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: var(--rule-hair) solid var(--color-rule-strong);
+  border-radius: 50%;
+  color: var(--color-accent);
+}
+.university__icon svg { width: 1.25rem; height: 1.25rem; }
+.university__point-copy { display: grid; gap: var(--space-2xs); min-width: 0; }
+.university__point-copy strong {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.university__point-copy > span {
+  max-width: var(--measure);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+.university__disclaimer {
+  margin: var(--space-lg) 0 0;
+  padding-left: var(--space-md);
+  border-left: var(--rule-bold) solid var(--color-rule-strong);
+  color: var(--color-ink-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+}
+
 /* ── split (Pattadar AI) ─────────────────────────────────────────── */
 
 .split {
@@ -1864,6 +1984,12 @@ html:has(.site) body {
 
   .split { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
 
+  .university__layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-xl);
+  }
+  .university__mark { margin-bottom: var(--space-lg); }
+
   /* One column: the stage goes first and acts as the section's opening image,
    * with the steps beneath it. */
   .journey { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
@@ -1894,6 +2020,15 @@ html:has(.site) body {
 
   .spec { padding: var(--space-lg); }
   .hero__ctas .cta { padding: var(--space-sm) var(--space-lg); }
+
+  .university__steps li {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    gap: var(--space-sm) var(--space-md);
+  }
+  .university__index { grid-column: 1 / -1; padding-top: 0; }
+  .university__icon { grid-column: 1; }
+  .university__point-copy { grid-column: 2; }
+  .university__cta { padding-inline: var(--space-md); font-size: var(--text-sm); }
 }
 
 /* ── reduced motion ──────────────────────────────────────────────── */

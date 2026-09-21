@@ -1,4 +1,6 @@
 import type { Course, Enrollment, TutorReply } from './types';
+import { contentForCourse } from '../content';
+import { officialReferencesById } from '../data/officialReferences';
 
 export function enrollmentIdFor(learnerId: string, courseId: string): string {
   return `enr_${learnerId}_${courseId}`.replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -80,11 +82,41 @@ export function answerTutor(course: Course | undefined, question: string): Tutor
     };
   }
   const moduleTitles = course?.modules.slice(0, 3).map((module) => module.title) ?? [];
+  if (course) {
+    const ignoredTerms = new Set(['about', 'could', 'help', 'should', 'their', 'there', 'these', 'what', 'when', 'where', 'which', 'with', 'would']);
+    const terms = normalized.split(/[^a-z0-9]+/).filter((term) => term.length >= 4 && !ignoredTerms.has(term));
+    const candidates = contentForCourse(course).flatMap((lesson) => {
+      const moduleTitle = course.modules.find((module) => module.id === lesson.moduleId)?.title ?? lesson.moduleId;
+      return lesson.sections.map((section) => ({
+        moduleTitle,
+        heading: section.heading,
+        body: section.body,
+        referenceIds: lesson.referenceIds,
+        score: terms.reduce((total, term) => {
+          const titleMatch = moduleTitle.toLocaleLowerCase().includes(term) ? 3 : 0;
+          const headingMatch = section.heading.toLocaleLowerCase().includes(term) ? 2 : 0;
+          const bodyMatch = section.body.toLocaleLowerCase().includes(term) ? 1 : 0;
+          return total + titleMatch + headingMatch + bodyMatch;
+        }, 0),
+      }));
+    }).sort((left, right) => right.score - left.score);
+    const best = candidates[0];
+    if (best && best.score > 0) {
+      const officialSources = officialReferencesById(best.referenceIds)
+        .slice(0, 2)
+        .map((reference) => `${reference.title} · ${reference.authority}`);
+      return {
+        text: `${best.body} Open “${best.moduleTitle}” for the complete explanation, practice activity, and knowledge check.`,
+        sources: [`${course.title} · ${best.moduleTitle} · ${best.heading} · ${course.contentVersion}`, ...officialSources],
+        needsHuman: false,
+      };
+    }
+  }
   return {
     text: course
-      ? `Start with ${moduleTitles.join(', ')}. This preview can guide you through the outline; the production tutor will cite approved passages. For a live parcel or client matter, ask a qualified person to review the actual records.`
-      : 'Choose a course to explore its preview outline. The production tutor will teach from approved lessons, quiz key decisions, and route live-record questions to a qualified person.',
-    sources: course ? moduleTitles.map((title) => `Preview outline · ${course.title} · ${title}`) : ['Preview tutor use policy'],
+      ? `Start with ${moduleTitles.join(', ')}. I answer from this course's reviewed learning content and can help you find the right lesson. For a live parcel or client matter, ask a qualified person to review the actual records.`
+      : 'Choose a course so I can answer from its learning content, quiz key decisions, and route live-record questions to a qualified person.',
+    sources: course ? moduleTitles.map((title) => `${course.title} · ${title} · ${course.contentVersion}`) : ['AI Tutor use policy'],
     needsHuman: false,
   };
 }

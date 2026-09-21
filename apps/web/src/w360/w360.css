@@ -679,6 +679,10 @@
 }
 .w360 .strip > * { padding: var(--space-md) var(--space-md); border-left: 1px solid var(--w-line); min-width: 0; }
 .w360 .strip > *:first-child { border-left: 0; }
+.w360 .strip .strip-link { color: inherit; text-decoration: none; transition: background var(--ease-fast); }
+.w360 .strip .strip-link:hover { background: var(--w-surface-2); }
+.w360 .strip .strip-link:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -3px; }
+.w360 .strip .strip-link .s { color: var(--w-accent); }
 .w360 .strip .k {
   font-family: var(--font-mono);
   font-size: 0.625rem;
@@ -705,6 +709,13 @@
   color: var(--w-ink-3);
   line-height: 1.4;
 }
+
+.w360 .coverage-controls, .w360 .coverage-path { flex-wrap: wrap; }
+.w360 .coverage-place {
+  display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;
+  color: var(--w-ink); font-size: inherit; font-weight: inherit; text-decoration: none;
+}
+.w360 .coverage-place:hover { color: var(--w-accent); text-decoration: underline; }
 
 /* ── Tabs ───────────────────────────────────────────────────────────── */
 
@@ -919,6 +930,26 @@
 /* Wide enough that a record's extent, its alternate unit and its worth all sit
    on one line — the card's whole job. Narrower tracks wrapped that row. */
 .w360 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--space-md); }
+
+/* One visual grammar for every place a service appears: catalogue, missing
+   papers, active orders and governance. The component changes only its frame,
+   never its meaning or crop rules. */
+.w360 .service-visual {
+  margin: 0; overflow: hidden; flex: none; min-width: 0;
+  border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  background: var(--w-surface-2);
+}
+.w360 .service-visual img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+}
+.w360 .service-visual.thumb { width: 4rem; aspect-ratio: 8 / 5; }
+.w360 .service-visual.card { width: 100%; aspect-ratio: 16 / 10; border: 0; border-radius: 0; }
+.w360 .service-visual.admin { width: 100%; aspect-ratio: 16 / 10; border: 0; border-radius: 0; }
+.w360 .service-catalog-tile { overflow: hidden; }
+.w360 .service-catalog-copy { display: block; padding: var(--space-md); }
+.w360 .service-catalog-copy .service-meaning {
+  display: block; margin-top: var(--space-xs); line-height: 1.45;
+}
 
 .w360 .rec {
   border: 1px solid var(--w-line);
@@ -1145,7 +1176,7 @@
 .w360 .paper-request-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
 .w360 .paper-request-tile {
   display: grid;
-  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  grid-template-columns: 4rem minmax(0, 1fr) auto;
   gap: var(--space-sm);
   align-items: start;
   padding: var(--space-md);
@@ -1171,9 +1202,87 @@
 }
 .w360 .service-batch-head .note { margin-left: auto; }
 
+@media (max-width: 600px) {
+  .w360 .service-order-row {
+    display: grid;
+    grid-template-columns: 4rem minmax(6rem, 1fr) auto;
+    align-items: start;
+    gap: var(--space-sm);
+  }
+  .w360 .service-order-row > .service-visual { grid-column: 1; grid-row: 1; }
+  .w360 .service-order-row > .grow { grid-column: 2; grid-row: 1; }
+  .w360 .service-order-row > .service-order-money { grid-column: 3; grid-row: 1; }
+  .w360 .service-order-row > .service-order-actions {
+    grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; flex-wrap: wrap;
+  }
+}
+
+/* One transparent work profile, reused by both the Services list and the
+   service detail. It is an unframed disclosure inside the surrounding job
+   surface, not another card nested inside it. */
+.w360 .resource-proof {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--w-line);
+}
+.w360 .resource-proof-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+.w360 .resource-proof-head .eyebrow { margin-bottom: 0.25rem; }
+.w360 .resource-proof-head .note { display: block; margin-top: 0.125rem; }
+.w360 .resource-proof-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--w-ink-2);
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.w360 .resource-proof-state.good { color: var(--w-ok); }
+.w360 .resource-proof-state.warn { color: var(--w-warn); }
+.w360 .resource-proof-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  color: var(--w-ink-2);
+  font-size: 0.75rem;
+}
+.w360 .resource-proof-metrics span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.w360 .resource-proof-list { display: grid; border-top: 1px solid var(--w-line); }
+.w360 .resource-proof-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--w-line);
+  min-width: 0;
+}
+.w360 .resource-proof-row .note { display: block; margin-top: 0.125rem; overflow-wrap: anywhere; }
+.w360 .resource-proof-link { white-space: nowrap; }
+.w360 .resource-proof-privacy {
+  margin: 0;
+  color: var(--w-ink-3);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .w360 .resource-proof-head { display: grid; }
+  .w360 .resource-proof-state { white-space: normal; }
+  .w360 .resource-proof-row { grid-template-columns: auto minmax(0, 1fr); }
+  .w360 .resource-proof-row > :last-child { grid-column: 2; justify-self: start; }
+}
+
 @media (max-width: 720px) {
   .w360 .paper-request-grid { grid-template-columns: minmax(0, 1fr); }
-  .w360 .paper-request-tile { grid-template-columns: 2.25rem minmax(0, 1fr); }
+  .w360 .paper-request-tile { grid-template-columns: 4rem minmax(0, 1fr); }
   .w360 .paper-request-tile > .num { grid-column: 2; }
   .w360 .paper-request-actions { grid-column: 2; flex-wrap: wrap; }
 }
@@ -3958,11 +4067,17 @@
    in ink-3. Only its fixed two columns are wrong inside a main that is 20rem
    narrower than the record grid's. One line, one property. */
 .w360 .choice.svc { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.w360 .choice.svc > button,
 .w360 .choice.svc .svc-existing {
-  text-align: left; padding: 0.625rem 0.75rem; border-radius: var(--radius-sm);
+  display: grid; grid-template-columns: 7rem minmax(0, 1fr); align-items: stretch;
+  text-align: left; padding: 0; overflow: hidden; border-radius: var(--radius-sm);
   border: 1px solid var(--w-line); background: var(--w-surface-2); color: var(--w-ink);
 }
-.w360 .choice.svc .svc-existing > .link {
+.w360 .choice.svc .service-visual.card {
+  width: 7rem; height: 100%; min-height: 7.5rem; aspect-ratio: auto;
+}
+.w360 .service-pick-copy { min-width: 0; padding: 0.625rem 0.75rem; align-self: center; }
+.w360 .choice.svc .service-pick-copy > .link {
   display: inline-block; margin-top: var(--space-xs); font-size: 0.75rem; font-weight: 600;
 }
 .w360 .choice.svc button:disabled {
@@ -4026,6 +4141,160 @@
    a sentence and sizing it up would move every other link in the module. The
    digits never wrap — a number broken across two lines is one somebody
    mis-dials. */
+.w360 .member-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: var(--space-md);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: var(--w-surface);
+  overflow: hidden;
+}
+.w360 .member-stats > div {
+  min-height: 5.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: var(--space-md);
+  border-right: 1px solid var(--w-line);
+}
+.w360 .member-stats > div:last-child { border-right: 0; }
+.w360 .member-stats span,
+.w360 .member-card-metrics span {
+  color: var(--w-ink-3);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.w360 .member-stats strong {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+.w360 .member-search { width: 15rem; }
+.w360 .member-line { display: block; }
+.w360 .member-tags { margin: 0.3125rem 0; }
+.w360 .member-list { padding: 0; margin-top: var(--space-md); }
+.w360 .member-list-copy > .row:first-child > strong { font-size: 0.9375rem; }
+.w360 .member-list-facts {
+  min-width: 13rem;
+  display: grid;
+  justify-items: end;
+  gap: 0.2rem;
+  text-align: right;
+  font-size: 0.8125rem;
+}
+.w360 .member-list-facts b { font-weight: 600; }
+
+.w360 .member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+.w360 .member-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: var(--w-surface);
+}
+.w360 .member-card > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.w360 .member-card > header strong { font-size: 0.9375rem; }
+.w360 .member-card-place {
+  margin: 0;
+  min-height: 1.25rem;
+  line-height: 1.45;
+}
+.w360 .member-card-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-block: 1px solid var(--w-line);
+}
+.w360 .member-card-metrics > div {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 0.25rem;
+  min-height: 4.25rem;
+  padding: var(--space-sm);
+  border-right: 1px solid var(--w-line);
+  border-bottom: 1px solid var(--w-line);
+}
+.w360 .member-card-metrics > div:nth-child(2n) { border-right: 0; }
+.w360 .member-card-metrics > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.w360 .member-card-metrics strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.w360 .member-card > footer {
+  min-height: 1.75rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+.w360 .member-card > footer > .note { margin-left: auto; }
+
+.w360 .member-table { padding: 0; margin-top: var(--space-md); }
+.w360 .member-table table { min-width: 88rem; }
+.w360 .member-table td { white-space: nowrap; }
+.w360 .member-table td:nth-child(3),
+.w360 .member-table td:nth-child(4) {
+  max-width: 16rem;
+  white-space: normal;
+}
+.w360 .member-table-person {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(8rem, 1fr);
+  align-items: center;
+  gap: var(--space-xs);
+}
+.w360 .member-table-person .avatarlg { width: 2.25rem; height: 2.25rem; }
+.w360 .member-table-person > span:last-child { display: grid; gap: 0.125rem; }
+.w360 .member-table-person a { color: var(--w-ink); font-weight: 600; text-decoration: none; }
+.w360 .member-table-person a:hover { color: var(--w-accent); }
+.w360 .member-table-person small { color: var(--w-ink-3); }
+
+@media (max-width: 900px) {
+  .w360 .member-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .w360 .member-stats > div:nth-child(3) { border-right: 0; }
+  .w360 .member-stats > div:nth-child(-n + 3) { border-bottom: 1px solid var(--w-line); }
+  .w360 .member-list-facts {
+    width: calc(100% - 3.75rem);
+    margin-left: 3.75rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-items: start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 600px) {
+  .w360 .member-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .w360 .member-stats > div { min-height: 4.5rem; }
+  .w360 .member-stats > div:nth-child(3) { border-right: 1px solid var(--w-line); }
+  .w360 .member-stats > div:nth-child(-n + 3) { border-bottom: 0; }
+  .w360 .member-stats > div:nth-child(2n) { border-right: 0; }
+  .w360 .member-stats > div:nth-child(-n + 4) { border-bottom: 1px solid var(--w-line); }
+  .w360 .member-stats > div:last-child { grid-column: 1 / -1; }
+  .w360 .member-grid { grid-template-columns: minmax(0, 1fr); }
+  .w360 .member-search { width: min(100%, 18rem); }
+  .w360 .member-list-facts { width: 100%; margin-left: 0; }
+  .w360 .member-card > footer > .note { margin-left: 0; width: 100%; }
+}
+
 .w360 .telnum {
   display: inline-flex;
   align-items: center;
@@ -4241,6 +4510,30 @@
 .w360 .compliance-three > div { min-width: 0; }
 .w360 .compliance-three ul { padding-left: 1.1rem; margin: var(--space-xs) 0 0; }
 .w360 .compliance-three li { color: var(--w-muted); margin: 0.35rem 0; font-size: 0.8125rem; }
+.w360 .compliance-visuals { display: grid; gap: var(--space-md); min-width: 0; }
+.w360 .compliance-visuals-head { align-items: flex-start; }
+.w360 .compliance-visuals-head > div:first-child { max-width: 54rem; }
+.w360 .compliance-visuals-head h2 { margin: 0.2rem 0 0.35rem; font-size: 1.25rem; }
+.w360 .compliance-visuals-head .eyebrow { display: flex; align-items: center; gap: 0.35rem; }
+.w360 .compliance-visuals-head .note { margin: 0; line-height: 1.5; }
+.w360 .compliance-visual-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: var(--space-md); align-items: start;
+}
+.w360 .compliance-visual-item {
+  min-width: 0; overflow: hidden; border: 1px solid var(--w-line);
+  border-radius: var(--radius-md); background: var(--w-surface);
+}
+.w360 .compliance-visual-copy { display: grid; gap: var(--space-xs); padding: var(--space-md); }
+.w360 .compliance-visual-copy p { margin: 0; color: var(--w-ink-2); line-height: 1.45; }
+.w360 .compliance-visual-copy > .mono { display: block; overflow-wrap: anywhere; }
+.w360 .compliance-visual-fields { display: grid; gap: var(--space-sm); margin-top: var(--space-xs); }
+.w360 .compliance-visual-fields textarea { resize: vertical; line-height: 1.4; }
+.w360 .compliance-visual-save {
+  display: grid; gap: var(--space-sm); padding-top: var(--space-md);
+  border-top: 1px solid var(--w-line);
+}
+.w360 .compliance-visual-save > .note { margin: 0; }
 .w360 .sharing-baseline > svg { color: var(--w-accent); }
 .w360 .compliance-source-list { display: grid; border-top: 1px solid var(--w-line); }
 .w360 .compliance-source-list a {
@@ -4282,6 +4575,74 @@
 .w360 .compliance-denied h1 { font-size: 1.35rem; margin: var(--space-sm) 0 var(--space-xs); }
 .w360 .compliance-denied p { color: var(--w-muted); max-width: 34rem; }
 
+/* ── Government geography administration ─────────────────────────── */
+.w360 .geography-admin { display: grid; gap: var(--space-lg); min-width: 0; }
+.w360 .geography-titlebar {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-md);
+}
+.w360 .geography-titlebar h1 { margin: 0.1rem 0 0.25rem; }
+.w360 .geography-titlebar .lede { margin: 0; max-width: 54rem; }
+.w360 .geography-freshness { display: grid; gap: 0.2rem; text-align: right; flex: none; }
+.w360 .geography-freshness strong { font-size: 0.8125rem; }
+.w360 .geography-counts {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--w-line); border-radius: var(--radius-md); overflow: hidden;
+}
+.w360 .geography-counts > div {
+  min-width: 0; display: grid; gap: 0.25rem; padding: var(--space-md);
+  border-right: 1px solid var(--w-line);
+}
+.w360 .geography-counts > div:last-child { border-right: 0; }
+.w360 .geography-counts span {
+  color: var(--w-muted); font-family: var(--font-mono); font-size: 0.625rem;
+  letter-spacing: 0; text-transform: uppercase;
+}
+.w360 .geography-counts strong { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 500; }
+.w360 .geography-controls {
+  display: grid; grid-template-columns: repeat(3, minmax(10rem, 1fr)) minmax(13rem, 1.2fr);
+  gap: var(--space-sm); align-items: end; padding-block: var(--space-md);
+  border-block: 1px solid var(--w-line);
+}
+.w360 .geography-controls .field { margin: 0; }
+.w360 .geography-search {
+  height: 2.5rem; display: flex; align-items: center; gap: var(--space-xs);
+  padding: 0 0.7rem; border: 1px solid var(--w-line-strong);
+  border-radius: var(--radius-md); color: var(--w-muted); background: var(--w-surface);
+}
+.w360 .geography-search:focus-within { border-color: var(--w-accent); color: var(--w-accent); }
+.w360 .geography-search input {
+  width: 100%; min-width: 0; border: 0; outline: 0; background: transparent;
+  color: var(--w-text); font: inherit; font-size: 0.8125rem;
+}
+.w360 .geography-table-section, .w360 .geography-provenance, .w360 .geography-history {
+  display: grid; gap: var(--space-sm); min-width: 0;
+}
+.w360 .geography-table-heading { align-items: end; }
+.w360 .geography-table-heading h2, .w360 .geography-provenance h2, .w360 .geography-history h2 {
+  margin: 0.15rem 0 0; font-size: 1.1rem;
+}
+.w360 .geography-table-frame {
+  border: 1px solid var(--w-line); border-radius: var(--radius-md); background: var(--w-surface);
+}
+.w360 .geography-table-frame table { min-width: 42rem; }
+.w360 .geography-table-frame .rectable tbody tr:hover td {
+  background: color-mix(in oklab, var(--w-accent) 4%, transparent);
+}
+.w360 .geography-next { width: 3rem; text-align: right; }
+.w360 .geography-source-list { display: grid; border-top: 1px solid var(--w-line); }
+.w360 .geography-source-list a {
+  display: grid; grid-template-columns: minmax(0, 1fr) 1rem; gap: var(--space-sm);
+  align-items: center; color: var(--w-text); text-decoration: none;
+  padding: 0.8rem 0; border-bottom: 1px solid var(--w-line);
+}
+.w360 .geography-source-list a > span { display: grid; gap: 0.15rem; }
+.w360 .geography-source-list a:hover strong { color: var(--w-accent); }
+.w360 .geography-source-list small { color: var(--w-muted); }
+.w360 .geography-note {
+  color: var(--w-muted); font-size: 0.75rem; line-height: 1.55;
+  border-top: 1px solid var(--w-line); padding-top: var(--space-md);
+}
+
 @media (max-width: 900px) {
   .w360 .compliance-titlebar { align-items: flex-start; flex-direction: column; }
   .w360 .compliance-scope { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4290,7 +4651,11 @@
   .w360 .compliance-term-grid > div:nth-child(2n) { border-right: 0; }
   .w360 .compliance-checklist-grid { grid-template-columns: 1fr; }
   .w360 .compliance-three { grid-template-columns: 1fr; gap: var(--space-md); }
+  .w360 .compliance-visuals-head { align-items: stretch; flex-direction: column; }
   .w360 .compliance-history > div { grid-template-columns: 1fr; gap: 0.2rem; }
+  .w360 .geography-titlebar { align-items: flex-start; flex-direction: column; }
+  .w360 .geography-freshness { text-align: left; }
+  .w360 .geography-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
   .w360 .governance-columns, .w360 .compliance-scope, .w360 .compliance-term-grid { grid-template-columns: 1fr; }
@@ -4298,4 +4663,12 @@
   .w360 .compliance-notice { grid-template-columns: 1.25rem minmax(0, 1fr); }
   .w360 .compliance-notice .mono { grid-column: 2; }
   .w360 .compliance-archive-row { align-items: stretch; flex-direction: column; }
+  .w360 .compliance-visual-grid { grid-template-columns: minmax(0, 1fr); }
+  .w360 .geography-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .w360 .geography-counts > div:nth-child(2) { border-right: 0; }
+  .w360 .geography-counts > div:nth-child(-n + 2) { border-bottom: 1px solid var(--w-line); }
+  .w360 .geography-controls { grid-template-columns: minmax(0, 1fr); }
+  .w360 .choice.svc > button,
+  .w360 .choice.svc .svc-existing { grid-template-columns: 5.5rem minmax(0, 1fr); }
+  .w360 .choice.svc .service-visual.card { width: 5.5rem; min-height: 7rem; }
 }

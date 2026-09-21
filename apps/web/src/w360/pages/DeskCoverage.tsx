@@ -17,27 +17,86 @@
  *  wall of amber — it gets one sentence above the grid saying exactly what it
  *  means, which is that every order will land on this desk by hand.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
+import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined';
 
-import { useCoverage, useDisciplines } from '../api';
-import type { CoverageCell } from '../api';
-import { Empty, Failed, Loading, PageHead, Tag, plural } from '../ui';
+import { useCoverage, useCoverageAssociates, useDisciplines } from '../api';
+import type { CoverageAssociate, CoverageCell } from '../api';
+import { Chip, Empty, Failed, Loading, PageHead, State, Tag, plural } from '../ui';
 
-/** The three grains worth looking at the portfolio through. Village is where
- *  a surveyor actually works, mandal is where a writer does, and district is
- *  the widest thing that still means something to somebody being asked to
- *  travel. `state` is not offered: a column of "all of Telangana" would be one
- *  square per discipline and answers nothing. */
-const GRAINS: { key: string; word: string }[] = [
-  { key: 'village', word: 'Village' },
-  { key: 'mandal', word: 'Mandal' },
-  { key: 'district', word: 'District' },
-];
+type Scope = { key: string; name: string };
+type PlaceRow = {
+  scopeKey: string; name: string; records: number; cells: CoverageCell[];
+  stateKey: string; stateName: string; districtKey: string; districtName: string;
+  mandalKey: string; mandalName: string;
+};
+
+function AssociateRows({ people, village }: {
+  people: CoverageAssociate[]; village: Scope;
+}) {
+  if (people.length === 0) {
+    return (
+      <Empty
+        boxed h="16rem" icon="person" title={`Nobody is available in ${village.name}.`}
+        action={<Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>}
+      >
+        This village is ready to become a location-targeted recruitment gap.
+      </Empty>
+    );
+  }
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <div className="rows boxed">
+        {people.map((person) => {
+          const work = person.disciplines
+            .filter((discipline) => discipline.state === 'on')
+            .map((discipline) => discipline.label);
+          return (
+            <div key={person.id}>
+              <span className="avatarlg">{person.initials}</span>
+              <span className="grow">
+                <span className="row tight">
+                  <strong>{person.name}</strong>
+                  <State state={person.stateState}>{person.stateWord}</State>
+                </span>
+                <span className="note" style={{ display: 'block', marginTop: '0.25rem' }}>
+                  {[person.firm, work.join(' · ')].filter(Boolean).join(' · ')}
+                </span>
+                {person.areas.length > 0 && (
+                  <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
+                    {person.areas.map((area) => area.label).join(' · ')}
+                  </span>
+                )}
+              </span>
+              <span style={{ textAlign: 'right', flex: 'none' }}>
+                <span className="num" style={{ display: 'block' }}>{person.jobsOpen}</span>
+                <span className="note" style={{ display: 'block' }}>
+                  {person.jobsOpen === 1 ? 'job in hand' : 'jobs in hand'}
+                </span>
+              </span>
+              <Link className="btn sm" to={`/app/admin/members/${person.id}`}>Open</Link>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function DeskCoverage() {
-  const [level, setLevel] = useState('mandal');
-  const { data, isLoading, error } = useCoverage(level);
+  const [stateScope, setStateScope] = useState<Scope | null>(null);
+  const [districtScope, setDistrictScope] = useState<Scope | null>(null);
+  const [villageScope, setVillageScope] = useState<Scope | null>(null);
+  const level = !stateScope ? 'state' : !districtScope ? 'district' : 'village';
+  const { data, isLoading, error } = useCoverage(
+    level, stateScope?.key ?? '', districtScope?.key ?? '',
+  );
+  const people = useCoverageAssociates(villageScope?.key ?? '');
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
   // Pure, no database, and cached for the whole session — it is here only so
   // the nine columns come out in the order the catalogue names them (deepest
   // supply first) rather than in whatever order the rows happened to arrive.
@@ -66,11 +125,16 @@ export function DeskCoverage() {
 
   /** The rows: the places records are actually held in, most land first. */
   const places = useMemo(() => {
-    const by = new Map<string, { name: string; records: number; cells: CoverageCell[] }>();
+    const by = new Map<string, PlaceRow>();
     for (const c of cells) {
-      const at = by.get(c.name);
+      const at = by.get(c.scopeKey);
       if (at) { at.cells.push(c); at.records = Math.max(at.records, c.records); }
-      else by.set(c.name, { name: c.name, records: c.records, cells: [c] });
+      else by.set(c.scopeKey, {
+        scopeKey: c.scopeKey, name: c.name, records: c.records, cells: [c],
+        stateKey: c.stateKey, stateName: c.stateName,
+        districtKey: c.districtKey, districtName: c.districtName,
+        mandalKey: c.mandalKey, mandalName: c.mandalName,
+      });
     }
     return [...by.values()].sort(
       (a, b) => b.records - a.records || a.name.localeCompare(b.name),
@@ -84,10 +148,41 @@ export function DeskCoverage() {
    *  rather than 90 amber squares. */
   const bare = cells.length > 0 && cells.every((c) => c.activeCount === 0);
   const orphans = places.filter((p) => p.cells.every((c) => c.activeCount === 0));
+  const levelWord = level === 'state' ? 'State' : level === 'district' ? 'District' : 'Village';
+  const context = districtScope?.name || stateScope?.name || 'all states';
+  const tally = villageScope
+    ? plural(people.data?.length ?? 0, 'associate')
+    : `${plural(places.length, level)} · ${plural(cols.length, 'kind')} of work`;
+
+  const choose = (place: PlaceRow) => {
+    if (level === 'state') {
+      setStateScope({ key: place.stateKey, name: place.stateName });
+      setDistrictScope(null);
+      setVillageScope(null);
+    } else if (level === 'district') {
+      setDistrictScope({ key: place.districtKey, name: place.districtName });
+      setVillageScope(null);
+    } else {
+      setVillageScope({ key: place.scopeKey, name: place.name });
+    }
+  };
+
+  const allStates = () => {
+    setStateScope(null);
+    setDistrictScope(null);
+    setVillageScope(null);
+  };
 
   return (
     <main>
-      <PageHead eyebrow="Pattadar desk" title="Who covers what">
+      <PageHead
+        eyebrow={(
+          <Link className="link" to="/app/desk">
+            <ArrowBackOutlined sx={{ fontSize: 14 }} /> Back to Pattadar desk
+          </Link>
+        )}
+        title="Who covers what"
+      >
         <p className="lede" style={{ marginTop: '0.375rem' }}>
           Every place we hold land, against every kind of work. A zero is a service we
           can sell there and nobody to do it.
@@ -102,87 +197,114 @@ export function DeskCoverage() {
             </Empty>
           ) : (
             <>
-              <div className="row between" style={{ marginBottom: 'var(--space-sm)' }}>
-                <div className="segmented" role="group" aria-label="How finely to cut the grid">
-                  {GRAINS.map((g) => (
-                    <button
-                      key={g.key} type="button" aria-pressed={level === g.key}
-                      onClick={() => setLevel(g.key)}
+              <div className="row between coverage-controls" style={{ marginBottom: 'var(--space-sm)' }}>
+                <div className="row tight coverage-path" role="group" aria-label="Coverage location">
+                  <Chip active={!stateScope} onClick={allStates}>All states</Chip>
+                  {stateScope && (
+                    <Chip
+                      active={!districtScope}
+                      onClick={() => { setDistrictScope(null); setVillageScope(null); }}
                     >
-                      {g.word}
-                    </button>
-                  ))}
+                      {stateScope.name}
+                    </Chip>
+                  )}
+                  {districtScope && (
+                    <Chip active={!villageScope} onClick={() => setVillageScope(null)}>
+                      {districtScope.name}
+                    </Chip>
+                  )}
+                  {villageScope && <Chip active>{villageScope.name}</Chip>}
                 </div>
-                <span className="tally">
-                  {plural(places.length, 'place')} · {plural(cols.length, 'kind')} of work
-                </span>
+                <span className="tally">{tally}</span>
               </div>
 
-              {bare && (
+              {!villageScope && bare && (
                 <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-                  You hold land in {plural(places.length, 'place')} and nobody is enrolled
-                  for any of it. Every order will land on this desk.
+                  You hold land in {plural(places.length, level)} across {context} and nobody
+                  is enrolled for any of it. Every order will land on this desk.
                 </p>
               )}
 
-              {/* Its own scroller. Nine disciplines plus a place and a sentence
-                  is wider than a phone whatever is done to it, and the page
-                  body must never be the thing that scrolls sideways. */}
-              <div className="card scroll-x" style={{ padding: 0 }}>
-                <table className="rectable" style={{ minWidth: '52rem' }}>
-                  <thead>
-                    <tr>
-                      <th>Place</th>
-                      {cols.map((c) => <th key={c.key}>{c.label}</th>)}
-                      <th>Where the gap is</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {places.map((p) => {
-                      const gaps = p.cells.filter((c) => c.activeCount === 0 && c.openJobs > 0);
-                      return (
-                        <tr key={p.name}>
-                          <td><strong>{p.name}</strong></td>
-                          {cols.map((c) => {
-                            const cell = at(p, c.key);
-                            const n = cell?.activeCount ?? 0;
-                            const waiting = (cell?.openJobs ?? 0) > 0;
-                            return (
-                              <td key={c.key}>
-                                {n === 0
-                                  ? (waiting
-                                    ? <Tag alert>0</Tag>
-                                    : <span className="muted" aria-label="Nobody, and nothing waiting">—</span>)
-                                  : (cell && Boolean(cell.risk)
-                                    ? <Tag alert>{n}</Tag>
-                                    : <span className="num">{n}</span>)}
-                              </td>
-                            );
-                          })}
-                          <td className="muted">
-                            {gaps.length > 0
-                              ? `No ${gaps.map((g) => g.disciplineLabel.toLowerCase()).join(', no ')}. `
-                              : ''}
-                            {plural(p.records, 'record')} here.
-                          </td>
+              {villageScope ? (
+                <section>
+                  <div className="row between" style={{ marginBottom: 'var(--space-sm)' }}>
+                    <h2 style={{ margin: 0, fontSize: '1rem' }}>
+                      People who can serve {villageScope.name}
+                    </h2>
+                  </div>
+                  {people.isLoading ? <Loading h="14rem" what="available associates" />
+                    : !people.data ? (
+                      <Failed what="Available associates" error={people.error} boxed h="14rem" />
+                    ) : <AssociateRows people={people.data} village={villageScope} />}
+                </section>
+              ) : (
+                <>
+                  <div className="row between" style={{ marginBottom: 'var(--space-sm)' }}>
+                    <h2 style={{ margin: 0, fontSize: '1rem' }}>{levelWord}s</h2>
+                    <span className="note">Choose a {levelWord.toLowerCase()} to go deeper</span>
+                  </div>
+                  {/* Its own scroller. Ten disciplines plus a location and a sentence
+                      is wider than a phone whatever is done to it. */}
+                  <div className="card scroll-x" style={{ padding: 0 }}>
+                    <table className="rectable" style={{ minWidth: '52rem' }}>
+                      <thead>
+                        <tr>
+                          <th>{levelWord}</th>
+                          {cols.map((c) => <th key={c.key}>{c.label}</th>)}
+                          <th>Where the gap is</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody>
+                        {places.map((p) => {
+                          const gaps = p.cells.filter((c) => c.activeCount === 0 && c.openJobs > 0);
+                          return (
+                            <tr key={p.scopeKey}>
+                              <td>
+                                <button type="button" className="linkbtn coverage-place" onClick={() => choose(p)}>
+                                  <strong>{p.name}</strong>
+                                  <ChevronRightOutlined sx={{ fontSize: 16 }} />
+                                </button>
+                              </td>
+                              {cols.map((c) => {
+                                const cell = at(p, c.key);
+                                const n = cell?.activeCount ?? 0;
+                                const waiting = (cell?.openJobs ?? 0) > 0;
+                                return (
+                                  <td key={c.key}>
+                                    {n === 0
+                                      ? (waiting
+                                        ? <Tag alert>0</Tag>
+                                        : <span className="muted" aria-label="Nobody, and nothing waiting">—</span>)
+                                      : <span className="num">{n}</span>}
+                                  </td>
+                                );
+                              })}
+                              <td className="muted">
+                                {gaps.length > 0
+                                  ? `No ${gaps.map((g) => g.disciplineLabel.toLowerCase()).join(', no ')}. `
+                                  : ''}
+                                {plural(p.records, 'record')} here.
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
 
-              <div className="row" style={{ marginTop: 'var(--space-md)', alignItems: 'flex-start' }}>
-                <p className="note" style={{ maxWidth: '38rem', margin: 0 }}>
-                  {orphans.length > 0
-                    ? `${plural(orphans.length, 'place')} ${orphans.length === 1 ? 'has' : 'have'} `
-                      + 'land and nobody to work on it. Enrol somebody, or widen an existing '
-                      + 'associate’s area — an advocate needs no local presence at all.'
-                    : 'Every place here has somebody for at least one kind of work. Widening an '
-                      + 'existing associate’s area is usually faster than finding a new person.'}
-                </p>
-                <Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>
-              </div>
+                  <div className="row" style={{ marginTop: 'var(--space-md)', alignItems: 'flex-start' }}>
+                    <p className="note" style={{ maxWidth: '38rem', margin: 0 }}>
+                      {orphans.length > 0
+                        ? `${plural(orphans.length, level)} ${orphans.length === 1 ? 'has' : 'have'} `
+                          + 'land and nobody to work on it. Enrol somebody, or widen an existing '
+                          + 'associate’s area — an advocate only needs the correct state.'
+                        : `Every ${level} here has somebody for at least one kind of work. Widening an `
+                          + 'existing associate’s area is usually faster than finding a new person.'}
+                    </p>
+                    <Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>
+                  </div>
+                </>
+              )}
             </>
           )}
     </main>

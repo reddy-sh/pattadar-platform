@@ -58,6 +58,9 @@ const ForgotPasswordPage = lazy(() =>
   import('./pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })),
 );
 const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ default: m.VerifyPage })));
+const TrainingCertificatePage = lazy(() =>
+  import('./pages/TrainingCertificatePage').then((m) => ({ default: m.TrainingCertificatePage })),
+);
 const ActivePage = lazy(() => import('./pages/ActivePage').then((m) => ({ default: m.ActivePage })));
 const RecipientAccess = lazy(() => import('./w360/pages/RecipientAccess'));
 const AccountDataPage = lazy(() => import('./pages/AccountDataPage').then(m=>({default:m.AccountDataPage})));
@@ -118,6 +121,9 @@ const W360DeskEnrol = lazy(() =>
 );
 const W360DeskCoverage = lazy(() =>
   import('./w360/pages/DeskCoverage').then((m) => ({ default: m.DeskCoverage })),
+);
+const W360GeographyAdmin = lazy(() =>
+  import('./w360/pages/GeographyAdmin').then((m) => ({ default: m.GeographyAdmin })),
 );
 
 // Previous app shell + pages. Still routed, under /legacy, for the sections the
@@ -303,6 +309,7 @@ export const router = createBrowserRouter([
   { path: '/terms', element: suspended(TermsPage) },
   { path: '/auth/callback', element: suspended(AuthCallbackPage) },
   { path: '/verify/:token', element: suspended(VerifyPage) },
+  { path: '/certificate/:code', element: suspended(TrainingCertificatePage) },
   { path: '/active/:token', element: suspended(ActivePage) },
   { path: '/share/:token', element: suspended(RecipientAccess) },
   { path: '/work/:token', element: suspended(RecipientAccess) },
@@ -339,6 +346,7 @@ export const router = createBrowserRouter([
       { path: 'wallet', element: suspended(W360Wallet) },
       { path: 'account', element: suspended(AccountDataPage) },
       { path: 'admin/compliance', element: suspended(W360ComplianceAdmin) },
+      { path: 'admin/geography', element: suspended(W360GeographyAdmin) },
       { path: 'admin/members', element: suspended(W360DeskAssociates) },
       { path: 'admin/members/enrol', element: suspended(W360DeskEnrol) },
       { path: 'admin/members/:id', element: suspended(W360DeskAssociate) },

@@ -40,6 +40,7 @@ import MenuOutlined from '@mui/icons-material/MenuOutlined';
 import NotificationsNoneOutlined from '@mui/icons-material/NotificationsNoneOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
 import PolicyOutlined from '@mui/icons-material/PolicyOutlined';
+import PublicOutlined from '@mui/icons-material/PublicOutlined';
 import SaveAltOutlined from '@mui/icons-material/SaveAltOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ShieldOutlined from '@mui/icons-material/ShieldOutlined';
@@ -339,6 +340,7 @@ export function Shell() {
       items: [
         { to: '/app/admin/members', label: 'Company members', icon: GroupsOutlined },
         { to: '/app/admin/compliance', label: 'Compliance rules', icon: PolicyOutlined },
+        { to: '/app/admin/geography', label: 'Government geography', icon: PublicOutlined },
       ],
     }] : []),
   ];

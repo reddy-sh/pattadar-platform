@@ -16,7 +16,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeaderProps) {
-  const { user, isLoading, isPreview, signIn, signOut } = useAuth();
+  const { user, isLoading, isPreview, signIn } = useAuth();
   const location = useLocation();
   return (
     <header className="app-header">
@@ -25,9 +25,9 @@ export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeader
           <span className="brand__mark"><SchoolOutlined /></span>
           <span><strong>Pattadar</strong><small>University</small></span>
         </Link>
-        <button className="search-pill" type="button" onClick={onSearch} aria-label="Search courses, locations, and work">
+        <button className="search-pill" type="button" onClick={onSearch} aria-label="Search courses, state guides, locations, and work">
           <SearchRounded />
-          <span>Search courses, roles, locations</span>
+          <span>Search courses, states, roles, locations</span>
           <kbd>⌘K</kbd>
         </button>
         <div className="app-header__actions">
@@ -50,10 +50,10 @@ export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeader
             </button>
           ) : null}
           {user && isPreview ? <span className="preview-badge">Preview</span> : null}
-          {user && !isPreview ? (
-            <button className="account-button" type="button" onClick={() => void signOut()} aria-label="Sign out of Pattadar">
+          {user ? (
+            <Link className="account-button" to="/account" aria-label="Open university account">
               <AccountCircleOutlined /><span>{user.name}</span>
-            </button>
+            </Link>
           ) : null}
         </div>
       </div>
@@ -61,6 +61,7 @@ export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeader
         <NavLink to="/" end>Explore</NavLink>
         <NavLink to="/learn">My learning</NavLink>
         <NavLink to="/opportunities">Opportunities</NavLink>
+        <NavLink to="/states">State guides</NavLink>
         <NavLink to="/locations/hyderabad">Locations</NavLink>
       </nav>
     </header>

@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "bun run seo:assets && vite build && bun run seo:prerender",
     "preview": "vite preview",
+    "seo:assets": "bun scripts/generateSeo.ts public",
+    "seo:prerender": "bun scripts/generateSeo.ts dist",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

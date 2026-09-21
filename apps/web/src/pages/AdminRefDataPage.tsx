@@ -36,6 +36,44 @@ interface CodeRow {
   id: string;
   name: string;
   code: string;
+  lgdCode: string;
+  sourceId: string;
+  sourceUrl: string;
+  sourceEffectiveAt: string;
+  active: boolean;
+}
+
+interface ReferenceSourceRow {
+  id: string;
+  name: string;
+  authority: string;
+  description: string;
+  catalogUrl: string;
+  publisherUrl: string;
+  licenseName: string;
+  licenseUrl: string;
+  cadence: string;
+  updatedAt: string;
+}
+
+interface SyncRunRow {
+  id: string;
+  sourceId: string;
+  mode: string;
+  status: string;
+  sourceEffectiveAt: string;
+  startedAt: string;
+  finishedAt: string;
+  countsJson: string;
+}
+
+interface ReferenceSummary {
+  states: number;
+  districts: number;
+  mandals: number;
+  villages: number;
+  lastCompletedAt: string;
+  sourceName: string;
 }
 
 interface DeedTypeRow {
@@ -49,6 +87,9 @@ interface DeedTypeRow {
 interface RefData {
   states: CodeRow[];
   districts: CodeRow[];
+  sources: ReferenceSourceRow[];
+  runs: SyncRunRow[];
+  summary: ReferenceSummary;
   deedTypes: DeedTypeRow[];
   fees: FeeScheduleRow[];
 }
@@ -60,22 +101,42 @@ function useRefData() {
       const d = await gql<{
         states: CodeRow[];
         districts: CodeRow[];
+        referenceDataSources: ReferenceSourceRow[];
+        referenceDataSyncRuns: SyncRunRow[];
+        referenceDataSummary: ReferenceSummary;
         deedTypes: DeedTypeRow[];
         feeSchedule: FeeScheduleRow[];
       }>(`query {
-        states { id name code }
-        districts { id name code }
+        states { id name code lgdCode sourceId sourceUrl sourceEffectiveAt active }
+        districts { id name code lgdCode sourceId sourceUrl sourceEffectiveAt active }
+        referenceDataSources {
+          id name authority description catalogUrl publisherUrl licenseName licenseUrl cadence updatedAt
+        }
+        referenceDataSyncRuns(limit: 20) {
+          id sourceId mode status sourceEffectiveAt startedAt finishedAt countsJson
+        }
+        referenceDataSummary { states districts mandals villages lastCompletedAt sourceName }
         deedTypes { id regTypeEn regTypeTe natureEn natureTe }
         feeSchedule { id regTypeEn natureEn stampRate transferRate regRate userRate }
       }`);
       return {
         states: d.states ?? [],
         districts: d.districts ?? [],
+        sources: d.referenceDataSources ?? [],
+        runs: d.referenceDataSyncRuns ?? [],
+        summary: d.referenceDataSummary,
         deedTypes: d.deedTypes ?? [],
         fees: d.feeSchedule ?? [],
       };
     },
-    { states: [], districts: [], deedTypes: [], fees: sampleFeeSchedule },
+    {
+      states: [], districts: [], sources: [], runs: [],
+      summary: {
+        states: 0, districts: 0, mandals: 0, villages: 0,
+        lastCompletedAt: '', sourceName: 'Local Government Directory (LGD)',
+      },
+      deedTypes: [], fees: sampleFeeSchedule,
+    },
   );
 }
 
@@ -173,7 +234,19 @@ function RefTable<T extends { id: string }>({
   );
 }
 
-type AdminTab = 'states' | 'districts' | 'deed_types' | 'fee_schedule' | 'analytics';
+type AdminTab = 'states' | 'districts' | 'geography' | 'deed_types' | 'fee_schedule' | 'analytics';
+
+const sourceLabel = (row: CodeRow) => row.sourceId === 'gov-in-lgd' ? 'LGD' : 'Bundled transition';
+
+const runCounts = (value: string) => {
+  try {
+    const entities = Object.values(JSON.parse(value || '{}') as Record<string, Record<string, number>>);
+    const total = (key: string) => entities.reduce((sum, item) => sum + Number(item[key] ?? 0), 0);
+    return `+${total('inserted')} · ${total('updated')} changed · ${total('retired')} retired`;
+  } catch {
+    return 'Counts unavailable';
+  }
+};
 
 export function AdminRefDataPage() {
   const { data, isSample, isLoading } = useRefData();
@@ -199,6 +272,7 @@ export function AdminRefDataPage() {
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable" allowScrollButtonsMobile>
         <Tab label={`States (${data.states.length})`} value="states" />
         <Tab label={`Districts (${data.districts.length})`} value="districts" />
+        <Tab label="Geography source & sync" value="geography" />
         <Tab label={`Deed Types (${data.deedTypes.length})`} value="deed_types" />
         <Tab label={`Fee Schedule (${data.fees.length})`} value="fee_schedule" />
         <Tab label="Analytics" value="analytics" />
@@ -207,18 +281,20 @@ export function AdminRefDataPage() {
       {tab === 'states' && (
         <>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Andhra Pradesh has full district / mandal / SRO data from the IGRS feed. Other states
-            are ready for data as it is onboarded.
+            Canonical national codes come from the Ministry of Panchayati Raj Local Government
+            Directory. Rows marked Bundled transition remain until the first matching LGD import.
           </Alert>
           <RefTable
             rows={data.states}
             cols={[
               { key: 'code', title: 'Code' },
+              { key: 'lgdCode', title: 'LGD Code', render: (r) => r.lgdCode || 'Pending match' },
               { key: 'name', title: 'State / UT' },
+              { key: 'sourceId', title: 'Source', render: sourceLabel },
             ]}
             exportName="pattadar-states"
             exportTitle="States & Union Territories"
-            searchKeys={['code', 'name']}
+            searchKeys={['code', 'lgdCode', 'name', 'sourceId']}
           />
         </>
       )}
@@ -226,13 +302,62 @@ export function AdminRefDataPage() {
         <RefTable
           rows={data.districts}
           cols={[
-            { key: 'code', title: 'Code' },
-            { key: 'name', title: 'District Name' },
+              { key: 'code', title: 'Code' },
+              { key: 'lgdCode', title: 'LGD Code', render: (r) => r.lgdCode || 'Pending match' },
+              { key: 'name', title: 'District Name' },
+              { key: 'sourceId', title: 'Source', render: sourceLabel },
           ]}
           exportName="pattadar-districts"
           exportTitle="Districts"
-          searchKeys={['code', 'name']}
+          searchKeys={['code', 'lgdCode', 'name', 'sourceId']}
         />
+      )}
+      {tab === 'geography' && (
+        <>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Mandal is Pattadar's product label for the official LGD sub-district level, including
+            tahsil, taluk and equivalent state terms. Snapshot imports may retire missing rows;
+            modification-only imports never infer retirement from absence.
+          </Alert>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1.5, mb: 2 }}>
+            {([
+              ['States / UTs', data.summary.states],
+              ['Districts', data.summary.districts],
+              ['Mandals', data.summary.mandals],
+              ['Villages', data.summary.villages],
+            ] as const).map(([label, value]) => (
+              <Card key={label} sx={{ p: 2 }}>
+                <Typography variant="overline" color="text.secondary">{label}</Typography>
+                <Typography variant="h5">{value.toLocaleString('en-IN')}</Typography>
+              </Card>
+            ))}
+          </Box>
+          {data.sources.map((source) => (
+            <Alert key={source.id} severity={source.id === 'gov-in-lgd' ? 'success' : 'warning'} sx={{ mb: 2 }}>
+              <Typography variant="subtitle2">{source.name}</Typography>
+              <Typography variant="body2">{source.authority} · {source.cadence}</Typography>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>{source.description}</Typography>
+              {source.catalogUrl && (
+                <a href={source.catalogUrl} target="_blank" rel="noreferrer">Open official catalog</a>
+              )}
+              {source.licenseUrl && <> · <a href={source.licenseUrl} target="_blank" rel="noreferrer">{source.licenseName}</a></>}
+            </Alert>
+          ))}
+          <Typography variant="h6" sx={{ mb: 1 }}>Import history</Typography>
+          <RefTable
+            rows={data.runs}
+            cols={[
+              { key: 'sourceEffectiveAt', title: 'Source version' },
+              { key: 'mode', title: 'Mode' },
+              { key: 'status', title: 'Status' },
+              { key: 'countsJson', title: 'Delta', render: (r) => runCounts(r.countsJson) },
+              { key: 'finishedAt', title: 'Finished' },
+            ]}
+            exportName="pattadar-geography-sync-history"
+            exportTitle="Government Geography Import History"
+            searchKeys={['sourceEffectiveAt', 'mode', 'status']}
+          />
+        </>
       )}
       {tab === 'deed_types' && (
         <RefTable

@@ -93,6 +93,74 @@ def test_a_masked_email_keeps_its_domain_so_the_owner_knows_which_address():
     assert a.mask_contact("ravi@example.com").startswith("r")
 
 
+def test_a_credential_reference_keeps_only_its_last_four_characters():
+    assert a.mask_credential_ref("AP/LS/2026/AB1234") == "••••••••••1234"
+    assert "2026" not in a.mask_credential_ref("AP/LS/2026/AB1234")
+
+
+def test_a_full_member_address_keeps_the_indian_postal_hierarchy():
+    row = {"address_line": "Survey office", "village_locality": "Katragunta",
+           "post_office": "Katragunta B.O.", "mandal_city": "Konakanamitla",
+           "district": "Prakasam", "state_name": "Andhra Pradesh",
+           "postal_code": "523246"}
+    assert a.address_label(row) == (
+        "Survey office, Katragunta, Katragunta B.O., Konakanamitla, "
+        "Prakasam, Andhra Pradesh, 523246")
+    assert a.address_complete(row)
+
+
+def test_a_bare_village_is_not_misrepresented_as_a_complete_address():
+    row = {"village_locality": "Katragunta"}
+    assert a.address_label(row) == "Katragunta"
+    assert not a.address_complete(row)
+
+
+# ── Pattadar University certificate integrity ─────────────────────────
+
+CERTIFICATE = {
+    "id": "putc-0123456789abcdef0123456789abcdef",
+    "certificate_no": "PU-2026-123456ABCDEF",
+    "associate_id": "associate-1",
+    "recipient_name": "Anji Reddy",
+    "course_code": "PU-FIELD-SAFETY",
+    "course_title": "Field safety and owner privacy",
+    "course_version": "1.0",
+    "trainer_name": "Pattadar University Faculty",
+    "trainer_ref": "PU-FACULTY-001",
+    "completed_on": "2026-09-20",
+    "issued_on": "2026-09-20",
+    "valid_until": "2028-09-20",
+    "hours": 8.0,
+    "skills_json": '["Owner privacy","Field safety"]',
+    "evidence_ref": "attendance:associate-1:2026-09-20",
+    "note": "Identity and attendance checked.",
+    "issued_by": "admin-1",
+    "created_at": "2026-09-20T10:00:00",
+}
+
+
+def test_training_certificate_payload_is_canonical_and_signed():
+    row = dict(reversed(list(CERTIFICATE.items())))
+    row["payload_hash"] = a.training_certificate_hash(row)
+    row["signature"] = a.training_certificate_signature(row, "test-secret")
+    assert a.training_certificate_intact(row, "test-secret")
+
+
+def test_training_certificate_tampering_is_detected():
+    row = dict(CERTIFICATE)
+    row["payload_hash"] = a.training_certificate_hash(row)
+    row["signature"] = a.training_certificate_signature(row, "test-secret")
+    row["recipient_name"] = "Somebody Else"
+    assert not a.training_certificate_intact(row, "test-secret")
+
+
+def test_training_verification_code_authenticates_a_128_bit_random_id():
+    code = a.training_verification_code(CERTIFICATE["id"], "test-secret")
+    assert a.training_id_from_code(code, "test-secret") == CERTIFICATE["id"]
+    assert a.training_id_from_code(code[:-1] + "0", "test-secret") == ""
+    assert len(code.rsplit(".", 1)[1]) == 32
+
+
 # ── Which seam reaches somebody ────────────────────────────────────────
 
 def test_a_number_goes_by_sms_and_an_address_by_email_without_being_told():
@@ -205,6 +273,13 @@ def test_a_village_level_enrolment_covers_that_village():
 
 def test_a_district_level_enrolment_covers_a_village_inside_it():
     assert a.covers(KEY, [{"level": "district", "name_key": "kakinada"}])
+
+
+def test_state_coverage_never_leaks_into_another_state():
+    areas = [{"level": "state", "name_key": "andhrapradesh"}]
+    assert a.covers(KEY, areas, "state", "andhrapradesh")
+    assert not a.covers(KEY, areas, "state", "telangana")
+    assert not a.covers(KEY, areas, "village", "telangana")
 
 
 def test_a_neighbouring_village_does_not_cover_it():
@@ -474,3 +549,10 @@ def test_one_owner_rating_is_kept_per_completed_service():
 def test_training_state_is_added_to_existing_rosters_idempotently():
     statements = [s for s in a.DDL if "ADD COLUMN IF NOT EXISTS training_" in s]
     assert len(statements) == 2
+
+
+def test_postal_address_is_added_to_existing_rosters_idempotently():
+    columns = ("address_line", "village_locality", "post_office", "mandal_city",
+               "district", "state_name", "postal_code")
+    for column in columns:
+        assert any(f"ADD COLUMN IF NOT EXISTS {column}" in stmt for stmt in a.DDL)

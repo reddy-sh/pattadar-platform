@@ -1,4 +1,6 @@
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
+import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
+import CheckCircleOutlineRounded from '@mui/icons-material/CheckCircleOutlineRounded';
 import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
@@ -7,7 +9,8 @@ import WorkspacePremiumOutlined from '@mui/icons-material/WorkspacePremiumOutlin
 import { Link, useParams } from 'react-router';
 import { useAuth } from '../auth/AuthProvider';
 import { CourseVisual } from '../components/CourseVisual';
-import { courseBySlug, roleLabels } from '../data/catalog';
+import { courseBySlug, roleLabels, universityStates } from '../data/catalog';
+import { stateLandRecordByCode } from '../data/stateLandRecords';
 import { progressFor } from '../domain/learning';
 import type { Course } from '../domain/types';
 import { downloadCompletionPreview, downloadCourseGuide } from '../pdf/coursePdf';
@@ -17,7 +20,7 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
   const { slug } = useParams();
   const course = courseBySlug(slug);
   const { user } = useAuth();
-  const { enrollmentFor, joinCourse, toggleCourseModule } = useUniversity();
+  const { enrollmentFor, joinCourse } = useUniversity();
 
   if (!course) {
     return (
@@ -32,6 +35,7 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
   const enrollment = enrollmentFor(course.id);
   const progress = progressFor(course, enrollment);
   const completed = new Set(enrollment?.completedModuleIds ?? []);
+  const jurisdictionNames = course.stateCodes.map((code) => universityStates.find((state) => state.code === code)?.name ?? code);
 
   return (
     <main className="course-page">
@@ -51,7 +55,7 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
               <button className="button button--quiet" type="button" onClick={() => onTutor(course)}><SmartToyOutlined /> Ask tutor</button>
             </div>
           </div>
-          <CourseVisual tone={course.tone} />
+          <CourseVisual course={course} priority />
         </section>
 
         <section className="course-content">
@@ -65,16 +69,11 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
                 return (
                   <li key={module.id} className={isComplete ? 'module-row is-complete' : 'module-row'}>
                     <span className="module-row__number">{String(index + 1).padStart(2, '0')}</span>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={isComplete}
-                        disabled={!enrollment}
-                        onChange={() => void toggleCourseModule(course.id, module.id)}
-                      />
+                    <Link className="module-row__link" to={`/courses/${course.slug}/lessons/${module.id}`}>
+                      {isComplete ? <CheckCircleOutlineRounded className="module-row__status" /> : null}
                       <span><strong>{module.title}</strong><small>{module.kind.replace('-', ' ')} · {module.minutes} min</small></span>
-                    </label>
-                    {!enrollment ? <LockOutlined aria-label="Join the course to track this module" /> : null}
+                    </Link>
+                    {!enrollment ? <LockOutlined aria-label="Join the course to access this module" /> : <ArrowForwardRounded aria-hidden="true" />}
                   </li>
                 );
               })}
@@ -83,6 +82,14 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
 
           <aside className="course-facts" aria-label="Course details">
             <div><span>For</span><strong>{course.roles.map((role) => roleLabels[role]).join(' · ')}</strong></div>
+            <div>
+              <span>Jurisdiction</span>
+              <strong>{course.jurisdictionScope === 'india-general' ? 'All India · general practice' : jurisdictionNames.join(' · ')}</strong>
+              {course.jurisdictionScope === 'state-specific' ? course.stateCodes.map((code) => {
+                const profile = stateLandRecordByCode(code);
+                return profile ? <Link className="course-fact-link" key={code} to={`/states/${profile.slug}`}>Open {profile.name} guide <ArrowForwardRounded /></Link> : null;
+              }) : null}
+            </div>
             <div><span>Credential</span><strong>{course.credential}</strong></div>
             <div><span>Content version</span><strong>{course.contentVersion}</strong></div>
             <div className="course-resources">

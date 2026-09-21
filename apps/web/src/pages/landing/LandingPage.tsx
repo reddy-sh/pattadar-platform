@@ -6,7 +6,8 @@
  * system. Styling lives in src/styles/site.css + tokens.css.
  *
  * COPY IS BYTE-FROZEN — every visible string comes from landingContent.ts
- * (design.md § Copy freeze). This file may restyle, never reword.
+ * (design.md § Copy freeze). User-authorized additions join that content module;
+ * this file may compose and restyle them, never reword them.
  *
  * Founder rules kept: plain-language copy only (no fabricated testimonials,
  * stats or logos), self-hosted everything, links never open new tabs, and
@@ -17,6 +18,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { Link as RouterLink, Navigate } from 'react-router';
 import { useNavigate } from 'react-router';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
@@ -30,12 +32,15 @@ import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
+import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import SquareFootOutlinedIcon from '@mui/icons-material/SquareFootOutlined';
 import StraightenOutlinedIcon from '@mui/icons-material/StraightenOutlined';
 import TouchAppOutlinedIcon from '@mui/icons-material/TouchAppOutlined';
 import TranslateOutlinedIcon from '@mui/icons-material/TranslateOutlined';
 import TravelExploreOutlinedIcon from '@mui/icons-material/TravelExploreOutlined';
+import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
+import WorkspacePremiumOutlinedIcon from '@mui/icons-material/WorkspacePremiumOutlined';
 import { isAuthMocked, useAuth } from '../../auth/AuthProvider';
 import '../../styles/site.css';
 import { AssistantConversation } from './AssistantConversation';
@@ -58,6 +63,7 @@ import {
   STAGES,
   STORY,
   TRUST_ITEMS,
+  UNIVERSITY,
   WALLET,
 } from './landingContent';
 
@@ -91,6 +97,15 @@ const AI_POINT_ICONS: ReactElement[] = [
   <TouchAppOutlinedIcon key="acts" />,
   <TranslateOutlinedIcon key="plain" />,
 ];
+
+const UNIVERSITY_ICONS: ReactElement[] = [
+  <SchoolOutlinedIcon key="learn" />,
+  <WorkspacePremiumOutlinedIcon key="credential" />,
+  <VerifiedUserOutlinedIcon key="trust" />,
+];
+
+const UNIVERSITY_URL = import.meta.env.VITE_UNIVERSITY_URL?.trim()
+  || (import.meta.env.DEV ? 'http://localhost:5181' : 'https://university.pattadar.com');
 
 /** Rotating word — amber emphasis, cycles with a rise-in animation.
  * Pauses while hovered/focused (WCAG 2.2.2) and never rotates under
@@ -377,6 +392,45 @@ export function LandingPage() {
           </div>
         </section>
 
+        {/* ── Pattadar University · learning and proof ─────────────── */}
+        <section id="university" className="section university" aria-labelledby="university-h">
+          <Reveal>
+            <div className="section__inner university__layout">
+              <div className="university__intro">
+                <div className="university__mark" aria-hidden>
+                  <SchoolOutlinedIcon />
+                  <span>PU</span>
+                </div>
+                <header className="section-head section-head--tight">
+                  <p className="section-eyebrow">{UNIVERSITY.eyebrow}</p>
+                  <h2 className="section-h" id="university-h">{UNIVERSITY.h2}</h2>
+                  <p className="section-lead">{UNIVERSITY.intro}</p>
+                </header>
+                <a className="cta cta--primary university__cta" href={UNIVERSITY_URL}>
+                  {UNIVERSITY.cta}
+                  <ArrowForwardRoundedIcon aria-hidden />
+                </a>
+                <p className="university__note">{UNIVERSITY.note}</p>
+              </div>
+              <div className="university__proof">
+                <ol className="university__steps">
+                  {UNIVERSITY.points.map((point, i) => (
+                    <li key={point.title}>
+                      <span className="university__index">0{i + 1}</span>
+                      <span className="university__icon" aria-hidden>{UNIVERSITY_ICONS[i]}</span>
+                      <span className="university__point-copy">
+                        <strong>{point.title}</strong>
+                        <span>{point.body}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="university__disclaimer">{UNIVERSITY.disclaimer}</p>
+              </div>
+            </div>
+          </Reveal>
+        </section>
+
         {/* ── wallet teaser · hairline band ──────────────────────────── */}
         <section className="wallet band" aria-labelledby="wallet-h">
           <div className="wallet__inner">
@@ -453,6 +507,9 @@ export function LandingPage() {
               {FOOTER.copyrightTail}
             </p>
             <ul className="footer__links">
+              <li>
+                <a href={UNIVERSITY_URL}>{FOOTER.university}</a>
+              </li>
               <li>
                 <RouterLink to="/privacy">{FOOTER.privacy}</RouterLink>
               </li>

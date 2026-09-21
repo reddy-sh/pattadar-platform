@@ -5,6 +5,7 @@ import CheckCircleOutlineOutlined from '@mui/icons-material/CheckCircleOutlineOu
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import GavelOutlined from '@mui/icons-material/GavelOutlined';
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
+import ImageOutlined from '@mui/icons-material/ImageOutlined';
 import LaunchOutlined from '@mui/icons-material/LaunchOutlined';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import PrivacyTipOutlined from '@mui/icons-material/PrivacyTipOutlined';
@@ -19,17 +20,21 @@ import {
   usePortfolio,
   usePublishGovernancePolicy,
   useSaveGovernancePolicy,
+  useServicesOffered,
   type GovernanceDocument,
+  type GovernanceServiceVisual,
 } from '../api';
-import { Card, Failed, Loading, Pill } from '../ui';
+import { Card, FacetFilter, Failed, Loading, Pill } from '../ui';
+import { ServiceVisual, serviceVisualSrc } from '../ServiceVisual';
 
-type View = 'records' | 'buyer' | 'seller' | 'services' | 'workforce' | 'sharing' | 'sources' | 'manage';
+type View = 'records' | 'buyer' | 'seller' | 'services' | 'visuals' | 'workforce' | 'sharing' | 'sources' | 'manage';
 
 const VIEWS: { key: View; label: string }[] = [
   { key: 'records', label: 'Property records' },
   { key: 'buyer', label: 'Buyer' },
   { key: 'seller', label: 'Seller' },
   { key: 'services', label: 'Service requests' },
+  { key: 'visuals', label: 'Service visuals' },
   { key: 'workforce', label: 'Company members' },
   { key: 'sharing', label: 'Secure sharing' },
   { key: 'sources', label: 'Sources' },
@@ -67,9 +72,15 @@ export function ComplianceAdmin() {
   const policy = useGovernanceAdminPolicy('IN', code(stateCode), code(districtCode), allowed);
   const policies = useGovernanceAdminPolicies('IN', allowed);
   const history = useGovernancePolicyHistory(scopeKey, allowed);
+  const offers = useServicesOffered('', '', allowed);
   const document = useMemo(() => parseGovernanceDocument(policy.data), [policy.data]);
   const [view, setView] = useState<View>('records');
   const [workforceCategory, setWorkforceCategory] = useState('');
+  const [visualCategory, setVisualCategory] = useState('');
+  const [visualEditing, setVisualEditing] = useState(false);
+  const [visualDraft, setVisualDraft] = useState<Record<string, GovernanceServiceVisual>>({});
+  const [visualReason, setVisualReason] = useState('');
+  const [visualError, setVisualError] = useState('');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [reason, setReason] = useState('');
@@ -84,6 +95,20 @@ export function ComplianceAdmin() {
   useEffect(() => {
     if (!editing) setDraft(policy.data?.document ? pretty(policy.data.document) : '');
   }, [policy.data?.id, policy.data?.document, editing]);
+
+  useEffect(() => {
+    if (visualEditing || !document) return;
+    const governed = new Map((document.serviceVisuals ?? []).map((item) => [item.serviceKey, item]));
+    setVisualDraft(Object.fromEntries((offers.data ?? []).map((offer) => [
+      offer.key,
+      governed.get(offer.key) ?? {
+        serviceKey: offer.key,
+        assetKey: offer.visual.assetKey || offer.key,
+        alt: offer.visual.alt,
+        caption: offer.visual.caption,
+      },
+    ])));
+  }, [document, offers.data, visualEditing]);
 
   const chooseScope = (key: string) => {
     const [, state = '*', district = '*'] = key.split('/');
@@ -172,6 +197,44 @@ export function ComplianceAdmin() {
     }
   };
 
+  const updateVisual = (serviceKey: string, patch: Partial<GovernanceServiceVisual>) => {
+    setVisualDraft((current) => ({
+      ...current,
+      [serviceKey]: { ...current[serviceKey], serviceKey, ...patch },
+    }));
+  };
+
+  const saveVisualMappings = async () => {
+    if (!document || !offers.data) return;
+    setVisualError('');
+    if (!visualReason.trim()) {
+      setVisualError('Record why these visual mappings are changing.');
+      return;
+    }
+    const next = structuredClone(document);
+    next.serviceVisuals = offers.data.map((offer) => visualDraft[offer.key] ?? {
+      serviceKey: offer.key,
+      assetKey: offer.visual.assetKey,
+      alt: offer.visual.alt,
+      caption: offer.visual.caption,
+    });
+    try {
+      const result = await save.mutateAsync({
+        countryCode: 'IN', stateCode: code(stateCode), districtCode: code(districtCode),
+        document: JSON.stringify(next), reason: visualReason.trim(),
+        expectedRevision: exact ? (policy.data?.revision ?? 0) : 0,
+      });
+      if (!result.web.saveGovernancePolicy) {
+        setVisualError('The visual mapping draft was not saved. Reload the scope and try again.');
+        return;
+      }
+      setVisualEditing(false);
+      setVisualReason('');
+    } catch (error) {
+      setVisualError(error instanceof Error ? error.message : 'The visual mapping draft was not saved.');
+    }
+  };
+
   if (portfolio.isLoading) return <main><Loading what="your administration access" h="24rem" /></main>;
   if (!allowed) {
     return (
@@ -191,6 +254,10 @@ export function ComplianceAdmin() {
   }
 
   const sourceById = new Map(document.sources.map((source) => [source.id, source]));
+  const visualOffers = (offers.data ?? []).filter(
+    (offer) => !visualCategory || offer.group === visualCategory,
+  );
+  const visualCategories = [...new Set((offers.data ?? []).map((offer) => offer.group))];
 
   return (
     <main className="compliance-admin">
@@ -305,22 +372,162 @@ export function ComplianceAdmin() {
         </div>
       )}
 
+      {view === 'visuals' && (
+        <section className="compliance-visuals">
+          <div className="row between compliance-visuals-head">
+            <div>
+              <p className="eyebrow"><ImageOutlined sx={{ fontSize: 15 }} /> Service visual language</p>
+              <h2>Show the work before asking people to read it</h2>
+              <p className="note">
+                Each image explains one service without personal data or government marks. Mappings
+                inherit by country, state and district with the rest of this policy.
+              </p>
+            </div>
+            {!visualEditing && (
+              <button type="button" className="btn" onClick={() => {
+                setVisualEditing(true); setVisualError('');
+              }}>
+                <EditOutlined sx={{ fontSize: 16 }} /> Edit mappings
+              </button>
+            )}
+          </div>
+
+          {offers.isLoading ? <Loading what="the service visual library" h="14rem" />
+            : offers.error ? <Failed what="The service visual library" error={offers.error} boxed h="14rem" />
+              : (
+                <>
+                  <FacetFilter
+                    groups={[{
+                      key: 'category', label: 'Category',
+                      options: visualCategories.map((category) => ({
+                        key: category, label: category,
+                        count: (offers.data ?? []).filter((offer) => offer.group === category).length,
+                      })),
+                    }]}
+                    selected={{ category: visualCategory ? [visualCategory] : [] }}
+                    onToggle={(_group, category) => setVisualCategory(
+                      (value) => value === category ? '' : category)}
+                    onClear={() => setVisualCategory('')}
+                    tally={`${visualOffers.length} of ${(offers.data ?? []).length} shown`}
+                    ariaLabel="Filter service visuals"
+                  />
+
+                  <div className="compliance-visual-grid">
+                    {visualOffers.map((offer) => {
+                      const mapped = visualDraft[offer.key] ?? {
+                        serviceKey: offer.key,
+                        assetKey: offer.visual.assetKey,
+                        alt: offer.visual.alt,
+                        caption: offer.visual.caption,
+                      };
+                      const preview = {
+                        ...offer.visual,
+                        assetKey: mapped.assetKey,
+                        src: serviceVisualSrc(mapped.assetKey),
+                        alt: mapped.alt,
+                        caption: mapped.caption,
+                      };
+                      return (
+                        <article key={offer.key} className="compliance-visual-item">
+                          <ServiceVisual serviceKey={offer.key} label={offer.label}
+                                         visual={preview} variant="admin" />
+                          <div className="compliance-visual-copy">
+                            <span className="row between tight">
+                              <strong>{offer.label}</strong>
+                              <span className="pill managed">{offer.group}</span>
+                            </span>
+                            {!visualEditing ? (
+                              <>
+                                <p>{mapped.caption}</p>
+                                <small className="note">Image description: {mapped.alt}</small>
+                                <span className="mono note">{mapped.assetKey} · {offer.visual.sourceScope}</span>
+                              </>
+                            ) : (
+                              <div className="compliance-visual-fields">
+                                <div className="field">
+                                  <label htmlFor={`visual-asset-${offer.key}`}>Image</label>
+                                  <select id={`visual-asset-${offer.key}`} value={mapped.assetKey}
+                                          onChange={(event) => updateVisual(offer.key, {
+                                            assetKey: event.target.value,
+                                          })}>
+                                    {(offers.data ?? []).map((asset) => (
+                                      <option key={asset.key} value={asset.key}>{asset.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="field">
+                                  <label htmlFor={`visual-caption-${offer.key}`}>Plain-language meaning</label>
+                                  <textarea id={`visual-caption-${offer.key}`} rows={2} maxLength={320}
+                                            value={mapped.caption}
+                                            onChange={(event) => updateVisual(offer.key, {
+                                              caption: event.target.value,
+                                            })} />
+                                </div>
+                                <div className="field">
+                                  <label htmlFor={`visual-alt-${offer.key}`}>Image description</label>
+                                  <textarea id={`visual-alt-${offer.key}`} rows={2} maxLength={280}
+                                            value={mapped.alt}
+                                            onChange={(event) => updateVisual(offer.key, {
+                                              alt: event.target.value,
+                                            })} />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+          {visualEditing && (
+            <div className="compliance-visual-save">
+              <div className="field grow">
+                <label htmlFor="visual-change-reason">Change reason</label>
+                <input id="visual-change-reason" value={visualReason} maxLength={4000}
+                       placeholder="Why is this mapping clearer or more accurate?"
+                       onChange={(event) => setVisualReason(event.target.value)} />
+              </div>
+              <div className="row tight">
+                <button type="button" className="btn primary" disabled={busy}
+                        onClick={() => void saveVisualMappings()}>Save audited draft</button>
+                <button type="button" className="btn" disabled={busy} onClick={() => {
+                  setVisualEditing(false); setVisualReason(''); setVisualError('');
+                }}>Discard</button>
+              </div>
+              <p className="note">Publish the saved draft from Manage before owners see it.</p>
+            </div>
+          )}
+          {visualError && (
+            <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{visualError}</p>
+          )}
+        </section>
+      )}
+
       {view === 'workforce' && (
         <section className="compliance-guide-band">
           <p className="eyebrow">Workforce governance</p>
           <h2>Who may receive company work</h2>
-          <div className="row tight" style={{ marginBottom: 'var(--space-md)' }}>
-            {[...new Set((document.workforceCompliance ?? []).map((rule) => rule.category))].map((category) => (
-              <button key={category} type="button" className="chip"
-                      aria-pressed={workforceCategory === category}
-                      onClick={() => setWorkforceCategory((value) => value === category ? '' : category)}>
-                {category.replaceAll('_', ' ')}
-              </button>
-            ))}
-            {workforceCategory && (
-              <button type="button" className="clearall" onClick={() => setWorkforceCategory('')}>Clear</button>
-            )}
-          </div>
+          <FacetFilter
+            groups={[{
+              key: 'category', label: 'Category',
+              options: [...new Set((document.workforceCompliance ?? []).map((rule) => rule.category))]
+                .map((category) => ({
+                  key: category,
+                  label: category.replaceAll('_', ' '),
+                  count: (document.workforceCompliance ?? [])
+                    .filter((rule) => rule.category === category).length,
+                })),
+            }]}
+            selected={{ category: workforceCategory ? [workforceCategory] : [] }}
+            onToggle={(_group, category) => setWorkforceCategory(
+              (value) => value === category ? '' : category)}
+            onClear={() => setWorkforceCategory('')}
+            tally={`${(document.workforceCompliance ?? [])
+              .filter((rule) => !workforceCategory || rule.category === workforceCategory).length} rules`}
+            ariaLabel="Filter workforce governance rules"
+          />
           <div className="compliance-items">
             {(document.workforceCompliance ?? [])
               .filter((rule) => !workforceCategory || rule.category === workforceCategory)

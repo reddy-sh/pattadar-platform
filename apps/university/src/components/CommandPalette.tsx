@@ -2,6 +2,7 @@ import SearchRounded from '@mui/icons-material/SearchRounded';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { campuses, courses, opportunities } from '../data/catalog';
+import { stateLandRecordProfiles } from '../data/stateLandRecords';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -38,6 +39,13 @@ const entries: CommandEntry[] = [
     detail: `${opportunity.organization} · ${opportunity.engagement}`,
     group: 'Work',
     path: '/opportunities',
+  })),
+  ...stateLandRecordProfiles.map((profile) => ({
+    id: `state-${profile.code}`,
+    label: `${profile.name} land records`,
+    detail: `${profile.primaryRecordLabel} · ${profile.localTerms.slice(0, 3).join(' · ')}`,
+    group: 'State guides',
+    path: `/states/${profile.slug}`,
   })),
 ];
 
@@ -97,12 +105,12 @@ export function CommandPalette({ open, onOpen, onClose }: CommandPaletteProps) {
       <div className="command-dialog__panel">
         <label className="command-dialog__search" htmlFor="university-command-search">
           <SearchRounded />
-          <span className="sr-only">Search courses, locations, and work</span>
+          <span className="sr-only">Search courses, state guides, locations, and work</span>
           <input
             ref={inputRef}
             id="university-command-search"
             value={query}
-            placeholder="Search courses, locations, and work"
+            placeholder="Search courses, states, roles, locations"
             autoComplete="off"
             aria-controls="command-results"
             aria-activedescendant={results[selected] ? `command-${results[selected].id}` : undefined}
@@ -139,8 +147,8 @@ export function CommandPalette({ open, onOpen, onClose }: CommandPaletteProps) {
             </button>
           )) : (
             <div className="empty-inline" role="status">
-              <strong>No matching course or location.</strong>
-              <span>Try a role such as surveyor, buyer, or document writer.</span>
+              <strong>No matching course, state, or location.</strong>
+              <span>Try a state, record name, role, or course.</span>
             </div>
           )}
         </div>

@@ -8,6 +8,10 @@ The frontend already depends on domain ports rather than browser storage directl
 
 The current catalog is product scaffolding, not a published prospectus. Locations, mentor roles, opportunity pathways, prices, and credential names remain proposed until their owners approve them. Browser-generated completion records are marked as previews and are not verifiable credentials.
 
+Course jurisdiction and physical delivery are separate catalog facts. A published course version owns `jurisdictionScope`: `india-general` identifies process and skill learning that is intentionally non-state-specific, while `state-specific` requires one or more `stateCodes` identifying the law, records, or operating context covered. `locationSlugs` identify proposed centres or field-delivery locations and must not be used to infer curriculum jurisdiction. Discovery filters are URL-backed (`goal`, `role`, and `state`) so links can be shared and the same filter contract can be passed to production APIs.
+
+`src/data/stateLandRecords.ts` is the preview jurisdiction registry for all 28 states and 8 union territories. Each entry owns a stable code and slug, local record vocabulary, availability status, evidence boundary, official land-record and registration links, and a source-review date. `src/data/stateGuideContent.ts` adds the reviewed educational layer: record explainers, official-access steps, state-specific mutation and survey guidance, registration boundaries, practical checks, and answer-first FAQs. It is reference content, not a copy of government records and not a title-verification service.
+
 ## Product boundaries
 
 University owns:
@@ -44,6 +48,8 @@ University API -> authorization policy -> repository ports
 
 CloudFront must route SPA paths to `index.html` without rewriting `/api/*` or protected-resource URLs.
 
+State-guide builds also emit route-specific HTML at `dist/states/index.html` and `dist/states/{slug}/index.html`. CloudFront should prefer the exact route object (or append `/index.html`) before applying the SPA fallback. Cache `sitemap.xml`, `robots.txt`, and `llms.txt` separately so discovery updates do not require invalidating all hashed application assets.
+
 ## Identity and authorization
 
 - Use the existing Cognito user pool and a dedicated University public app client.
@@ -61,8 +67,12 @@ Start as one deployable University API with strict modules. Split services only 
 ### Catalog
 
 ```text
-GET  /api/university/catalog/courses
+GET  /api/university/catalog/courses?goal={goal}&role={role}&state={stateCode}
 GET  /api/university/catalog/courses/{slug}
+GET  /api/university/catalog/courses/{slug}/versions/{version}/lessons/{moduleId}
+GET  /api/university/catalog/courses/{slug}/versions/{version}/resources/{resourceId}
+GET  /api/university/jurisdictions
+GET  /api/university/jurisdictions/{slug}
 GET  /api/university/locations/{slug}
 POST /api/university/admin/course-versions
 POST /api/university/admin/publish
@@ -95,7 +105,7 @@ Credentials are append-only records. A public verification endpoint returns the 
 ### Opportunity and mentoring
 
 ```text
-GET  /api/university/opportunities
+GET  /api/university/opportunities?role={role}&state={stateCode}
 POST /api/university/opportunities/{id}/interest
 POST /api/university/mentor-requests
 POST /api/university/employer-handoffs/{id}/consent
@@ -147,9 +157,17 @@ SK = VERSION#{version}
 
 PK = LOCATION#{locationSlug}
 SK = COURSE#{courseId}
+
+PK = JURISDICTION#{stateCode}
+SK = PROFILE#{reviewedOn}
+
+PK = JURISDICTION#{stateCode}
+SK = SOURCE#{sourceId}#{reviewedOn}
 ```
 
 Published documents are immutable. A small `COURSE#{courseId} / CURRENT` pointer resolves the active version.
+
+Published course-version documents include `roles`, `jurisdictionScope`, `stateCodes`, and `locationSlugs`. India-general courses are projected into every state discovery result at read-model build time; they are not copied into 36 mutable course records. For a larger catalog, project purpose-built discovery records keyed by state and role rather than scanning `UniversityCatalog`; treat those records as rebuildable read models of immutable published versions.
 
 ### `UniversityCredentials`
 
@@ -175,12 +193,31 @@ Do not build one unbounded learner item containing every module and message. Kee
 
 ## Files and content
 
+- The preview keeps structured lesson content in `src/content`, separately from catalog metadata. Each module has objectives, approved reading sections, practice evidence, a knowledge check, media status, and optional official-reference IDs. The API can later return the same contract without changing lesson-page behavior.
+- `src/data/officialReferences.ts` is the reviewed source registry for the current Andhra Pradesh curriculum. It stores source title, authority, government URL, kind, description, and review date. Tests require every referenced ID to resolve and every URL host to end in `.gov.in` or `.nic.in`.
+- `src/data/stateLandRecords.ts` applies the same government-domain rule to the national jurisdiction directory. Its national sources explain the state-led land-record model; each profile then links to the relevant state or union-territory authority. Automated checks enforce 28 states, 8 union territories, unique codes and slugs, local vocabulary, and government-only links.
+- `src/data/stateGuideContent.ts` contains no scraped citizen or parcel data. Each of the 36 entries is a dated editorial summary whose citations resolve back to the jurisdiction registry or the national Department of Land Resources sources. Automated checks require substantial record explanations, all four workflow topics, a review checklist, FAQs, unique search metadata, and answer-oriented structured data.
+- Portal availability is descriptive and dated. `limited-coverage` and `department-guidance` are first-class states so the product does not invent a public RoR service where the competent government source says coverage is partial, customary, local, or unavailable online.
+- Production source monitoring should run as a rate-limited scheduled job over an allowlist of government URLs. It records HTTP status, redirect target, content hash, retrieval time, and the last human-reviewed version. A changed page creates an editorial review task; it must never silently rewrite published legal or training guidance from scraped text.
+- Lesson pages and generated course PDFs resolve the same reference IDs, so web and download versions cannot drift into different source lists. A content correction creates a new course version and records the source-review date; published versions remain immutable.
+- The Andhra Pradesh foundation teaches evidence boundaries rather than automated title conclusions. Revenue, registration, survey, restriction, tax, and planning sources remain distinct; uncertainty routes to the competent authority or qualified professional.
+- Search publishing uses one source object for visible copy, JSON-LD, sitemap dates, dynamic browser metadata, and generated route HTML. `scripts/generateSeo.ts` emits canonical Article, FAQPage, BreadcrumbList, and directory ItemList data without inventing ratings, accreditation, government affiliation, or employment outcomes. Generated snapshots remain readable without JavaScript and are replaced by the interactive React page at runtime.
+- Treat generated course artwork as a versioned content asset with prompt provenance and human review. The current prompt manifest lives beside the web derivatives in `public/course-art`.
 - Store course PDFs, captions, transcripts, submissions, and certificates in S3 with KMS encryption.
 - Keep object keys opaque. Do not include email, phone, Aadhaar, survey number, or learner name in keys.
 - Serve protected downloads through short-lived signed URLs after entitlement checks.
 - Record content version, checksum, MIME type, size, accessibility metadata, and retention class.
 - Scan uploads before mentors can open them.
 - Watermark personal certificates at generation time; do not watermark general course material with sensitive identifiers.
+- Publish video only with captions, transcript, language, presenter/reviewer, accessibility metadata, checksum, and the immutable course version it teaches. A missing video must never block access to equivalent core learning material.
+
+## Compliance-to-training contract
+
+`src/data/complianceCoverage.ts` maps the published `IN/AP/*` property checklist and company workforce controls to stable lesson module IDs. The preview `/compliance` page makes that mapping reviewable, and tests fail when a mapped lesson disappears or any of the ten workforce rules is omitted.
+
+The static matrix is a content snapshot, not a policy source of truth. Production University APIs must read the currently published compliance-policy ID, version, scope, effective date, and rule keys from the Pattadar Admin governance service. Enrollment and assessment records store the policy and course versions used at the time; a changed policy triggers an impact report and a new curriculum version rather than mutating completed history.
+
+Company-specific thresholds, allocation rules, and clearance decisions must be labelled as Pattadar policy. They must not be presented as government law. External lesson links remain government-only; internal policy provenance is supplied by the authenticated governance API and audit log.
 
 ## Events
 

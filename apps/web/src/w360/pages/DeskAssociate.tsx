@@ -16,17 +16,18 @@
  *  all zero for now and say so in words rather than drawing three zeroes and
  *  letting the reader guess whether that is a bug.
  */
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 
 import {
-  useAssociate, useAssociateEvents, useDesk, useDeleteUnclaimedAssociate,
-  useDisciplines, useMessageAssociate, useSetAssociateAreas,
+  useAssociate, useAssociateEvents, useAssociateJobs, useAssociateTrainingCertificates,
+  useDeleteUnclaimedAssociate, useDisciplines, useIssueTrainingCertificate,
+  useMessageAssociate, useRevokeTrainingCertificate, useSetAssociateAreas,
   useSetAssociateCertification, useSetAssociateDisciplines,
   useSetAssociateState, useSetAssociateTraining, useUpdateAssociate,
 } from '../api';
-import type { Associate, AssociateArea } from '../api';
+import type { Associate, AssociateArea, AssociateCredential, TrainingCertificate } from '../api';
 import { Dialog } from '../Dialog';
 import {
   Card, Chip, Crumbs, Empty, Failed, Loading, Menu, State, Tag, ddmmyyyy, plural,
@@ -81,6 +82,121 @@ const Refused = ({ children }: { children: ReactNode }) => (
 const Why = ({ children }: { children: ReactNode }) => (
   <span className="note">{children}</span>
 );
+
+const isoDate = (value: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value || '');
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : (value || '').slice(0, 10);
+};
+
+function CertificationDialog({ id, discipline, label, credential, verified, onClose }: {
+  id: string; discipline: string; label: string;
+  credential?: AssociateCredential; verified: boolean; onClose: () => void;
+}) {
+  const save = useSetAssociateCertification();
+  const catalogue = useDisciplines();
+  const kind = catalogue.data?.find((item) => item.key === discipline)?.credential
+    || credential?.kind || 'Company verification';
+  const requirementKnown = !!credential?.kind || !!catalogue.data;
+  const regulated = kind !== 'Company verification';
+  const [authority, setAuthority] = useState(credential?.authority || (regulated ? '' : 'Pattadar'));
+  const [issuedOn, setIssuedOn] = useState(isoDate(credential?.issuedOn || ''));
+  const [expiresOn, setExpiresOn] = useState(isoDate(credential?.expiresOn || ''));
+  const [credentialRef, setCredentialRef] = useState('');
+  const [evidenceName, setEvidenceName] = useState(credential?.fileName || '');
+  const [evidenceRef, setEvidenceRef] = useState(credential?.fileRef || '');
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
+  const ready = verified ? !!note.trim()
+    : requirementKnown && !!authority.trim() && !!issuedOn
+      && (!regulated || !!credentialRef.trim());
+
+  const commit = async () => {
+    if (!ready || save.isPending) return;
+    setErr('');
+    try {
+      const res = await save.mutateAsync({
+        id, discipline, certified: !verified, note: note.trim(), authority: authority.trim(),
+        issuedOn, expiresOn, credentialRef: credentialRef.trim(),
+        evidenceName: evidenceName.trim(), evidenceRef: evidenceRef.trim(),
+      });
+      if (!res.web.setAssociateCertification) { setErr(WRITE_FAILED); return; }
+      onClose();
+    } catch { setErr(WRITE_FAILED); }
+  };
+
+  return (
+    <Dialog
+      title={verified ? `Revoke ${label} certification` : `Review ${label} certification`}
+      onClose={onClose} busy={save.isPending} dismissable={false}
+      footer={(
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          {!ready && <Why>{verified ? 'Record the reason first.'
+            : regulated ? 'Authority, issue date and credential reference are required.'
+              : 'Authority and issue date are required.'}</Why>}
+          <button type="button" className="btn" onClick={onClose}>Leave it</button>
+          <button type="button" className={verified ? 'btn danger' : 'btn primary'}
+                  disabled={!ready || save.isPending} onClick={() => { void commit(); }}>
+            {save.isPending ? 'Saving…' : verified ? 'Revoke certification' : 'Verify certification'}
+          </button>
+        </div>
+      )}
+    >
+      {verified ? (
+        <label className="field">
+          Reason for revocation
+          <textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)}
+                    placeholder="Expired, withdrawn by authority, or evidence could not be confirmed" />
+        </label>
+      ) : (
+        <div className="stack sm">
+          <p className="note">Required evidence: {kind}.</p>
+          <div className="two">
+            <label className="field">
+              Issuing authority
+              <input value={authority} onChange={(e) => setAuthority(e.target.value)}
+                     placeholder="Government department or Pattadar" />
+            </label>
+            <label className="field">
+              Issued on
+              <input type="date" value={issuedOn} onChange={(e) => setIssuedOn(e.target.value)} />
+            </label>
+          </div>
+          <div className="two">
+            <label className="field">
+              {regulated ? 'Credential reference' : 'Verification reference'}
+              <input value={credentialRef} onChange={(e) => setCredentialRef(e.target.value)}
+                     placeholder={credential?.numberMasked || 'Registration or certificate number'} />
+              <span className="note">Only a masked reference is retained for display.</span>
+            </label>
+            <label className="field">
+              Valid until
+              <input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} />
+              <span className="note">Leave blank only when the authority gives no expiry.</span>
+            </label>
+          </div>
+          <div className="two">
+            <label className="field">
+              Evidence name
+              <input value={evidenceName} onChange={(e) => setEvidenceName(e.target.value)}
+                     placeholder="Survey licence.pdf" />
+            </label>
+            <label className="field">
+              Evidence reference
+              <input value={evidenceRef} onChange={(e) => setEvidenceRef(e.target.value)}
+                     placeholder="Secure file or registry reference" />
+            </label>
+          </div>
+          <label className="field">
+            Review note
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)}
+                      placeholder="How the authority or evidence was checked" />
+          </label>
+        </div>
+      )}
+      {err && <Refused>{err}</Refused>}
+    </Dialog>
+  );
+}
 
 // ── The state change ───────────────────────────────────────────────────
 
@@ -499,6 +615,80 @@ function AreasEditor({ id, current, onClose }: {
   );
 }
 
+// ── Their postal address ───────────────────────────────────────────────
+
+function AddressEditor({ a, onClose }: { a: Associate; onClose: () => void }) {
+  const save = useUpdateAssociate();
+  const [addressLine, setAddressLine] = useState(a.addressLine);
+  const [villageLocality, setVillageLocality] = useState(a.villageLocality);
+  const [postOffice, setPostOffice] = useState(a.postOffice);
+  const [mandalCity, setMandalCity] = useState(a.mandalCity);
+  const [district, setDistrict] = useState(a.district);
+  const [stateName, setStateName] = useState(a.stateName || 'Andhra Pradesh');
+  const [postalCode, setPostalCode] = useState(a.postalCode);
+  const [err, setErr] = useState('');
+  const complete = !!villageLocality.trim() && !!mandalCity.trim() && !!district.trim()
+    && !!stateName.trim() && /^\d{6}$/.test(postalCode.trim());
+  const now = [addressLine, villageLocality, postOffice, mandalCity, district, stateName, postalCode].join('|');
+  const was = [a.addressLine, a.villageLocality, a.postOffice, a.mandalCity,
+    a.district, a.stateName, a.postalCode].join('|');
+
+  const commit = async () => {
+    if (!complete || now === was || save.isPending) return;
+    setErr('');
+    try {
+      const res = await save.mutateAsync({
+        id: a.id, addressLine: addressLine.trim(), villageLocality: villageLocality.trim(),
+        postOffice: postOffice.trim(), mandalCity: mandalCity.trim(), district: district.trim(),
+        stateName: stateName.trim(), postalCode: postalCode.trim(),
+      });
+      if (!res.web.updateAssociate) { setErr(WRITE_FAILED); return; }
+      onClose();
+    } catch { setErr(WRITE_FAILED); }
+  };
+
+  return (
+    <div className="stack sm" style={{ marginTop: 'var(--space-sm)' }}>
+      <label className="field">
+        House, building or street
+        <input value={addressLine} onChange={(e) => setAddressLine(e.target.value)} />
+      </label>
+      <div className="two">
+        <label className="field">Village or locality
+          <input value={villageLocality} onChange={(e) => setVillageLocality(e.target.value)} />
+        </label>
+        <label className="field">Delivery post office
+          <input value={postOffice} onChange={(e) => setPostOffice(e.target.value)} />
+        </label>
+      </div>
+      <div className="two">
+        <label className="field">Mandal or city
+          <input value={mandalCity} onChange={(e) => setMandalCity(e.target.value)} />
+        </label>
+        <label className="field">District
+          <input value={district} onChange={(e) => setDistrict(e.target.value)} />
+        </label>
+      </div>
+      <div className="two">
+        <label className="field">State
+          <input value={stateName} onChange={(e) => setStateName(e.target.value)} />
+        </label>
+        <label className="field">PIN code
+          <input inputMode="numeric" maxLength={6} value={postalCode}
+                 onChange={(e) => setPostalCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+        </label>
+      </div>
+      <div className="row">
+        <button type="button" className="btn primary" disabled={!complete || now === was || save.isPending}
+                onClick={() => { void commit(); }}>{save.isPending ? 'Saving…' : 'Save address'}</button>
+        <button type="button" className="btn" onClick={onClose}>Leave it</button>
+        {!complete && <Why>Village/locality, mandal/city, district, state and a 6-digit PIN are required.</Why>}
+      </div>
+      {err && <Refused>{err}</Refused>}
+    </div>
+  );
+}
+
 // ── How to reach them ──────────────────────────────────────────────────
 
 /** The number, and the one switch that decides whether an owner ever sees it.
@@ -570,6 +760,143 @@ function Reach({ id, masked, contact, visible, name }: {
   );
 }
 
+// ── Pattadar University training credentials ──────────────────────────
+
+function IssueTrainingCertificate({ member, onClose }: {
+  member: Associate; onClose: () => void;
+}) {
+  const issue = useIssueTrainingCertificate();
+  const today = new Date().toISOString().slice(0, 10);
+  const [courseCode, setCourseCode] = useState('PU-FIELD-SAFETY');
+  const [courseTitle, setCourseTitle] = useState('Field safety and owner privacy');
+  const [version, setVersion] = useState('1.0');
+  const [trainerName, setTrainerName] = useState('Pattadar University Faculty');
+  const [trainerRef, setTrainerRef] = useState('PU-FACULTY-001');
+  const [completedOn, setCompletedOn] = useState(today);
+  const [validUntil, setValidUntil] = useState('');
+  const [hours, setHours] = useState('8');
+  const [skills, setSkills] = useState('Owner privacy, Field safety, Evidence handling');
+  const [evidenceRef, setEvidenceRef] = useState(`attendance:${member.id}:${today}`);
+  const [note, setNote] = useState('Identity and attendance verified by the trainer.');
+  const [err, setErr] = useState('');
+  const ready = !!courseCode.trim() && !!courseTitle.trim() && !!version.trim()
+    && !!trainerName.trim() && !!completedOn && Number(hours) > 0 && !!evidenceRef.trim();
+
+  const commit = async () => {
+    if (!ready || issue.isPending) return;
+    setErr('');
+    try {
+      const res = await issue.mutateAsync({
+        id: member.id, courseCode: courseCode.trim(), courseTitle: courseTitle.trim(),
+        courseVersion: version.trim(), trainerName: trainerName.trim(), trainerRef: trainerRef.trim(),
+        completedOn, validUntil, hours: Number(hours),
+        skills: skills.split(',').map((item) => item.trim()).filter(Boolean),
+        evidenceRef: evidenceRef.trim(), note: note.trim(),
+      });
+      if (!res.web.issueTrainingCertificate) { setErr(WRITE_FAILED); return; }
+      onClose();
+    } catch { setErr(WRITE_FAILED); }
+  };
+
+  return (
+    <Dialog title={`Issue training certificate to ${member.name}`} onClose={onClose}
+            busy={issue.isPending} dismissable={false}
+            footer={(
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                {!ready && <Why>Course, trainer, completion date, duration and evidence are required.</Why>}
+                <button type="button" className="btn" onClick={onClose}>Leave it</button>
+                <button type="button" className="btn primary" disabled={!ready || issue.isPending}
+                        onClick={() => { void commit(); }}>
+                  {issue.isPending ? 'Issuing…' : 'Issue certificate'}
+                </button>
+              </div>
+            )}>
+      <div className="stack sm">
+        <p className="note">
+          This is a Pattadar University internal training credential. It does not replace a
+          government licence or professional registration.
+        </p>
+        <div className="two">
+          <label className="field">Course code
+            <input value={courseCode} onChange={(e) => setCourseCode(e.target.value.toUpperCase())} />
+          </label>
+          <label className="field">Course version
+            <input value={version} onChange={(e) => setVersion(e.target.value)} />
+          </label>
+        </div>
+        <label className="field">Course title
+          <input value={courseTitle} onChange={(e) => setCourseTitle(e.target.value)} />
+        </label>
+        <div className="two">
+          <label className="field">Trainer name
+            <input value={trainerName} onChange={(e) => setTrainerName(e.target.value)} />
+          </label>
+          <label className="field">Trainer or faculty reference
+            <input value={trainerRef} onChange={(e) => setTrainerRef(e.target.value)} />
+          </label>
+        </div>
+        <div className="two">
+          <label className="field">Completed on
+            <input type="date" value={completedOn} onChange={(e) => setCompletedOn(e.target.value)} />
+          </label>
+          <label className="field">Valid until
+            <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+          </label>
+        </div>
+        <div className="two">
+          <label className="field">Learning hours
+            <input type="number" min="0.5" max="1000" step="0.5" value={hours}
+                   onChange={(e) => setHours(e.target.value)} />
+          </label>
+          <label className="field">Completion evidence reference
+            <input value={evidenceRef} onChange={(e) => setEvidenceRef(e.target.value)} />
+          </label>
+        </div>
+        <label className="field">Skills, separated by commas
+          <input value={skills} onChange={(e) => setSkills(e.target.value)} />
+        </label>
+        <label className="field">Issuance note
+          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        {err && <Refused>{err}</Refused>}
+      </div>
+    </Dialog>
+  );
+}
+
+function RevokeTrainingCertificate({ certificate, onClose }: {
+  certificate: TrainingCertificate; onClose: () => void;
+}) {
+  const revoke = useRevokeTrainingCertificate();
+  const [reason, setReason] = useState('');
+  const [err, setErr] = useState('');
+  const commit = async () => {
+    if (!reason.trim() || revoke.isPending) return;
+    try {
+      const res = await revoke.mutateAsync({ id: certificate.id, reason: reason.trim() });
+      if (!res.web.revokeTrainingCertificate) { setErr(WRITE_FAILED); return; }
+      onClose();
+    } catch { setErr(WRITE_FAILED); }
+  };
+  return (
+    <Dialog title={`Revoke ${certificate.certificateNo}`} onClose={onClose} busy={revoke.isPending}
+            dismissable={false} footer={(
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                {!reason.trim() && <Why>Record the revocation reason first.</Why>}
+                <button type="button" className="btn" onClick={onClose}>Keep it active</button>
+                <button type="button" className="btn danger" disabled={!reason.trim() || revoke.isPending}
+                        onClick={() => { void commit(); }}>Revoke certificate</button>
+              </div>
+            )}>
+      <label className="field">Reason
+        <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)}
+                  placeholder="Issued in error, training invalidated, or identity mismatch" />
+      </label>
+      {err && <Refused>{err}</Refused>}
+    </Dialog>
+  );
+}
+
 // ── The page ───────────────────────────────────────────────────────────
 
 /** The page once the person has actually loaded.
@@ -583,11 +910,8 @@ function Reach({ id, masked, contact, visible, name }: {
  *  there. */
 function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
   const events = useAssociateEvents(a.id);
-  // Cross-owner, and already audited as one read: the desk's own list is the
-  // only place in the API that knows which jobs are on which associate, and
-  // "what are they holding" is the first question anybody opens this page with.
-  const desk = useDesk('all');
-  const certification = useSetAssociateCertification();
+  const jobs = useAssociateJobs(a.id);
+  const certificates = useAssociateTrainingCertificates(a.id);
   const training = useSetAssociateTraining();
   const message = useMessageAssociate();
   const [memberError, setMemberError] = useState('');
@@ -596,34 +920,12 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
 
   const [stateTo, setStateTo] = useState('');
   const [deleting, setDeleting] = useState(false);
-  const [editing, setEditing] = useState<'' | 'what' | 'where'>('');
-
-  /** Every job the desk is tracking that is on this person.
-   *  `silent` is a slice of the same set — a job nobody has touched for four
-   *  days is still a job they hold — so the two lists are merged and deduped
-   *  rather than drawn twice. */
-  const theirJobs = useMemo(() => {
-    const d = desk.data;
-    if (!d) return [];
-    const seen = new Set<string>();
-    return [...d.jobs, ...d.silent].filter((j) => {
-      if (j.assigneeRef !== a.id || seen.has(j.ticketId)) return false;
-      seen.add(j.ticketId);
-      return true;
-    });
-  }, [desk.data, a.id]);
+  const [editing, setEditing] = useState<'' | 'what' | 'address' | 'where'>('');
+  const [certReview, setCertReview] = useState('');
+  const [issuingTraining, setIssuingTraining] = useState(false);
+  const [revokingTraining, setRevokingTraining] = useState<TrainingCertificate | null>(null);
 
   const roles = a.disciplines.map((d) => d.label).join(', ');
-  const places = a.areas.map((x) => x.label || x.name).join(', ');
-
-  const setCertified = async (discipline: string, certified: boolean) => {
-    setMemberError('');
-    try {
-      const res = await certification.mutateAsync({ id: a.id, discipline, certified });
-      if (!res.web.setAssociateCertification) setMemberError(WRITE_FAILED);
-    } catch { setMemberError(WRITE_FAILED); }
-  };
-
   const setTraining = async (state: string) => {
     setMemberError('');
     try {
@@ -659,6 +961,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
     // item is not drawn for them either. A menu item that always answers false
     // is a dead control with a confirmation dialog in front of it.
     ...(!a.claimed && a.jobsOpen === 0 && a.jobsDone === 0
+      && certificates.data?.length === 0
       ? [{ label: 'Remove them completely', danger: true, rule: true, onClick: () => setDeleting(true) }] : []),
   ];
 
@@ -673,7 +976,8 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           <div style={{ minWidth: 0 }}>
             <h1>{a.name}</h1>
             <p className="lede" style={{ marginTop: '0.25rem' }}>
-              {[roles, places, a.createdAt ? `with us since ${ddmmyyyy(a.createdAt)}` : '']
+              {[roles, a.addressLabel || 'Full address not recorded',
+                a.createdAt ? `with us since ${ddmmyyyy(a.createdAt)}` : '']
                 .filter(Boolean).join(' · ')}
             </p>
           </div>
@@ -726,11 +1030,9 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                       {d.openCount} of {d.capacity} in hand
                     </span>
                     <button type="button" className="btn sm"
-                            disabled={certification.isPending}
-                            onClick={() => void setCertified(
-                              d.key, !['verified', 'expiring'].includes(d.credentialState))}>
+                            onClick={() => setCertReview(d.key)}>
                       {['verified', 'expiring'].includes(d.credentialState)
-                        ? 'Revoke certification' : 'Mark certified'}
+                        ? 'Review certification' : 'Verify certification'}
                     </button>
                   </div>
                 ))}
@@ -746,7 +1048,33 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           </Card>
 
           <Card
-            title="Where they work"
+            title="Full postal address"
+            aside={editing !== 'address' ? (
+              <button type="button" className="btn sm" onClick={() => setEditing('address')}>
+                Change
+              </button>
+            ) : undefined}
+          >
+            {a.addressLabel ? (
+              <div className="stack sm">
+                <p>{a.addressLabel}</p>
+                {!a.addressComplete && (
+                  <p className="note" style={{ color: 'var(--w-danger)' }}>
+                    Address incomplete. Add the village/locality, mandal/city, district,
+                    state and 6-digit PIN before relying on this location.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="note" style={{ color: 'var(--w-danger)' }}>
+                Full address not recorded. A work coverage area is not a postal address.
+              </p>
+            )}
+            {editing === 'address' && <AddressEditor a={a} onClose={() => setEditing('')} />}
+          </Card>
+
+          <Card
+            title="Where they take work"
             aside={editing !== 'where' ? (
               <button type="button" className="btn sm" onClick={() => setEditing('where')}>
                 Change
@@ -788,6 +1116,16 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                           {[c.authority, c.discipline].filter(Boolean).join(' · ')}
                           {c.reviewNote ? ` — ${c.reviewNote}` : ''}
                         </span>
+                        <span className="note" style={{ display: 'block' }}>
+                          {c.issuedOn ? `Issued ${ddmmyyyy(c.issuedOn)}` : 'Issue date not recorded'}
+                          {c.reviewedAt ? ` · Reviewed ${ddmmyyyy(c.reviewedAt)}` : ''}
+                          {c.reviewedBy ? ` · By ${c.reviewedBy}` : ''}
+                        </span>
+                        {(c.fileName || c.fileRef) && (
+                          <span className="note" style={{ display: 'block' }}>
+                            Evidence: {[c.fileName, c.fileRef].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
                       </span>
                       {c.lapsed ? <Tag alert>Lapsed {ddmmyyyy(c.expiresOn)}</Tag>
                         : c.expiring ? <Tag alert>{plural(c.daysLeft, 'day')} left</Tag>
@@ -797,6 +1135,11 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                             </span>
                           ) : <span className="note">No expiry recorded</span>}
                       <State state={r.tone}>{r.word}</State>
+                      {(c.fileRef.startsWith('/') || /^https?:\/\//.test(c.fileRef)) && (
+                        <a className="btn sm" href={c.fileRef} target="_blank" rel="noreferrer">
+                          View evidence
+                        </a>
+                      )}
                     </div>
                   );
                 })}
@@ -809,6 +1152,54 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           </Card>
 
           <Card
+            title="Pattadar University"
+            aside={(
+              <button type="button" className="btn sm" onClick={() => setIssuingTraining(true)}>
+                Issue certificate
+              </button>
+            )}
+          >
+            <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
+              Internal training credentials only. Government licences and professional
+              registrations remain under Papers and are still required for regulated work.
+            </p>
+            {certificates.isLoading ? <Loading h="7rem" what="training certificates" />
+              : !certificates.data ? (
+                <Failed what="Training certificates" error={certificates.error} boxed h="7rem" />
+              ) : certificates.data.length === 0 ? (
+                <p className="note">No Pattadar University certificate has been issued.</p>
+              ) : (
+                <div className="rows">
+                  {certificates.data.map((certificate) => (
+                    <div key={certificate.id}>
+                      <span className="grow">
+                        <strong style={{ fontSize: '0.875rem' }}>{certificate.courseTitle}</strong>
+                        <span className="note" style={{ display: 'block' }}>
+                          {certificate.courseCode} · version {certificate.courseVersion}
+                          {' '}· trained by {certificate.trainerName}
+                        </span>
+                        <span className="note mono" style={{ display: 'block' }}>
+                          {certificate.certificateNo} · completed {ddmmyyyy(certificate.completedOn)}
+                        </span>
+                      </span>
+                      <State state={certificate.verificationState === 'valid' ? 'good'
+                        : certificate.verificationState === 'expired' ? 'warn' : 'bad'}>
+                        {humanise(certificate.verificationState)}
+                      </State>
+                      <Link className="btn sm"
+                            to={`/certificate/${encodeURIComponent(certificate.verificationCode)}`}
+                            target="_blank">View certificate</Link>
+                      {certificate.status === 'active' && (
+                        <button type="button" className="btn sm danger"
+                                onClick={() => setRevokingTraining(certificate)}>Revoke</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+          </Card>
+
+          <Card
             title="Jobs"
             aside={(
               <span className="note">
@@ -817,16 +1208,16 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
               </span>
             )}
           >
-            {desk.isLoading ? <Loading h="7rem" what="their jobs" />
-              : !desk.data ? <Failed what="Their jobs" error={desk.error} boxed h="7rem" />
-                : theirJobs.length === 0 ? (
+            {jobs.isLoading ? <Loading h="7rem" what="their jobs" />
+              : !jobs.data ? <Failed what="Their jobs" error={jobs.error} boxed h="7rem" />
+                : jobs.data.length === 0 ? (
                   <p className="note">
-                    Nothing of theirs is on the desk right now. Put them on a job from
-                    the job&rsquo;s own page.
+                    No service has been assigned to them yet. Put them on a job from the
+                    job&rsquo;s own page.
                   </p>
                 ) : (
                   <div className="rows">
-                    {theirJobs.map((j) => (
+                    {jobs.data.map((j) => (
                       <div key={j.ticketId}>
                         <span className="grow">
                           <span className="row tight">
@@ -836,7 +1227,6 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                           <span className="note" style={{ display: 'block' }}>{j.place}</span>
                         </span>
                         <State state={j.statusState}>{j.statusLabel}</State>
-                        <Link className="btn sm" to={`/app/desk/jobs/${j.ticketId}`}>Open</Link>
                       </div>
                     ))}
                   </div>
@@ -975,6 +1365,26 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           onClose={() => setDeleting(false)}
           onGone={() => { setDeleting(false); onGone(); }}
         />
+      )}
+      {certReview && (() => {
+        const discipline = a.disciplines.find((item) => item.key === certReview);
+        const credential = a.credentials.find((item) => item.discipline === certReview);
+        if (!discipline) return null;
+        return (
+          <CertificationDialog
+            id={a.id} discipline={discipline.key} label={discipline.label}
+            credential={credential}
+            verified={['verified', 'expiring'].includes(discipline.credentialState)}
+            onClose={() => setCertReview('')}
+          />
+        );
+      })()}
+      {issuingTraining && (
+        <IssueTrainingCertificate member={a} onClose={() => setIssuingTraining(false)} />
+      )}
+      {revokingTraining && (
+        <RevokeTrainingCertificate certificate={revokingTraining}
+                                   onClose={() => setRevokingTraining(null)} />
       )}
     </>
   );

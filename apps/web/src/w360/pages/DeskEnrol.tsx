@@ -7,15 +7,13 @@
  *  for the entire cold start. Somebody at the desk types what they were just
  *  told, and that person can be put on a job the same minute.
  *
- *  Four things are needed and no more: a name, a way to reach them, one kind of
- *  work and one place. Everything else — the firm, the note, the papers — can
- *  follow, and the form says so rather than making an operator on a phone call
- *  guess which blanks are load-bearing.
+ *  A name, a way to reach them, a complete postal hierarchy, one kind of work
+ *  and one coverage area are needed. The address and the coverage are separate:
+ *  where an office receives post is not proof that its crew accepts work there.
  *
- *  Papers are deliberately optional and the form explains the asymmetry, which
- *  is not obvious: a licence you verified and that then lapses will pause that
- *  kind of work, and a licence you never recorded will not. Requiring a PDF
- *  before anybody can be enrolled would empty the roster for months.
+ *  Papers follow after enrolment, but allocation does not: every active
+ *  discipline stays unavailable until its statutory credential or company
+ *  verification is reviewed.
  */
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -71,6 +69,13 @@ export function DeskEnrol() {
   const [contact, setContact] = useState('');
   const [channel, setChannel] = useState('auto');
   const [note, setNote] = useState('');
+  const [addressLine, setAddressLine] = useState('');
+  const [villageLocality, setVillageLocality] = useState('');
+  const [postOffice, setPostOffice] = useState('');
+  const [mandalCity, setMandalCity] = useState('');
+  const [district, setDistrict] = useState('');
+  const [stateName, setStateName] = useState('Andhra Pradesh');
+  const [postalCode, setPostalCode] = useState('');
   const [visible, setVisible] = useState(true);
   const [picked, setPicked] = useState<string[]>([]);
   const [areas, setAreas] = useState<{ level: string; name: string }[]>([]);
@@ -86,7 +91,10 @@ export function DeskEnrol() {
   const wholeState = level === 'state';
   const typed = wholeState ? 'Telangana' : place.trim();
 
-  const ready = !!name.trim() && !!contact.trim() && picked.length > 0 && areas.length > 0;
+  const addressReady = !!villageLocality.trim() && !!mandalCity.trim()
+    && !!district.trim() && !!stateName.trim() && /^\d{6}$/.test(postalCode.trim());
+  const ready = !!name.trim() && !!contact.trim() && picked.length > 0
+    && areas.length > 0 && addressReady;
 
   const addArea = () => {
     if (!typed) return;
@@ -122,6 +130,13 @@ export function DeskEnrol() {
         firm: firm.trim(),
         note: note.trim(),
         channel,
+        addressLine: addressLine.trim(),
+        villageLocality: villageLocality.trim(),
+        postOffice: postOffice.trim(),
+        mandalCity: mandalCity.trim(),
+        district: district.trim(),
+        stateName: stateName.trim(),
+        postalCode: postalCode.trim(),
       });
       const id = res.web.inviteAssociate;
       if (!id) {
@@ -155,7 +170,7 @@ export function DeskEnrol() {
       <PageHead eyebrow="Pattadar desk" title="Add an associate">
         <p className="lede" style={{ marginTop: '0.375rem' }}>
           You have spoken to them. This writes it down and sends them a link — they
-          can start taking work straight away, with or without a Pattadar account.
+          can be reviewed for work with or without a Pattadar account.
         </p>
       </PageHead>
 
@@ -206,6 +221,57 @@ export function DeskEnrol() {
             <textarea rows={2} value={note} placeholder="Works Peddapuram side, not Tuni. Prefers a call before 10."
                       onChange={(e) => setNote(e.target.value)} />
           </label>
+        </Card>
+
+        <Card title="Full postal address" className="stack">
+          <p className="note">
+            Keep this separate from the places where they accept work. The address identifies
+            their home or office; coverage decides which jobs they may receive.
+          </p>
+          <label className="field">
+            House, building or street
+            <input value={addressLine} placeholder="House number, street or office"
+                   onChange={(e) => setAddressLine(e.target.value)} />
+            <span className="note">Optional when the village address has no street number.</span>
+          </label>
+          <div className="two">
+            <label className="field">
+              Village or locality
+              <input value={villageLocality} placeholder="Katragunta"
+                     onChange={(e) => setVillageLocality(e.target.value)} />
+            </label>
+            <label className="field">
+              Delivery post office
+              <input value={postOffice} placeholder="Katragunta B.O."
+                     onChange={(e) => setPostOffice(e.target.value)} />
+              <span className="note">Recommended for a village address.</span>
+            </label>
+          </div>
+          <div className="two">
+            <label className="field">
+              Mandal or city
+              <input value={mandalCity} placeholder="Konakanamitla"
+                     onChange={(e) => setMandalCity(e.target.value)} />
+            </label>
+            <label className="field">
+              District
+              <input value={district} placeholder="Prakasam"
+                     onChange={(e) => setDistrict(e.target.value)} />
+            </label>
+          </div>
+          <div className="two">
+            <label className="field">
+              State
+              <input value={stateName} placeholder="Andhra Pradesh"
+                     onChange={(e) => setStateName(e.target.value)} />
+            </label>
+            <label className="field">
+              PIN code
+              <input inputMode="numeric" maxLength={6} value={postalCode} placeholder="523246"
+                     onChange={(e) => setPostalCode(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+              {postalCode && !/^\d{6}$/.test(postalCode) && <span className="note">Enter all 6 digits.</span>}
+            </label>
+          </div>
         </Card>
 
         <Card title="What they do" className="stack">
@@ -292,9 +358,8 @@ export function DeskEnrol() {
 
         <Card title="Their papers" className="stack">
           <p className="note">
-            Add their licence later. A paper you have verified and that then expires will
-            pause that kind of work; a paper you never added does not. Nobody is kept off
-            the roster for want of a PDF.
+            Add and review each credential from their member page. They stay on the roster,
+            but cannot receive a task until every active discipline has verified evidence.
           </p>
         </Card>
 
@@ -315,8 +380,7 @@ export function DeskEnrol() {
           <Link className="btn" to="/app/admin/members">Cancel</Link>
           {!ready && (
             <Why>
-              A name, a number, one kind of work and one place — that is everything
-              Pattadar needs to send them a job.
+              Add their name, contact, full address, one kind of work and one coverage area.
             </Why>
           )}
         </div>

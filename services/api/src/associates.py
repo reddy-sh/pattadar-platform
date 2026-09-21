@@ -20,6 +20,9 @@ pinned in a test, and this is the code that decides who is offered paid work.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import re
 from typing import Iterable, Optional
 
@@ -80,6 +83,13 @@ DDL: tuple = (
         last_offered_at TEXT NOT NULL DEFAULT '',
         training_state TEXT NOT NULL DEFAULT 'not_required',
         training_note TEXT NOT NULL DEFAULT '',
+        address_line TEXT NOT NULL DEFAULT '',
+        village_locality TEXT NOT NULL DEFAULT '',
+        post_office TEXT NOT NULL DEFAULT '',
+        mandal_city TEXT NOT NULL DEFAULT '',
+        district TEXT NOT NULL DEFAULT '',
+        state_name TEXT NOT NULL DEFAULT '',
+        postal_code TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT ''
     )""",
     # One human, one row. The fold happens in Python (`contact_key` below),
@@ -95,6 +105,20 @@ DDL: tuple = (
     "ALTER TABLE associates ADD COLUMN IF NOT EXISTS training_state"
     " TEXT NOT NULL DEFAULT 'not_required'",
     "ALTER TABLE associates ADD COLUMN IF NOT EXISTS training_note"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS address_line"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS village_locality"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS post_office"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS mandal_city"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS district"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS state_name"
+    " TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE associates ADD COLUMN IF NOT EXISTS postal_code"
     " TEXT NOT NULL DEFAULT ''",
 
     # ── What they do ───────────────────────────────────────────────────
@@ -191,6 +215,60 @@ DDL: tuple = (
     " ON associate_reviews (ticket_id)",
     "CREATE INDEX IF NOT EXISTS idx_assoc_reviews_member"
     " ON associate_reviews (associate_id, rating)",
+
+    # ── Pattadar University training credentials ─────────────────────
+    #
+    # These prove completion of company training. They never replace the
+    # external licence in associate_credentials; allocation continues to gate
+    # on that separate evidence. Issued rows freeze the course, recipient and
+    # trainer wording so later edits cannot rewrite a certificate already shown
+    # to a customer. Revocation is a state transition, never a delete.
+    """CREATE TABLE IF NOT EXISTS associate_training_courses (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        version TEXT NOT NULL DEFAULT '1.0',
+        description TEXT NOT NULL DEFAULT '',
+        hours DOUBLE PRECISION NOT NULL DEFAULT 0,
+        valid_months INTEGER NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_assoc_training_course_code"
+    " ON associate_training_courses (code, version)",
+    """CREATE TABLE IF NOT EXISTS associate_training_certificates (
+        id TEXT PRIMARY KEY,
+        certificate_no TEXT NOT NULL DEFAULT '',
+        associate_id TEXT NOT NULL,
+        course_id TEXT NOT NULL DEFAULT '',
+        recipient_name TEXT NOT NULL DEFAULT '',
+        course_code TEXT NOT NULL DEFAULT '',
+        course_title TEXT NOT NULL DEFAULT '',
+        course_version TEXT NOT NULL DEFAULT '1.0',
+        trainer_name TEXT NOT NULL DEFAULT '',
+        trainer_ref TEXT NOT NULL DEFAULT '',
+        completed_on TEXT NOT NULL DEFAULT '',
+        issued_on TEXT NOT NULL DEFAULT '',
+        valid_until TEXT NOT NULL DEFAULT '',
+        hours DOUBLE PRECISION NOT NULL DEFAULT 0,
+        skills_json TEXT NOT NULL DEFAULT '[]',
+        evidence_ref TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        revoked_at TEXT NOT NULL DEFAULT '',
+        revoked_by TEXT NOT NULL DEFAULT '',
+        revoke_reason TEXT NOT NULL DEFAULT '',
+        payload_hash TEXT NOT NULL DEFAULT '',
+        signature TEXT NOT NULL DEFAULT '',
+        issued_by TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_assoc_training_certificate_no"
+    " ON associate_training_certificates (certificate_no)",
+    "CREATE INDEX IF NOT EXISTS idx_assoc_training_certificate_member"
+    " ON associate_training_certificates (associate_id, issued_on)",
 
     # ── Their trail ────────────────────────────────────────────────────
     #
@@ -337,6 +415,56 @@ DDL: tuple = (
     "CREATE INDEX IF NOT EXISTS idx_dispatch_associate"
     " ON ticket_dispatches (associate_id, offer_state) WHERE associate_id <> ''",
 )
+
+
+# ── Training-certificate integrity ────────────────────────────────────
+
+TRAINING_CERTIFICATE_FIELDS = (
+    "id", "certificate_no", "associate_id", "recipient_name", "course_code",
+    "course_title", "course_version", "trainer_name", "trainer_ref",
+    "completed_on", "issued_on", "valid_until", "hours", "skills_json",
+    "evidence_ref", "note", "issued_by", "created_at",
+)
+
+
+def training_certificate_payload(row: dict) -> str:
+    """Canonical immutable certificate payload used for hashing and signing."""
+    values = {key: row.get(key, "") for key in TRAINING_CERTIFICATE_FIELDS}
+    return json.dumps(values, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def training_certificate_hash(row: dict) -> str:
+    return hashlib.sha256(training_certificate_payload(row).encode("utf-8")).hexdigest()
+
+
+def training_certificate_signature(row: dict, secret: str) -> str:
+    """HMAC-SHA256 over the frozen payload; the signing key never enters a row."""
+    return hmac.new(secret.encode("utf-8"),
+                    training_certificate_payload(row).encode("utf-8"),
+                    hashlib.sha256).hexdigest()
+
+
+def training_certificate_intact(row: dict, secret: str) -> bool:
+    expected_hash = training_certificate_hash(row)
+    expected_signature = training_certificate_signature(row, secret)
+    return hmac.compare_digest(str(row.get("payload_hash") or ""), expected_hash) and \
+        hmac.compare_digest(str(row.get("signature") or ""), expected_signature)
+
+
+def training_verification_code(certificate_id: str, secret: str) -> str:
+    """A URL-safe id plus a 128-bit MAC; forge attempts fail before a DB read."""
+    mac = hmac.new(secret.encode("utf-8"), certificate_id.encode("utf-8"),
+                   hashlib.sha256).hexdigest()[:32]
+    return f"{certificate_id}.{mac}"
+
+
+def training_id_from_code(code: str, secret: str) -> str:
+    """Return the authenticated id, or an empty string for malformed/forged input."""
+    certificate_id, dot, supplied = (code or "").strip().partition(".")
+    if not dot or not certificate_id or len(supplied) != 32:
+        return ""
+    expected = training_verification_code(certificate_id, secret).rsplit(".", 1)[1]
+    return certificate_id if hmac.compare_digest(supplied, expected) else ""
 
 
 # ── The disciplines ────────────────────────────────────────────────────
@@ -538,6 +666,47 @@ def mask_contact(contact: str) -> str:
     return f"{'•' * (len(digits) - 4)}{digits[-4:]}"
 
 
+def mask_credential_ref(value: str) -> str:
+    """A recognisable credential reference without retaining the full value.
+
+    Credential identifiers can contain letters as well as digits. The desk only
+    needs the last four characters to distinguish two records after reviewing
+    the source evidence; storing the whole identifier in a display column would
+    quietly turn every roster response into a credential-number export.
+    """
+    clean = re.sub(r"[^A-Za-z0-9]", "", (value or "").strip())
+    if not clean:
+        return ""
+    if len(clean) <= 4:
+        return clean
+    return f"{'•' * (len(clean) - 4)}{clean[-4:]}"
+
+
+def address_label(row: dict) -> str:
+    """One complete postal line from the separately editable address fields.
+
+    Coverage areas answer where somebody accepts jobs; this answers where the
+    person or office is located. They deliberately do not fall back to one
+    another because a district-wide work area is not a postal address.
+    """
+    parts = [
+        row.get("address_line") or "",
+        row.get("village_locality") or "",
+        row.get("post_office") or "",
+        row.get("mandal_city") or "",
+        row.get("district") or "",
+        row.get("state_name") or "",
+        row.get("postal_code") or "",
+    ]
+    return ", ".join(str(part).strip() for part in parts if str(part).strip())
+
+
+def address_complete(row: dict) -> bool:
+    """The minimum usable Indian postal hierarchy for a company member."""
+    required = ("village_locality", "mandal_city", "district", "state_name", "postal_code")
+    return all(str(row.get(key) or "").strip() for key in required)
+
+
 def channel_for(contact: str, prefer: str = "auto") -> str:
     """Which of notify.py's three seams reaches this contact.
 
@@ -606,7 +775,8 @@ def area_slots(area_key: str, round_no: int = 0) -> dict:
     }
 
 
-def covers(area_key: str, areas: Iterable[dict], grain: str = "village") -> bool:
+def covers(area_key: str, areas: Iterable[dict], grain: str = "village",
+           state_key: str = "") -> bool:
     """Does this set of enrolled areas reach this job?
 
     The same test the candidate SQL makes, in Python, so the desk can explain a
@@ -616,13 +786,19 @@ def covers(area_key: str, areas: Iterable[dict], grain: str = "village") -> bool
     A discipline whose grain is 'state' ignores the place entirely: that is the
     point of the grain column.
     """
+    wanted_state = (state_key or "").strip()
     if grain == "state":
-        return any((a.get("level") or "") == "state" for a in areas)
+        return any(
+            (a.get("level") or "") == "state"
+            and (not wanted_state or (a.get("name_key") or "").strip() == wanted_state)
+            for a in areas)
     slots = area_slots(area_key)
     for a in areas:
         level = (a.get("level") or "").strip()
         key = (a.get("name_key") or "").strip()
-        if level == "state":
+        if level == "state" and (
+            not wanted_state or key == wanted_state
+        ):
             return True
         if level == "village" and slots["slot1"] and key == slots["slot1"]:
             return True

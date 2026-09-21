@@ -11,14 +11,16 @@ import { Link } from 'react-router';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 
-import { useAssignRequest, useAssignable, useOrders, useRecordHistory } from '../api';
-import type { Order } from '../api';
+import { useAssignRequest, useAssignable, useOrders, useRecordHistory, useServicesOffered } from '../api';
+import type { Order, ServiceOffer, ServiceVisual as ServiceVisualData } from '../api';
 import {
   Card, Chip, Empty, FacetFilter, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, ddmmyyyy, inr, plural,
 } from '../ui';
 import type { FacetFilterGroup } from '../ui';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { AssignedResourceProof } from '../AssignedResourceProof';
+import { ServiceVisual } from '../ServiceVisual';
 
 /** What a refused move says. Word for word what the ticket screen says for the
  *  same refusal, because the same job refused in two places must not sound
@@ -145,9 +147,13 @@ function AssignPicker({ order }: { order: Order }) {
   );
 }
 
-function Rows({ orders, showRecord, closed, onShowAll, empty }: {
+const visualMap = (offers: ServiceOffer[] | undefined) => new Map(
+  (offers ?? []).map((offer) => [offer.key, offer.visual]),
+);
+
+function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
   orders: Order[]; showRecord?: boolean; closed?: boolean; onShowAll?: () => void;
-  empty?: ReactNode;
+  empty?: ReactNode; visualByKey?: Map<string, ServiceVisualData>;
 }) {
   const [open, setOpen] = useState('');
   if (orders.length === 0) {
@@ -210,10 +216,9 @@ function Rows({ orders, showRecord, closed, onShowAll, empty }: {
               </div>
             )}
             {group.items.map((o) => (
-          <div key={o.id}>
-            <span className="avatarlg" style={{ width: '2.25rem', height: '2.25rem' }}>
-              <HandshakeOutlined sx={{ fontSize: 18 }} />
-            </span>
+          <div key={o.id} className="service-order-row">
+            <ServiceVisual serviceKey={o.kind} label={o.title}
+                           visual={visualByKey?.get(o.kind)} variant="thumb" />
             <span className="grow">
               <span className="row tight">
                 <strong style={{ fontSize: '0.9375rem' }}>{o.title}</strong>
@@ -256,6 +261,7 @@ function Rows({ orders, showRecord, closed, onShowAll, empty }: {
                       </>
                     )}
                   </p>
+                  {o.assignedResource && <AssignedResourceProof resource={o.assignedResource} />}
                   {/* What was actually asked for. An order you cannot read back
                       is one you have to ring someone to understand. */}
                   {/* Placed but unassigned: this is where somebody is put on
@@ -287,7 +293,7 @@ function Rows({ orders, showRecord, closed, onShowAll, empty }: {
                 </div>
               )}
             </span>
-            <span style={{ textAlign: 'right' }}>
+            <span className="service-order-money" style={{ textAlign: 'right' }}>
               <span className="num" style={{ display: 'block' }}>{inr(o.cost)}</span>
               {/* What is actually set aside on this job, which is not always
                   what it was quoted at — a job nobody funded reads ₹2,900 and
@@ -305,11 +311,13 @@ function Rows({ orders, showRecord, closed, onShowAll, empty }: {
             {/* Beside Track order, not instead of it. The panel answers "where
                 is it" without leaving the list; the ticket is where it is sent
                 out, reviewed, accepted and settled. */}
-            <Link className="btn sm" to={`/app/services/${o.id}`}>Open the service</Link>
-            <button type="button" className="btn sm" aria-expanded={open === o.id}
-                    onClick={() => setOpen((v) => (v === o.id ? '' : o.id))}>
-              {open === o.id ? 'Hide' : 'Track order'}
-            </button>
+            <span className="row tight service-order-actions">
+              <Link className="btn sm" to={`/app/services/${o.id}`}>Open the service</Link>
+              <button type="button" className="btn sm" aria-expanded={open === o.id}
+                      onClick={() => setOpen((v) => (v === o.id ? '' : o.id))}>
+                {open === o.id ? 'Hide' : 'Track order'}
+              </button>
+            </span>
           </div>
             ))}
           </Fragment>
@@ -328,6 +336,8 @@ export function RecordServices() {
   // accepted read as one that had never ordered anything.
   const [closed, setClosed] = useState(false);
   const { data, isLoading, error } = useOrders(rec.id, closed);
+  const offers = useServicesOffered('', '', true, rec.id);
+  const visuals = useMemo(() => visualMap(offers.data), [offers.data]);
   const bare = !closed && !isLoading && !!data && data.length === 0;
   // "2 open · 1 assigned · 1 not assigned yet" — the state of the work, which
   // is what the hanger is asked. The promise about money moved below the
@@ -365,7 +375,8 @@ export function RecordServices() {
           {!bare && <OpenFilter closed={closed} setClosed={setClosed} />}
           {isLoading ? <Loading h="12rem" />
             : !data ? <Failed what="This record's services" error={error} boxed h="12rem" />
-            : <Rows orders={data} closed={closed} onShowAll={() => setClosed(true)} />}
+            : <Rows orders={data} closed={closed} onShowAll={() => setClosed(true)}
+                    visualByKey={visuals} />}
         </div>
 
         <aside className="stack">
@@ -500,6 +511,8 @@ function OpenFilter({ closed, setClosed }: { closed: boolean; setClosed: (v: boo
  *  the lede says so. */
 export function Assigned() {
   const { data, isLoading, error } = useOrders();
+  const offers = useServicesOffered('');
+  const visuals = useMemo(() => visualMap(offers.data), [offers.data]);
   const waiting = (data ?? []).filter((o) => o.needsYou || o.pendingReview > 0);
   return (
     <main>
@@ -514,6 +527,7 @@ export function Assigned() {
         : (
           <Rows
             orders={waiting} showRecord
+            visualByKey={visuals}
             empty={(
               <Empty
                 boxed h="16rem" icon="ok" title="Nothing is waiting on you"
@@ -537,6 +551,8 @@ export function Services() {
   const [closed, setClosed] = useState(false);
   const [filters, setFilters] = useState<ServiceFilters>(emptyServiceFilters);
   const { data, isLoading, error } = useOrders(undefined, closed);
+  const offers = useServicesOffered('');
+  const visuals = useMemo(() => visualMap(offers.data), [offers.data]);
   const bare = !closed && !isLoading && !!data && data.length === 0;
   const groups = useMemo<FacetFilterGroup[]>(() => {
     const rows = data ?? [];
@@ -632,6 +648,7 @@ export function Services() {
         : !data ? <Failed what="Work you have ordered" error={error} boxed h="16rem" />
         : <Rows
             orders={filtered} showRecord closed={closed} onShowAll={() => setClosed(true)}
+            visualByKey={visuals}
             empty={hasFilters ? (
               <Empty boxed h="14rem" icon="search" title="No services match those filters"
                      action={<button type="button" className="btn sm" onClick={clearFilters}>Clear filters</button>}>

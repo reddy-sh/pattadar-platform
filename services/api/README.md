@@ -51,6 +51,30 @@ operations require validated gateway identity.
 real providers are credential/config gated. Provider activation requires its
 security/vendor/rollback checklist rather than an environment variable alone.
 
+### 7. Government geography
+
+`states`, `districts`, `mandals` (LGD sub-districts), and `villages` carry the
+official Local Government Directory code, denormalized ancestry, source URL,
+source version, row hash, active state, and first/last-seen timestamps. Source
+metadata lives in `reference_data_sources`; every import is recorded in
+`reference_data_sync_runs`, and material row changes are append-only in
+`reference_data_changes`.
+
+The source is the Ministry of Panchayati Raj's Local Government Directory,
+published monthly through data.gov.in under the Government Open Data License -
+India. Download a full snapshot or the LGD modification export, then run:
+
+```bash
+APP_PG_DSN='...' .local/api-venv/bin/python services/api/scripts/sync_geography.py \
+  --mode snapshot --effective-at 2026-09-01 \
+  --states states.csv --districts districts.csv \
+  --subdistricts subdistricts.csv --villages villages.csv
+```
+
+Use `--mode delta` for modification-only exports; absence from a delta never
+retires a row. Use `--dry-run` before every new source format. Remote inputs are
+limited to HTTPS `gov.in` hosts, and API-key query strings are never persisted.
+
 ## Main endpoints
 
 - `POST /graphql` — product API (gateway proxied)

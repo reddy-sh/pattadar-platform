@@ -70,6 +70,43 @@ def test_land_survey_baseline_is_data_minimal():
     assert "bank" in withheld
 
 
+def test_every_service_has_an_accessible_governed_visual():
+    visuals = governance.BASELINE_DOCUMENT["serviceVisuals"]
+    assert {item["serviceKey"] for item in visuals} == set(web360.SERVICE_CATALOGUE)
+    assert all(item["assetKey"] in web360.SERVICE_CATALOGUE for item in visuals)
+    assert all(len(item["alt"]) >= 12 and len(item["caption"]) >= 12 for item in visuals)
+
+
+def test_service_visual_mapping_can_change_copy_and_reuse_only_bundled_assets():
+    document = json.loads(governance.canonical_json(governance.BASELINE_DOCUMENT))
+    fmb = next(item for item in document["serviceVisuals"] if item["serviceKey"] == "fmb_copy")
+    fmb.update({
+        "assetKey": "survey",
+        "alt": "A licensed surveyor measures the land boundary.",
+        "caption": "A district override uses the on-site survey explanation.",
+    })
+    visual = web360._service_visual_for("fmb_copy", document, "IN/AP/PRAKASAM")
+    assert visual.asset_key == "survey"
+    assert visual.src == "/service-visuals/survey.webp"
+    assert visual.source_scope == "IN/AP/PRAKASAM"
+
+    fmb["assetKey"] = "https://tracker.example/image"
+    fallback = web360._service_visual_for("fmb_copy", document, "IN/AP/PRAKASAM")
+    assert fallback.asset_key == "fmb_copy"
+    assert fallback.src == "/service-visuals/fmb_copy.webp"
+
+
+def test_policy_validation_rejects_unmanaged_service_visual_urls():
+    document = json.loads(governance.canonical_json(governance.BASELINE_DOCUMENT))
+    document["serviceVisuals"][0]["assetKey"] = "https://tracker.example/image"
+    try:
+        governance.validate_document(document)
+    except ValueError as exc:
+        assert "bundled asset key" in str(exc)
+    else:
+        raise AssertionError("remote visual URL was accepted")
+
+
 def test_policy_validation_rejects_duplicate_property_keys():
     document = json.loads(governance.canonical_json(governance.BASELINE_DOCUMENT))
     document["propertyTypes"].append(dict(document["propertyTypes"][0]))

@@ -561,19 +561,22 @@ export const State = ({ state, children }: { state: string; children: ReactNode 
   <span className={`state ${state}`}>{children}</span>
 );
 
-export function Cell({ k, v, unit, note, tone }: {
-  k: string; v: ReactNode; unit?: string; note?: ReactNode; tone?: string;
+export function Cell({ k, v, unit, note, tone, to }: {
+  k: string; v: ReactNode; unit?: string; note?: ReactNode; tone?: string; to?: string;
 }) {
-  return (
-    <div>
+  const content = (
+    <>
       <span className="k">{k}</span>
       <span className={`v ${tone === 'up' ? 'up' : tone === 'down' ? 'down' : ''}`}>
         {v}
         {unit && <small> {unit}</small>}
       </span>
       {note && <span className="s">{note}</span>}
-    </div>
+    </>
   );
+  return to
+    ? <Link className="strip-link" to={to}>{content}</Link>
+    : <div>{content}</div>;
 }
 
 export function KV(

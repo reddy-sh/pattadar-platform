@@ -16,6 +16,7 @@ from . import aadhaar as aadhaar_security
 from . import notify
 from . import fmb_geometry
 from . import audit
+from . import geography
 # Record-360 surface for the web app (screens W01–W15). Its eleven tables and
 # six column additions live in their own module so this file — the iOS-facing
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
@@ -791,6 +792,12 @@ class StateType:
     id: str
     name: str
     code: str
+    lgd_code: str
+    name_local: str
+    source_id: str
+    source_url: str
+    source_effective_at: str
+    active: bool
 
 
 @strawberry.type
@@ -799,20 +806,94 @@ class DistrictType:
     name: str
     code: str
     state_id: str
+    lgd_code: str
+    name_local: str
+    state_lgd_code: str
+    state_name: str
+    source_id: str
+    source_url: str
+    source_effective_at: str
+    active: bool
 
 
 @strawberry.type
 class MandalType:
     id: str
     name: str
+    code: str
     district_id: str
+    lgd_code: str
+    name_local: str
+    state_id: str
+    state_lgd_code: str
+    state_name: str
+    district_lgd_code: str
+    district_name: str
+    government_level_name: str
+    source_id: str
+    source_url: str
+    source_effective_at: str
+    active: bool
 
 
 @strawberry.type
 class VillageType:
     id: str
     name: str
+    code: str
     mandal_id: str
+    lgd_code: str
+    name_local: str
+    state_id: str
+    district_id: str
+    state_lgd_code: str
+    state_name: str
+    district_lgd_code: str
+    district_name: str
+    mandal_lgd_code: str
+    mandal_name: str
+    census_2011_code: str
+    source_id: str
+    source_url: str
+    source_effective_at: str
+    active: bool
+
+
+@strawberry.type
+class ReferenceDataSourceType:
+    id: str
+    name: str
+    authority: str
+    description: str
+    catalog_url: str
+    publisher_url: str
+    license_name: str
+    license_url: str
+    cadence: str
+    active: bool
+    updated_at: str
+
+
+@strawberry.type
+class ReferenceDataSyncRunType:
+    id: str
+    source_id: str
+    mode: str
+    status: str
+    source_effective_at: str
+    started_at: str
+    finished_at: str
+    counts_json: str
+
+
+@strawberry.type
+class ReferenceDataSummaryType:
+    states: int
+    districts: int
+    mandals: int
+    villages: int
+    last_completed_at: str
+    source_name: str
 
 
 @strawberry.type
@@ -1143,8 +1224,11 @@ class RequireAuthenticatedRoot(SchemaExtension):
     """
     def resolve(self, next_, root, info, *args, **kwargs):
         if info.parent_type.name in {"Query", "Mutation"}:
+            public_queries = {"trainingCertificate"}
             public_mutations = {"verifyBeneficiary", "acknowledgeInactivity"}
-            if not (info.parent_type.name == "Mutation" and info.field_name in public_mutations):
+            public = (info.parent_type.name == "Query" and info.field_name in public_queries) or \
+                (info.parent_type.name == "Mutation" and info.field_name in public_mutations)
+            if not public:
                 _uid_from_info(info)
         if info.parent_type.name == "Mutation" and info.field_name in {
             "addDocument", "createDocument", "updateDocument", "createRegisteredDocument", "updateRegisteredDocument",
@@ -1508,6 +1592,11 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
 
 @strawberry.type
 class Query:
+    @strawberry.field
+    async def training_certificate(self, code: str) -> Optional[web360.TrainingCertificate]:
+        """Public, signed Pattadar University certificate verification."""
+        return await web360.WebQuery().training_certificate(code)
+
     @strawberry.field
     async def web(self) -> web360.WebQuery:
         """Record-360 reads for the web app (W01–W15). See web360.py."""
@@ -1884,32 +1973,88 @@ class Query:
     @strawberry.field
     async def states(self) -> List[StateType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM states ORDER BY name")
+            cur = await conn.execute("SELECT * FROM states WHERE active=true ORDER BY name")
             return [to_type(StateType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def districts(self) -> List[DistrictType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM districts ORDER BY name")
+            cur = await conn.execute("SELECT * FROM districts WHERE active=true ORDER BY name")
             return [to_type(DistrictType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def districts_by_state(self, state_id: str) -> List[DistrictType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM districts WHERE state_id=%s ORDER BY name", (state_id,))
+            cur = await conn.execute(
+                "SELECT * FROM districts WHERE state_id=%s AND active=true ORDER BY name", (state_id,))
             return [to_type(DistrictType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def mandals_by_district(self, district_id: str) -> List[MandalType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM mandals WHERE district_id=%s ORDER BY name", (district_id,))
+            cur = await conn.execute(
+                "SELECT * FROM mandals WHERE district_id=%s AND active=true ORDER BY name", (district_id,))
             return [to_type(MandalType, r) for r in await cur.fetchall()]
 
     @strawberry.field
     async def villages_by_mandal(self, mandal_id: str) -> List[VillageType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM villages WHERE mandal_id=%s ORDER BY name", (mandal_id,))
+            cur = await conn.execute(
+                "SELECT * FROM villages WHERE mandal_id=%s AND active=true ORDER BY name", (mandal_id,))
             return [to_type(VillageType, r) for r in await cur.fetchall()]
+
+    @strawberry.field
+    async def reference_data_sources(self, info: strawberry.Info) -> List[ReferenceDataSourceType]:
+        async with pool.connection() as conn:
+            if not await web360._is_super_admin(conn, web360._uid(info)):
+                return []
+            rows = await (await conn.execute(
+                "SELECT * FROM reference_data_sources WHERE active=true ORDER BY name"
+            )).fetchall()
+            return [to_type(ReferenceDataSourceType, row) for row in rows]
+
+    @strawberry.field
+    async def reference_data_sync_runs(
+        self, info: strawberry.Info, limit: int = 20,
+    ) -> List[ReferenceDataSyncRunType]:
+        async with pool.connection() as conn:
+            if not await web360._is_super_admin(conn, web360._uid(info)):
+                return []
+            rows = await (await conn.execute(
+                "SELECT * FROM reference_data_sync_runs ORDER BY started_at DESC LIMIT %s",
+                (max(1, min(limit, 100)),),
+            )).fetchall()
+            return [to_type(ReferenceDataSyncRunType, row) for row in rows]
+
+    @strawberry.field
+    async def reference_data_summary(self, info: strawberry.Info) -> ReferenceDataSummaryType:
+        async with pool.connection() as conn:
+            if not await web360._is_super_admin(conn, web360._uid(info)):
+                return ReferenceDataSummaryType(
+                    states=0, districts=0, mandals=0, villages=0,
+                    last_completed_at="", source_name="",
+                )
+            counts = {}
+            for name in ("states", "districts", "mandals", "villages"):
+                row = await (await conn.execute(
+                    f"SELECT count(*) AS n FROM {name} WHERE active=true"
+                )).fetchone()
+                counts[name] = int(row["n"] or 0)
+            latest = await (await conn.execute(
+                "SELECT finished_at FROM reference_data_sync_runs "
+                "WHERE source_id=%s AND status='completed' ORDER BY finished_at DESC LIMIT 1",
+                (geography.LGD_SOURCE_ID,),
+            )).fetchone()
+            source = await (await conn.execute(
+                "SELECT name FROM reference_data_sources WHERE id=%s",
+                (geography.LGD_SOURCE_ID,),
+            )).fetchone()
+            return ReferenceDataSummaryType(
+                states=counts["states"], districts=counts["districts"],
+                mandals=counts["mandals"], villages=counts["villages"],
+                last_completed_at=(latest or {}).get("finished_at") or "",
+                source_name=(source or {}).get("name") or "Local Government Directory (LGD)",
+            )
 
     @strawberry.field
     async def deed_types(self) -> List[DeedTypeType]:
@@ -5235,39 +5380,44 @@ class Mutation:
 # ── DB Init ───────────────────────────────────────────────────────────
 
 async def _load_reference_data(conn) -> None:
-    """(Re)load the real AP-IGRS reference data from the bundled CSVs. Reference
-    data is static, so DELETE+INSERT on every startup — this also replaces any
-    fake seed rows an earlier build wrote (the scaffold shipped placeholder
-    districts/SROs)."""
+    """Bootstrap bundled AP reference data without overwriting LGD imports.
+
+    Geography is no longer delete-and-reloaded at process startup. The monthly
+    LGD job owns lifecycle and delta history; these files are only a cold-start
+    bridge until the corresponding official rows have been reconciled."""
     # States (36: all Indian states + UTs). Only Andhra Pradesh ('AP') has
     # district-level data in the current IGRS feed; the rest seed the hierarchy
     # so other states' data can be pulled later.
     states = _read_csv("states.csv")
     if states:
-        await conn.execute("DELETE FROM states")
         async with conn.cursor() as ins:
             await ins.executemany(
-                "INSERT INTO states (id, name, code) VALUES (%s, %s, %s)",
-                [(r["STATE_CODE"], r["STATE_NAME"].strip(), r["STATE_CODE"]) for r in states],
+                "INSERT INTO states (id,name,code,source_id,source_url) "
+                "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                [(r["STATE_CODE"], r["STATE_NAME"].strip(), r["STATE_CODE"],
+                  geography.LEGACY_SOURCE_ID, "") for r in states],
             )
     # Districts (28): DISTRICT_CODE, DR_CODE, DISTRICT_NAME. All belong to
     # Andhra Pradesh (state_id 'AP').
     districts = _read_csv("districts.csv")
     if districts:
-        await conn.execute("DELETE FROM districts")
         async with conn.cursor() as ins:
             await ins.executemany(
-                "INSERT INTO districts (id, name, code, state_id) VALUES (%s, %s, %s, %s)",
-                [(r["DISTRICT_CODE"], r["DISTRICT_NAME"].strip(), r["DR_CODE"], "AP") for r in districts],
+                "INSERT INTO districts (id,name,code,state_id,source_id,source_url) "
+                "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                [(r["DISTRICT_CODE"], r["DISTRICT_NAME"].strip(), r["DR_CODE"], "AP",
+                  geography.LEGACY_SOURCE_ID, "https://registration.ap.gov.in/") for r in districts],
             )
     # Mandals (686): DISTRICT_CODE, MANDAL_CODE, MANDAL_NAME
     mandals = _read_csv("mandals.csv")
     if mandals:
-        await conn.execute("DELETE FROM mandals")
         async with conn.cursor() as ins:
             await ins.executemany(
-                "INSERT INTO mandals (id, name, district_id) VALUES (%s, %s, %s)",
-                [(f"{r['DISTRICT_CODE']}-{r['MANDAL_CODE']}", r["MANDAL_NAME"].strip(), r["DISTRICT_CODE"]) for r in mandals],
+                "INSERT INTO mandals (id,name,code,district_id,source_id,source_url) "
+                "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                [(f"{r['DISTRICT_CODE']}-{r['MANDAL_CODE']}", r["MANDAL_NAME"].strip(),
+                  r["MANDAL_CODE"], r["DISTRICT_CODE"], geography.LEGACY_SOURCE_ID,
+                  "https://registration.ap.gov.in/") for r in mandals],
             )
     # SRO offices (297): SRO_CODE, SRO_NAME
     sros = _read_csv("sro_offices.csv")
@@ -6232,6 +6382,11 @@ async def init_db() -> None:
                 mandal_id TEXT NOT NULL
             )
         """)
+
+        # Canonical India-wide geography and its append-only import ledger.
+        # This extends the four legacy tables in place so existing record IDs
+        # continue to resolve while LGD codes become the durable external keys.
+        await geography.ensure_schema(conn)
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS market_values (

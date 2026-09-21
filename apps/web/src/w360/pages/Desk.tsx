@@ -36,7 +36,7 @@
  *  and the screen is one sentence — a strip of five zeroes over an empty list is
  *  the broken screen the zero-state standard was written against.
  */
-import { useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 
@@ -44,9 +44,10 @@ import { Dialog } from '../Dialog';
 import { useDesk, useDeskUnassign, usePortfolio } from '../api';
 import type { Desk as DeskData, DeskJob as DeskJobRow } from '../api';
 import {
-  Cell, Chip, Empty, Failed, Loading, PageHead, State, Tag,
+  Cell, Chip, Empty, FacetFilter, Failed, Loading, PageHead, State, Tag,
   ddmmyyyy, inr, inrFullish, plural,
 } from '../ui';
+import type { FacetFilterGroup } from '../ui';
 
 /** What a refused move says. Word for word the sentence Orders.tsx and
  *  Ticket.tsx say for the same refusal, because one job refused in three places
@@ -307,19 +308,50 @@ function Strip({ d }: { d: DeskData }) {
     { k: 'Nobody on it', v: d.unassigned, s: '' },
     { k: 'Ageing', v: d.ageing, s: '' },
     { k: 'Nothing happening', v: d.silentCount, s: '' },
-    { k: 'Stuck', v: d.stuck, s: '' },
+    {
+      k: 'Nobody can take it', v: d.stuck, s: 'See coverage',
+      tone: 'down', to: '/app/desk/coverage',
+    },
     { k: 'Taking work', v: d.associatesActive, s: 'associates' },
   ].filter((c) => c.v > 0);
   if (cells.length === 0) return null;
   return (
     <div className="strip" style={{ marginBottom: 'var(--space-md)' }}>
-      {cells.map((c) => <Cell key={c.k} k={c.k} v={c.v} note={c.s || undefined} />)}
+      {cells.map((c) => (
+        <Cell
+          key={c.k} k={c.k} v={c.v} note={c.s || undefined}
+          tone={c.tone} to={c.to}
+        />
+      ))}
     </div>
   );
 }
 
 const SCOPES: [string, string][] = [
   ['open', 'Open'], ['silent', 'Silent'], ['stuck', 'Stuck'], ['all', 'All'],
+];
+
+type DeskFilterKey = 'service' | 'location' | 'status' | 'assignment' | 'attention';
+type DeskFilters = Record<DeskFilterKey, string[]>;
+
+const emptyDeskFilters = (): DeskFilters => ({
+  service: [], location: [], status: [], assignment: [], attention: [],
+});
+
+const UNASSIGNED = 'unassigned';
+const NO_LOCATION = 'not-recorded';
+const ATTENTION_LABEL: Record<string, string> = {
+  stuck: 'Nobody can take it', overdue: 'Past due', ageing: 'Ageing', quiet: 'Gone quiet',
+};
+
+const assignmentKey = (job: DeskJobRow) =>
+  job.assignee ? (job.assigneeRef || `name:${job.assignee}`) : UNASSIGNED;
+
+const attentionKeys = (job: DeskJobRow): string[] => [
+  ...(job.stuck ? ['stuck'] : []),
+  ...(job.overdue ? ['overdue'] : []),
+  ...(!job.assignee && job.ageDays >= 3 ? ['ageing'] : []),
+  ...(job.assignee && job.quiet ? ['quiet'] : []),
 ];
 
 /** What each scope says when it has nothing in it. The Open and All sentences
@@ -346,30 +378,86 @@ const NOTHING: Record<string, { title: string; body: string }> = {
 
 export function Desk() {
   const [scope, setScope] = useState('open');
+  const [filters, setFilters] = useState<DeskFilters>(emptyDeskFilters);
   const portfolio = usePortfolio();
-  const { data, isLoading, error } = useDesk(scope);
+  // `all` returns both narrow desk lists in one audited read. Modes are views
+  // over that same answer, which keeps the shared facets stable while the
+  // operator moves between Open, Silent and Stuck.
+  const { data, isLoading, error } = useDesk('all');
 
-  /** The five figures are desk-wide, not scope-dependent, so the last ones read
-   *  stay on screen while a scope switch is in flight. A strip that blinks out
-   *  and back on every chip click reads as the page breaking, and the numbers it
-   *  would redraw are the same numbers. */
-  const seen = useRef<DeskData | null>(null);
-  if (data) seen.current = data;
-  const figures = seen.current;
+  const allJobs = data?.jobs ?? [];
+  const allSilent = data?.silent ?? [];
+  const jobs = scope === 'open' || scope === 'all' ? allJobs
+    : scope === 'stuck' ? allJobs.filter((job) => job.stuck) : [];
+  const silent = scope === 'silent' || scope === 'all' ? allSilent : [];
+  const scoped = [...jobs, ...silent];
+  const universe = [...allJobs, ...allSilent];
 
-  if (portfolio.data && !portfolio.data.isPlatformAdmin) return <NotTheDesk />;
+  const groups = useMemo<FacetFilterGroup[]>(() => {
+    const facet = (
+      key: DeskFilterKey, label: string,
+      valuesOf: (job: DeskJobRow) => string[], labelOf: (value: string, job: DeskJobRow) => string,
+    ): FacetFilterGroup => {
+      const options = new Map<string, { label: string; count: number }>();
+      universe.forEach((job) => {
+        [...new Set(valuesOf(job))].filter(Boolean).forEach((value) => {
+          const current = options.get(value);
+          options.set(value, {
+            label: current?.label ?? labelOf(value, job), count: (current?.count ?? 0) + 1,
+          });
+        });
+      });
+      return {
+        key, label,
+        options: [...options].map(([optionKey, option]) => ({ key: optionKey, ...option }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      };
+    };
+    return [
+      facet('service', 'Service', (job) => [job.kind], (_value, job) => job.serviceLabel),
+      facet('location', 'Location', (job) => [job.place || NO_LOCATION],
+        (value) => value === NO_LOCATION ? 'Place not recorded' : value),
+      facet('status', 'Status', (job) => [job.status], (_value, job) => job.statusLabel),
+      facet('assignment', 'Assignment', (job) => [assignmentKey(job)],
+        (value, job) => value === UNASSIGNED ? 'Nobody assigned' : job.assignee),
+      facet('attention', 'Attention', attentionKeys,
+        (value) => ATTENTION_LABEL[value] ?? value),
+    ];
+  }, [data]);
 
-  const jobs = data?.jobs ?? [];
-  const silent = data?.silent ?? [];
+  const filtered = useMemo(() => {
+    const accepts = (key: DeskFilterKey, values: string[]) =>
+      filters[key].length === 0 || values.some((value) => filters[key].includes(value));
+    return scoped.filter((job) =>
+      accepts('service', [job.kind])
+      && accepts('location', [job.place || NO_LOCATION])
+      && accepts('status', [job.status])
+      && accepts('assignment', [assignmentKey(job)])
+      && accepts('attention', attentionKeys(job)));
+  }, [scoped, filters]);
+  const filteredIds = new Set(filtered.map((job) => job.ticketId));
+  const filteredJobs = jobs.filter((job) => filteredIds.has(job.ticketId));
+  const filteredSilent = silent.filter((job) => filteredIds.has(job.ticketId));
+  const toggleFilter = (groupKey: string, optionKey: string) => {
+    const key = groupKey as DeskFilterKey;
+    setFilters((current) => ({
+      ...current,
+      [key]: current[key].includes(optionKey)
+        ? current[key].filter((value) => value !== optionKey)
+        : [...current[key], optionKey],
+    }));
+  };
+  const clearFilters = () => setFilters(emptyDeskFilters());
   /** Nothing waiting, nothing quiet, nobody enrolled, no figure above zero.
    *  This is the normal case for months and it gets one sentence — not a strip,
    *  not four chips over an empty box. */
   const bare = !!data
-    && jobs.length === 0 && silent.length === 0
+    && allJobs.length === 0 && allSilent.length === 0
     && !data.unassigned && !data.ageing && !data.silentCount
     && !data.stuck && !data.associatesActive;
-  const stuckJobs = [...jobs, ...silent].filter((j) => j.stuck).slice(0, 3);
   const words = NOTHING[scope] ?? NOTHING.open;
+
+  if (portfolio.data && !portfolio.data.isPlatformAdmin) return <NotTheDesk />;
 
   return (
     <main>
@@ -381,16 +469,26 @@ export function Desk() {
         </p>
       </PageHead>
 
-      {/* Chrome outside the three states on purpose: the chips must not vanish
-          under the hand that clicked them while the new scope lands. */}
+      {/* Chrome outside the three states stays mounted while modes and facets
+          reshape the single desk-wide answer. */}
       {!bare && (
         <>
-          {figures && <Strip d={figures} />}
+          {data && <Strip d={data} />}
           <div className="row tight" style={{ marginBottom: 'var(--space-md)' }}>
             {SCOPES.map(([k, label]) => (
               <Chip key={k} active={scope === k} onClick={() => setScope(k)}>{label}</Chip>
             ))}
           </div>
+          {data && universe.length > 0 && (
+            <FacetFilter
+              groups={groups}
+              selected={filters}
+              onToggle={toggleFilter}
+              onClear={clearFilters}
+              tally={`${filtered.length} of ${scoped.length} shown`}
+              ariaLabel="Filter desk jobs"
+            />
+          )}
         </>
       )}
 
@@ -402,41 +500,19 @@ export function Desk() {
           </Empty>
         ) : (
           <>
-            {/* A job nobody can be put on is not a job that is late — it is a
-                hole in the roster, and no amount of waiting fills it. */}
-            {data.stuck > 0 && (
-              <section className="card alert">
-                <h2 style={{ margin: 0, fontSize: '1rem' }}>
-                  {plural(data.stuck, 'job has', 'jobs have')} nobody who can take it.
-                </h2>
-                <p className="note">
-                  {/* Named, not counted: "one job is stuck" sends the reader
-                      back to the list to find out which. The place is dropped
-                      when a job has none rather than printing a trailing dot. */}
-                  {stuckJobs.length > 0 && (
-                    <>
-                      {stuckJobs
-                        .map((j) => [j.ref, j.serviceLabel, j.place].filter(Boolean).join(' · '))
-                        .join(' — ')}
-                      {'. '}
-                    </>
-                  )}
-                  Waiting will not fill this. Enrol somebody, or widen an existing
-                  associate&rsquo;s areas or line of work.
-                </p>
-                <div className="row tight">
-                  <Link className="btn sm" to="/app/desk/coverage">See the gaps</Link>
-                  <Link className="btn sm" to="/app/desk/enrol">Add somebody</Link>
-                </div>
-              </section>
-            )}
-
-            {jobs.length === 0 && silent.length === 0 ? (
+            {scoped.length === 0 ? (
               <Empty boxed h="16rem" icon="ok" title={words.title}>{words.body}</Empty>
+            ) : filtered.length === 0 ? (
+              <Empty
+                boxed h="16rem" icon="search" title="No jobs match those filters"
+                action={<button type="button" className="btn sm" onClick={clearFilters}>Clear filters</button>}
+              >
+                Try another service, location, status, assignment or attention flag.
+              </Empty>
             ) : (
               <>
-                <JobList title="Nobody on it" jobs={jobs} />
-                <JobList title="On someone, nothing happening" jobs={silent} />
+                <JobList title="Nobody on it" jobs={filteredJobs} />
+                <JobList title="On someone, nothing happening" jobs={filteredSilent} />
               </>
             )}
           </>

@@ -162,6 +162,21 @@ def _item(key: str, title: str, why: str, source_ids: list[str],
     }
 
 
+def _service_visual(service_key: str, alt: str, caption: str) -> dict[str, str]:
+    """One governed mapping from a service to a bundled visual asset.
+
+    ``assetKey`` deliberately names an internal asset instead of accepting an
+    arbitrary URL.  An admin can remap services without turning a policy
+    document into an unreviewed third-party tracking or content channel.
+    """
+    return {
+        "serviceKey": service_key,
+        "assetKey": service_key,
+        "alt": alt,
+        "caption": caption,
+    }
+
+
 BASELINE_DOCUMENT: dict[str, Any] = {
     "schemaVersion": 1,
     "jurisdiction": {
@@ -302,6 +317,68 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "sourceIds": ["ap-registration", "ap-meebhoomi", "dpdp-act", "dpdp-rules"],
         },
     ],
+    "serviceVisuals": [
+        _service_visual(
+            "ec",
+            "A records officer traces a property's registered transaction history.",
+            "Shows the registration history used to find mortgages and other recorded claims.",
+        ),
+        _service_visual(
+            "survey",
+            "A licensed surveyor measures a field boundary with surveying equipment.",
+            "A surveyor measures boundary corners on the land and marks where they fall.",
+        ),
+        _service_visual(
+            "site_visit",
+            "A field worker photographs and inspects a property on site.",
+            "A field worker visits, photographs and reports what is present on the land.",
+        ),
+        _service_visual(
+            "title_opinion",
+            "An advocate reviews a chain of property ownership documents.",
+            "An advocate traces the ownership chain and gives a written title opinion.",
+        ),
+        _service_visual(
+            "mutation",
+            "A revenue officer transfers a land record from the previous owner to the new owner.",
+            "Updates the revenue record to the new owner's name after a registered sale.",
+        ),
+        _service_visual(
+            "patta_copy",
+            "An owner receives a certified copy of the pattadar landholding entry.",
+            "A certified copy of the current pattadar landholding entry from the revenue office.",
+        ),
+        _service_visual(
+            "deed_copy",
+            "An archived registered sale deed is copied and certified for the owner.",
+            "A certified duplicate of a registered sale deed when the original is unavailable.",
+        ),
+        _service_visual(
+            "revenue_extract",
+            "A farmer and revenue officer compare a cultivation register with the field.",
+            "The current landholder and cultivation details from the 1-B or Adangal record.",
+        ),
+        _service_visual(
+            "tax_receipt",
+            "A property owner pays land tax and receives a receipt.",
+            "Proof of land or property tax paid, including the current arrears position.",
+        ),
+        _service_visual(
+            "fmb_copy",
+            "A field measurement sketch shows a parcel's sides and measured boundary points.",
+            "A measured field sketch showing parcel shape, sides and boundary points, not a new survey.",
+        ),
+        _service_visual(
+            "approval_copy",
+            "An approved layout plan shows roads, plots and the approved building footprint.",
+            "The authority-approved layout or building plan for this property.",
+        ),
+        _service_visual(
+            "occupancy_copy",
+            "A completed building is inspected and cleared for people to occupy.",
+            "Proof that a completed building was cleared for occupation.",
+        ),
+    ],
     "secureSharing": {
         "label": "Secure sharing baseline",
         "shareWhenNeeded": ["Property identifiers", "Jurisdiction", "Selected title/revenue/survey/approval records", "Purpose-specific boundary or site information"],
@@ -325,6 +402,13 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "enforcement": "Derived from the current credential review and expiry date.",
         },
         {
+            "key": "credential-review-evidence",
+            "category": "certification",
+            "title": "Credential reviews must be reproducible",
+            "rule": "A certification decision records the credential type, masked reference, issuing authority, issue date, validity, evidence reference, reviewer, review time and decision note.",
+            "enforcement": "Required review fields plus an append-only certification event; full credential identifiers are not exposed in roster responses.",
+        },
+        {
             "key": "rating-retraining-threshold",
             "category": "quality",
             "title": "Low-rating retraining hold",
@@ -339,11 +423,32 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "enforcement": "Every state change is retained in the member's append-only history.",
         },
         {
+            "key": "training-certificate-provenance",
+            "category": "training",
+            "title": "Training certificates need verifiable provenance",
+            "rule": "A Pattadar University certificate records the course and version, recipient, named trainer, completion evidence, learning hours, issue date, validity and issuer as an immutable issued snapshot.",
+            "enforcement": "Unique certificate number, signed payload, public QR and barcode verification, status lookup and append-only issuance event.",
+        },
+        {
+            "key": "training-not-professional-licence",
+            "category": "certification",
+            "title": "Internal training never replaces a statutory credential",
+            "rule": "A Pattadar University training certificate may clear a company training hold but cannot satisfy a government licence or professional registration requirement.",
+            "enforcement": "Allocation continues to evaluate the separate verified credential for every regulated discipline.",
+        },
+        {
             "key": "minimum-data",
             "category": "privacy",
             "title": "Share only task-relevant information",
             "rule": "Members receive property, geography and service details needed for the job, not unrelated owner identity, family, bank or authentication data.",
             "enforcement": "Purpose-scoped service links and masked contact details.",
+        },
+        {
+            "key": "member-address-quality",
+            "category": "data quality",
+            "title": "Member address and work coverage are different records",
+            "rule": "A member address includes village or locality, mandal or city, district, state and six-digit PIN; service coverage is maintained separately and must not be presented as their address.",
+            "enforcement": "Enrolment validation, incomplete-address roster filter and a visible warning on the member profile.",
         },
         {
             "key": "company-communications",
@@ -467,6 +572,26 @@ def validate_document(document: Any) -> dict[str, Any]:
             used_sources.update(str(value) for value in item.get("sourceIds") or [])
     for service in document.get("serviceRequests") or []:
         used_sources.update(str(value) for value in service.get("sourceIds") or [])
+    service_visuals = document.get("serviceVisuals") or []
+    if not isinstance(service_visuals, list):
+        raise ValueError("Service visual mappings must be a list")
+    visual_keys: set[str] = set()
+    for visual in service_visuals:
+        if not isinstance(visual, dict):
+            raise ValueError("Every service visual mapping must be an object")
+        service_key = str(visual.get("serviceKey") or "").strip()
+        asset_key = str(visual.get("assetKey") or "").strip()
+        alt = str(visual.get("alt") or "").strip()
+        caption = str(visual.get("caption") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_-]{1,80}", service_key):
+            raise ValueError("Every service visual mapping needs a valid service key")
+        if service_key in visual_keys:
+            raise ValueError("Service visual mapping keys must be unique")
+        if not re.fullmatch(r"[a-z0-9_-]{1,80}", asset_key):
+            raise ValueError(f"Service visual {service_key} needs a valid bundled asset key")
+        if not 12 <= len(alt) <= 280 or not 12 <= len(caption) <= 320:
+            raise ValueError(f"Service visual {service_key} needs accessible alt text and a caption")
+        visual_keys.add(service_key)
     workforce = document.get("workforceCompliance")
     if not isinstance(workforce, list) or not workforce:
         raise ValueError("Workforce compliance rules are required")

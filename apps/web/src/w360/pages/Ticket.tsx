@@ -71,6 +71,7 @@ import type { MenuItem } from '../ui';
 import { Card, Crumbs, Empty, Failed, Icon, KV, Loading, Menu, PhotoImg, State, Tag, ddmmyyyy, initialsOf, inr, inrFull, plural } from '../ui';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
+import { AssignedResourceProof } from '../AssignedResourceProof';
 
 // ── Words ──────────────────────────────────────────────────────────────
 
@@ -600,6 +601,7 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
             Also on {plural(a.jobsOpen - 1, 'other job', 'other jobs')}.
           </p>
         )}
+        {t.assignedResource && <AssignedResourceProof resource={t.assignedResource} />}
         {onSite && <div className="row tight">{onSite}</div>}
       </div>
     );

@@ -239,6 +239,45 @@ def test_malformed_and_expired_dates_deny_access():
     assert c.unexpired('2026-09-12', date(2026,9,12))
 
 
+def test_assigned_resource_proof_is_useful_but_does_not_leak_evidence(monkeypatch):
+    monkeypatch.setenv('ALLOW_INSECURE_LOCAL', '1')
+    member = {
+        'id': 'associate-1', 'name': 'Anji Reddy', 'firm': 'Reddy Surveys',
+        'rating_average': 4.8, 'rating_count': 126, 'open_jobs': 2,
+        'disciplines': [{'discipline': 'surveyor'}],
+        'credentials': [{
+            'discipline': 'surveyor', 'kind': 'Licensed surveyor',
+            'number_masked': '••••••1234', 'authority': 'Government of Andhra Pradesh',
+            'issued_on': '2024-06-15', 'expires_on': '2028-06-14',
+            'review': 'verified', 'file_ref': 'private-proof.pdf',
+        }],
+    }
+    certificate = {
+        'id': 'putc-0123456789abcdef0123456789abcdef',
+        'certificate_no': 'PU-2026-ABCDEF123456', 'associate_id': 'associate-1',
+        'recipient_name': 'Anji Reddy', 'course_code': 'PU-FIELD-SAFETY',
+        'course_title': 'Field safety and owner privacy', 'course_version': '1.0',
+        'trainer_name': 'Dr. Kavitha Narayan', 'trainer_ref': 'PU-FACULTY-014',
+        'completed_on': '2026-09-18', 'issued_on': '2026-09-20',
+        'valid_until': '2028-09-18', 'hours': 8.0,
+        'skills_json': '["Owner privacy","Field safety"]',
+        'evidence_ref': 'private-attendance-record', 'note': 'Private issuance note',
+        'issued_by': 'admin-1', 'created_at': '2026-09-20T10:00:00',
+        'status': 'active', 'revoked_at': '', 'revoke_reason': '',
+    }
+    secret = w._certificate_secret()
+    certificate['payload_hash'] = w.associates.training_certificate_hash(certificate)
+    certificate['signature'] = w.associates.training_certificate_signature(certificate, secret)
+
+    proof = w._assigned_resource_of(member, [certificate], 'survey', '2026-09-20')
+    assert proof and proof.role == 'Licensed surveyor'
+    assert proof.professional_verified and proof.rating_count == 126
+    assert proof.professional_credentials[0].number_masked == '••••••1234'
+    assert not hasattr(proof.professional_credentials[0], 'file_ref')
+    assert proof.training_certificates[0].verification_state == 'valid'
+    assert proof.training_certificates[0].verification_code
+
+
 def test_withdrawn_notification_consent_records_failure_without_sending(monkeypatch):
     from src import account
     monkeypatch.setenv('NOTIFY_EMAIL_PROVIDER', 'resend')
