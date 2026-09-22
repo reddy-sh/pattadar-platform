@@ -22,7 +22,7 @@
  *  copy of the focus trap beside it. It is the shared Drawer now (Drawer.tsx),
  *  which every "add a thing" on a record opens — so this file holds the form and
  *  its rules about what may be sent, and nothing about being a panel. */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -201,9 +201,26 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  when only the filing half failed. */
   const [savedId, setSavedId] = useState('');
   const [err, setErr] = useState('');
+  /** Multiple survey numbers detected from a passbook reading. User chooses
+   *  whether to create one record per survey or just fill the first one. */
+  const [multiSurvey, setMultiSurvey] = useState<{
+    all: Array<{ survey: string; subdivision?: string }>;
+    choice?: 'one' | 'each';
+  } | null>(null);
 
   const isParcel = kind === 'parcel';
   const canSave = title.trim().length > 0 && !save.isPending && !filing;
+
+  // Wrap onClose to reset multiSurvey state when the drawer closes.
+  const close = () => {
+    setMultiSurvey(null);
+    onClose();
+  };
+
+  // Reset multiSurvey when transitioning from add to edit mode or vice versa.
+  useEffect(() => {
+    if (editing) setMultiSurvey(null);
+  }, [editing]);
 
   /** Changing what the thing IS changes what it is measured in. */
   const reclassify = (next: string, nextKind = kind) => {
@@ -258,7 +275,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  or any of the four choosers moved off its default. */
   const dirty = editing
     ? Object.keys(edits).length > 0
-    : !!scanned
+    : !!scanned || !!multiSurvey
       || [title, khata, owner, village, mandal, district, extent, market, paid]
         .some((v) => v.trim().length > 0)
       || kind !== 'parcel' || classification !== 'agri'
@@ -315,22 +332,77 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  offers. Nothing here has been saved yet, so this leaves the same way
    *  Cancel does: at once, with no discard prompt. */
   const pickFromMap = () => {
-    onClose();
+    close();
     nav('/app/villages');
   };
 
   const submit = async () => {
     // The record already exists and only its deed failed to file; the button
     // is now just a way out, not a second save.
-    if (savedId) { if (onCreated) onCreated(savedId); else onClose(); return; }
+    if (savedId) { if (onCreated) onCreated(savedId); else close(); return; }
     setErr('');
+
+    // If multiple survey numbers were detected and the user chose 'each',
+    // create a record for each survey number.
+    if (!editing && multiSurvey && multiSurvey.choice === 'each') {
+      const baseInput: RecordInput = {
+        kind,
+        classification,
+        status,
+        stake,
+        khataNo: khata.trim(),
+        ownerName: owner.trim(),
+        village: village.trim(),
+        mandal: mandal.trim(),
+        district: district.trim(),
+        extent: Number(extent) || 0,
+        extentUnit: unit,
+      };
+      if (market) baseInput.marketValue = Number(market);
+      if (paid) baseInput.purchasePrice = Number(paid);
+
+      // Create a record for each survey number. File the deed with the first one only.
+      let lastId = '';
+      for (let i = 0; i < multiSurvey.all.length; i += 1) {
+        const survey = multiSurvey.all[i];
+        const surveyTitle = survey.subdivision
+          ? `Sy ${survey.survey}/${survey.subdivision}`
+          : `Sy ${survey.survey}`;
+        const input = { ...baseInput, title: surveyTitle };
+        try {
+          const res = await save.mutateAsync({ input });
+          lastId = res.web.saveRecord;
+          // File the deed only with the first record
+          if (scanned && i === 0 && lastId) {
+            setFiling(`Filing the deed…`);
+            try {
+              await fileDeed(lastId, scanned);
+            } catch (e) {
+              // Don't fail the whole batch if filing fails
+              console.warn('Failed to file deed with first record:', e);
+            } finally {
+              setFiling('');
+            }
+          }
+        } catch (e) {
+          setErr(`Failed to create record for ${surveyTitle}: ${
+            e instanceof Error ? e.message : 'unknown error'
+          }`);
+          return;
+        }
+      }
+      if (lastId && onCreated) onCreated(lastId);
+      else close();
+      return;
+    }
+
     const input: RecordInput = { kind };
     if (editing && card) {
       input.id = card.id;
       // Only what changed leaves the form — the same comparison the drawer
       // uses to decide whether there is anything here to lose.
       Object.assign(input, edits);
-      if (Object.keys(input).length <= 2) { onClose(); return; }   // kind + id only
+      if (Object.keys(input).length <= 2) { close(); return; }   // kind + id only
     } else {
       input.title = title.trim();
       input.classification = classification;
@@ -374,7 +446,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       }
     }
     if (!editing && newId && onCreated) onCreated(newId);
-    else onClose();
+    else close();
   };
 
   /** Take what a deed says and offer it to the form.
@@ -399,6 +471,27 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       set(val);
       return label;
     };
+
+    // Check for multiple parcels from a passbook reading (parcels array).
+    // If present and there are multiple, ask the user if they want to create
+    // a record for each survey number. Use the first parcel to fill the form.
+    const parcels = Array.isArray(f.parcels) ? (f.parcels as Array<Record<string, unknown>>) : [];
+    let firstParcel: Record<string, unknown> | null = null;
+    if (parcels.length > 0) {
+      firstParcel = parcels[0];
+      if (parcels.length > 1) {
+        const surveys = parcels
+          .map((p) => ({
+            survey: String(p.survey_no ?? '').trim(),
+            subdivision: String(p.subdivision ?? '').trim(),
+          }))
+          .filter((s) => s.survey);
+        if (surveys.length > 1) {
+          setMultiSurvey({ all: surveys });
+        }
+      }
+    }
+
     // The keys are the reader's own, checked against the extraction prompt in
     // main.py. Two of these used to be invented: the khata was read from
     // `khata_no`/`khata` and the owner from `buyer`, and the reader emits
@@ -406,8 +499,14 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     // `parties`. Both boxes were therefore dead on every real document, and
     // the e2e stub fed the fictional keys, so the suite stayed green over a
     // mapping production never took.
+    //
+    // When parcels are present (passbook), use the first parcel's survey_no.
+    // Otherwise use the top-level survey_no (deed).
+    const surveyNo = firstParcel
+      ? String(firstParcel.survey_no ?? '').trim()
+      : str('survey_no');
     const got = [
-      fill(str('survey_no'), title, setTitle, 'survey number'),
+      fill(surveyNo, title, setTitle, 'survey number'),
       fill(str('pattadar_no'), khata, setKhata, 'khata'),
       fill(str('owner_name') || buyerIn(f), owner, setOwner, "owner's name"),
       fill(str('village'), village, setVillage, 'village'),
@@ -435,7 +534,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       sub={editing
         ? 'Only what you change is sent, so a field this form never touched cannot be blanked by saving.'
         : 'Read it off the deed, or fill it in by hand. Nothing is filed until you press Add record.'}
-      onClose={onClose}
+      onClose={close}
       busy={save.isPending || !!filing}
       dirty={dirty || !!savedId}
       discardCopy={askAbout}
@@ -470,6 +569,40 @@ export function RecordDrawer({ card, onClose, onCreated }: {
         {!editing && (
           <ScanFirst manualOpen={manualOpen} onManualOpenChange={setManualOpen}
                      onRead={applyReading} onPickFromMap={pickFromMap} />
+        )}
+
+        {/* When a passbook has multiple survey numbers, ask if the user wants
+            to create a record for each one. */}
+        {!editing && multiSurvey && multiSurvey.choice === undefined && (
+          <div style={{
+            backgroundColor: 'var(--w-accent-light)',
+            border: '1px solid var(--w-accent)',
+            borderRadius: '6px',
+            padding: 'var(--space-md)',
+            marginTop: 'var(--space-md)',
+          }}>
+            <p style={{ marginTop: 0, fontWeight: 500 }}>
+              This document lists {multiSurvey.all.length} survey numbers:
+            </p>
+            <ul style={{ marginBottom: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
+              {multiSurvey.all.map((s, i) => (
+                <li key={i}>{s.subdivision ? `Sy ${s.survey}/${s.subdivision}` : `Sy ${s.survey}`}</li>
+              ))}
+            </ul>
+            <p style={{ marginBottom: 'var(--space-sm)', fontSize: '0.875rem' }}>
+              Would you like to create a separate record for each survey number?
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+              <button type="button" className="btn primary sm"
+                      onClick={() => setMultiSurvey({ ...multiSurvey, choice: 'each' })}>
+                Create one per survey
+              </button>
+              <button type="button" className="btn sm"
+                      onClick={() => setMultiSurvey({ ...multiSurvey, choice: 'one' })}>
+                Just use the first one
+              </button>
+            </div>
+          </div>
         )}
 
         {manualOpen && (

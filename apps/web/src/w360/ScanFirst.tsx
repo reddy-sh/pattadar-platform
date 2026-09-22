@@ -119,8 +119,9 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
           : [],
       });
       onManualOpenChange(true);   // the filled form is the next thing to check
-    } catch {
-      setError('That file could not be read. Fill the form in by hand.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setError(`That file could not be read: ${msg}. Fill the form in by hand.`);
       // The automatic path just failed, so the manual one stops being optional.
       onManualOpenChange(true);
     } finally {
