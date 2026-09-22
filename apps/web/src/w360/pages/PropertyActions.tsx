@@ -26,9 +26,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
-import { parseAreaSqYd } from '@pattadar/core';
+import { parseAreaSqYd, round2, toAcres, unitKey } from '@pattadar/core';
 
-import { useAddPaper, useSaveRecord } from '../api';
+import { useAddPaper, useRefreshW360, useSaveRecord } from '../api';
 import type { RecordCard, RecordInput } from '../api';
 import { Dialog } from '../Dialog';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
@@ -96,6 +96,35 @@ function deedExtent(raw: unknown, formUnit: string): { value: number; unit: stri
   return { value, unit: UNIT_IN_WORDS.find(([re]) => re.test(s))?.[1] ?? formUnit };
 }
 
+/** One land row as the reader returns it. A passbook lists many; a deed one.
+ *
+ *  The whole row is kept, not just the survey number: the extent, the unit and
+ *  the classification are per-row on the paper, and a batch that carried only
+ *  the survey would file twelve parcels at one shared area. */
+export interface ParcelRow {
+  survey: string;
+  extent: string | number;
+  unit: string;
+}
+
+/** One passbook row's extent, in decimal ACRES.
+ *
+ *  Deliberately NOT deedExtent(). That helper maps the word "cents" onto the
+ *  form's acres box and does no conversion, so a row reading "5 Cents" would be
+ *  filed as five acres — a hundredfold overstatement of somebody's land. It also
+ *  returns null for guntas and hectares, which would file the row at zero. Both
+ *  are tolerable for a single figure a person is about to eyeball in a box; on a
+ *  twelve-row batch nobody checks, they are silent corruption.
+ *
+ *  The reader gives each row its extent as written ("1.39 acres") and names its
+ *  unit separately, so the number is parsed and then converted through core's
+ *  table rather than relabelled. */
+export function parcelAcres(row: ParcelRow): number {
+  const n = typeof row.extent === 'number' ? row.extent : parseAreaSqYd(row.extent);
+  if (!(n > 0)) return 0;
+  return round2(toAcres(n, unitKey(row.unit || String(row.extent || ''))));
+}
+
 /** A rupee box that is allowed to be empty.
  *
  *  This used to render `₹${inGroup(Number(value) || 0)}`, which had no way to
@@ -156,6 +185,12 @@ export function RecordDrawer({ card, onClose, onCreated }: {
 }) {
   const nav = useNavigate();
   const save = useSaveRecord();
+  /** The batch's own writer. Twelve ordinary saves would raise twelve toasts
+   *  saying "Nothing has changed" — false, mid-batch — and run twelve whole-tree
+   *  refetches back to back. It reports once, at the end, and refreshes once.
+   *  This is the `invalidate` escape hatch api.ts documents for exactly this. */
+  const saveQuiet = useSaveRecord(false, false);
+  const refresh = useRefreshW360();
   const addPaper = useAddPaper();
   const editing = !!card;
   /** The list hands an archived record the status 'archived' — web360.py
@@ -201,19 +236,40 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  when only the filing half failed. */
   const [savedId, setSavedId] = useState('');
   const [err, setErr] = useState('');
-  /** Multiple survey numbers detected from a passbook reading. User chooses
-   *  whether to create one record per survey or just fill the first one. */
+  /** The rows a passbook listed, when it listed more than one. `choice` is
+   *  undefined until the person answers; the primary stays disabled until then,
+   *  because a silent "Add record" that quietly files one row out of twelve is
+   *  how this shipped broken the first time. */
   const [multiSurvey, setMultiSurvey] = useState<{
-    all: Array<{ survey: string; subdivision?: string }>;
+    all: ParcelRow[];
     choice?: 'one' | 'each';
   } | null>(null);
+  /** Surveys the batch has already written, so a second press finishes the job
+   *  instead of starting it again. There is no unique index on
+   *  (passbook, survey_no) and no idempotency key on saveRecord, so a restart
+   *  would duplicate every row it had already filed. */
+  const [batchDone, setBatchDone] = useState<{ survey: string; id: string }[]>([]);
+  /** Set when a batch finished, so the drawer can report what it made. */
+  const [batchMade, setBatchMade] = useState(0);
 
   const isParcel = kind === 'parcel';
-  const canSave = title.trim().length > 0 && !save.isPending && !filing;
+  /** Is this press going to write many records, or one? */
+  const batching = !editing && multiSurvey?.choice === 'each';
+  /** The question is on screen and unanswered. The primary must not act. */
+  const awaitingChoice = !editing && !!multiSurvey && multiSurvey.choice === undefined;
+  /** What the button needs before it may do anything.
+   *
+   *  Batching does not need the Survey number box — the box is hidden, and each
+   *  record takes its survey from its own row — so testing it would leave the
+   *  primary permanently disabled with no field on screen to satisfy it. */
+  const canSave = (batching ? multiSurvey.all.length > 0 : title.trim().length > 0)
+    && !awaitingChoice && !save.isPending && !saveQuiet.isPending && !filing;
 
   // Wrap onClose to reset multiSurvey state when the drawer closes.
   const close = () => {
     setMultiSurvey(null);
+    setBatchDone([]);
+    setBatchMade(0);
     onClose();
   };
 
@@ -292,7 +348,16 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  What is left here is what only this drawer knows: that a saved record whose
    *  deed would not file is ALSO something worth asking about before closing,
    *  because this panel is the one place that says so. */
-  const askAbout = savedId
+  const askAbout = batchDone.length > 0 && !savedId
+    ? {
+      title: batchMade ? 'Close this summary?' : 'Leave the rest unfiled?',
+      body: batchMade
+        ? `${batchDone.length} records were added. This summary is the only place that lists them together — closing it leaves the records, not the list.`
+        : `${batchDone.length} of these records have already been added and will stay. Closing now leaves the remaining surveys unfiled, and you will have to add them by hand.`,
+      keep: batchMade ? 'Keep it open' : 'Keep going',
+      discard: batchMade ? 'Close' : 'Leave the rest',
+    }
+    : savedId
     ? {
       title: 'Close this notice?',
       body: 'The record is saved. This notice is the only place that says its deed was not filed with it — closing leaves the record without that paper until you add it from Papers.',
@@ -317,13 +382,131 @@ export function RecordDrawer({ card, onClose, onCreated }: {
   async function fileDeed(recordId: string, read: DeedRead) {
     const node = await uploadToDrive(read.file);
     if (!node) throw new Error(STORAGE_OFFLINE_MSG);
+    await attachPaper(recordId, read, node);
+  }
+
+  /** Point one record at bytes that are already in storage.
+   *
+   *  Split out of fileDeed for the batch: one passbook filed against twelve
+   *  records is ONE upload and twelve pointers, not twelve copies of the same
+   *  photo. The storage POST carries onConflict=duplicate, so uploading per
+   *  record would really mint twelve nodes named "passbook (2)…(12)".
+   *
+   *  The survey rides along in the subtitle because describeReading reads the
+   *  document, and the document is identical for every row — without it the
+   *  Vault shows twelve cards nobody can tell apart. */
+  async function attachPaper(
+    recordId: string, read: DeedRead,
+    node: Awaited<ReturnType<typeof uploadToDrive>>, survey = '',
+  ) {
     const row = describeReading(read.reading, read.file);
     const res = await addPaper.mutateAsync({
-      recordId, fileRef: node.id, name: row.name, subtitle: row.subtitle,
+      recordId, fileRef: node.id, name: row.name,
+      subtitle: [row.subtitle, survey && `Sy ${survey}`].filter(Boolean).join(' · '),
       shelf: row.shelf, pageCount: row.pageCount,
       mimeType: node.mimeType, sizeBytes: node.sizeBytes,
     });
     if (!res.web.addPaper) throw new Error('the record would not accept it');
+  }
+
+  /** File every row of a passbook as its own record.
+   *
+   *  Strictly sequential, and that is load-bearing rather than lazy: the server
+   *  finds the parent passbook with a SELECT on (owner, khata, village) and
+   *  INSERTs one when it finds none, outside a transaction and with no unique
+   *  index behind it. Run these twelve concurrently and all twelve miss the
+   *  lookup and create twelve passbooks for one khata. */
+  async function runBatch(rows: ParcelRow[]) {
+    const khataNo = khata.trim();
+    const village_ = village.trim();
+    // Without a khata the server skips the reuse lookup entirely and every row
+    // starts a passbook of its own — twelve passbooks for one holding.
+    if (!khataNo) {
+      setErr('Add the khata number before filing these together. It is what keeps every survey under one passbook — without it each row would start a passbook of its own.');
+      return;
+    }
+    const base: RecordInput = {
+      // These rows are survey numbers off a land record, so they are parcels
+      // whatever the chooser says; the chooser is hidden while batching.
+      kind: 'parcel',
+      status,
+      stake,
+      khataNo,
+      village: village_,
+      ownerName: owner.trim(),
+      mandal: mandal.trim(),
+      district: district.trim(),
+    };
+    // No marketValue or purchasePrice on purpose. Both are whole-DOCUMENT
+    // figures, and portfolio worth is a plain sum — stamping one deed's
+    // consideration onto twelve rows reports twelve times the money paid.
+
+    const done = [...batchDone];
+    const left = rows.filter((r) => !done.some((d) => d.survey === r.survey));
+    setErr('');
+    try {
+      for (const row of left) {
+        setFiling(`Adding ${done.length + 1} of ${rows.length} — Sy ${row.survey}`);
+        // A refusal can arrive either way: as a thrown transport error, or as
+        // an empty id in a 200. Both stop the batch — carrying on would report
+        // a short count at the end with nothing to say about the gap.
+        let id = '';
+        let why = '';
+        try {
+          id = (await saveQuiet.mutateAsync({
+            input: {
+              ...base,
+              title: row.survey,
+              classification: 'agri',
+              // Decimal acres, converted from whatever the paper wrote. Parcels
+              // have no unit column server-side, so acres is the only honest
+              // thing to send.
+              extent: parcelAcres(row),
+              extentUnit: 'ac',
+            },
+          })).web.saveRecord;
+          if (!id) why = 'the server would not file it';
+        } catch (e) {
+          why = e instanceof Error ? e.message : 'the server refused it';
+        }
+        if (why) {
+          setBatchDone(done);
+          const missing = rows.filter((r) => !done.some((d) => d.survey === r.survey));
+          setErr(`Only ${done.length} of ${rows.length} records were added — Sy ${row.survey} would not save (${why}). Still to add: ${
+            missing.map((r) => `Sy ${r.survey}`).join(', ')
+          }. Press Add record again to finish the rest; the ones already added will not be repeated.`);
+          return;
+        }
+        done.push({ survey: row.survey, id });
+      }
+      setBatchDone(done);
+
+      // The paper, once, against all of them.
+      if (scanned && done.length) {
+        setFiling('Filing the passbook…');
+        let failed = 0;
+        try {
+          const node = await uploadToDrive(scanned.file);
+          for (const d of done) {
+            try {
+              await attachPaper(d.id, scanned, node, d.survey);
+            } catch { failed += 1; }
+          }
+        } catch {
+          failed = done.length;
+        }
+        if (failed) {
+          setErr(`All ${done.length} records were added, but the passbook could not be filed against ${
+            failed === done.length ? 'any of them' : `${failed} of them`
+          }. You can add it from a record's Papers.`);
+        }
+      }
+      setBatchMade(done.length);
+    } finally {
+      setFiling('');
+      // One refresh for the whole batch — the writes above deliberately skip it.
+      refresh();
+    }
   }
 
   /** The map is the third way into this drawer: instead of reading a deed or
@@ -340,61 +523,11 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     // The record already exists and only its deed failed to file; the button
     // is now just a way out, not a second save.
     if (savedId) { if (onCreated) onCreated(savedId); else close(); return; }
+    // The batch finished and the drawer is showing what it made.
+    if (batchMade) { close(); return; }
     setErr('');
 
-    // If multiple survey numbers were detected and the user chose 'each',
-    // create a record for each survey number.
-    if (!editing && multiSurvey && multiSurvey.choice === 'each') {
-      const baseInput: RecordInput = {
-        kind,
-        classification,
-        status,
-        stake,
-        khataNo: khata.trim(),
-        ownerName: owner.trim(),
-        village: village.trim(),
-        mandal: mandal.trim(),
-        district: district.trim(),
-        extent: Number(extent) || 0,
-        extentUnit: unit,
-      };
-      if (market) baseInput.marketValue = Number(market);
-      if (paid) baseInput.purchasePrice = Number(paid);
-
-      // Create a record for each survey number. File the deed with the first one only.
-      let lastId = '';
-      for (let i = 0; i < multiSurvey.all.length; i += 1) {
-        const survey = multiSurvey.all[i];
-        const surveyTitle = survey.subdivision
-          ? `Sy ${survey.survey}/${survey.subdivision}`
-          : `Sy ${survey.survey}`;
-        const input = { ...baseInput, title: surveyTitle };
-        try {
-          const res = await save.mutateAsync({ input });
-          lastId = res.web.saveRecord;
-          // File the deed only with the first record
-          if (scanned && i === 0 && lastId) {
-            setFiling(`Filing the deed…`);
-            try {
-              await fileDeed(lastId, scanned);
-            } catch (e) {
-              // Don't fail the whole batch if filing fails
-              console.warn('Failed to file deed with first record:', e);
-            } finally {
-              setFiling('');
-            }
-          }
-        } catch (e) {
-          setErr(`Failed to create record for ${surveyTitle}: ${
-            e instanceof Error ? e.message : 'unknown error'
-          }`);
-          return;
-        }
-      }
-      if (lastId && onCreated) onCreated(lastId);
-      else close();
-      return;
-    }
+    if (batching && multiSurvey) { await runBatch(multiSurvey.all); return; }
 
     const input: RecordInput = { kind };
     if (editing && card) {
@@ -472,25 +605,26 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       return label;
     };
 
-    // Check for multiple parcels from a passbook reading (parcels array).
-    // If present and there are multiple, ask the user if they want to create
-    // a record for each survey number. Use the first parcel to fill the form.
-    const parcels = Array.isArray(f.parcels) ? (f.parcels as Array<Record<string, unknown>>) : [];
-    let firstParcel: Record<string, unknown> | null = null;
-    if (parcels.length > 0) {
-      firstParcel = parcels[0];
-      if (parcels.length > 1) {
-        const surveys = parcels
-          .map((p) => ({
-            survey: String(p.survey_no ?? '').trim(),
-            subdivision: String(p.subdivision ?? '').trim(),
-          }))
-          .filter((s) => s.survey);
-        if (surveys.length > 1) {
-          setMultiSurvey({ all: surveys });
-        }
-      }
-    }
+    // A land record lists its rows in `parcels` — one per survey line. The
+    // whole row is kept, not just its number: the extent, the unit and the
+    // classification are per-row on the paper, and a batch built from survey
+    // numbers alone would file every parcel at one shared area.
+    //
+    // The sub-division is usually already inside survey_no ("119-2") with
+    // `subdivision` empty, so the cell is taken as written rather than
+    // recomposed — the same string a person typing it by hand would produce.
+    const rows: ParcelRow[] = (Array.isArray(f.parcels) ? f.parcels as Record<string, unknown>[] : [])
+      .map((p) => {
+        const no = String(p.survey_no ?? '').trim();
+        const sub = String(p.subdivision ?? '').trim();
+        return {
+          survey: sub && !no.includes(sub) ? `${no}-${sub}` : no,
+          extent: (p.extent ?? '') as string | number,
+          unit: String(p.unit ?? '').trim(),
+        };
+      })
+      .filter((r) => r.survey);
+    if (rows.length > 1) setMultiSurvey({ all: rows });
 
     // The keys are the reader's own, checked against the extraction prompt in
     // main.py. Two of these used to be invented: the khata was read from
@@ -500,11 +634,10 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     // the e2e stub fed the fictional keys, so the suite stayed green over a
     // mapping production never took.
     //
-    // When parcels are present (passbook), use the first parcel's survey_no.
-    // Otherwise use the top-level survey_no (deed).
-    const surveyNo = firstParcel
-      ? String(firstParcel.survey_no ?? '').trim()
-      : str('survey_no');
+    // A passbook carries no top-level survey_no — it is per row — so the form
+    // falls back to the first row. Taken from the FILTERED list, so a blank
+    // first cell cannot seed an empty title that the primary then waits on.
+    const surveyNo = rows[0]?.survey || str('survey_no');
     const got = [
       fill(surveyNo, title, setTitle, 'survey number'),
       fill(str('pattadar_no'), khata, setKhata, 'khata'),
@@ -514,10 +647,19 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       fill(str('district'), district, setDistrict, 'district'),
     ].filter(Boolean) as string[];
 
+    // The whole-document extent, when it names one. A passbook does not: its
+    // areas are per row, so the first row's is used and converted to acres
+    // rather than relabelled (see parcelAcres).
     const area = deedExtent(f.extent, unit);
+    const rowAcres = rows.length ? parcelAcres(rows[0]) : 0;
     if (area && !extent.trim()) {
       setExtent(String(area.value));
       setUnit(area.unit);
+      setExtentTouched(true);
+      got.push('extent');
+    } else if (rowAcres > 0 && !extent.trim()) {
+      setExtent(String(rowAcres));
+      setUnit('ac');
       setExtentTouched(true);
       got.push('extent');
     }
@@ -536,7 +678,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
         : 'Read it off the deed, or fill it in by hand. Nothing is filed until you press Add record.'}
       onClose={close}
       busy={save.isPending || !!filing}
-      dirty={dirty || !!savedId}
+      dirty={dirty || !!savedId || batchDone.length > 0}
       discardCopy={askAbout}
       // An edit IS the form, so it opens on the first field. An add opens on
       // ScanFirst, where the deed is — `#rd-title` is not mounted yet, and the
@@ -545,11 +687,11 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       primary={(
         <DrawerAction
           submit={false}
-          label={savedId ? 'Done' : editing ? 'Save changes' : 'Add record'}
+          label={savedId || batchMade ? 'Done' : editing ? 'Save changes' : 'Add record'}
           working={filing || 'Saving…'}
           pending={save.isPending || !!filing}
           paused={save.isPaused}
-          disabled={!canSave && !savedId}
+          disabled={!canSave && !savedId && !batchMade}
           onClick={submit}
         />
       )}
@@ -571,43 +713,59 @@ export function RecordDrawer({ card, onClose, onCreated }: {
                      onRead={applyReading} onPickFromMap={pickFromMap} />
         )}
 
-        {/* When a passbook has multiple survey numbers, ask if the user wants
-            to create a record for each one. */}
-        {!editing && multiSurvey && multiSurvey.choice === undefined && (
-          <div style={{
-            backgroundColor: 'var(--w-accent-light)',
-            border: '1px solid var(--w-accent)',
-            borderRadius: '6px',
-            padding: 'var(--space-md)',
-            marginTop: 'var(--space-md)',
-          }}>
-            <p style={{ marginTop: 0, fontWeight: 500 }}>
-              This document lists {multiSurvey.all.length} survey numbers:
+        {/* A land record that lists many rows. The question is asked once and
+            the primary below stays disabled until it is answered — the first
+            cut left "Add record" live while this sat here, so pressing it
+            quietly filed one row out of twelve and looked like it had worked. */}
+        {awaitingChoice && multiSurvey && (
+          <div className="callout">
+            <p className="scanhead">
+              This document lists {multiSurvey.all.length} survey numbers
             </p>
-            <ul style={{ marginBottom: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
-              {multiSurvey.all.map((s, i) => (
-                <li key={i}>{s.subdivision ? `Sy ${s.survey}/${s.subdivision}` : `Sy ${s.survey}`}</li>
+            <ul className="surveylist">
+              {multiSurvey.all.map((r) => (
+                <li key={r.survey}>
+                  Sy {r.survey}
+                  {parcelAcres(r) > 0 && <span className="note"> · {parcelAcres(r)} ac</span>}
+                </li>
               ))}
             </ul>
-            <p style={{ marginBottom: 'var(--space-sm)', fontSize: '0.875rem' }}>
-              Would you like to create a separate record for each survey number?
+            <p style={{ margin: 0, fontSize: '0.875rem' }}>
+              File each one as its own record, or keep just the first?
             </p>
-            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+            <div className="row tight">
               <button type="button" className="btn primary sm"
                       onClick={() => setMultiSurvey({ ...multiSurvey, choice: 'each' })}>
-                Create one per survey
+                One record per survey
               </button>
               <button type="button" className="btn sm"
-                      onClick={() => setMultiSurvey({ ...multiSurvey, choice: 'one' })}>
-                Just use the first one
+                      onClick={() => {
+                        setMultiSurvey({ ...multiSurvey, choice: 'one' });
+                        if (!title.trim()) setTitle(multiSurvey.all[0].survey);
+                      }}>
+                Just the first one
               </button>
             </div>
           </div>
         )}
 
+        {/* What the batch actually wrote. The drawer becomes the report: the
+            list view is given no onCreated to navigate with, and sending
+            somebody to the twelfth record is not a summary of twelve. */}
+        {batchMade > 0 && (
+          <div className="callout">
+            <p className="scanhead">
+              Added {batchMade} {batchMade === 1 ? 'record' : 'records'} under khata {khata.trim()}
+            </p>
+            <p className="note" style={{ margin: 0 }}>
+              {batchDone.map((d) => `Sy ${d.survey}`).join(', ')}.
+              {scanned && !err && ' The passbook is filed against each of them.'}
+            </p>
+          </div>
+        )}
         {manualOpen && (
           <>
-            {!editing && (
+            {!editing && !batching && (
               <div className="field">
                 <label>What kind of record</label>
                 <div className="choice">
@@ -625,34 +783,40 @@ export function RecordDrawer({ card, onClose, onCreated }: {
               </div>
             )}
 
-            {/* When creating multiple records per survey, hide the survey field
-                since it will be auto-populated for each record. */}
-            {!(!editing && multiSurvey?.choice === 'each') && (
+            {/* The survey box has no job while batching — each record takes its
+                number from its own row — so it is gone rather than disabled,
+                and what will be written is said in words instead. */}
+            {batching && multiSurvey ? (
+              <div className="callout">
+                <p className="scanhead">
+                  {multiSurvey.all.length} records, one per survey
+                </p>
+                <ul className="surveylist">
+                  {multiSurvey.all.map((r) => (
+                    <li key={r.survey}>
+                      Sy {r.survey}
+                      {parcelAcres(r) > 0 && <span className="note"> · {parcelAcres(r)} ac</span>}
+                    </li>
+                  ))}
+                </ul>
+                <p className="note" style={{ margin: 0 }}>
+                  Everything below is shared by all {multiSurvey.all.length}. Each
+                  keeps its own extent, read off the paper.
+                  {' '}<button type="button" className="linkbtn"
+                          onClick={() => {
+                            setMultiSurvey({ ...multiSurvey, choice: 'one' });
+                            if (!title.trim()) setTitle(multiSurvey.all[0].survey);
+                          }}>
+                    File just the first one instead
+                  </button>
+                </p>
+              </div>
+            ) : (
               <div className="field">
                 <label htmlFor="rd-title">{isParcel ? 'Survey number' : 'What it is called'}</label>
                 <input id="rd-title" type="text" value={title}
                        onChange={(e) => setTitle(e.target.value)}
                        placeholder={isParcel ? 'Sy 214/2' : 'Flat 4B · Skyline Heights'} />
-              </div>
-            )}
-            {/* Show a note when creating multiple records per survey */}
-            {!editing && multiSurvey?.choice === 'each' && (
-              <div style={{
-                backgroundColor: 'var(--w-accent-light)',
-                border: '1px solid var(--w-accent)',
-                borderRadius: '6px',
-                padding: 'var(--space-md)',
-              }}>
-                <p style={{ marginTop: 0, marginBottom: 'var(--space-sm)', fontWeight: 500 }}>
-                  Will create {multiSurvey.all.length} records
-                </p>
-                <p style={{ margin: 0, fontSize: '0.875rem' }}>
-                  Survey numbers will be automatically assigned: {multiSurvey.all
-                    .slice(0, 3)
-                    .map((s) => s.subdivision ? `Sy ${s.survey}/${s.subdivision}` : `Sy ${s.survey}`)
-                    .join(', ')}
-                  {multiSurvey.all.length > 3 ? `…and ${multiSurvey.all.length - 3} more` : ''}
-                </p>
               </div>
             )}
 
@@ -702,12 +866,14 @@ export function RecordDrawer({ card, onClose, onCreated }: {
                 <input id="rd-district" type="text" value={district}
                        onChange={(e) => setDistrict(e.target.value)} />
               </div>
-              <div className="field" style={{ width: '9rem', flex: 'none' }}>
-                <label htmlFor="rd-extent">Extent · {UNIT_WORD[unit]}</label>
-                <input id="rd-extent" type="number" min="0" step={unit === 'ac' ? '0.01' : '1'}
-                       value={extent}
-                       onChange={(e) => { setExtent(e.target.value); setExtentTouched(true); }} />
-              </div>
+              {!batching && (
+                <div className="field" style={{ width: '9rem', flex: 'none' }}>
+                  <label htmlFor="rd-extent">Extent · {UNIT_WORD[unit]}</label>
+                  <input id="rd-extent" type="number" min="0" step={unit === 'ac' ? '0.01' : '1'}
+                         value={extent}
+                         onChange={(e) => { setExtent(e.target.value); setExtentTouched(true); }} />
+                </div>
+              )}
             </div>
 
             <div className="row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
@@ -743,12 +909,18 @@ export function RecordDrawer({ card, onClose, onCreated }: {
               </div>
             </div>
 
-            <div className="row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
-              <MoneyField id="rd-market" label="Worth today" value={market} onChange={setMarket} />
-              {!editing && (
-                <MoneyField id="rd-paid" label="What you paid" value={paid} onChange={setPaid} />
-              )}
-            </div>
+            {/* Hidden while batching. Both are whole-document figures, and the
+                batch deliberately does not send them: one deed's consideration
+                copied onto twelve rows would report twelve times the money
+                paid. A box whose value is discarded is a lie, so it goes. */}
+            {!batching && (
+              <div className="row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
+                <MoneyField id="rd-market" label="Worth today" value={market} onChange={setMarket} />
+                {!editing && (
+                  <MoneyField id="rd-paid" label="What you paid" value={paid} onChange={setPaid} />
+                )}
+              </div>
+            )}
 
             {!editing && (
               <RecordComplianceGuidance
@@ -756,7 +928,9 @@ export function RecordDrawer({ card, onClose, onCreated }: {
               />
             )}
 
-            {err && <p className="note" style={{ color: 'var(--w-danger)' }}>{err}</p>}
+            {err && (
+              <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{err}</p>
+            )}
           </>
         )}
 
@@ -767,6 +941,15 @@ export function RecordDrawer({ card, onClose, onCreated }: {
         {!manualOpen && (
           <p className="note" style={{ margin: 0 }}>
             Read the deed above, open the form to fill it in by hand, or find the plot on the map.
+          </p>
+        )}
+
+        {/* A disabled primary with nothing said about it is the pattern this
+            file removes everywhere else. */}
+        {awaitingChoice && (
+          <p className="note" style={{ margin: 0 }}>
+            Choose one of the two above first — this paper covers more than one
+            survey, so Add record cannot know what to file until you say.
           </p>
         )}
     </Drawer>

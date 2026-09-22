@@ -1353,10 +1353,12 @@ export interface RecordInput {
 /** Create or partially update one record. Resolves to the record's id either
  *  way — which is what lets the add drawer file the deed it was read from
  *  against the record that deed just created. */
-export const useSaveRecord = () =>
+export const useSaveRecord = (reportError = true, invalidate = true) =>
   useW360Mutation<{ input: RecordInput }, Wrapped<'saveRecord', string>>(
     `mutation SR($input:RecordInput!) { web { saveRecord(input:$input) } }`,
     'That record',
+    reportError,
+    invalidate,
   );
 
 /** Move a record's pin. Invalidates the record and boundary caches so the

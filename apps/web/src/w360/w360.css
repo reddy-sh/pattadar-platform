@@ -2205,6 +2205,21 @@
 .w360 .caveats ul { margin: 0; padding-left: 1.125rem; display: grid; gap: 0.25rem; }
 .w360 .caveats li { font-size: 0.8125rem; line-height: 1.5; color: var(--w-ink-2); }
 
+/* The add-a-record drawer's accented notices: the question a multi-survey paper
+   raises, what a batch is about to write, and what it wrote. Accented rather
+   than plain because each one is asking for or reporting a decision about more
+   than one record. */
+.w360 .callout {
+  display: grid; gap: var(--space-sm); padding: var(--space-md);
+  border: 1px solid var(--w-accent); border-radius: var(--radius-md);
+  background: var(--w-accent-wash);
+}
+.w360 .surveylist {
+  margin: 0; padding-left: 1.125rem; display: grid; gap: 0.25rem;
+  max-height: 11rem; overflow-y: auto;
+}
+.w360 .surveylist li { font-size: 0.8125rem; line-height: 1.5; }
+
 /* The seam between the two halves once both are open. */
 .w360 .orrule {
   display: flex; align-items: center; gap: var(--space-sm); margin: 0;
