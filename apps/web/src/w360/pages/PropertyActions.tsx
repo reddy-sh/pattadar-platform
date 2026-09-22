@@ -625,12 +625,36 @@ export function RecordDrawer({ card, onClose, onCreated }: {
               </div>
             )}
 
-            <div className="field">
-              <label htmlFor="rd-title">{isParcel ? 'Survey number' : 'What it is called'}</label>
-              <input id="rd-title" type="text" value={title}
-                     onChange={(e) => setTitle(e.target.value)}
-                     placeholder={isParcel ? 'Sy 214/2' : 'Flat 4B · Skyline Heights'} />
-            </div>
+            {/* When creating multiple records per survey, hide the survey field
+                since it will be auto-populated for each record. */}
+            {!(!editing && multiSurvey?.choice === 'each') && (
+              <div className="field">
+                <label htmlFor="rd-title">{isParcel ? 'Survey number' : 'What it is called'}</label>
+                <input id="rd-title" type="text" value={title}
+                       onChange={(e) => setTitle(e.target.value)}
+                       placeholder={isParcel ? 'Sy 214/2' : 'Flat 4B · Skyline Heights'} />
+              </div>
+            )}
+            {/* Show a note when creating multiple records per survey */}
+            {!editing && multiSurvey?.choice === 'each' && (
+              <div style={{
+                backgroundColor: 'var(--w-accent-light)',
+                border: '1px solid var(--w-accent)',
+                borderRadius: '6px',
+                padding: 'var(--space-md)',
+              }}>
+                <p style={{ marginTop: 0, marginBottom: 'var(--space-sm)', fontWeight: 500 }}>
+                  Will create {multiSurvey.all.length} records
+                </p>
+                <p style={{ margin: 0, fontSize: '0.875rem' }}>
+                  Survey numbers will be automatically assigned: {multiSurvey.all
+                    .slice(0, 3)
+                    .map((s) => s.subdivision ? `Sy ${s.survey}/${s.subdivision}` : `Sy ${s.survey}`)
+                    .join(', ')}
+                  {multiSurvey.all.length > 3 ? `…and ${multiSurvey.all.length - 3} more` : ''}
+                </p>
+              </div>
+            )}
 
             {!isParcel && (
               <div className="field">
