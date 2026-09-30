@@ -22,12 +22,12 @@ struct BoundarySketch: View {
             let minX = xs.min()!, maxX = xs.max()!
             let minY = ys.min()!, maxY = ys.max()!
             let inset: CGFloat = 34
-            let w = max(maxX - minX, 1), h = max(maxY - minY, 1)
+            let w = CGFloat(max(maxX - minX, 1)), h = CGFloat(max(maxY - minY, 1))
             let scale = min((size.width - inset * 2) / w, (size.height - inset * 2) / h)
             func place(_ p: (x: Double, y: Double)) -> CGPoint {
-                CGPoint(x: (size.width - w * scale) / 2 + (p.x - minX) * scale,
+                CGPoint(x: (size.width - w * scale) / 2 + CGFloat(p.x - minX) * scale,
                         // Flipped: canvas y grows downward, north must be up.
-                        y: (size.height + h * scale) / 2 - (p.y - minY) * scale)
+                        y: (size.height + h * scale) / 2 - CGFloat(p.y - minY) * scale)
             }
 
             var path = Path()
