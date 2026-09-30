@@ -57,7 +57,7 @@ test('worker accepts, starts and submits a file for owner review', async ({ page
   await page.getByRole('button', { name: 'Mark work started' }).click();
   await page.getByLabel('Title', { exact: true }).fill('Survey completed');
   await page.getByLabel('File (optional)').setInputFiles({ name: 'survey.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7 sample') });
-  await page.getByRole('button', { name: 'Send to owner' }).click();
+  await page.locator('form').filter({ has: page.getByLabel('File (optional)') }).getByRole('button', { name: 'Send to owner' }).click();
   await expect(page.getByRole('status')).toContainText('owner can review');
   await expect(page.getByRole('heading', { name: 'Survey completed · pending' })).toBeVisible();
 });
@@ -67,8 +67,8 @@ test('failed worker submission keeps the file and entered title for retry', asyn
   await page.route(`**${ROOT}/work/${TOKEN}/deliverables`, (route) => route.fulfill({ status: 503, json: { detail: 'Storage is temporarily unavailable' } }));
   await page.goto(`/work/${TOKEN}`);
   await page.getByLabel('Title', { exact: true }).fill('Keep this draft');
-  await page.getByRole('button', { name: 'Send to owner' }).click();
+  await page.locator('form').filter({ has: page.getByLabel('File (optional)') }).getByRole('button', { name: 'Send to owner' }).click();
   await expect(page.getByRole('alert')).toContainText('Storage is temporarily unavailable');
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Keep this draft');
-  await expect(page.getByRole('button', { name: 'Send to owner' })).toBeEnabled();
+  await expect(page.locator('form').filter({ has: page.getByLabel('File (optional)') }).getByRole('button', { name: 'Send to owner' })).toBeEnabled();
 });

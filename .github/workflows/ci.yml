@@ -126,7 +126,10 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun run scripts/emit-vectors.ts --check
+      - name: Generate and verify native parity vectors
+        run: |
+          bun run scripts/emit-vectors.ts
+          bun run scripts/emit-vectors.ts --check
       - name: Check web and native contracts
         env:
           PARITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

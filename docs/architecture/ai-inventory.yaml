@@ -64,7 +64,6 @@ capabilities:
     event_vocabulary: services/assistant/src/domain/sse_events.py
     consumers:
       - { client: apps/web, status: active, surface: src/assistant/AssistantPanel.tsx }
-      - { client: apps/web-next, status: staged, surface: src/assistant/AssistantPanel.tsx, note: reduced; no history/attachments/capabilities }
       - { client: apps/ios, status: none, note: account screen advertises it as forthcoming }
       - { client: apps/mobile, status: none }
     runtime:
@@ -144,7 +143,6 @@ capabilities:
       - { client: apps/web,       status: active,        mode: durable,      note: api/client.ts rewrites the sync path to -async and polls }
       - { client: apps/ios,       status: active,        mode: mixed,        note: durable for registered documents only; treats queued as terminal (gap) }
       - { client: apps/mobile,    status: compatibility, mode: durable for Aadhaar; synchronous for other reads, note: Aadhaar upload polls an owner-scoped job with one request id }
-      - { client: apps/web-next,  status: staged,        mode: synchronous,  note: deploy refuses this client }
     data_classes: [deed content, passbook content, Aadhaar KYC, property documents]
     privacy:
       aadhaar: >

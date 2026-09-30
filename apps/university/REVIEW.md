@@ -1,6 +1,6 @@
 # Pattadar University product review
 
-Reviewed 29 September 2026 against the current `apps/university` preview and its architecture contract. This is the working order for buyer and seller education, Pattadar employee training, service training, and credentials.
+Reviewed 30 September 2026 against the current `apps/university` preview and its architecture contract. This is the working order for buyer and seller education, Pattadar employee training, service training, and credentials.
 
 ## Current inventory
 
@@ -12,7 +12,7 @@ Reviewed 29 September 2026 against the current `apps/university` preview and its
 | Learning record | Enrollment and module completion are stored in browser local storage. |
 | Credentials | A browser-generated completion **preview** is available at 100% module progress. Separately, the Pattadar associate desk can issue signed internal training certificates with a public verifier and revocation. The two systems are not connected. |
 | Workforce | Governance lessons and a compliance-to-training matrix exist. Training is not connected to live staff clearance or provider dispatch permission. |
-| Delivery | Proposed hubs, mentors, opportunities, fees, and Telugu versions are labeled as proposed or planned. |
+| Delivery | The educational preview is hosted at `university.pattadar.com` with a separate private S3 origin, CloudFront, DNS, TLS, WAF, and Cognito client. Proposed hubs, mentors, opportunities, fees, and Telugu versions are labeled as proposed or planned. |
 
 ## The intended learning order
 
@@ -46,7 +46,8 @@ These are suggested sequences. The current app does not enforce prerequisites or
 1. Publish further state curricula only after local legal and land-record review; the jurisdiction registry alone is not a course.
 2. Replace proposed mentor, hub, and opportunity listings with verified supply, schedules, consent, and capacity management.
 3. Add learner support, admin publishing controls, source-change review, content version migrations, analytics, and withdrawal or correction workflows.
-4. Add a University deployment path and verify route handling for its static and prerendered pages.
+
+The University deployment path and live route handling for static and prerendered pages were verified on 30 September 2026.
 
 ## Release gates
 

@@ -1,9 +1,7 @@
 name: Deploy University
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -17,14 +15,13 @@ concurrency:
 
 jobs:
   university:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     env:
-      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      RELEASE_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Reject obsolete release
         run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA"
@@ -51,6 +48,8 @@ jobs:
             echo "VITE_COGNITO_REDIRECT_URI=https://university.pattadar.com/auth/callback"
           } >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
+      - run: bun run --filter @pattadar/university typecheck
+      - run: bun test apps/university/src
       - run: bun run --filter @pattadar/university build
       - name: Publish University and wait for cache invalidation
         run: bash scripts/deploy-static-site.sh apps/university/dist "$SPA_BUCKET" "$DISTRIBUTION_ID" "$RELEASE_SHA"

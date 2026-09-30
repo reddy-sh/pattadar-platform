@@ -4634,6 +4634,9 @@
   backdrop-filter: blur(3px);
 }
 @media (max-width: 640px) {
+  /* A wrapped instruction and save bar can occupy half the 34rem map. Give
+     drawing a taller canvas so fitted corners stay clear of both overlays. */
+  .w360 .plot.live:has(.tools.armed) { min-height: 44rem !important; }
   /* The chips scroll in one row instead of stacking over the parcel. */
   .w360 .plot.live .maptools > .row.mapchips {
     max-width: 100%; overflow-x: auto; scrollbar-width: none;

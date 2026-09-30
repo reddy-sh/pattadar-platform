@@ -29,7 +29,7 @@ test.describe('portfolio map workflows', () => {
     await expect(unlocated).toContainText('Add a location');
     await unlocated.getByRole('link').click();
     await expect(page).toHaveURL(new RegExp(`/records/${ids[2]}/map$`));
-    await expect(page.getByRole('button', { name: 'Draw boundary', exact: true })).toBeVisible();
+    await expect(page.locator('#w360-maptools').getByRole('button', { name: 'Draw boundary', exact: true })).toBeVisible();
   });
 
   test('search and selection survive map movement, layer changes and reload', async ({ page }) => {
@@ -108,11 +108,11 @@ test.describe('portfolio map workflows', () => {
       const body = response.request().postData() ?? '';
       return response.url().includes('/graphql') && body.includes('saveRecord');
     });
-    await page.getByRole('button', { name: 'Add record', exact: true }).click();
+    await page.getByRole('button', { name: 'Add property', exact: true }).click();
     const body = await (await saved).json();
     const id = body.data.web.saveRecord as string;
     ids.push(id);
     await expect(page).toHaveURL(new RegExp(`/records/${id}/map$`));
-    await expect(page.getByRole('button', { name: 'Draw boundary', exact: true })).toBeVisible();
+    await expect(page.locator('#w360-maptools').getByRole('button', { name: 'Draw boundary', exact: true })).toBeVisible();
   });
 });

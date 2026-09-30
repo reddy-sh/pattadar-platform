@@ -23,6 +23,7 @@ async function openVillage(page: Page) {
     })),
   } }));
   await page.goto('/app/maps');
+  await page.getByRole('textbox', { name: 'Search all villages' }).fill(village);
   await page.getByRole('button', { name: new RegExp(`^${village}`) }).click();
   await expect(page.locator('.vc-badge')).toContainText(village);
   await expect(page.locator('.vc-label').first()).toBeVisible();

@@ -145,12 +145,12 @@ test.describe('Combined views', () => {
     await expect(page.getByRole('link', { name: 'Sy 88' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Sy 331/2' })).toBeVisible();
     // The totals say what they are in one line, not in a card of rationale.
-    await expect(page.getByText(/Summed from the 2 records below/)).toBeVisible();
+    await expect(page.getByText(/2 records · 0 of 2 with boundaries/)).toBeVisible();
     // An empty figure reads as "Nothing yet", never as a dash with a footnote.
     await expect(page.getByText('Nothing yet').first()).toBeVisible();
 
     // Surveys lists them as a table, with what each still owes.
-    await page.getByRole('link', { name: /^Surveys/ }).click();
+    await page.getByRole('link', { name: /^Records/ }).click();
     await expect(page.locator('table.rectable tbody tr')).toHaveCount(2);
     await expect(page.getByRole('heading', { name: 'Records in this view' })).toBeVisible();
 
@@ -170,7 +170,7 @@ test.describe('Combined views', () => {
     // extent and the valuation above the grid are exactly what they were before
     // the holding existed. This is the invariant the whole design rests on.
     expect(await portfolioLine(page)).toBe(before);
-    expect(before).toContain('9 records');
+    expect(before).toContain('9 properties');
   });
 
   test('all six holding tabs declare one layout owner', async ({ page }) => {
@@ -226,7 +226,7 @@ test.describe('Combined views', () => {
     await dialog.getByRole('button', { name: /^Combine \d+ records$/ }).click();
     // Refused, and the dialog stays open saying why rather than closing on a
     // holding that was never created.
-    await expect(dialog).toContainText('already be part of another combined property');
+    await expect(dialog).toContainText('part of another combined view');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
     await page.goto('/app/combined');
@@ -256,8 +256,7 @@ test.describe('Combined views', () => {
       const row = page.locator('table.rectable tbody tr', { hasText: 'E2E Boundary fence' });
       await expect(row).toBeVisible();
       await expect(row).toContainText('12/08/2026');
-      await expect(row).toContainText('Whole holding');
-      await expect(page.getByText('On the whole holding')).toBeVisible();
+      await expect(row).toContainText('Shared cost');
 
       // The holding's total moved; the records' own ledgers did not.
       await page.goto(`/app/records/${BIG}/expenses`);
@@ -289,7 +288,7 @@ test.describe('Combined views', () => {
 
       await page.goto(`/app/combined/${id}/services`);
       await expect(page.getByRole('heading', { name: 'Services on these records' })).toBeVisible();
-      await expect(page.getByText('Everything ordered against any of its records.')).toBeVisible();
+      await expect(page.getByRole('group', { name: 'Which services' })).toBeVisible();
     });
 
   test('adjoining surveys share one map, and it measures them', async ({ page, request }) => {
@@ -362,7 +361,7 @@ test.describe('Combined views', () => {
         const box = await stage.boundingBox();
         expect(box!.height).toBeGreaterThan(400);
         // No band of dead page under the map: the next thing down is close to it.
-        const relations = page.getByRole('heading', { name: 'Where they meet' });
+        const relations = page.getByRole('heading', { name: 'Shared edges' });
         const gapBelow = (await relations.boundingBox())!.y - (box!.y + box!.height);
         expect(gapBelow).toBeLessThan(120);
 
@@ -440,7 +439,7 @@ test.describe('Combined views', () => {
         // With every survey drawn and the pair apart, no content card follows
         // the map to hide a height bug. Map and rail fill to the page's bottom
         // padding together; the rest of the viewport is not an empty band.
-        await expect(page.getByRole('heading', { name: 'Where they meet' })).toHaveCount(0);
+        await expect(page.getByRole('heading', { name: 'Shared edges' })).toHaveCount(0);
         await expect(page.getByRole('heading', { name: 'Not on the map yet' })).toHaveCount(0);
         const [mapBox, railBox] = await Promise.all([
           stage.boundingBox(),
@@ -486,12 +485,12 @@ test.describe('Combined views', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'E2E Renamed Holding' })).toBeVisible();
     await page.getByRole('button', { name: 'Actions for E2E Renamed Holding' }).click();
     await page.getByRole('menuitem', { name: 'Remove this combined view' }).click();
-    const bye = page.getByRole('dialog', { name: 'Ungroup E2E Renamed Holding?' });
+    const bye = page.getByRole('dialog', { name: 'Remove the combined view E2E Renamed Holding?' });
     await expect(bye).toContainText('go back to standing on');
     // What survives, named — this is the promise the button is agreed against.
     await expect(bye).toContainText('Papers, boundaries, photographs, people');
     await expect(bye).toContainText('each record’s own costs all stay');
-    await bye.getByRole('button', { name: 'Ungroup' }).click();
+    await bye.getByRole('button', { name: 'Remove' }).click();
     await page.waitForURL('**/app/combined');
     await expect(page.getByRole('link', { name: 'E2E Renamed Holding' })).toHaveCount(0);
 

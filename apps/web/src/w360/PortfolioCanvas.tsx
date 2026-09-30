@@ -508,7 +508,7 @@ export function PortfolioCanvas({
   return <>
     <div className="pf-map" ref={hostRef} role="region" aria-label={label} />
     {tilesFailed && (
-      <p className="nogeo pf-map-error" role="status" style={{ top: '4rem', right: '3rem', zIndex: 500, pointerEvents: 'auto' }}>
+      <p className="nogeo low pf-map-error" role="status" style={{ right: '3rem', zIndex: 500, pointerEvents: 'auto' }}>
         {satellite ? 'Satellite imagery' : 'Street map'} could not be fully loaded.
         {' '}<button type="button" className="btn sm" onClick={retryTiles}>Retry map</button>
       </p>

@@ -341,6 +341,10 @@ export function CombinedDeleteDialog({ combined, onDone, onClose }: {
         {plural(combined.memberCount, 'record')} {combined.memberCount === 1 ? 'goes' : 'go'} back
         to standing on {combined.memberCount === 1 ? 'its' : 'their'} own.
       </p>
+      <p className="note" style={{ margin: 0 }}>
+        Papers, boundaries, photographs, people, and each record’s own costs all stay
+        with their records.
+      </p>
       {combined.combinedSpend > 0 && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-warn)' }}>
           {inr(combined.combinedSpend)} recorded as shared costs is deleted
@@ -416,6 +420,7 @@ export function CombinedExpenseDialog({ combined, onClose }: {
     >
       <p className="note" style={{ marginTop: 0 }}>
         Filed against all {combined.extentLine} of <strong>{combined.name}</strong>.
+        This cost is not divided between its records.
       </p>
       <div className="field">
         <label htmlFor="cpe-title">What was it</label>

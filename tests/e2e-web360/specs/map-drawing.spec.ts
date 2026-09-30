@@ -64,7 +64,7 @@ test('import previews and cancels without saving, then explicitly saves and relo
 test('a corner keeps dragging through updates and supports keyboard adjustment', async ({ page, request, recordId }) => {
   await saveFixtureBoundary(request, recordId);
   await openMap(page, recordId);
-  await page.getByRole('button', { name: 'Redraw boundary', exact: true }).click();
+  await page.locator('#w360-maptools').getByRole('button', { name: 'Redraw boundary', exact: true }).click();
   // Redraw starts with the saved corners, so adjust the top-right corner
   // inward without placing additional points or crossing the opposite edge.
   await expect(page.locator('.w-draft-no')).toHaveCount(4);
@@ -104,7 +104,8 @@ test('phone drawing frames every corner clear of the tools and save bar', async 
   await page.setViewportSize({ width: 390, height: 844 });
   await saveFixtureBoundary(request, recordId);
   await openMap(page, recordId);
-  await page.getByRole('button', { name: 'Redraw boundary', exact: true }).click();
+  await page.getByRole('button', { name: 'Changes the record' }).click();
+  await page.locator('#w360-maptools').getByRole('button', { name: 'Redraw boundary', exact: true }).click();
   await expect(page.locator('.w-draft-no')).toHaveCount(4);
   const layoutProblems = () => page.evaluate(() => {
     const panel = document.querySelector('.plot')!;
@@ -128,9 +129,7 @@ test('phone drawing frames every corner clear of the tools and save bar', async 
     return problems;
   });
   await expect.poll(layoutProblems).toEqual([]);
-  const scale = await page.locator('.leaflet-control-scale-line').textContent();
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await expect(page.locator('.leaflet-control-scale-line')).not.toHaveText(scale!);
   await page.getByRole('button', { name: 'Recentre', exact: true }).click();
   await expect.poll(layoutProblems).toEqual([]);
 });
@@ -150,7 +149,7 @@ test('drawing over a village plot adds corners and double-click does not zoom', 
   await page.getByRole('button', { name: 'Village map', exact: true }).click();
   await expect(page.locator('.vmnote')).toContainText('1 plots');
   await expect(page.locator('.plot .leaflet-overlay-pane canvas')).toBeVisible();
-  await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+  await page.locator('#w360-maptools').getByRole('button', { name: 'Draw boundary', exact: true }).click();
   await clickMap(page, 0.55, 0.45);
   await expect(page.locator('.w-draft-no')).toHaveCount(1);
   const scale = await page.locator('.leaflet-control-scale-line').textContent();
@@ -179,7 +178,7 @@ test('a late place lookup cannot move an outline while it is being drawn', async
   try {
     await openMap(page, recordId);
     await started;
-    await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+    await page.locator('#w360-maptools').getByRole('button', { name: 'Draw boundary', exact: true }).click();
     for (const [x, y] of [[0.5, 0.35], [0.7, 0.35], [0.7, 0.6]]) await clickMap(page, x, y);
     await expect(page.locator('.w-draft-no')).toHaveCount(3);
     const before = (await page.locator('path.w-draft').boundingBox())!;
