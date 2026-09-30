@@ -130,6 +130,10 @@ jobs:
         run: |
           bun run scripts/emit-vectors.ts
           bun run scripts/emit-vectors.ts --check
+          # SwiftPM can bundle the symlink itself on a fresh runner, leaving
+          # Bundle.module without JSON files. Materialize its target first.
+          rm apps/ios/PattadarKit/Tests/PattadarKitTests/Vectors
+          cp -R packages/core/vectors apps/ios/PattadarKit/Tests/PattadarKitTests/Vectors
       - name: Check web and native contracts
         env:
           PARITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

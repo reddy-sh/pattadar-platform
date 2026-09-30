@@ -29,7 +29,7 @@ test('account choices save only the purposes the owner selects and persist on re
   await page.getByRole('checkbox', { name: 'Use AI providers' }).uncheck();
   await page.getByRole('checkbox', { name: 'Send messages about' }).check();
   await page.getByRole('button', { name: 'Save choices' }).click();
-  await expect(page.getByRole('status')).toHaveText('Your choices have been recorded.');
+  await expect(page.getByRole('status').filter({ hasText: 'Your choices have been recorded.' })).toHaveText('Your choices have been recorded.');
   await page.reload();
   await expect(page.getByRole('checkbox', { name: 'Use AI providers' })).not.toBeChecked();
   await expect(page.getByRole('checkbox', { name: 'Send messages about' })).toBeChecked();
@@ -44,7 +44,7 @@ test('account export downloads the returned data and file manifest', async ({ pa
   const download = await received;
   expect(download.suggestedFilename()).toMatch(/^pattadar-export-\d{4}-\d{2}-\d{2}\.json$/);
   expect(JSON.parse(await readFile((await download.path())!, 'utf8'))).toEqual(exported);
-  await expect(page.getByRole('status')).toHaveText('Your export has been downloaded.');
+  await expect(page.getByRole('status').filter({ hasText: 'Your export has been downloaded.' })).toHaveText('Your export has been downloaded.');
 });
 
 test('deletion requires confirmation and shows staged progress without claiming completion', async ({ page }) => {
@@ -68,7 +68,7 @@ test('deletion requires confirmation and shows staged progress without claiming 
   await page.getByRole('button', { name: 'Refresh status' }).click();
   await expect(page.getByText('records: complete')).toBeVisible();
   await expect(page.getByText('files: failed')).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('processing');
+  await expect(page.getByRole('status').filter({ hasText: 'processing' })).toContainText('processing');
 });
 
 test('fresh sign-in failure keeps the deletion confirmation available for retry', async ({ page }) => {
