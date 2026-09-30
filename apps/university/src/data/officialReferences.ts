@@ -11,6 +11,7 @@ export interface OfficialReference {
 }
 
 const reviewedOn = '2026-09-20';
+const verifiedOn = '2026-09-30';
 
 export const officialReferences: OfficialReference[] = [
   {
@@ -20,7 +21,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://tirupati.ap.gov.in/service/land-records/',
     kind: 'service',
     description: 'Official district guidance describing MeeBhoomi, land ownership details, electronic passbooks, khata information, and land-record access.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-meebhoomi',
@@ -38,7 +39,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://www.indiacode.nic.in/bitstream/123456789/19253/1/ror_act_5.12.2022_.pdf',
     kind: 'law',
     description: 'Official text governing preparation, maintenance, amendment, inspection, and copies of the Record of Rights.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-gsws-services',
@@ -47,7 +48,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://anakapalli.ap.gov.in/gsws/',
     kind: 'service',
     description: 'Official catalogue listing ROR-1B, Adangal, mutation, passbook, subdivision, correction, conversion, and survey services.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-gsws-manual',
@@ -65,7 +66,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://bhunaksha.ap.gov.in/',
     kind: 'portal',
     description: 'Official cadastral-mapping portal integrated with Andhra Pradesh land-record systems.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-survey-records',
@@ -74,7 +75,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://krishna.ap.gov.in/settlements-survey-land-records/',
     kind: 'service',
     description: 'Official explanation of FMBs, RSRs, village maps, subdivision, demarcation, maintenance surveys, and certified-copy services.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-fmb-manual',
@@ -95,13 +96,22 @@ export const officialReferences: OfficialReference[] = [
     reviewedOn,
   },
   {
+    id: 'dolr-model-property-documents',
+    title: 'Model agreement to sell and sale deed documents',
+    authority: 'Department of Land Resources, Government of India',
+    url: 'https://dolr.gov.in/en/document-category/model-property-registration-documents/',
+    kind: 'manual',
+    description: 'Government model documents list an agreement to sell and a sale deed separately. Use these as document-type examples, not as a title decision for a particular parcel.',
+    reviewedOn: verifiedOn,
+  },
+  {
     id: 'ngdrs-state-links',
     title: 'NGDRS state and union-territory portal directory',
     authority: 'Department of Land Resources, Government of India',
     url: 'https://ngdrs.gov.in/NGDRS_Website/state_ut_links.php',
     kind: 'portal',
     description: 'Official national directory identifying the Andhra Pradesh Registration and Stamps portal.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-registration-manual',
@@ -128,16 +138,16 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://www.indiacode.nic.in/bitstream/123456789/8711/1/act_9_of_1977.pdf',
     kind: 'law',
     description: 'Official Act governing transfer restrictions and registration treatment for listed assigned lands.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-prohibited-properties',
-    title: 'Prohibited lands under Section 22-A(1)(e)',
+    title: 'YSR Kadapa prohibited lands under Section 22-A(1)(e)',
     authority: 'YSR Kadapa District, Government of Andhra Pradesh',
     url: 'https://kadapa.ap.gov.in/notice_category/prohibited-lands-u-s-22-a1-e-of-registration-act-1908/',
     kind: 'service',
-    description: 'Official district publication page for Section 22-A(1)(e) notifications and changes to prohibited-property lists.',
-    reviewedOn,
+    description: 'Official YSR Kadapa district example of Section 22-A(1)(e) notifications and changes. Use the publication for the parcel’s own district and competent authority for an actual check.',
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-dotted-lands-act',
@@ -155,16 +165,25 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://www.indiacode.nic.in/handle/123456789/15898?locale=en',
     kind: 'law',
     description: 'Official Act protecting state property and addressing transactions adverse to government title or interest.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
+  },
+  {
+    id: 'ap-endowments-act',
+    title: 'Andhra Pradesh Charitable and Hindu Religious Institutions and Endowments Act, 1987',
+    authority: 'India Code, Government of India',
+    url: 'https://www.indiacode.nic.in/indiacode/handle/123456789/16889?view_type=browse',
+    kind: 'law',
+    description: 'Official Act concerning the administration of covered charitable and Hindu religious institutions and endowments in Andhra Pradesh.',
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-crop-cultivator-act',
     title: 'Andhra Pradesh Crop Cultivator Rights Act, 2019',
     authority: 'India Code, Government of India',
-    url: 'https://www.indiacode.nic.in/bitstream/123456789/19897/2/the_andhra_pradesh_crop_cultivator_rights_act%2C_2019.pdf',
+    url: 'https://www.indiacode.nic.in/indiacode/handle/123456789/19897?view_type=browse',
     kind: 'law',
-    description: 'Official Act distinguishing a crop-cultivation arrangement and card from ownership rights in the land.',
-    reviewedOn,
+    description: 'Official Act defining the crop-cultivator card framework and its covered agricultural land without changing owner rights.',
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-bhudhaar',
@@ -182,7 +201,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://rera.ap.gov.in/RERA/Views/index.html',
     kind: 'portal',
     description: 'Official project and promoter disclosure portal for RERA-regulated developments.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-rera-rules',
@@ -195,12 +214,12 @@ export const officialReferences: OfficialReference[] = [
   },
   {
     id: 'ap-cdma-charter',
-    title: 'Citizen charter for municipal services',
+    title: 'Municipal citizen charter for urban services',
     authority: 'Commissioner and Director of Municipal Administration, Government of Andhra Pradesh',
     url: 'https://cdma.ap.gov.in/resources/citizen-charter/',
     kind: 'service',
     description: 'Official municipal service guidance for building, occupancy, property-tax, trade, and related local-body services.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'ap-dpms',
@@ -209,6 +228,51 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://portal.apdpms.ap.gov.in/portal',
     kind: 'portal',
     description: 'Official portal for applicable building and layout permission workflows.',
+    reviewedOn,
+  },
+  {
+    id: 'ts-bhu-bharati',
+    title: 'Bhu Bharati integrated land-record system',
+    authority: 'Revenue Department, Government of Telangana',
+    url: 'https://bhubharati.telangana.gov.in/homePage?lang=en',
+    kind: 'portal',
+    description: 'Current official entry point for Telangana land-record information and transactional services, including registration, mutation, correction, succession, NALA, and grievances.',
+    reviewedOn,
+  },
+  {
+    id: 'ts-bhu-bharati-act',
+    title: 'Telangana Bhu Bharati (Record of Rights in Land) Act, 2025',
+    authority: 'Revenue Department, Government of Telangana',
+    url: 'https://bhubharati.telangana.gov.in/BhubharatiDocuments',
+    kind: 'law',
+    description: 'Official Bhu Bharati document register publishing Telangana Act No. 1 of 2025 and related government orders.',
+    reviewedOn,
+  },
+  {
+    id: 'ts-bhu-bharati-rules',
+    title: 'Telangana Bhu Bharati Record of Rights Rules, 2025',
+    authority: 'Revenue Department, Government of Telangana',
+    url: 'https://bhubharati.telangana.gov.in/assets/images/userManuals/G_O_Ms_no_39_Dated_14_04_2025.pdf',
+    kind: 'law',
+    description: 'Official rules notified under the 2025 Bhu Bharati Record of Rights Act.',
+    reviewedOn,
+  },
+  {
+    id: 'ts-bhu-bharati-gis',
+    title: 'Bhu Bharati land map',
+    authority: 'Revenue Department, Government of Telangana',
+    url: 'https://bhubharati.telangana.gov.in/gis/',
+    kind: 'portal',
+    description: 'Official parcel-map interface using district, division, mandal, village, and survey-number context.',
+    reviewedOn,
+  },
+  {
+    id: 'ts-state-services',
+    title: 'Telangana state services directory',
+    authority: 'Government of Telangana',
+    url: 'https://www.telangana.gov.in/services/state-services/',
+    kind: 'service',
+    description: 'Official state directory listing Revenue Department Record of Rights and mutation services and Registration and Stamps services.',
     reviewedOn,
   },
   {
@@ -227,7 +291,7 @@ export const officialReferences: OfficialReference[] = [
     url: 'https://dolr.gov.in/en/programmes-schemes/dilrmp-2/',
     kind: 'programme',
     description: 'Official national programme context for computerised records, registration integration, cadastral maps, and modern record rooms.',
-    reviewedOn,
+    reviewedOn: verifiedOn,
   },
   {
     id: 'dpdp-act',

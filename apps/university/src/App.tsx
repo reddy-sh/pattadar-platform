@@ -9,12 +9,15 @@ import type { Course } from './domain/types';
 import { AccountPage } from './pages/AccountPage';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { CoursePage } from './pages/CoursePage';
+import { CredentialsPage } from './pages/CredentialsPage';
 import { ComplianceCoveragePage } from './pages/ComplianceCoveragePage';
 import { HomePage } from './pages/HomePage';
 import { LearningPage } from './pages/LearningPage';
 import { LocationPage } from './pages/LocationPage';
+import { LocationsPage } from './pages/LocationsPage';
 import { LessonPage } from './pages/LessonPage';
 import { OpportunitiesPage } from './pages/OpportunitiesPage';
+import { PathwaysPage } from './pages/PathwaysPage';
 import { StateGuidePage } from './pages/StateGuidePage';
 import { StateGuidesPage } from './pages/StateGuidesPage';
 
@@ -65,10 +68,13 @@ export function App() {
         <Route path="/" element={<HomePage onTutor={openTutor} />} />
         <Route path="/courses/:slug" element={<CoursePage onTutor={openTutor} />} />
         <Route path="/courses/:slug/lessons/:moduleId" element={<LessonPage onTutor={openTutor} />} />
+        <Route path="/pathways" element={<PathwaysPage />} />
+        <Route path="/credentials" element={<CredentialsPage />} />
         <Route path="/compliance" element={<ComplianceCoveragePage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/learn" element={<LearningPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
+        <Route path="/locations" element={<LocationsPage />} />
         <Route path="/locations/:slug" element={<LocationPage />} />
         <Route path="/states" element={<StateGuidesPage />} />
         <Route path="/states/:slug" element={<StateGuidePage />} />

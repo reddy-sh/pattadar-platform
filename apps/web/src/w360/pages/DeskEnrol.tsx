@@ -1,6 +1,6 @@
 /** Adding somebody to the roster — the form the desk fills in during the call.
  *
- *  The lede assumes the phone call has already happened, because it has. This
+ *  The form assumes the phone call has already happened, because it has. This
  *  is not a sign-up page and there is nothing here for the associate to do: a
  *  surveyor Pattadar has worked with for two years is not going to fill in a
  *  web form, and a roster that waits for them to is a roster that stays empty
@@ -140,9 +140,7 @@ export function DeskEnrol() {
       });
       const id = res.web.inviteAssociate;
       if (!id) {
-        setErr('That did not go through, and nobody was added. The likeliest reason is '
-          + 'that this number is already on somebody else’s row — search the roster '
-          + 'for it before typing it again.');
+        setErr('Nobody was added. This number may already be on the roster.');
         return;
       }
       if (!visible) {
@@ -166,13 +164,8 @@ export function DeskEnrol() {
     <main>
       <Crumbs trail={[{ label: 'The desk', to: '/app/desk' },
                       { label: 'Company members', to: '/app/admin/members' },
-                      { label: 'Add somebody' }]} />
-      <PageHead eyebrow="Pattadar desk" title="Add an associate">
-        <p className="lede" style={{ marginTop: '0.375rem' }}>
-          You have spoken to them. This writes it down and sends them a link — they
-          can be reviewed for work with or without a Pattadar account.
-        </p>
-      </PageHead>
+                      { label: 'Add a member' }]} />
+      <PageHead eyebrow="Administration" title="Add a member" />
 
       <form
         className="stack lg"
@@ -211,11 +204,6 @@ export function DeskEnrol() {
                    onChange={(e) => setVisible(e.target.checked)} />
             <span>An owner may see their number while they are on that owner&rsquo;s job</span>
           </label>
-          <p className="note" style={{ marginTop: 'calc(var(--space-xs) * -1)' }}>
-            Off means owners never see it and Pattadar does the writing instead. It is
-            the only place an associate&rsquo;s number is ever shown to anybody outside
-            the desk — every offer stays masked whatever this says.
-          </p>
           <label className="field">
             Anything worth remembering
             <textarea rows={2} value={note} placeholder="Works Peddapuram side, not Tuni. Prefers a call before 10."
@@ -223,16 +211,12 @@ export function DeskEnrol() {
           </label>
         </Card>
 
-        <Card title="Full postal address" className="stack">
-          <p className="note">
-            Keep this separate from the places where they accept work. The address identifies
-            their home or office; coverage decides which jobs they may receive.
-          </p>
+        <Card title="Postal address" className="stack">
           <label className="field">
             House, building or street
             <input value={addressLine} placeholder="House number, street or office"
                    onChange={(e) => setAddressLine(e.target.value)} />
-            <span className="note">Optional when the village address has no street number.</span>
+            <span className="note">Optional.</span>
           </label>
           <div className="two">
             <label className="field">
@@ -244,7 +228,6 @@ export function DeskEnrol() {
               Delivery post office
               <input value={postOffice} placeholder="Katragunta B.O."
                      onChange={(e) => setPostOffice(e.target.value)} />
-              <span className="note">Recommended for a village address.</span>
             </label>
           </div>
           <div className="two">
@@ -274,7 +257,7 @@ export function DeskEnrol() {
           </div>
         </Card>
 
-        <Card title="What they do" className="stack">
+        <Card title="Services they provide" className="stack">
           {catalogue.isLoading ? <Loading h="10rem" what="the kinds of work" />
             : !catalogue.data ? <Failed what="The kinds of work" error={catalogue.error} boxed h="10rem" />
               : (
@@ -298,14 +281,9 @@ export function DeskEnrol() {
                   })}
                 </div>
               )}
-          <p className="note">
-            More than one is normal. A surveyor who also takes site photographs is two
-            lines on their page, each with its own limit, and stopping one never stops
-            the other.
-          </p>
         </Card>
 
-        <Card title="Where they work" className="stack">
+        <Card title="Service areas" className="stack">
           {areas.length > 0 && (
             <div className="row tight">
               {areas.map((a) => (
@@ -333,7 +311,7 @@ export function DeskEnrol() {
             </label>
             {wholeState ? (
               <p className="note" style={{ paddingBottom: '0.5625rem' }}>
-                Everywhere — no local presence needed.
+                Everywhere.
               </p>
             ) : (
               <label className="field grow">
@@ -349,18 +327,10 @@ export function DeskEnrol() {
             {!typed && <Why>Type the place first.</Why>}
           </div>
           {dupe && <p className="note">{dupe}</p>}
-          <p className="note">
-            The level is not decoration. Somebody who covers <em>Peddapuram mandal</em>{' '}
-            must not be sent a plot in a <em>Peddapuram</em> locality of a city, and the
-            level is the only thing that tells those two apart.
-          </p>
         </Card>
 
-        <Card title="Their papers" className="stack">
-          <p className="note">
-            Add and review each credential from their member page. They stay on the roster,
-            but cannot receive a task until every active discipline has verified evidence.
-          </p>
+        <Card title="Documents" className="stack">
+          <p className="note">No tasks until credentials are verified on their member page.</p>
         </Card>
 
         {err && (
@@ -375,7 +345,7 @@ export function DeskEnrol() {
 
         <div className="row">
           <button type="submit" className="btn primary" disabled={!ready || invite.isPending}>
-            {invite.isPending ? 'Adding them…' : 'Add them'}
+            {invite.isPending ? 'Adding…' : 'Add member'}
           </button>
           <Link className="btn" to="/app/admin/members">Cancel</Link>
           {!ready && (

@@ -341,27 +341,18 @@ export function DeskAssociates() {
                 <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}>Table</button>
               </div>
             )}
-            <Link className="btn primary" to="/app/admin/members/enrol">Add somebody</Link>
+            <Link className="btn primary" to="/app/admin/members/enrol">Add a member</Link>
           </>
         )}
-      >
-        <p className="lede" style={{ marginTop: '0.375rem' }}>
-          Surveyors, advocates, crews and other people who take company work.
-          Certification, workload and service ratings stay together here.
-        </p>
-      </PageHead>
+      />
 
       {isLoading ? <Loading h="18rem" what="the roster" />
         : !data ? <Failed what="The roster" error={error} boxed h="18rem" />
         : all.length === 0 ? (
           <Empty
-            boxed h="18rem" icon="person" title="Nobody works for Pattadar yet."
-            action={<Link className="btn primary" to="/app/admin/members/enrol">Add the first one</Link>}
-          >
-            An associate is somebody who takes jobs — a surveyor, an advocate, a
-            document writer. Add the people you already work with; they do not need
-            an account.
-          </Empty>
+            boxed h="18rem" icon="person" title="No company members yet"
+
+          />
         ) : (
           <>
             <section className="member-stats" aria-label="Member summary">
@@ -399,12 +390,9 @@ export function DeskAssociates() {
 
             {rows.length === 0 ? (
               <Empty
-                boxed h="14rem" icon="search" title="Nobody here matches that."
+                boxed h="14rem" icon="search" title="No members match"
                 action={<button type="button" className="btn" onClick={clear}>Clear</button>}
-              >
-                The search looks at a person&rsquo;s name, their firm, the kinds of work
-                they take and the places they cover.
-              </Empty>
+              />
             ) : view === 'grid' ? <MemberGrid members={rows} />
               : view === 'table' ? <MemberTable members={rows} />
                 : <MemberList members={rows} />}

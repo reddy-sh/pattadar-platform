@@ -32,6 +32,20 @@ export interface RecordCard {
   extentAlt: string; marketValue: number; tags: string[];
   /** What the card can draw of itself — see RecordCard in web360.py. */
   lat: number; lon: number; ring: number[]; coverFileRef: string;
+  /** The extent in the units it is argued in — "3 Acres 1.6 Guntas · 304
+   *  Cents · 14,714 Sq.yd" for land, "1,450 Sq.ft built · 200 Sq.yd land" for
+   *  a flat on its own plot. '' when it would only repeat `extent`. */
+  extentDetail: string;
+  /** What is filed against it, counted the way the record's own tabs count. */
+  paperCount: number; photoCount: number; featureCount: number;
+  /** "D.No 4521/2019 · Markapur SRO", or '' when no deed is recorded. */
+  deedLine: string;
+  /** A court case is on it. Separate from `status`, which land can hold at the
+   *  same time as being plainly owned. */
+  litigation: boolean;
+  /** An image scan to show when there is no photograph. Never a PDF — the
+   *  gateway cannot thumbnail one. See _paper_heroes in web360.py. */
+  paperFileRef: string;
 }
 export interface Portfolio {
   displayName: string;
@@ -90,10 +104,24 @@ export interface RecordDetail {
   paperCount: number; featureCount: number;
   peopleCount: number; serviceCount: number; photoCount: number; photoNote: string;
   tags: string[]; noteBody: string; noteAuthor: string; noteAt: string;
+  /** The holding this record is part of, or '' when it stands alone. A record
+   *  belongs to at most one — the API enforces that cardinality with two partial
+   *  unique indexes, so this is a pair of strings rather than a list. */
+  combinedId: string; combinedName: string;
 }
 export interface Paper {
   id: string; title: string; detail: string; shelf: string; icon: string;
   tags: string[]; shared: boolean; pageCount: number; fileRef: string;
+  mimeType: string; recordId: string; recordTitle: string;
+  linkedProperties: { id: string; title: string; kind: string; documentId: string }[];
+  createdAt: string; jointFmbId: string;
+  /** The owner's own folder (VaultFolder.id); '' at the top level. Optional
+   *  because the per-record `papers` read does not select it. */
+  folderId?: string; sizeBytes?: number;
+}
+/** One of the owner's own folders in Documents, sent flat with its parent. */
+export interface VaultFolder {
+  id: string; name: string; parentId: string; fileCount: number; folderCount: number; createdAt: string;
 }
 /** A note filed against a record. Append-only on the server — there is no
  *  update or delete resolver for `notes` — which is the whole point of it:
@@ -126,6 +154,7 @@ export interface Person {
   id: string; name: string; initials: string; role: string; badges: string[];
   summary: string; arrangement: string; payLabel: string; payValue: string;
   dueLabel: string; dueValue: string; visibility: string; actions: string[]; compact: boolean;
+  photoRef: string;
 }
 export interface Payment {
   id: string; title: string; subtitle: string; occurredOn: string;
@@ -134,6 +163,34 @@ export interface Payment {
 export interface PeopleView {
   people: Person[]; payments: Payment[]; count: number; monthlyOut: number;
   seasonalIn: number; walletBalance: number; walletNote: string; walletLive: boolean;
+}
+export interface Owner {
+  id: string; name: string; initials: string; parentage: string; address: string;
+  role: string; isCurrent: boolean; acquiredVia: string; photoRef: string;
+}
+export interface OwnersView {
+  owners: Owner[]; count: number; currentName: string;
+}
+/** One endpoint of a transfer. `extent`/`share` are meaningful on the 'to'
+ *  side, where a split is measured; the server sends the rendered labels so no
+ *  screen reinvents "1/2" out of two integers or prints an unstated area as 0. */
+export interface TransferParty {
+  id: string; side: 'from' | 'to'; ownerId: string; name: string;
+  parentage: string; address: string; extent: number; extentUnit: string;
+  shareNum: number; shareDen: number; isGpa: boolean;
+  shareLabel: string; extentLabel: string;
+}
+/** One event in the chain of title. `verified` false means a reading proposed
+ *  it and nobody has confirmed the direction yet — the deed reader itself warns
+ *  that seller/buyer can be inverted, so an unconfirmed edge is drawn as a
+ *  proposal rather than as settled title. */
+export interface Transfer {
+  id: string; kind: string; deedDocumentId: string; deedNo: string; sro: string;
+  registeredOn: string; priorTransferId: string; note: string; source: string;
+  verified: boolean; fromParties: TransferParty[]; toParties: TransferParty[];
+}
+export interface TransfersView {
+  transfers: Transfer[]; count: number; unverifiedCount: number;
 }
 export interface BoundaryMark {
   id: string; seq: number; label: string; state: string; detail: string;
@@ -244,7 +301,8 @@ export interface SearchHit {
  * document database; the UI validates the small shape it consumes. */
 export interface GovernancePolicy {
   id: string; scopeKey: string; countryCode: string; stateCode: string;
-  districtCode: string; revision: number; status: string; schemaVersion: number;
+  districtCode: string; mandalCode: string; villageCode: string;
+  revision: number; status: string; schemaVersion: number;
   document: string; sourceDigest: string; createdBy: string; createdAt: string;
   publishedBy: string; publishedAt: string;
 }
@@ -275,6 +333,9 @@ export interface GovernanceDocument {
   jurisdiction: {
     countryCode: string; countryName: string; stateCode: string; stateName: string;
     districtCode: string; districtName: string; authorityName: string;
+    /** Absent on documents saved before mandal/village scoping shipped, or
+     *  wherever the scope is wider than a mandal or village. Read as '*'. */
+    mandalCode?: string; mandalName?: string; villageCode?: string; villageName?: string;
     localTerms: Record<string, string>;
   };
   policy: { name: string; effectiveOn: string; reviewBy: string; legalNotice: string };
@@ -464,7 +525,8 @@ export interface ServiceBatchReceipt {
 
 const CARD = `id kind title passbookId groupId subtitle classification status stake khataNo ownerName
   village mandal district placeLine extent extentUnit extentAlt marketValue tags
-  lat lon ring coverFileRef`;
+  lat lon ring coverFileRef
+  extentDetail paperCount photoCount featureCount deedLine litigation paperFileRef`;
 
 const Q_PORTFOLIO = `{ web { portfolio {
   displayName
@@ -477,8 +539,8 @@ const Q_PORTFOLIO = `{ web { portfolio {
   recent { ${CARD} }
 } } }`;
 
-const Q_PROPERTIES = `query P($kinds:[String!],$statuses:[String!],$stakes:[String!],$derived:[String!],$tags:[String!],$groups:[String!]) {
-  web { properties(kinds:$kinds,statuses:$statuses,stakes:$stakes,derived:$derived,tags:$tags,groups:$groups) {
+const Q_PROPERTIES = `query P($kinds:[String!],$statuses:[String!],$stakes:[String!],$villages:[String!],$khatas:[String!],$owners:[String!],$tags:[String!],$groups:[String!]) {
+  web { properties(kinds:$kinds,statuses:$statuses,stakes:$stakes,villages:$villages,khatas:$khatas,owners:$owners,tags:$tags,groups:$groups) {
     shown total hidden filterSummary hiddenPlaces activeCount
     cards { ${CARD} }
     facets { key label options { key label count active } }
@@ -489,11 +551,13 @@ const Q_RECORD = `query R($id:String!) { web { record(id:$id) {
   village mandal district placeLine
   placeLineTe state extent extentUnit extentDetail marketValue perUnitValue perUnitLabel
   boughtYear lat lon ring mapCaption paperCount featureCount peopleCount serviceCount
-  photoCount photoNote tags noteBody noteAuthor noteAt
+  photoCount photoNote tags noteBody noteAuthor noteAt combinedId combinedName
 } } }`;
 
 const Q_PAPERS = `query D($id:String!) { web { papers(recordId:$id) {
-  id title detail shelf icon tags shared pageCount fileRef } } }`;
+  id title detail shelf icon tags shared pageCount fileRef mimeType recordId recordTitle createdAt jointFmbId
+  linkedProperties { id title kind documentId }
+} } }`;
 
 const Q_FEATURES = `query F($id:String!) { web { features(recordId:$id) {
   total needsRepair walkedOn walkedBy
@@ -505,11 +569,28 @@ const Q_FEATURES = `query F($id:String!) { web { features(recordId:$id) {
           fields { key label kind unit placeholder options required dependsOn dependsValue } }
 } } }`;
 
+const Q_OWNERS = `query OW($id:String!) { web { owners(recordId:$id) {
+  count currentName
+  owners { id name initials parentage address role isCurrent acquiredVia photoRef }
+} } }`;
+
 const Q_PEOPLE = `query PE($id:String!) { web { people(recordId:$id) {
   count monthlyOut seasonalIn walletBalance walletNote walletLive
   people { id name initials role badges summary arrangement payLabel payValue
-           dueLabel dueValue visibility actions compact }
+           dueLabel dueValue visibility actions compact photoRef }
   payments { id title subtitle occurredOn method amount direction state }
+} } }`;
+
+const TRANSFER_PARTY_FIELDS = `id side ownerId name parentage address
+  extent extentUnit shareNum shareDen isGpa shareLabel extentLabel`;
+
+const Q_TRANSFERS = `query TR($id:String!) { web { transfers(recordId:$id) {
+  count unverifiedCount
+  transfers {
+    id kind deedDocumentId deedNo sro registeredOn priorTransferId note source verified
+    fromParties { ${TRANSFER_PARTY_FIELDS} }
+    toParties { ${TRANSFER_PARTY_FIELDS} }
+  }
 } } }`;
 
 const Q_BOUNDARY = `query B($id:String!) { web { boundary(recordId:$id) {
@@ -650,8 +731,8 @@ export function useGeographyReference(
   });
 }
 
-const GOVERNANCE_FIELDS = `id scopeKey countryCode stateCode districtCode revision status
-  schemaVersion document sourceDigest createdBy createdAt publishedBy publishedAt`;
+const GOVERNANCE_FIELDS = `id scopeKey countryCode stateCode districtCode mandalCode villageCode
+  revision status schemaVersion document sourceDigest createdBy createdAt publishedBy publishedAt`;
 
 export function parseGovernanceDocument(policy: GovernancePolicy | null | undefined): GovernanceDocument | null {
   if (!policy?.document) return null;
@@ -666,34 +747,40 @@ export function parseGovernanceDocument(policy: GovernancePolicy | null | undefi
 /** Published guidance is owner-visible. Draft and provenance access uses the
  * separate admin query below and is denied by the server, not by this hook. */
 export function useGovernancePolicy(
-  countryCode = 'IN', stateCode = 'AP', districtCode = '*', enabled = true,
+  countryCode = 'IN', stateCode = 'AP', districtCode = '*',
+  mandalCode = '*', villageCode = '*', enabled = true,
 ) {
   return useQuery({
     enabled,
-    queryKey: [KEY, 'governance', countryCode, stateCode, districtCode],
+    queryKey: [KEY, 'governance', countryCode, stateCode, districtCode, mandalCode, villageCode],
     staleTime: 15 * 60 * 1000,
     queryFn: async () => (await gql<Wrapped<'governancePolicy', GovernancePolicy | null>>(
-      `query GP($countryCode:String!,$stateCode:String!,$districtCode:String!) {
-        web { governancePolicy(countryCode:$countryCode,stateCode:$stateCode,districtCode:$districtCode) {
+      `query GP($countryCode:String!,$stateCode:String!,$districtCode:String!,
+                $mandalCode:String!,$villageCode:String!) {
+        web { governancePolicy(countryCode:$countryCode,stateCode:$stateCode,districtCode:$districtCode,
+              mandalCode:$mandalCode,villageCode:$villageCode) {
           ${GOVERNANCE_FIELDS}
         } }
-      }`, { countryCode, stateCode, districtCode },
+      }`, { countryCode, stateCode, districtCode, mandalCode, villageCode },
     )).web.governancePolicy,
   });
 }
 
 export function useGovernanceAdminPolicy(
-  countryCode = 'IN', stateCode = '*', districtCode = '*', enabled = true,
+  countryCode = 'IN', stateCode = '*', districtCode = '*',
+  mandalCode = '*', villageCode = '*', enabled = true,
 ) {
   return useQuery({
     enabled,
-    queryKey: [KEY, 'governanceAdmin', countryCode, stateCode, districtCode],
+    queryKey: [KEY, 'governanceAdmin', countryCode, stateCode, districtCode, mandalCode, villageCode],
     queryFn: async () => (await gql<Wrapped<'governanceAdminPolicy', GovernancePolicy | null>>(
-      `query GAP($countryCode:String!,$stateCode:String!,$districtCode:String!) {
-        web { governanceAdminPolicy(countryCode:$countryCode,stateCode:$stateCode,districtCode:$districtCode) {
+      `query GAP($countryCode:String!,$stateCode:String!,$districtCode:String!,
+                 $mandalCode:String!,$villageCode:String!) {
+        web { governanceAdminPolicy(countryCode:$countryCode,stateCode:$stateCode,
+              districtCode:$districtCode,mandalCode:$mandalCode,villageCode:$villageCode) {
           ${GOVERNANCE_FIELDS}
         } }
-      }`, { countryCode, stateCode, districtCode },
+      }`, { countryCode, stateCode, districtCode, mandalCode, villageCode },
     )).web.governanceAdminPolicy,
   });
 }
@@ -723,7 +810,15 @@ export function useGovernancePolicyHistory(scopeKey: string, enabled = true) {
 }
 
 export interface PropertyFilter {
-  kinds: string[]; statuses: string[]; stakes: string[]; derived: string[]; tags: string[];
+  kinds: string[]; statuses: string[]; stakes: string[];
+  /** Village and khata are two facets, not one: a village is a place and a
+   *  khata is a revenue-record number, and each narrows within itself by OR
+   *  and against the other by AND (this village AND that khata). */
+  villages: string[]; khatas: string[];
+  /** Owner name as it reads on the card — a parcel inherits its passbook's
+   *  owner, a built property carries its own. */
+  owners: string[];
+  tags: string[];
   /** Family / group ids, plus `'personal'` for holdings in your own name.
    *  This is what Families & Groups deep-links into: one filter on the real
    *  Properties screen rather than a second list screen of its own. */
@@ -733,7 +828,7 @@ export interface PropertyFilter {
 /** The facet key for "in your own name" — mirrors PERSONAL in web360.py. */
 export const PERSONAL_GROUP = 'personal';
 export const EMPTY_FILTER: PropertyFilter = {
-  kinds: [], statuses: [], stakes: [], derived: [], tags: [], groups: [],
+  kinds: [], statuses: [], stakes: [], villages: [], khatas: [], owners: [], tags: [], groups: [],
 };
 
 export function useProperties(filter: PropertyFilter) {
@@ -811,6 +906,23 @@ export function usePeople(id: string | undefined) {
     enabled: !!id,
     queryKey: [KEY, 'people', id],
     queryFn: async () => (await gql<Wrapped<'people', PeopleView>>(Q_PEOPLE, { id })).web.people,
+  });
+}
+
+export function useOwners(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'owners', id],
+    queryFn: async () => (await gql<Wrapped<'owners', OwnersView>>(Q_OWNERS, { id })).web.owners,
+  });
+}
+
+export function useTransfers(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'transfers', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'transfers', TransfersView>>(Q_TRANSFERS, { id })).web.transfers,
   });
 }
 
@@ -911,8 +1023,67 @@ const Q_SEARCH = `query S($q:String!) { web { search(q:$q) {
 /** The jump box. Enabled from two characters; results are cheap ILIKEs, so a
  *  short staleTime keeps typing snappy without hammering the API. */
 const Q_VAULT_PAPERS = `query VP($shelf:String!) { web { vaultPapers(shelf:$shelf) {
-  id title detail shelf icon tags shared pageCount fileRef
+  id title detail shelf icon tags shared pageCount fileRef mimeType recordId recordTitle createdAt jointFmbId
+  folderId sizeBytes
+  linkedProperties { id title kind documentId }
 } } }`;
+
+const Q_VAULT_FOLDERS = `query VF { web { vaultFolders {
+  id name parentId fileCount folderCount createdAt
+} } }`;
+
+/** Every folder the owner has made, flat. Documents draws its breadcrumbs,
+ *  its folder rows and its move-to picker from this one read. */
+export function useVaultFolders() {
+  return useQuery({
+    queryKey: [KEY, 'vaultFolders'],
+    queryFn: async () =>
+      (await gql<Wrapped<'vaultFolders', VaultFolder[]>>(Q_VAULT_FOLDERS)).web.vaultFolders,
+  });
+}
+
+// Folder writes that a dialog answers itself (a clash, a bad name) report no
+// toast of their own: the dialog stays open and says why, in place.
+export const useCreateVaultFolder = () =>
+  useW360Mutation<{ name: string; parentId: string }, Wrapped<'createVaultFolder', string>>(
+    `mutation CVF($name:String!,$parentId:String!) {
+       web { createVaultFolder(name:$name,parentId:$parentId) } }`,
+    'That folder', false,
+  );
+
+export const useRenameVaultFolder = () =>
+  useW360Mutation<{ folderId: string; name: string }, Wrapped<'renameVaultFolder', boolean>>(
+    `mutation RVF($folderId:String!,$name:String!) {
+       web { renameVaultFolder(folderId:$folderId,name:$name) } }`,
+    'That folder', false,
+  );
+
+export const useMoveVaultFolder = () =>
+  useW360Mutation<{ folderId: string; parentId: string }, Wrapped<'moveVaultFolder', boolean>>(
+    `mutation MVF($folderId:String!,$parentId:String!) {
+       web { moveVaultFolder(folderId:$folderId,parentId:$parentId) } }`,
+    'Moving that folder', false,
+  );
+
+export const useDeleteVaultFolder = () =>
+  useW360Mutation<{ folderId: string }, Wrapped<'deleteVaultFolder', boolean>>(
+    `mutation DVF($folderId:String!) { web { deleteVaultFolder(folderId:$folderId) } }`,
+    'Removing that folder', false,
+  );
+
+export const useMovePapersToFolder = () =>
+  useW360Mutation<{ paperIds: string[]; folderId: string }, Wrapped<'movePapersToFolder', number>>(
+    `mutation MPF($paperIds:[String!]!,$folderId:String!) {
+       web { movePapersToFolder(paperIds:$paperIds,folderId:$folderId) } }`,
+    'Moving those files', false,
+  );
+
+export const useTagPapers = () =>
+  useW360Mutation<{ paperIds: string[]; tag: string; on: boolean }, Wrapped<'tagPapers', number>>(
+    `mutation TP($paperIds:[String!]!,$tag:String!,$on:Boolean!) {
+       web { tagPapers(paperIds:$paperIds,tag:$tag,on:$on) } }`,
+    'That tag', false,
+  );
 
 /** Every paper on one shelf, across every record. The shelf cards on W13 have
  *  linked here since they were drawn; until `vaultPapers` existed they linked
@@ -925,6 +1096,14 @@ export function useVaultPapers(shelf: string | undefined) {
       (await gql<Wrapped<'vaultPapers', Paper[]>>(Q_VAULT_PAPERS, { shelf })).web.vaultPapers,
   });
 }
+
+/** Files a selected set of private vault items under one property the owner controls. */
+export const useLinkPapers = () =>
+  useW360Mutation<{ paperIds: string[]; recordIds: string[] }, Wrapped<'linkPapers', boolean>>(
+    `mutation LP($paperIds:[String!]!,$recordIds:[String!]!) {
+       web { linkPapers(paperIds:$paperIds,recordIds:$recordIds) } }`,
+    'Those documents',
+  );
 
 export function useSearch(q: string) {
   return useQuery({
@@ -1126,6 +1305,22 @@ export const useDeletePurchase = () =>
     false,
   );
 
+/** Correct one recorded purchase lot in place (web360 `update_purchase`).
+ *  Same fields as savePurchase; the server derives the rate again and answers
+ *  false for a lot that is not the caller's. */
+export const useUpdatePurchase = () =>
+  useW360Mutation<{
+    lotId: string; boughtOn: string; paid: number; extent: number;
+    extentUnit: string; govtValue: number; seller: string; deedNo: string; sro: string;
+  }, Wrapped<'updatePurchase', boolean>>(
+    `mutation UPu($lotId:String!,$boughtOn:String!,$paid:Float!,$extent:Float!,
+                  $extentUnit:String!,$govtValue:Float!,$seller:String!,$deedNo:String!,$sro:String!) {
+       web { updatePurchase(lotId:$lotId,boughtOn:$boughtOn,paid:$paid,extent:$extent,
+                            extentUnit:$extentUnit,govtValue:$govtValue,seller:$seller,
+                            deedNo:$deedNo,sro:$sro) } }`,
+    'That correction',
+  );
+
 export const useUpdateCaption = () =>
   useW360Mutation<{ photoId: string; caption: string }>(
     `mutation UC($photoId:String!,$caption:String!) {
@@ -1159,20 +1354,24 @@ export const useAddPhoto = (invalidate = true) =>
 export const useAddPerson = () =>
   useW360Mutation<{
     recordId: string; personName: string; role: string; summary: string;
-    arrangement: string; payLabel: string; payValue: string;
+    arrangement: string; payLabel: string; payValue: string; photoRef: string;
   }, Wrapped<'addPerson', string>>(
     `mutation APe($recordId:String!,$personName:String!,$role:String!,$summary:String!,
-                  $arrangement:String!,$payLabel:String!,$payValue:String!) {
+                  $arrangement:String!,$payLabel:String!,$payValue:String!,$photoRef:String!) {
        web { addPerson(recordId:$recordId,personName:$personName,role:$role,summary:$summary,
-                       arrangement:$arrangement,payLabel:$payLabel,payValue:$payValue) } }`,
+                       arrangement:$arrangement,payLabel:$payLabel,payValue:$payValue,
+                       photoRef:$photoRef) } }`,
     'That person',
     false,
   );
 
 export const useUpdatePerson = () =>
-  useW360Mutation<{ personId: string; personName: string; role: string; summary: string }, Wrapped<'updatePerson', boolean>>(
-    `mutation UPe($personId:String!,$personName:String!,$role:String!,$summary:String!) {
-       web { updatePerson(personId:$personId,personName:$personName,role:$role,summary:$summary) } }`,
+  useW360Mutation<{
+    personId: string; personName: string; role: string; summary: string; photoRef: string;
+  }, Wrapped<'updatePerson', boolean>>(
+    `mutation UPe($personId:String!,$personName:String!,$role:String!,$summary:String!,$photoRef:String!) {
+       web { updatePerson(personId:$personId,personName:$personName,role:$role,summary:$summary,
+                          photoRef:$photoRef) } }`,
     'That person',
     false,
   );
@@ -1181,6 +1380,117 @@ export const useDeletePerson = () =>
   useW360Mutation<{ personId: string }, Wrapped<'deletePerson', boolean>>(
     `mutation DPe($personId:String!) { web { deletePerson(personId:$personId) } }`,
     'Removing that person',
+    false,
+  );
+
+export const useAddOwner = () =>
+  useW360Mutation<{
+    recordId: string; name: string; parentage: string; address: string;
+    role: string; isCurrent: boolean; acquiredVia: string; photoRef: string;
+  }, Wrapped<'addOwner', string>>(
+    `mutation AOw($recordId:String!,$name:String!,$parentage:String!,$address:String!,
+                  $role:String!,$isCurrent:Boolean!,$acquiredVia:String!,$photoRef:String!) {
+       web { addOwner(recordId:$recordId,name:$name,parentage:$parentage,address:$address,
+                      role:$role,isCurrent:$isCurrent,acquiredVia:$acquiredVia,
+                      photoRef:$photoRef) } }`,
+    'That owner',
+    false,
+  );
+
+export const useUpdateOwner = () =>
+  useW360Mutation<{
+    ownerId: string; name: string; parentage: string; address: string;
+    role: string; isCurrent: boolean; photoRef: string;
+  }, Wrapped<'updateOwner', boolean>>(
+    `mutation UOw($ownerId:String!,$name:String!,$parentage:String!,$address:String!,
+                  $role:String!,$isCurrent:Boolean!,$photoRef:String!) {
+       web { updateOwner(ownerId:$ownerId,name:$name,parentage:$parentage,address:$address,
+                         role:$role,isCurrent:$isCurrent,photoRef:$photoRef) } }`,
+    'That owner',
+    false,
+  );
+
+export const useDeleteOwner = () =>
+  useW360Mutation<{ ownerId: string }, Wrapped<'deleteOwner', boolean>>(
+    `mutation DOw($ownerId:String!) { web { deleteOwner(ownerId:$ownerId) } }`,
+    'Removing that owner',
+    false,
+  );
+
+// ── Transfers: the chain of title ────────────────────────────────────
+// A transfer is created empty and then given its endpoints, which is the order
+// the graph editor works in: draw the link, then say how much went to whom.
+
+export const useAddTransfer = () =>
+  useW360Mutation<{
+    recordId: string; kind: string; deedDocumentId: string; deedNo: string;
+    sro: string; registeredOn: string; priorTransferId: string; note: string;
+    source: string; verified: boolean;
+  }, Wrapped<'addTransfer', string>>(
+    `mutation ATr($recordId:String!,$kind:String!,$deedDocumentId:String!,$deedNo:String!,
+                  $sro:String!,$registeredOn:String!,$priorTransferId:String!,$note:String!,
+                  $source:String!,$verified:Boolean!) {
+       web { addTransfer(recordId:$recordId,kind:$kind,deedDocumentId:$deedDocumentId,
+                         deedNo:$deedNo,sro:$sro,registeredOn:$registeredOn,
+                         priorTransferId:$priorTransferId,note:$note,source:$source,
+                         verified:$verified) } }`,
+    'That transfer',
+    false,
+  );
+
+export const useUpdateTransfer = () =>
+  useW360Mutation<{
+    transferId: string; kind: string; deedDocumentId: string; deedNo: string;
+    sro: string; registeredOn: string; note: string; verified?: boolean | null;
+  }, Wrapped<'updateTransfer', boolean>>(
+    `mutation UTr($transferId:String!,$kind:String!,$deedDocumentId:String!,$deedNo:String!,
+                  $sro:String!,$registeredOn:String!,$note:String!,$verified:Boolean) {
+       web { updateTransfer(transferId:$transferId,kind:$kind,deedDocumentId:$deedDocumentId,
+                            deedNo:$deedNo,sro:$sro,registeredOn:$registeredOn,note:$note,
+                            verified:$verified) } }`,
+    'That transfer',
+    false,
+  );
+
+export const useDeleteTransfer = () =>
+  useW360Mutation<{ transferId: string }, Wrapped<'deleteTransfer', boolean>>(
+    `mutation DTr($transferId:String!) { web { deleteTransfer(transferId:$transferId) } }`,
+    'Removing that transfer',
+    false,
+  );
+
+export const useSetTransferParty = () =>
+  useW360Mutation<{
+    transferId: string; side: 'from' | 'to'; ownerId: string; name: string;
+    parentage: string; address: string; extent: number; extentUnit: string;
+    shareNum: number; shareDen: number; isGpa: boolean; partyId: string;
+  }, Wrapped<'setTransferParty', string>>(
+    `mutation STP($transferId:String!,$side:String!,$ownerId:String!,$name:String!,
+                  $parentage:String!,$address:String!,$extent:Float!,$extentUnit:String!,
+                  $shareNum:Int!,$shareDen:Int!,$isGpa:Boolean!,$partyId:String!) {
+       web { setTransferParty(transferId:$transferId,side:$side,ownerId:$ownerId,name:$name,
+                              parentage:$parentage,address:$address,extent:$extent,
+                              extentUnit:$extentUnit,shareNum:$shareNum,shareDen:$shareDen,
+                              isGpa:$isGpa,partyId:$partyId) } }`,
+    'That party',
+    false,
+  );
+
+export const useRemoveTransferParty = () =>
+  useW360Mutation<{ partyId: string }, Wrapped<'removeTransferParty', boolean>>(
+    `mutation RTP($partyId:String!) { web { removeTransferParty(partyId:$partyId) } }`,
+    'Removing that party',
+    false,
+  );
+
+export const useLinkTransferPrior = () =>
+  useW360Mutation<
+    { transferId: string; priorTransferId: string },
+    Wrapped<'linkTransferPrior', boolean>
+  >(
+    `mutation LTP($transferId:String!,$priorTransferId:String!) {
+       web { linkTransferPrior(transferId:$transferId,priorTransferId:$priorTransferId) } }`,
+    'That link',
     false,
   );
 
@@ -1200,7 +1510,7 @@ export const useUpdatePaper = (reportError = true) =>
   useW360Mutation<{ paperId: string; name: string; shelf: string }, Wrapped<'updatePaper', boolean>>(
     `mutation UPa($paperId:String!,$name:String!,$shelf:String!) {
        web { updatePaper(paperId:$paperId,name:$name,shelf:$shelf) } }`,
-    'That paper',
+    'That document',
     reportError,
   );
 
@@ -1294,20 +1604,22 @@ export const useAddPaper = (reportError = true) =>
   useW360Mutation<{
     recordId: string; fileRef: string; name: string; subtitle: string;
     shelf: string; pageCount: number; mimeType: string; sizeBytes: number;
+    /** The Documents folder it was uploaded from; '' or absent is the top level. */
+    folderId?: string;
   }, Wrapped<'addPaper', string>>(
     `mutation ADP($recordId:String!,$fileRef:String!,$name:String!,$subtitle:String!,
-                  $shelf:String!,$pageCount:Int!,$mimeType:String!,$sizeBytes:Int!) {
+                  $shelf:String!,$pageCount:Int!,$mimeType:String!,$sizeBytes:Int!,$folderId:String) {
        web { addPaper(recordId:$recordId,fileRef:$fileRef,name:$name,subtitle:$subtitle,
                       shelf:$shelf,pageCount:$pageCount,mimeType:$mimeType,
-                      sizeBytes:$sizeBytes) } }`,
-    'That paper',
+                      sizeBytes:$sizeBytes,folderId:$folderId) } }`,
+    'That document',
     reportError,
   );
 
 export const useDeletePaper = (reportError = true) =>
-  useW360Mutation<{ paperId: string }, Wrapped<'deletePaper', boolean>>(
-    `mutation DELP($paperId:String!) { web { deletePaper(paperId:$paperId) } }`,
-    'Deleting that paper',
+  useW360Mutation<{ paperId: string; recordId?: string }, Wrapped<'deletePaper', boolean>>(
+    `mutation DELP($paperId:String!,$recordId:String) { web { deletePaper(paperId:$paperId,recordId:$recordId) } }`,
+    'Deleting that document',
     reportError,
   );
 
@@ -1491,13 +1803,20 @@ export function useCorrections(id: string | undefined) {
 
 /** One audited change to a record — an add, an edit, a removal. Broader than a
  *  Correction (which is only a changed field): every action filed against the
- *  record shows here, newest first. `action` is the server's raw verb. */
+ *  record shows here, newest first. `action` is the server's raw verb; `by` is
+ *  who acted, already in words ("You", "Pattadar desk"). A correction carries
+ *  its field and old and new values in `field`/`was`/`now` (empty otherwise). */
 export interface HistoryEvent {
   id: string; action: string; detail: string; at: string; by: string;
+  field: string; was: string; now: string;
 }
 
+/** The trail stops at this many events (services/api web360.py `_trail`,
+ *  LIMIT 200), so a list this long says it is the latest ones, not all. */
+export const HISTORY_CAP = 200;
+
 const Q_HISTORY = `query H($id:String!) { web { recordHistory(recordId:$id) {
-  id action detail at by } } }`;
+  id action detail at by field was now } } }`;
 
 export function useRecordHistory(id: string | undefined) {
   return useQuery({
@@ -1548,12 +1867,15 @@ export const useOrderServiceBatch = (reportError = true) =>
 export const useSaveGovernancePolicy = (reportError = true) =>
   useW360Mutation<{
     countryCode: string; stateCode: string; districtCode: string;
+    mandalCode: string; villageCode: string;
     document: string; reason: string; expectedRevision: number;
   }, Wrapped<'saveGovernancePolicy', GovernancePolicy | null>>(
     `mutation SGP($countryCode:String!,$stateCode:String!,$districtCode:String!,
+                  $mandalCode:String!,$villageCode:String!,
                   $document:String!,$reason:String!,$expectedRevision:Int!) {
        web { saveGovernancePolicy(countryCode:$countryCode,stateCode:$stateCode,
-              districtCode:$districtCode,document:$document,reason:$reason,
+              districtCode:$districtCode,mandalCode:$mandalCode,villageCode:$villageCode,
+              document:$document,reason:$reason,
               expectedRevision:$expectedRevision) { ${GOVERNANCE_FIELDS} } } }`,
     'That policy draft', reportError,
   );
@@ -1691,7 +2013,7 @@ export const useAddDeliverable = () =>
                             fileRef:$fileRef,fileName:$fileName,mimeType:$mimeType,
                             sizeBytes:$sizeBytes,payload:$payload,fileAs:$fileAs,
                             submittedBy:$submittedBy) } }`,
-    'What came back',
+    'Submitted work',
   );
 
 /** Says yes or no to one item on its own. A survey that comes back with a good
@@ -2398,4 +2720,484 @@ export const useCloseDeskTask = () =>
   useW360Mutation<{ taskId: string }, Wrapped<'closeDeskTask', boolean>>(
     `mutation CDT($taskId:String!) { web { closeDeskTask(taskId:$taskId) } }`,
     'Closing that task',
+  );
+
+// ── Combined properties ────────────────────────────────────────────────
+//
+// Several records held as one property: thirty acres and thirty acres, two
+// khatas, one fence. Every figure below is a SUM of member figures and every
+// paper, boundary and survey-level cost still belongs to the member it was
+// filed against — which is why `recordTitle` rides along on almost everything
+// here. Nothing in this section is a new legal record, and none of it reaches
+// the portfolio: `usePortfolio` reads the records themselves, so an acre inside
+// a combined property is counted exactly once.
+
+export interface CombinedMember {
+  /** The membership row. Removing this does not touch the record. */
+  id: string;
+  recordId: string;
+  recordKind: string;
+  title: string;
+  placeLine: string;
+  khataNo: string;
+  ownerName: string;
+  status: string;
+  extent: number;
+  extentUnit: string;
+  extentDetail: string;
+  marketValue: number;
+  paperCount: number;
+  /** surveyed | pinned | unplaced — what the combined map can draw of it. */
+  ground: string;
+  sheetTitle: string;
+  sheetId: string;
+  archived: boolean;
+  sort: number;
+}
+
+export interface Combined {
+  id: string;
+  name: string;
+  note: string;
+  memberCount: number;
+  parcelCount: number;
+  propertyCount: number;
+  /** Three extents, never one: acres, plot yards and built square feet do not
+   *  add up, and one figure would have to drop two of them. */
+  farmExtent: number;
+  plotExtent: number;
+  builtExtent: number;
+  extentLine: string;
+  marketValue: number;
+  invested: number;
+  paperCount: number;
+  surveyedCount: number;
+  /** Spent on the whole holding, and spent on its members. Only the first is
+   *  the holding's own money. */
+  combinedSpend: number;
+  memberSpend: number;
+  placeLine: string;
+  /** False when a member record has been deleted from Properties: the holding
+   *  survives, with its costs, and says it is short of a survey. */
+  isComplete: boolean;
+  createdAt: string;
+  updatedAt: string;
+  members: CombinedMember[];
+}
+
+export interface CombinedPaper {
+  id: string;
+  title: string;
+  detail: string;
+  shelf: string;
+  icon: string;
+  tags: string[];
+  shared: boolean;
+  pageCount: number;
+  fileRef: string;
+  recordId: string;
+  recordTitle: string;
+}
+
+export interface CombinedSurveyShape {
+  recordId: string;
+  title: string;
+  kind: string;
+  /** Flat [lat, lon, …]; empty when there is no outline to draw. */
+  ring: number[];
+  lat: number;
+  lon: number;
+  extentLabel: string;
+  sheetTitle: string;
+  sheetId: string;
+  ground: string;
+  note: string;
+  /** The outline's own measurements, so a combined view is at least as useful
+   *  as the record it gathers. `sideLengths` is metres in corner order and is
+   *  rounded to whole metres when drawn — a boundary traced over imagery and
+   *  stored at six decimals cannot support a centimetre. */
+  corners: number;
+  sideLengths: number[];
+  sideBearings: number[];
+  perimeterM: number;
+  /** Area OF THE OUTLINE in acres — not the extent on record. */
+  measuredAc: number;
+  /** This member's own extent from the register, and whether the two figures
+   *  can be compared at all. Per member so the screen can total whichever
+   *  surveys the reader has selected rather than only the whole holding. */
+  recordedAc: number;
+  comparable: boolean;
+  /** True when `sheetTitle` is this member's copy of a joint FMB. */
+  sheetJoint: boolean;
+}
+
+/** One joint FMB: a single sheet covering several members, filed as a copy on
+ *  each. `paperIds` line up with `recordIds`. */
+export interface CombinedJointSheet {
+  id: string;
+  name: string;
+  recordIds: string[];
+  recordTitles: string[];
+  paperIds: string[];
+  createdAt: string;
+  /** The single stored file behind every copy. */
+  fileRef: string;
+}
+
+export interface CombinedRelation {
+  fromRecordId: string;
+  toRecordId: string;
+  fromTitle: string;
+  toTitle: string;
+  /** adjoining | overlapping | corner | apart */
+  relation: string;
+  gapM: number;
+  runM: number;
+  detail: string;
+}
+
+export interface CombinedFmb {
+  id: string;
+  name: string;
+  shapes: CombinedSurveyShape[];
+  relations: CombinedRelation[];
+  drawnCount: number;
+  surveyedCount: number;
+  sheetCount: number;
+  pieceCount: number;
+  caption: string;
+  missing: string[];
+  /** The drawn outlines added up, against what the register says for the same
+   *  land. `comparable` is false when they are not all measured in acres. */
+  measuredAc: number;
+  recordedAc: number;
+  comparable: boolean;
+  jointSheets: CombinedJointSheet[];
+}
+
+export interface CombinedExpenseRow {
+  id: string;
+  title: string;
+  subtitle: string;
+  kind: string;
+  category: string;
+  amount: number;
+  spentOn: string;
+  paidBy: string;
+  vendor: string;
+  note: string;
+  recoverable: boolean;
+  hasReceipt: boolean;
+  fiscalYear: string;
+  /** combined — the whole holding; record — one survey. */
+  scope: string;
+  recordId: string;
+  recordTitle: string;
+  invoiceNo: string;
+  warrantyUntil: string;
+  receiptFileRef: string;
+  receiptFileName: string;
+  receiptMimeType: string;
+  receiptSizeBytes: number;
+}
+
+export interface CombinedExpenseView {
+  id: string;
+  name: string;
+  year: string;
+  years: string[];
+  spent: number;
+  capital: number;
+  running: number;
+  income: number;
+  owedBack: number;
+  combinedSpend: number;
+  memberSpend: number;
+  farmExtent: number;
+  perAcreRunning: number;
+  categories: FacetOption[];
+  scopes: FacetOption[];
+  rows: CombinedExpenseRow[];
+}
+
+const COMBINED_FIELDS = `id name note memberCount parcelCount propertyCount
+  farmExtent plotExtent builtExtent extentLine marketValue invested paperCount
+  surveyedCount combinedSpend memberSpend placeLine isComplete createdAt updatedAt`;
+
+const COMBINED_MEMBER_FIELDS = `id recordId recordKind title placeLine khataNo
+  ownerName status extent extentUnit extentDetail marketValue paperCount ground
+  sheetTitle sheetId archived sort`;
+
+const Q_COMBINED_LIST = `{ web { combinedProperties {
+  ${COMBINED_FIELDS} members { ${COMBINED_MEMBER_FIELDS} } } } }`;
+
+const Q_COMBINED = `query CP($id:String!) { web { combinedProperty(id:$id) {
+  ${COMBINED_FIELDS} members { ${COMBINED_MEMBER_FIELDS} } } } }`;
+
+const Q_COMBINED_PAPERS = `query CPP($id:String!) { web { combinedPapers(id:$id) {
+  id title detail shelf icon tags shared pageCount fileRef recordId recordTitle } } }`;
+
+const Q_COMBINED_FMB = `query CPF($id:String!) { web { combinedFmb(id:$id) {
+  id name drawnCount surveyedCount sheetCount pieceCount caption missing
+  measuredAc recordedAc comparable
+  shapes { recordId title kind ring lat lon extentLabel sheetTitle sheetId ground note
+           corners sideLengths sideBearings perimeterM measuredAc recordedAc comparable
+           sheetJoint }
+  relations { fromRecordId toRecordId fromTitle toTitle relation gapM runM detail }
+  jointSheets { id name recordIds recordTitles paperIds createdAt fileRef }
+} } }`;
+
+const Q_COMBINED_EXPENSES = `query CPE($id:String!,$year:String) {
+  web { combinedExpenses(id:$id,year:$year) {
+    id name year years spent capital running income owedBack combinedSpend
+    memberSpend farmExtent perAcreRunning
+    categories { key label count active }
+    scopes { key label count active }
+    rows { id title subtitle kind category amount spentOn paidBy vendor note
+           recoverable hasReceipt fiscalYear scope recordId recordTitle invoiceNo
+           warrantyUntil receiptFileRef receiptFileName receiptMimeType receiptSizeBytes }
+  } } }`;
+
+export function useCombinedProperties() {
+  return useQuery({
+    queryKey: [KEY, 'combined'],
+    queryFn: async () =>
+      (await gql<Wrapped<'combinedProperties', Combined[]>>(Q_COMBINED_LIST))
+        .web.combinedProperties,
+  });
+}
+
+export function useCombined(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'combined', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'combinedProperty', Combined | null>>(Q_COMBINED, { id }))
+        .web.combinedProperty,
+  });
+}
+
+export function useCombinedPapers(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'combined-papers', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'combinedPapers', CombinedPaper[]>>(Q_COMBINED_PAPERS, { id }))
+        .web.combinedPapers,
+  });
+}
+
+export function useCombinedFmb(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'combined-fmb', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'combinedFmb', CombinedFmb | null>>(Q_COMBINED_FMB, { id }))
+        .web.combinedFmb,
+  });
+}
+
+export function useCombinedExpenses(id: string | undefined, year?: string) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'combined-expenses', id, year ?? ''],
+    // Hold the last good answer while the next year is fetched, like the
+    // record's own ledger: changing the year must not unmount the page.
+    placeholderData: keepPreviousData,
+    queryFn: async () =>
+      (await gql<Wrapped<'combinedExpenses', CombinedExpenseView | null>>(
+        Q_COMBINED_EXPENSES, { id, year: year ?? null })).web.combinedExpenses,
+  });
+}
+
+/** What a combined holding's Services tab draws of an order.
+ *
+ *  A narrow `Pick` rather than `Order`, because the selection set below is
+ *  narrow: this is a read-only list that links to the order's own page, and
+ *  claiming the full `Order` shape while asking for a third of it would put
+ *  `assignedResource: undefined` behind a type that says it is never missing. */
+export type CombinedOrder = Pick<Order,
+  'id' | 'ref' | 'kind' | 'serviceKey' | 'title' | 'detail' | 'recordId' | 'recordTitle'
+  | 'status' | 'statusLabel' | 'statusState' | 'stage' | 'stageLabel' | 'needsYou'
+  | 'dueDate' | 'cost' | 'held' | 'pendingReview'>;
+
+/** Every service ordered against any member of the holding.
+ *
+ *  The same `orders` read the record's own Services hanger uses, filtered by
+ *  membership — because an order is still placed against ONE survey. A patta
+ *  copy is issued for a survey number, not for whatever the owner calls the
+ *  group, so this gathers the members' orders rather than inventing an order
+ *  against the aggregate. */
+export function useCombinedOrders(id: string | undefined, includeClosed = false) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'combined-orders', id, includeClosed],
+    queryFn: async () =>
+      (await gql<Wrapped<'orders', CombinedOrder[]>>(
+        `query CPO($id:String!,$includeClosed:Boolean!) {
+           web { orders(combinedId:$id,includeClosed:$includeClosed) {
+             id ref kind serviceKey title detail recordId recordTitle status statusLabel
+             statusState stage stageLabel needsYou dueDate cost held pendingReview } } }`,
+        { id, includeClosed })).web.orders,
+  });
+}
+
+export const useCreateCombined = (reportError = true) =>
+  useW360Mutation<{ name: string; recordIds: string[]; note?: string },
+                   Wrapped<'createCombinedProperty', string>>(
+    `mutation CCP($name:String!,$recordIds:[String!]!,$note:String! = "") {
+       web { createCombinedProperty(name:$name,recordIds:$recordIds,note:$note) } }`,
+    'That combined property',
+    reportError,
+  );
+
+export const useRenameCombined = (reportError = true) =>
+  useW360Mutation<{ id: string; name: string; note?: string },
+                   Wrapped<'updateCombinedProperty', boolean>>(
+    `mutation UCP($id:String!,$name:String!,$note:String! = "") {
+       web { updateCombinedProperty(id:$id,name:$name,note:$note) } }`,
+    'That change',
+    reportError,
+  );
+
+/** The whole membership list in one write. A refusal leaves the holding exactly
+ *  as it was rather than half-changed. */
+export const useSetCombinedMembers = (reportError = true) =>
+  useW360Mutation<{ id: string; recordIds: string[] },
+                   Wrapped<'setCombinedMembers', boolean>>(
+    `mutation SCM($id:String!,$recordIds:[String!]!) {
+       web { setCombinedMembers(id:$id,recordIds:$recordIds) } }`,
+    'Those records',
+    reportError,
+  );
+
+export const useDeleteCombined = (reportError = true) =>
+  useW360Mutation<{ id: string }, Wrapped<'deleteCombinedProperty', boolean>>(
+    `mutation DCP($id:String!) { web { deleteCombinedProperty(id:$id) } }`,
+    'Removing that combined view',
+    reportError,
+  );
+
+/** One cost against the whole holding — the thing a combined property exists
+ *  for. It is not divided between the members: dividing it would invent a split
+ *  nobody agreed. */
+export const useSaveCombinedExpense = (reportError = true) =>
+  useW360Mutation<{
+    combinedId: string; title: string; amount: number; spentOn: string; kind: string;
+    category: string; paidBy: string; vendor: string; note: string; recoverable: boolean;
+  }, Wrapped<'saveCombinedExpense', string>>(
+    `mutation SCE($combinedId:String!,$title:String!,$amount:Float!,$spentOn:String!,
+                  $kind:String!,$category:String!,$paidBy:String!,$vendor:String!,
+                  $note:String!,$recoverable:Boolean!) {
+       web { saveCombinedExpense(combinedId:$combinedId,title:$title,amount:$amount,
+                                 spentOn:$spentOn,kind:$kind,category:$category,
+                                 paidBy:$paidBy,vendor:$vendor,note:$note,
+                                 recoverable:$recoverable) } }`,
+    'That cost',
+    reportError,
+  );
+
+export const useDeleteCombinedExpense = (reportError = true) =>
+  useW360Mutation<{ expenseId: string }, Wrapped<'deleteCombinedExpense', boolean>>(
+    `mutation DCE($expenseId:String!) { web { deleteCombinedExpense(expenseId:$expenseId) } }`,
+    'Removing that cost',
+    reportError,
+  );
+
+/** File ONE uploaded FMB sheet across several members (a joint FMB). The server
+ *  writes a flagged copy onto every chosen survey, so it stays on the records it
+ *  covers. Resolves to the shared joint id, or "" when refused. */
+export const useAddJointFmb = (reportError = true) =>
+  useW360Mutation<{
+    combinedId: string; fileRef: string; name: string; mimeType: string;
+    sizeBytes: number; recordIds: string[];
+  }, Wrapped<'addJointFmb', string>>(
+    `mutation AJF($combinedId:String!,$fileRef:String!,$name:String!,$mimeType:String!,
+                  $sizeBytes:Int!,$recordIds:[String!]!) {
+       web { addJointFmb(combinedId:$combinedId,fileRef:$fileRef,name:$name,
+                         mimeType:$mimeType,sizeBytes:$sizeBytes,recordIds:$recordIds) } }`,
+    'That joint FMB',
+    reportError,
+  );
+
+/** Unfile every copy of one joint FMB. The stored file is left alone. */
+export const useDeleteJointFmb = (reportError = true) =>
+  useW360Mutation<{ jointId: string }, Wrapped<'deleteJointFmb', boolean>>(
+    `mutation DJF($jointId:String!) { web { deleteJointFmb(jointId:$jointId) } }`,
+    'Removing that joint FMB',
+    reportError,
+  );
+
+// ── Profile (/app/profile) ─────────────────────────────────────────────
+//
+// The one screen here that reads through the ROOT schema rather than
+// `Query.web`: `me`, `updateMe` and `updateProfile` are the cross-client
+// contract iOS and mobile already speak, and a `web` twin of each would be a
+// second place for the same row to be written. Each document selects exactly
+// one root field, so the sealed e2e world can route it as `root.<field>`.
+
+/** The account row. `name` is seeded with the principal id on first contact,
+ *  so the screen treats an id-shaped name as no name at all. */
+export interface Me {
+  id: string; name: string; email: string; address: string; language: string;
+  districtsOfInterest: string; notificationPrefs: string; kycRefMasked: string;
+  mfaEnabled: boolean;
+}
+export interface District { id: string; name: string }
+
+export function useMe() {
+  return useQuery({
+    queryKey: [KEY, 'profile', 'me'],
+    queryFn: async () => {
+      const d = await gql<{ me: Me | null }>(
+        `query Me { me { id name email address language districtsOfInterest
+                         notificationPrefs kycRefMasked mfaEnabled } }`,
+      );
+      if (!d.me) throw new Error('The server returned no profile.');
+      return d.me;
+    },
+    // Seeding a form from a read that refetches on focus would overwrite what
+    // is being typed. The form re-seeds after its own save instead.
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useDistricts() {
+  return useQuery({
+    queryKey: [KEY, 'profile', 'districts'],
+    staleTime: 60 * 60 * 1000,
+    queryFn: async () =>
+      (await gql<{ districts: District[] | null }>(`query Districts { districts { id name } }`))
+        .districts ?? [],
+  });
+}
+
+/** Name and contact email. An empty value leaves the stored one (the API's
+ *  rule), so the screen never sends a blank it did not mean. Errors are the
+ *  screen's to word, because a save is two writes and it has to say which
+ *  half landed. */
+export const useUpdateMe = () =>
+  useW360Mutation<{ name: string; email: string }, { updateMe: { id: string } | null }>(
+    `mutation UpdateMe($name:String!,$email:String!) {
+       updateMe(name:$name,email:$email) { id } }`,
+    'Your name',
+    false,
+  );
+
+/** Every preference is sent, including the two with no control on this
+ *  screen (language, mfaEnabled), echoed back as stored: a sent "" clears.
+ *  `kycRef` is "" unless a new number was typed; "" leaves the stored one. */
+export const useUpdateProfile = () =>
+  useW360Mutation<{
+    language: string; districtsOfInterest: string; notificationPrefs: string;
+    kycRef: string; mfaEnabled: boolean; address: string;
+  }, { updateProfile: { kycRefMasked: string } | null }>(
+    `mutation UpdateProfile($language:String!,$districtsOfInterest:String!,
+                            $notificationPrefs:String!,$kycRef:String!,$mfaEnabled:Boolean!,
+                            $address:String!) {
+       updateProfile(language:$language,districtsOfInterest:$districtsOfInterest,
+                     notificationPrefs:$notificationPrefs,kycRef:$kycRef,
+                     mfaEnabled:$mfaEnabled,address:$address) { kycRefMasked } }`,
+    'Your preferences',
+    false,
   );

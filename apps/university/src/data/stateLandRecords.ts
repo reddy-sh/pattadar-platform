@@ -638,7 +638,11 @@ export const stateLandRecordProfiles: StateLandRecordProfile[] = [
   },
 ];
 
-export const universityStates: UniversityState[] = stateLandRecordProfiles.map(({ code, name }) => ({ code, name }));
+export const publishedStateLandRecordProfiles = stateLandRecordProfiles.filter(
+  (profile) => profile.code === 'AP' || profile.code === 'TS',
+);
+
+export const universityStates: UniversityState[] = publishedStateLandRecordProfiles.map(({ code, name }) => ({ code, name }));
 
 const stateProfileByCode = new Map(stateLandRecordProfiles.map((profile) => [profile.code, profile]));
 const stateProfileBySlug = new Map(stateLandRecordProfiles.map((profile) => [profile.slug, profile]));
@@ -649,4 +653,8 @@ export function stateLandRecordByCode(code: UniversityStateCode | undefined): St
 
 export function stateLandRecordBySlug(slug: string | undefined): StateLandRecordProfile | undefined {
   return slug ? stateProfileBySlug.get(slug) : undefined;
+}
+
+export function publishedStateLandRecordBySlug(slug: string | undefined): StateLandRecordProfile | undefined {
+  return slug ? publishedStateLandRecordProfiles.find((profile) => profile.slug === slug) : undefined;
 }

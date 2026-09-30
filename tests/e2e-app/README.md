@@ -1,4 +1,4 @@
-# tests/e2e-app — the scenario suite for the app on :5173
+# tests/e2e-app — the scenario suite for the app on :5180
 
 The app the founder actually has open, driven end to end, with **every request
 under `/api` answered from fixtures before it leaves the browser**.
@@ -11,7 +11,7 @@ bun run test:live     # the unsealed read-only smoke (needs start-local.sh up)
 bun run report        # the HTML report from the last run
 ```
 
-It starts no servers. If nothing is serving `:5173`, the run stops with one
+It starts no servers. If nothing is serving `:5180`, the run stops with one
 sentence saying so instead of a wall of navigation timeouts.
 
 ## Why this exists next to the integration suite
@@ -69,10 +69,16 @@ AUTHORING.md      read this before adding a spec
 
 | variable | default | what it does |
 |---|---|---|
-| `APP_WEB_URL` | `http://localhost:5173` | the portal under test |
+| `APP_WEB_URL` | `http://localhost:5180` | the portal under test |
 | `APP_COGNITO_CLIENT_ID` | discovered, then `10okivmth…` | how the session keys are spelled |
 | `APP_USER` | `shankarreddy.t` | who the session belongs to |
 | `APP_GATEWAY_URL` | `http://localhost:8082` | where `@live` mints its real token |
+
+`start-local.sh` pins the web app to 5180, not Vite's 5173. 5173 still appears
+elsewhere for one reason: the production Cognito client's callback allowlist
+holds only `localhost:5173` and `pattadar.com`, so `WEB_PORT=5173` is the
+hosted-sign-in path. The sealed projects here never sign in for real, so they do
+not need it.
 
 ## Reading a failure
 

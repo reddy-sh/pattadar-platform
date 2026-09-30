@@ -30,14 +30,22 @@ import strawberry
 from datetime import date, datetime, timedelta
 from typing import Optional, List
 
+# Only for the ONE conflict a partial unique index arbitrates — two tabs putting
+# the same record into two combined properties at the same moment. Caught by
+# name rather than swallowed as `Exception`, so a genuine database failure still
+# surfaces instead of being reported to the owner as "nothing happened".
+from psycopg import errors as _pg_errors
+
 # The sending seam (email/SMS/WhatsApp, stubbed by default) and the pure
 # ticket machine. Both are imported two ways because this module is loaded two
 # ways: main.py imports it as `src.web360`, and services/api/tests/test_located.py
 # imports it bare off src/. A relative-only import breaks the second.
 try:                                    # inside the `src` package, as main.py loads it
-    from . import associates, feature_schema, governance, notify, ticketing
+    from . import (associates, combined_geometry, feature_schema, governance,
+                   notify, ticketing)
 except ImportError:                     # imported bare off src/, as the pure tests do
     import associates                   # type: ignore[no-redef]
+    import combined_geometry            # type: ignore[no-redef]
     import feature_schema               # type: ignore[no-redef]
     import governance                   # type: ignore[no-redef]
     import notify                       # type: ignore[no-redef]
@@ -122,6 +130,99 @@ _DDL = [
         created_at TEXT NOT NULL DEFAULT ''
     )""",
     "CREATE INDEX IF NOT EXISTS idx_record_people_record ON record_people (record_id)",
+
+    # W08 — WHO OWNS the land, as opposed to who looks after it (record_people).
+    # An owner has no pay and no arrangement; what a land record keeps about them
+    # is the succession — who holds it now (is_current) and who held it before —
+    # with the parentage and address a deed prints beside each name. Kept apart
+    # from record_people on purpose: mixing a former seller into the caretaker
+    # list is what made the People tab read as two unrelated things in one.
+    # PII rule: parentage/address only, never an Aadhaar/PAN — the deed parties
+    # this is filled from carry no such number.
+    """CREATE TABLE IF NOT EXISTS record_owners (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        parentage TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'Owner',
+        is_current BOOLEAN NOT NULL DEFAULT true,
+        acquired_via TEXT NOT NULL DEFAULT '',
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_record_owners_record ON record_owners (record_id)",
+
+    # W08 — the TITLE-PROVENANCE graph: who transferred what to whom, and on
+    # which paper. `record_owners` is a list of people with a display order; it
+    # cannot say that A sold 2 of 5 acres to B and C, which is what a chain of
+    # title actually is. A transfer is one EVENT with many sources and many
+    # targets, so a split (one seller, two buyers), a merge (two sellers, one
+    # buyer) and a further-down chain are all the same shape.
+    #
+    # `deed_document_id` is a registered_documents.id when the event came off a
+    # paper and '' when somebody entered it by hand — an owner knows their own
+    # succession long before the deed is scanned, and refusing the entry until
+    # then would lose the knowledge. `prior_transfer_id` is the link down the
+    # chain: the transfer that gave THIS transfer's sellers their title.
+    #
+    # `verified` is the staged gate. A reading proposes a transfer; a person
+    # confirms it. The deed prompt itself warns that seller/buyer direction is
+    # unreliable (see DEED_SYSTEM's mandatory direction caveat), so an
+    # AI-proposed edge is never presented as settled title.
+    """CREATE TABLE IF NOT EXISTS record_transfers (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'sale',
+        deed_document_id TEXT NOT NULL DEFAULT '',
+        deed_no TEXT NOT NULL DEFAULT '',
+        sro TEXT NOT NULL DEFAULT '',
+        registered_on TEXT NOT NULL DEFAULT '',
+        prior_transfer_id TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual',
+        verified BOOLEAN NOT NULL DEFAULT true,
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_record_transfers_record ON record_transfers (record_id)",
+
+    # The endpoints of one transfer. `side` is 'from' (parted with it) or 'to'
+    # (received it). Extent and share live on the 'to' side because that is
+    # where a split is measured: "2.00 ac of the 5.00" is a fact about what the
+    # buyer received, not about the deed as a whole.
+    #
+    # `extent` is ABSOLUTE with its own unit, and share is an optional integer
+    # fraction (share_num/share_den) — both because a deed writes either or
+    # both, and deriving one from the other needs a parent extent this row does
+    # not own. 0/0 means the deed did not state a share.
+    #
+    # `owner_id` points at record_owners when the party is also a person on the
+    # record; name/parentage/address are kept here too so a party the owner has
+    # not yet promoted to a full owner row can still be drawn and labelled.
+    # PII rule, same as record_owners: parentage/address only, never an
+    # Aadhaar/PAN.
+    """CREATE TABLE IF NOT EXISTS record_transfer_parties (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        transfer_id TEXT NOT NULL,
+        side TEXT NOT NULL DEFAULT 'to',
+        owner_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        parentage TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        extent DOUBLE PRECISION NOT NULL DEFAULT 0,
+        extent_unit TEXT NOT NULL DEFAULT '',
+        share_num INTEGER NOT NULL DEFAULT 0,
+        share_den INTEGER NOT NULL DEFAULT 0,
+        is_gpa BOOLEAN NOT NULL DEFAULT false,
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_transfer_parties_transfer"
+    " ON record_transfer_parties (transfer_id)",
 
     # W08 right rail — money out and in, including escrow that has not moved.
     """CREATE TABLE IF NOT EXISTS people_payments (
@@ -420,6 +521,57 @@ _DDL = [
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS consideration DOUBLE PRECISION NOT NULL DEFAULT 0",
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS record_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0",
+    # One FMB sheet that covers several survey numbers (a joint FMB), filed
+    # from a combined property. Every covered member gets its OWN documents
+    # row — same stored file, shelf 'map' — so the sheet stays on the survey it
+    # belongs to and every record-level read keeps working unchanged. The copies
+    # share this id; '' means an ordinary, single-record paper.
+    "ALTER TABLE documents ADD COLUMN IF NOT EXISTS joint_fmb_id TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS idx_documents_joint_fmb"
+    " ON documents (owner_user_id, joint_fmb_id) WHERE joint_fmb_id <> ''",
+    # One private vault item may describe several owned properties (for
+    # example, an undivided FMB or a drone survey of a combined holding).
+    # Keep the legacy document columns as its original/primary association;
+    # this table records every relationship without copying the file row.
+    """CREATE TABLE IF NOT EXISTS document_record_links (
+        owner_user_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (owner_user_id, document_id, record_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_document_record_links_record"
+    " ON document_record_links (owner_user_id, record_id, document_id)",
+    "INSERT INTO document_record_links (owner_user_id,document_id,record_id,created_at)"
+    " SELECT owner_user_id,id,record_id,created_at FROM documents"
+    " WHERE record_id<>'' ON CONFLICT DO NOTHING",
+    "INSERT INTO document_record_links (owner_user_id,document_id,record_id,created_at)"
+    " SELECT owner_user_id,id,parcel_id,created_at FROM documents"
+    " WHERE parcel_id<>'' ON CONFLICT DO NOTHING",
+    "INSERT INTO document_record_links (owner_user_id,document_id,record_id,created_at)"
+    " SELECT owner_user_id,id,property_id,created_at FROM documents"
+    " WHERE property_id<>'' ON CONFLICT DO NOTHING",
+
+    # W15 — the owner's own folders in Documents, the way a file manager has
+    # them. A folder holds files by POINTER (documents.folder_id), never by
+    # storage key: object keys stay {node}/{version} and who may see a file is
+    # still decided in SQL. '' is the top level. The shelf column is the
+    # system's idea of what a paper IS; a folder is the owner's idea of where
+    # they put it, so the two are independent.
+    """CREATE TABLE IF NOT EXISTS vault_folders (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        parent_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_vault_folders_parent ON vault_folders (owner_user_id, parent_id)",
+    # Two folders called "Deeds" side by side is a file nobody can find again.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_vault_folders_name"
+    " ON vault_folders (owner_user_id, parent_id, lower(name))",
+    "ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS idx_documents_folder"
+    " ON documents (owner_user_id, folder_id) WHERE folder_id <> ''",
 
     # W02/W06 — a record's status ("for sale", "disputed") and its map polygon.
     "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS shape TEXT NOT NULL DEFAULT ''",
@@ -440,6 +592,15 @@ _DDL = [
     # the Properties rail grows an "Archived" facet only while any exist.
     "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE properties ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
+
+    # One photo per person — a face for the staff who work the land (a caretaker
+    # or watchman is who a neighbour is asked about), and optionally for an
+    # owner. Stored INLINE as the storage node id, the same shape as a record's
+    # cover photo or an expense receipt — not a parcel_photos gallery row, which
+    # carries provenance and cover state a headshot has no use for and would
+    # otherwise be counted among the record's own photos. Additive and verbatim.
+    "ALTER TABLE record_people ADD COLUMN IF NOT EXISTS photo_ref TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE record_owners ADD COLUMN IF NOT EXISTS photo_ref TEXT NOT NULL DEFAULT ''",
 
     # Whose family group holds a record — through the passbook for a parcel,
     # on the row itself for a built property. Both are main.py's columns and
@@ -476,6 +637,103 @@ _DDL = [
     "ALTER TABLE village_maps ADD COLUMN IF NOT EXISTS centre_lat DOUBLE PRECISION NOT NULL DEFAULT 0",
     "ALTER TABLE village_maps ADD COLUMN IF NOT EXISTS centre_lon DOUBLE PRECISION NOT NULL DEFAULT 0",
     "ALTER TABLE village_maps ADD COLUMN IF NOT EXISTS outline TEXT NOT NULL DEFAULT '[]'",
+
+    # ── Combined properties ───────────────────────────────────────────
+    #
+    # Thirty acres and thirty acres, bought as two registrations, held as one
+    # piece of ground. The owner spends on the whole of it — a fence, a well, a
+    # year's tax — and cannot honestly put that against one survey number.
+    #
+    # This is an AGGREGATE OVER records, not a third kind of record. It is
+    # deliberately not in `_cards`, carries no boundary, no deed, no khata and
+    # no owner chain, and adds nothing to the portfolio's extent or worth: every
+    # acre and every rupee in it is already counted once, on the member it
+    # belongs to. What it owns is a name, a membership list, and the costs that
+    # are genuinely about the whole holding.
+    #
+    # Not `groups` and not a tag. A group decides WHO holds land — for a parcel
+    # it moves the whole khata, and its members are family with legal standing —
+    # while a tag has no identity, no totals and nothing to hang an expense on.
+    """CREATE TABLE IF NOT EXISTS combined_properties (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        UNIQUE (owner_user_id, id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_combined_owner"
+    " ON combined_properties (owner_user_id, created_at DESC, id)",
+
+    # One row per member. `parcel_id` XOR `property_id` rather than a
+    # polymorphic (kind, id) pair, so the database itself can cascade: when a
+    # legal record is deleted its membership goes with it and the combined
+    # property is left visibly incomplete — never silently holding a member id
+    # that opens nothing.
+    #
+    # The two partial unique indexes are the agreed cardinality: a combined
+    # property holds many records, and a record belongs to at most one combined
+    # property. Overlapping groupings are what tags are for; two aggregates
+    # claiming the same acre would each report it in their totals.
+    """CREATE TABLE IF NOT EXISTS combined_property_members (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        combined_property_id TEXT NOT NULL,
+        parcel_id TEXT REFERENCES parcels(id) ON DELETE CASCADE,
+        property_id TEXT REFERENCES properties(id) ON DELETE CASCADE,
+        sort INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT '',
+        CONSTRAINT combined_member_one_record CHECK (
+            (parcel_id IS NOT NULL AND property_id IS NULL)
+            OR (parcel_id IS NULL AND property_id IS NOT NULL)),
+        CONSTRAINT combined_member_owned_parent
+            FOREIGN KEY (owner_user_id, combined_property_id)
+            REFERENCES combined_properties (owner_user_id, id) ON DELETE CASCADE
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_combined_members_parent"
+    " ON combined_property_members (owner_user_id, combined_property_id, sort, id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_combined_member_parcel"
+    " ON combined_property_members (owner_user_id, parcel_id) WHERE parcel_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_combined_member_property"
+    " ON combined_property_members (owner_user_id, property_id) WHERE property_id IS NOT NULL",
+
+    # Costs against the WHOLE holding. A table of its own rather than
+    # `land_expenses` with a new entity_type: root `landExpenses` returns every
+    # row this owner has without restricting entity_type, and iOS reads that
+    # contract — so a combined cost written there would be read by an older
+    # build as an ordinary record expense and counted twice.
+    """CREATE TABLE IF NOT EXISTS combined_property_expenses (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        combined_property_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        subtitle TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT 'running',
+        category TEXT NOT NULL DEFAULT 'other',
+        amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+        spent_on TEXT NOT NULL DEFAULT '',
+        paid_by TEXT NOT NULL DEFAULT '',
+        vendor TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        recoverable BOOLEAN NOT NULL DEFAULT false,
+        recoverable_note TEXT NOT NULL DEFAULT '',
+        fiscal_year TEXT NOT NULL DEFAULT '',
+        has_receipt BOOLEAN NOT NULL DEFAULT false,
+        invoice_no TEXT NOT NULL DEFAULT '',
+        warranty_until TEXT NOT NULL DEFAULT '',
+        receipt_file_ref TEXT NOT NULL DEFAULT '',
+        receipt_file_name TEXT NOT NULL DEFAULT '',
+        receipt_mime_type TEXT NOT NULL DEFAULT '',
+        receipt_size_bytes BIGINT NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT '',
+        CONSTRAINT combined_expense_owned_parent
+            FOREIGN KEY (owner_user_id, combined_property_id)
+            REFERENCES combined_properties (owner_user_id, id) ON DELETE CASCADE
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_combined_expenses_parent"
+    " ON combined_property_expenses"
+    " (owner_user_id, combined_property_id, fiscal_year, created_at DESC)",
 ]
 
 
@@ -742,6 +1000,43 @@ class RecordCard:
     #: photograph is the thing the owner took and the map is the thing we drew.
     cover_file_ref: str
 
+    # ── What the tile has to answer without being opened ──────────────
+    #
+    # A card carried one figure and one unit — "3.04 ac · 14,714 Sq.yd" — and
+    # then a dash where a valuation would go. Everything an owner actually
+    # decides on lived one click inside the record: how much of it is on file,
+    # whether a court is involved, which deed the registrar knows it by, and
+    # for a built property the ground under the slab. A list of forty cards
+    # that cannot answer those is forty records to open one at a time.
+    #
+    # Appended with defaults, like Portfolio's own late fields, so every
+    # selection set written before this still parses.
+
+    #: The extent in the units the transaction is argued in. A parcel reads
+    #: "3 Acres 1.6 Guntas · 304 Cents · 14,714 Sq.yd" — the village office,
+    #: the buyer and the bank each use a different one of those. A built
+    #: property reads "1,450 Sq.ft built · 200 Sq.yd land", which is the fact a
+    #: single `extent` has no room for: see _card_extent_detail.
+    extent_detail: str = ""
+    #: What is filed against it, counted exactly as the record's own tabs count
+    #: it. The list could not count at all, so a record holding nothing looked
+    #: identical to one holding a deed, twelve photographs and four bores.
+    paper_count: int = 0
+    photo_count: int = 0
+    feature_count: int = 0
+    #: "D.No 4521/2019 · Markapur SRO" — how the registrar names this land, and
+    #: the first thing any bank, buyer or advocate asks for. "" when no deed
+    #: has been recorded, rather than a label over an empty number.
+    deed_line: str = ""
+    #: A court case is recorded against it. Deliberately not folded into
+    #: `status`: land can be in litigation and still plainly owned, and
+    #: `status` is already carrying for_sale / disputed / archived.
+    litigation: bool = False
+    #: A filed paper to draw when there is no photograph — the owner's own
+    #: scan is at least about THIS land, which the classification illustration
+    #: is not. Only ever an image: see _paper_heroes.
+    paper_file_ref: str = ""
+
 
 @strawberry.type
 class Portfolio:
@@ -790,6 +1085,8 @@ class GovernancePolicy:
     country_code: str
     state_code: str
     district_code: str
+    mandal_code: str
+    village_code: str
     revision: int
     status: str
     schema_version: int
@@ -889,6 +1186,29 @@ class RecordDetail:
     note_body: str
     note_author: str
     note_at: str
+    # The holding this record is part of, so the record can lead back to it.
+    # Containment was one-way: a combined property listed its members, and a
+    # member had no way to reach the holding it belongs to — not from the
+    # breadcrumb, not from anywhere else on its page. Opening a member from a
+    # holding was a door that shut behind you.
+    #
+    # One value and not a list, because that is the agreed cardinality rather
+    # than a convenience: `uq_combined_member_parcel` and
+    # `uq_combined_member_property` (see the DDL above) make a record a member of
+    # at most one combined property per owner. Empty when it stands alone.
+    #
+    # Additive with defaults, so every existing caller's selection set keeps
+    # working unchanged.
+    combined_id: str = ""
+    combined_name: str = ""
+
+
+@strawberry.type
+class PaperProperty:
+    id: str
+    title: str
+    kind: str
+    document_id: str
 
 
 @strawberry.type
@@ -902,6 +1222,28 @@ class Paper:
     shared: bool
     page_count: int
     file_ref: str
+    mime_type: str = ""
+    record_id: str = ""
+    record_title: str = ""
+    linked_properties: List[PaperProperty] = strawberry.field(default_factory=list)
+    created_at: str = ""
+    joint_fmb_id: str = ""
+    # The owner's folder (vault_folders.id), '' at the top level.
+    folder_id: str = ""
+    size_bytes: int = 0
+
+
+@strawberry.type
+class VaultFolder:
+    """One of the owner's own folders in Documents. The tree is sent flat —
+    every folder with its parent — so a client can draw breadcrumbs and a
+    move-to picker from one read."""
+    id: str
+    name: str
+    parent_id: str
+    file_count: int
+    folder_count: int
+    created_at: str = ""
 
 
 @strawberry.type
@@ -980,6 +1322,91 @@ class Person:
     visibility: str
     actions: List[str]
     compact: bool
+    photo_ref: str
+
+
+@strawberry.type
+class Owner:
+    """One person in the ownership chain of a record. `is_current` marks the
+    person who holds it now; the rest are previous owners, newest first."""
+    id: str
+    name: str
+    initials: str
+    parentage: str
+    address: str
+    role: str
+    is_current: bool
+    acquired_via: str
+    photo_ref: str
+
+
+@strawberry.type
+class OwnersView:
+    owners: List[Owner]
+    count: int
+    current_name: str
+
+
+@strawberry.type
+class TransferParty:
+    """One endpoint of a transfer. `side` is 'from' or 'to'; extent and share
+    are meaningful on the 'to' side, where a split is measured."""
+    id: str
+    side: str
+    owner_id: str
+    name: str
+    parentage: str
+    address: str
+    extent: float
+    extent_unit: str
+    share_num: int
+    share_den: int
+    is_gpa: bool
+
+    @strawberry.field
+    def share_label(self) -> str:
+        """The share as a fraction, or '' when the paper did not state one.
+        Rendered here so no client reinvents 1/2 from two integers."""
+        if self.share_num > 0 and self.share_den > 0:
+            return f"{self.share_num}/{self.share_den}"
+        return ""
+
+    @strawberry.field
+    def extent_label(self) -> str:
+        """The extent as written with its unit, or '' when unmeasured. A zero
+        extent is NOT printed as "0" — an unstated area is unknown, not none."""
+        if self.extent <= 0:
+            return ""
+        unit = self.extent_unit or "ac"
+        return f"{self.extent:,.2f} {unit}"
+
+
+@strawberry.type
+class Transfer:
+    """One event in the chain of title: sources parted with the land, targets
+    received it, on the paper named here. Empty `from_parties` is legitimate —
+    the root of a chain has no recorded predecessor."""
+    id: str
+    kind: str
+    deed_document_id: str
+    deed_no: str
+    sro: str
+    registered_on: str
+    prior_transfer_id: str
+    note: str
+    source: str
+    verified: bool
+    from_parties: List[TransferParty]
+    to_parties: List[TransferParty]
+
+
+@strawberry.type
+class TransfersView:
+    transfers: List[Transfer]
+    count: int
+    # How many came off a reading and nobody has confirmed yet. The screen says
+    # so rather than drawing an unverified edge as settled title.
+    unverified_count: int
 
 
 @strawberry.type
@@ -1196,6 +1623,237 @@ class ExpenseView:
     feature_options: List[FacetOption]
 
 
+# ── Combined properties ───────────────────────────────────────────────
+#
+# One holding made of several records. Every type here is a LENS: it reports
+# what the members already say, labelled with which member said it. Nothing in
+# this section invents an extent, a boundary, a deed or an owner.
+
+
+@strawberry.type
+class CombinedMember:
+    """One record inside a combined property, as its Surveys tab lists it."""
+    #: The membership row, which is what an edit removes — not the record.
+    id: str
+    record_id: str
+    record_kind: str           # parcel | property
+    title: str
+    place_line: str
+    khata_no: str
+    owner_name: str
+    status: str
+    extent: float
+    extent_unit: str
+    extent_detail: str
+    market_value: float
+    paper_count: int
+    #: surveyed (a boundary on file) | pinned (a location only) | unplaced.
+    #: What the combined map can draw of this member, said out loud rather than
+    #: left as a gap in the picture.
+    ground: str
+    sheet_title: str
+    sheet_id: str
+    archived: bool
+    sort: int
+
+
+@strawberry.type
+class Combined:
+    id: str
+    name: str
+    note: str
+    member_count: int
+    parcel_count: int
+    property_count: int
+    #: Three extents, never one. Acres, square yards of open plot and square
+    #: feet of slab do not add up, and a single `extent` here would have to
+    #: pick one and silently drop the others.
+    farm_extent: float
+    plot_extent: float
+    built_extent: float
+    extent_line: str
+    market_value: float
+    invested: float
+    paper_count: int
+    surveyed_count: int
+    #: Spent against the whole holding, and spent against its members. Kept
+    #: apart because only the first is this aggregate's own.
+    combined_spend: float
+    member_spend: float
+    place_line: str
+    #: False once a member record has been deleted elsewhere: the holding is
+    #: still here, with its costs, and says it is short of a survey.
+    is_complete: bool
+    created_at: str
+    updated_at: str
+    members: List[CombinedMember]
+
+
+@strawberry.type
+class CombinedPaper:
+    """A member's paper, seen from the whole holding. `record_title` is what
+    makes this honest: the paper is still filed against one survey."""
+    id: str
+    title: str
+    detail: str
+    shelf: str
+    icon: str
+    tags: List[str]
+    shared: bool
+    page_count: int
+    file_ref: str
+    record_id: str
+    record_title: str
+
+
+@strawberry.type
+class CombinedSurveyShape:
+    """One member's outline, for the combined map. Each is drawn as itself.
+
+    It carries its own MEASUREMENTS because the combined view has to be at
+    least as useful as the record it gathers: a single record's Location screen
+    gives corners, side lengths, the way round and the area, and a combined
+    screen that gave none of that was strictly worse than opening the two
+    records one at a time.
+    """
+    record_id: str
+    title: str
+    kind: str
+    ring: List[float]          # flat [lat, lon, …]; [] when not surveyed
+    lat: float
+    lon: float
+    extent_label: str
+    sheet_title: str
+    sheet_id: str
+    ground: str                # surveyed | pinned | unplaced
+    note: str
+    #: Corners on the outline, and each side in corner order, in metres, with
+    #: its bearing — exactly what the record's own Location side table shows.
+    #: The client rounds the lengths and words the bearings as compass points.
+    corners: int = 0
+    side_lengths: List[float] = strawberry.field(default_factory=list)
+    side_bearings: List[float] = strawberry.field(default_factory=list)
+    perimeter_m: float = 0.0
+    #: Area OF THE OUTLINE, in acres — not the extent on record. The two differ
+    #: by a per cent or so on a traced boundary, and the screen shows both
+    #: rather than picking whichever flatters the map.
+    measured_ac: float = 0.0
+    #: This member's own extent from the register, in acres, and whether the two
+    #: figures above are comparable at all. Both are per-member so the screen can
+    #: total whatever SELECTION the reader has made rather than only the whole
+    #: holding. `comparable` is false for a built property measured in square
+    #: feet: that is a slab, not land, and averaging it into an acreage would be
+    #: a number that measures nothing.
+    recorded_ac: float = 0.0
+    comparable: bool = False
+    #: True when the sheet named above is this member's copy of a joint FMB.
+    sheet_joint: bool = False
+
+
+@strawberry.type
+class CombinedJointSheet:
+    """One joint FMB — a single sheet covering several members — and the
+    members it was filed on. `id` is the shared `documents.joint_fmb_id`;
+    `paper_ids` point to each member's document, in `record_ids` order. New
+    sheets repeat one document id because the file has several links."""
+    id: str
+    name: str
+    record_ids: List[str]
+    record_titles: List[str]
+    paper_ids: List[str]
+    created_at: str
+    #: The one stored file every copy points at, so the sheet can be opened
+    #: once — e.g. to read a georeferenced PDF's outlines in the browser.
+    file_ref: str = ""
+
+
+@strawberry.type
+class CombinedRelation:
+    """How two members' outlines lie against each other, as measured."""
+    from_record_id: str
+    to_record_id: str
+    from_title: str
+    to_title: str
+    relation: str              # adjoining | overlapping | corner | apart | unknown
+    gap_m: float
+    run_m: float
+    detail: str
+
+
+@strawberry.type
+class CombinedFmb:
+    id: str
+    name: str
+    shapes: List[CombinedSurveyShape]
+    relations: List[CombinedRelation]
+    drawn_count: int
+    surveyed_count: int
+    sheet_count: int
+    #: How many separate pieces the drawn outlines form. 1 means everything
+    #: that can be drawn touches; 2 means two islands.
+    piece_count: int
+    #: The claim this map is allowed to make, in its own words.
+    caption: str
+    #: Members with nothing mappable, named so the map is not quietly short.
+    missing: List[str]
+    #: The drawn outlines added up, and what the register says for the same
+    #: land. `comparable` is false when the drawn members are not all measured
+    #: in acres — a flat's built-up square feet is not land area, and summing it
+    #: into an acreage would be a number that measures nothing.
+    measured_ac: float = 0.0
+    recorded_ac: float = 0.0
+    comparable: bool = False
+    #: Joint FMB sheets filed across this holding's members.
+    joint_sheets: List[CombinedJointSheet] = strawberry.field(default_factory=list)
+
+
+@strawberry.type
+class CombinedExpenseRow:
+    id: str
+    title: str
+    subtitle: str
+    kind: str
+    category: str
+    amount: float
+    spent_on: str
+    paid_by: str
+    vendor: str
+    note: str
+    recoverable: bool
+    has_receipt: bool
+    fiscal_year: str
+    #: combined — against the whole holding; record — against one member.
+    scope: str
+    record_id: str
+    record_title: str
+    invoice_no: str
+    warranty_until: str
+    receipt_file_ref: str
+    receipt_file_name: str
+    receipt_mime_type: str
+    receipt_size_bytes: int
+
+
+@strawberry.type
+class CombinedExpenseView:
+    id: str
+    name: str
+    year: str
+    years: List[str]
+    spent: float
+    capital: float
+    running: float
+    income: float
+    owed_back: float
+    combined_spend: float
+    member_spend: float
+    farm_extent: float
+    per_acre_running: float
+    categories: List[FacetOption]
+    scopes: List[FacetOption]
+    rows: List[CombinedExpenseRow]
+
+
 @strawberry.type
 class Shelf:
     key: str
@@ -1236,12 +1894,18 @@ class HistoryEvent:
     Unlike a Correction (which is only a changed FIELD value), this is every
     audited action on the record: a person filed, a cost recorded, a paper
     added, a pin moved. `action` is the raw verb the server logged; the client
-    maps it to a human phrase. `detail` is the server's own short description."""
+    maps it to a human phrase. `detail` is the server's own short description.
+    `by` is WHO acted in words ("You", "Pattadar desk"), never the identity
+    key — see `_actor_word`. A correction carries its field label and old and
+    new values here instead of in `detail`, whose legacy form is JSON."""
     id: str
     action: str
     detail: str
     at: str
     by: str
+    field: str = ""
+    was: str = ""
+    now: str = ""
 
 
 @strawberry.type
@@ -1758,7 +2422,7 @@ def _service_visual_for(service_key: str, document: dict,
         src=f"/service-visuals/{asset_key}.webp",
         alt=str(mapped.get("alt") or fallback["alt"]),
         caption=str(mapped.get("caption") or fallback["caption"]),
-        source_scope=source_scope or "IN/AP/*",
+        source_scope=source_scope or "IN/AP/*/*/*",
     )
 
 
@@ -1825,9 +2489,15 @@ async def _cards(conn, uid: str) -> List[dict]:
             "village": r.get("village") or "", "mandal": r.get("mandal") or "",
             "district": r.get("district") or "", "state": r.get("state") or "",
             "extent": _f(r.get("extent")), "extent_unit": "ac",
+            # A parcel measures one thing. The land/built pair below exists for
+            # the built register, and is carried on every row so no caller has
+            # to ask which table answered.
+            "land_area": 0.0, "land_unit": "", "built_area": 0.0, "built_unit": "",
             "market_value": _f(r.get("market_value")),
             "purchase_price": _f(r.get("purchase_price")),
             "loan_amount": _f(r.get("loan_amount")),
+            "reg_doc_no": r.get("reg_doc_no") or "", "sro": r.get("sro") or "",
+            "litigation": bool(r.get("litigation")),
             "geo_point": r.get("geo_point") or "", "shape": r.get("shape") or "",
             "boundary": r.get("boundary") or "",
             "address": r.get("address") or "", "created_at": r.get("created_at") or "",
@@ -1853,9 +2523,17 @@ async def _cards(conn, uid: str) -> List[dict]:
             "district": r.get("district") or "",
             "extent": built or _f(r.get("land_area")),
             "extent_unit": "sq.ft" if built else "sq.yd",
+            # Both halves, not just the one `extent` had room for. A flat on
+            # its own plot is 1,450 sq.ft of slab over 200 sq.yd of ground and
+            # the second figure was being dropped on the floor — the drawer
+            # collects it, the register stores it, and nothing read it back.
+            "land_area": _f(r.get("land_area")), "land_unit": r.get("land_unit") or "Sq.yd",
+            "built_area": built, "built_unit": r.get("builtup_unit") or "Sq.ft",
             "market_value": _f(r.get("market_value")) or _f(r.get("current_value")),
             "purchase_price": _f(r.get("purchase_price")),
             "loan_amount": 0.0,
+            "reg_doc_no": r.get("reg_doc_no") or "", "sro": r.get("sro") or "",
+            "litigation": bool(r.get("litigation")),
             "geo_point": r.get("geo_point") or "", "shape": r.get("shape") or "",
             "boundary": r.get("boundary") or "",
             # `properties` has no state column; the caller falls back rather
@@ -1927,6 +2605,29 @@ def _extent_detail(extent: float, unit: str) -> str:
     return " · ".join(bits)
 
 
+def _card_extent_detail(d: dict) -> str:
+    """The same extent as the people arguing over it would say it, for a card.
+
+    Land gets the full reading, because guntas and cents are what a village
+    office and a buyer actually speak and a decimal acre is what neither of
+    them says out loud.
+
+    A built property has TWO extents — the slab and the ground under it — and
+    `extent` can only carry one. It carries the built-up area whenever there is
+    one, so a flat on its own plot was silently a flat with no plot. Both are
+    named here. When only one exists the pair would just repeat the figure
+    printed above it, so it falls back to the metric reading instead of saying
+    the same thing twice.
+    """
+    if d.get("kind") != "property":
+        return _extent_detail(d["extent"], d["extent_unit"])
+    built, land = _f(d.get("built_area")), _f(d.get("land_area"))
+    if built and land:
+        return (f"{_in_group(built)} {d.get('built_unit') or 'Sq.ft'} built"
+                f" · {_in_group(land)} {d.get('land_unit') or 'Sq.yd'} land")
+    return _extent_detail(d["extent"], d["extent_unit"])
+
+
 async def _covers(conn, uid: str) -> dict:
     """One cover photo per record, for every record the user owns.
 
@@ -1948,6 +2649,127 @@ async def _covers(conn, uid: str) -> dict:
             f"ORDER BY {key}, is_cover DESC, sort, created_at", (uid,))
         for r in await cur.fetchall():
             out[r["rid"]] = r["file_ref"] or ""
+    return out
+
+
+async def _counts(conn, uid: str, ids: Optional[List[str]] = None) -> dict:
+    """Papers, photographs and features per record — the three numbers a
+    record's own tabs print, for a whole list of records at once.
+
+    Four grouped aggregates, not three queries per card: a grid of forty
+    records asking for its own counts is the same N+1 that `_cards` and
+    `_covers` are both shaped to avoid.
+
+    Photographs are counted out of BOTH photo tables. `mapRecords` counted
+    `parcel_photos` alone, so every flat and every shop in the account reported
+    zero pictures however many had been filed against it; that resolver shares
+    this function now. Videos are counted beside photographs rather than among
+    them, which is the rule the record's own tab already follows.
+
+    `ids` narrows the aggregates to a known handful — Home needs the numbers
+    for four cards, not for the account — and is left off for the list, where
+    the answer IS the account.
+    """
+    out: dict = {}
+
+    def bump(rid: str, key: str, n: int) -> None:
+        # A paper filed through the mobile upload path carries parcel_id and no
+        # record_id, so the '' bucket is real and belongs to nobody.
+        if not rid:
+            return
+        out.setdefault(rid, {"papers": 0, "photos": 0, "features": 0})[key] += n
+
+    async def tally(key: str, table: str, col: str, extra: str = "") -> None:
+        args: List[object] = [uid]
+        where = f"owner_user_id=%s{extra}"
+        if ids is not None:
+            where += f" AND {col} = ANY(%s)"
+            args.append(ids)
+        cur = await conn.execute(
+            f"SELECT {col} AS rid, count(*) AS c FROM {table} "
+            f"WHERE {where} GROUP BY {col}", tuple(args))
+        for r in await cur.fetchall():
+            bump(r["rid"] or "", key, _i(r["c"]))
+
+    await tally("papers", "documents", "record_id")
+    # Additional many-to-many links count once on each related record without
+    # double-counting the legacy primary columns on their original record.
+    args: List[object] = [uid]
+    extra_where = ("l.owner_user_id=%s AND d.owner_user_id=%s AND d.id=l.document_id "
+                   "AND l.record_id<>COALESCE(NULLIF(d.record_id,''),"
+                   "NULLIF(d.parcel_id,''),NULLIF(d.property_id,''))")
+    args.append(uid)
+    if ids is not None:
+        extra_where += " AND l.record_id=ANY(%s)"
+        args.append(ids)
+    cur = await conn.execute(
+        "SELECT l.record_id AS rid,count(DISTINCT l.document_id) AS c "
+        "FROM document_record_links l JOIN documents d ON d.id=l.document_id "
+        f"WHERE {extra_where} GROUP BY l.record_id", tuple(args))
+    for row in await cur.fetchall():
+        bump(row.get("rid") or "", "papers", _i(row.get("c")))
+    await tally("photos", "parcel_photos", "parcel_id", " AND media_kind='photo'")
+    await tally("photos", "property_photos", "property_id", " AND media_kind='photo'")
+    await tally("features", "land_features", "entity_id")
+    return out
+
+
+async def _paper_heroes(conn, uid: str, ids: Optional[List[str]] = None) -> dict:
+    """One filed paper per record that can actually be SHOWN on a card.
+
+    A record with no photograph and no location fell all the way through to the
+    classification illustration — the same drawing on every agricultural parcel
+    in the account, which is decoration. Its own scanned sketch or passbook
+    page is at least about this land.
+
+    Images only, and that is a hard limit rather than a preference: the
+    gateway's `?thumb=` downscales an image with Pillow and has nothing that
+    rasterises a PDF page, so handing a card a PDF reference would hand it a
+    read it can only fail. A PDF-only record keeps the illustration.
+
+    "Image" is decided the way the gateway that will SERVE the bytes decides it
+    — `_is_imageish` in routes/storage.py: the mime type, or failing that the
+    file's own extension. Mime alone was the first cut and it excluded a real
+    case rather than a theoretical one: rows written before `documents` grew a
+    `mime_type` column carry a blank one beside a perfectly good `deed.jpg`, and
+    every document in the e2e database is one of those. Two rules for the same
+    question, one on each side of a request, is how a card comes to offer a
+    reference the gateway would have happily transcoded.
+
+    The sketch wins over the deed because of the size it is drawn at: at
+    19rem × 6.5rem a map is legible and a page of registration prose is grey
+    texture.
+    """
+    out: dict = {}
+    args: List[object] = [uid]
+    where = ("owner_user_id=%s AND record_id <> '' AND file_ref <> '' "
+             "AND (lower(mime_type) LIKE 'image/%%'"
+             r" OR lower(name) ~ '\.(jpe?g|png|gif|webp|bmp|heic|heif)$')")
+    if ids is not None:
+        where += " AND record_id = ANY(%s)"
+        args.append(ids)
+    cur = await conn.execute(
+        "SELECT DISTINCT ON (record_id) record_id AS rid, file_ref FROM documents "
+        f"WHERE {where} ORDER BY record_id, (shelf <> 'map'), sort, created_at",
+        tuple(args))
+    for r in await cur.fetchall():
+        out[r["rid"]] = r["file_ref"] or ""
+    rel_args: List[object] = [uid, uid]
+    rel_where = ("l.owner_user_id=%s AND d.owner_user_id=%s AND d.id=l.document_id "
+                 "AND l.record_id<>COALESCE(NULLIF(d.record_id,''),"
+                 "NULLIF(d.parcel_id,''),NULLIF(d.property_id,'')) "
+                 "AND d.file_ref<>'' AND (lower(d.mime_type) LIKE 'image/%%' "
+                 r"OR lower(d.name) ~ '\.(jpe?g|png|gif|webp|bmp|heic|heif)$')")
+    if ids is not None:
+        rel_where += " AND l.record_id=ANY(%s)"
+        rel_args.append(ids)
+    cur = await conn.execute(
+        "SELECT DISTINCT ON (l.record_id) l.record_id AS rid,d.file_ref "
+        "FROM document_record_links l JOIN documents d ON d.id=l.document_id "
+        f"WHERE {rel_where} ORDER BY l.record_id,(d.shelf<>'map'),d.sort,d.created_at",
+        tuple(rel_args))
+    for row in await cur.fetchall():
+        out.setdefault(row["rid"], row["file_ref"] or "")
     return out
 
 
@@ -1992,8 +2814,10 @@ async def _sheet_detail(conn, record_id: str) -> str:
     replaced."""
     cur = await conn.execute(
         "SELECT v.version, v.made_on FROM document_versions v JOIN documents d"
-        " ON d.id = v.document_id WHERE d.record_id=%s AND d.shelf='map'"
-        " ORDER BY v.version DESC", (record_id,))
+        " ON d.id = v.document_id WHERE (d.record_id=%s OR EXISTS ("
+        "SELECT 1 FROM document_record_links l WHERE l.document_id=d.id AND l.record_id=%s)) "
+        "AND d.shelf='map'"
+        " ORDER BY v.version DESC", (record_id, record_id))
     rows = await cur.fetchall()
     if not rows:
         return "one version · never replaced"
@@ -2007,8 +2831,10 @@ async def _sheet_detail(conn, record_id: str) -> str:
 async def _fmb_sheet_row(conn, record_id: str) -> dict:
     """The map-shelf paper this record's sketch lives on, or {}."""
     cur = await conn.execute(
-        "SELECT id, name FROM documents WHERE record_id=%s AND shelf='map' "
-        "ORDER BY (name ILIKE 'FMB%%') DESC, sort LIMIT 1", (record_id,))
+        "SELECT id, name FROM documents d WHERE (record_id=%s OR EXISTS ("
+        "SELECT 1 FROM document_record_links l WHERE l.document_id=d.id AND l.record_id=%s)) "
+        "AND shelf='map' ORDER BY (name ILIKE 'FMB%%') DESC, sort LIMIT 1",
+        (record_id, record_id))
     return await cur.fetchone() or {}
 
 
@@ -2024,8 +2850,10 @@ async def _fmb_sheet(conn, record_id: str, title: str) -> str:
     # An FMB is the survey department's own sheet and outranks a traced copy,
     # so it wins even if a tippon happens to sort first.
     cur = await conn.execute(
-        "SELECT name FROM documents WHERE record_id=%s AND shelf='map' "
-        "ORDER BY (name ILIKE 'FMB%%') DESC, sort LIMIT 1", (record_id,))
+        "SELECT name FROM documents d WHERE (record_id=%s OR EXISTS ("
+        "SELECT 1 FROM document_record_links l WHERE l.document_id=d.id AND l.record_id=%s)) "
+        "AND shelf='map' ORDER BY (name ILIKE 'FMB%%') DESC, sort LIMIT 1",
+        (record_id, record_id))
     row = await cur.fetchone()
     if row and row.get("name"):
         return str(row["name"])
@@ -2033,11 +2861,15 @@ async def _fmb_sheet(conn, record_id: str, title: str) -> str:
 
 
 def _boundary_caption(sheet: str, surveyed: bool, village: str) -> str:
-    """What W04's panel is showing, in its own words."""
+    """What W04's panel is showing, in its own words.
+
+    "Boundary saved", never "surveyed" (design.md § App vocabulary): a line an
+    owner drew or imported is not an official survey, and the Location tab's
+    own status line already says "Boundary saved" about the same outline."""
     if sheet and surveyed:
         head = f"{sheet} traced over the parcel"
     elif surveyed:
-        head = "Surveyed boundary"
+        head = "Boundary saved"
     elif sheet:
         head = f"{sheet} on file — not traced over the ground yet"
     else:
@@ -2048,15 +2880,30 @@ def _boundary_caption(sheet: str, surveyed: bool, village: str) -> str:
 def _map_caption(sheet: str, kind: str, surveyed: bool) -> str:
     """What the little map on the record's front page is actually showing.
 
-    A named sheet traced over the plot, a surveyed boundary with no sheet
-    filed, or — for a record that has neither — nothing, because the map is
-    then only the neighbourhood and saying more would be inventing it."""
+    A named sheet traced over the plot, a saved boundary with no sheet filed,
+    or — for a record that has neither — nothing, because the map is then only
+    the neighbourhood and saying more would be inventing it. "Boundary saved",
+    never "surveyed" (design.md § App vocabulary)."""
     where = "survey plot" if kind == "parcel" else "site"
     if sheet:
         return f"{sheet} over the {where}"
     if surveyed:
-        return f"Surveyed boundary over the {where}"
+        return f"Boundary saved over the {where}"
     return ""
+
+
+def _lot_date(bought_on: str) -> str:
+    """A purchase date as `purchase_lots.bought_on` stores it: DD/MM/YYYY.
+
+    Everything that reads bought_on expects that shape (the value view takes
+    the last four characters as the year, and the built depreciation path
+    parses day/month/year off `/` positions). The web date input hands over
+    ISO YYYY-MM-DD, so an ISO value is converted rather than left to break the
+    money read as a stray '6-12'. Shared by save_purchase and update_purchase."""
+    b = (bought_on or "").strip()
+    if len(b) == 10 and b[4] == "-" and b[7] == "-":
+        b = f"{b[8:10]}/{b[5:7]}/{b[0:4]}"
+    return b
 
 
 def _datekey(s: str) -> str:
@@ -2141,7 +2988,8 @@ def _located(geo: str, ring: List[float]) -> tuple:
     return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
-def _to_card(d: dict, tags: List[str], cover: str = "") -> RecordCard:
+def _to_card(d: dict, tags: List[str], cover: str = "",
+             counts: Optional[dict] = None, paper: str = "") -> RecordCard:
     alt = ""
     if d["extent_unit"] == "ac":
         alt = f"{_in_group(d['extent'] * 4840)} Sq.yd"
@@ -2151,6 +2999,14 @@ def _to_card(d: dict, tags: List[str], cover: str = "") -> RecordCard:
         alt = f"{_in_group(d['extent'] * 0.836127)} sq.m"
     ring = _ring(d.get("boundary") or "")
     lat, lon = _located(d.get("geo_point") or "", ring)
+    n = counts or {}
+    # The registrar's own name for this land. Either half stands alone — a deed
+    # number with no office is still the number somebody quotes — and neither
+    # gets a label printed over an empty value.
+    deed = " · ".join([p for p in (
+        f"D.No {d['reg_doc_no']}" if d.get("reg_doc_no") else "",
+        f"{d['sro']} SRO" if d.get("sro") else "",
+    ) if p])
     return RecordCard(
         id=d["id"], kind=d["kind"], title=d["title"],
         passbook_id=d.get("passbook_id") or "", group_id=d.get("group_id") or "",
@@ -2158,11 +3014,400 @@ def _to_card(d: dict, tags: List[str], cover: str = "") -> RecordCard:
         classification=d["classification"], status=d["status"], stake=d["stake"],
         khata_no=d["khata_no"], owner_name=d["owner_name"], village=d["village"],
         mandal=d["mandal"], district=d["district"],
-        place_line=_place_line(d["village"], d["mandal"], ""),
+        # The district, at last. It was passed as "" here while the record's own
+        # header (`record`, below) passed the real thing, so a card said
+        # "Katragunta, Markapur" and opening it said "Katragunta, Markapur,
+        # Prakasam" — and Andhra Pradesh has more than one Katragunta.
+        # `_place_line` drops a segment wholly contained in another, so a
+        # Markapur/Markapur town/Prakasam row still reads as two names.
+        place_line=_place_line(d["village"], d["mandal"], d["district"]),
         extent=d["extent"], extent_unit=d["extent_unit"], extent_alt=alt,
+        extent_detail=_card_extent_detail(d),
         market_value=d["market_value"], tags=list(tags),
         lat=lat, lon=lon, ring=ring, cover_file_ref=cover,
+        paper_count=_i(n.get("papers")), photo_count=_i(n.get("photos")),
+        feature_count=_i(n.get("features")),
+        deed_line=deed, litigation=bool(d.get("litigation")),
+        paper_file_ref=paper,
     )
+
+
+# ── Combined properties: the reads every tab shares ───────────────────
+#
+# A combined property is resolved in two steps, always in this order:
+#
+#   1. the parent row, by (id, owner_user_id) — a row that is not this
+#      account's answers exactly as one that does not exist, because telling a
+#      stranger which ids exist is telling them something;
+#   2. its members, intersected with `_cards`, which is itself owner-scoped.
+#
+# Step 2 is not belt and braces. Membership rows carry an owner column and the
+# database cascades them, but the records themselves are reached through
+# `_cards` so every tab below inherits the one ownership test the whole 360
+# already trusts — and so an archived member is still visible as a member
+# rather than vanishing from a holding somebody is paying for.
+
+#: A combined property is a holding, not a folder: two records at the least,
+#: and a ceiling so one request cannot ask for an unbounded number of
+#: relations. Fifty is far beyond any real holding.
+COMBINED_MIN_MEMBERS = 2
+COMBINED_MAX_MEMBERS = 50
+
+
+async def _combined_row(conn, uid: str, cid: str) -> dict:
+    """The parent row, or {} when it is not this account's."""
+    if not (cid or "").strip():
+        return {}
+    cur = await conn.execute(
+        "SELECT * FROM combined_properties WHERE id=%s AND owner_user_id=%s", (cid, uid))
+    return await cur.fetchone() or {}
+
+
+async def _combined_member_rows(conn, uid: str, cid: str) -> List[dict]:
+    """Membership rows in the owner's chosen order, newest tie-break last."""
+    cur = await conn.execute(
+        "SELECT id, parcel_id, property_id, sort FROM combined_property_members"
+        " WHERE owner_user_id=%s AND combined_property_id=%s ORDER BY sort, id",
+        (uid, cid))
+    return list(await cur.fetchall())
+
+
+def _combined_pairs(rows: List[dict]) -> List[tuple]:
+    """[(membership_id, record_id, kind, sort)] — the XOR column made plain."""
+    out: List[tuple] = []
+    for r in rows:
+        rid = r.get("parcel_id") or r.get("property_id") or ""
+        if not rid:
+            continue
+        kind = "parcel" if r.get("parcel_id") else "property"
+        out.append((r["id"], rid, kind, _i(r.get("sort"))))
+    return out
+
+
+async def _combined_spend(conn, uid: str, cid: str) -> float:
+    cur = await conn.execute(
+        "SELECT COALESCE(SUM(amount),0) AS s FROM combined_property_expenses"
+        " WHERE owner_user_id=%s AND combined_property_id=%s AND kind <> 'income'",
+        (uid, cid))
+    return _f((await cur.fetchone() or {}).get("s"))
+
+
+async def _member_spend(conn, uid: str, ids: List[str]) -> float:
+    if not ids:
+        return 0.0
+    cur = await conn.execute(
+        "SELECT COALESCE(SUM(amount),0) AS s FROM land_expenses"
+        " WHERE owner_user_id=%s AND entity_id = ANY(%s) AND kind <> 'income'",
+        (uid, ids))
+    return _f((await cur.fetchone() or {}).get("s"))
+
+
+def _combined_extent_line(farm: float, plot: float, built: float) -> str:
+    """"60.00 ac", or "742 Sq.yd · 1,340 Sq.ft built".
+
+    Each unit only when there is some of it: "60.00 ac · 0 Sq.yd · 0 Sq.ft" is
+    three figures to say one thing. The record COUNT is deliberately not here —
+    it carried into the header pill, the eyebrow and the totals strip, so the
+    screen said "2 records" three times in four lines.
+    """
+    bits = []
+    if farm:
+        bits.append(f"{farm:,.2f} ac")
+    if plot:
+        bits.append(f"{_in_group(plot)} Sq.yd")
+    if built:
+        bits.append(f"{_in_group(built)} Sq.ft built")
+    return " · ".join(bits) or "No extent recorded"
+
+
+def _combined_place_line(villages: List[str], mandals: List[str],
+                         districts: List[str]) -> str:
+    """Where the holding is, in a line a person would say out loud.
+
+    Joining every member's village, mandal and district gave
+    "Jangamreddypalle, Tarlupadu, Prakasam, Katragunta, Konakanamitla" — five
+    names for two parcels, which reads as noise rather than as a place. So: one
+    village keeps its full address, two are named as a pair, and more than two
+    are counted. The district comes last because it is the part that makes the
+    rest unambiguous.
+    """
+    district = districts[0] if len(districts) == 1 else ""
+    if len(villages) == 1:
+        return _place_line(villages[0], mandals[0] if mandals else "", district)
+    if len(villages) == 2:
+        head = " & ".join(villages)
+    elif villages:
+        head = f"{len(villages)} villages"
+    else:
+        head = ""
+    if not head:
+        return district or (f"{len(districts)} districts" if districts else "")
+    tail = district or (f"{len(districts)} districts" if len(districts) > 1 else "")
+    return f"{head} · {tail}" if tail else head
+
+
+def _ground_of(card: dict) -> str:
+    """What this record can put on a map: its surveyed outline, a pin somebody
+    dropped, or nothing at all."""
+    if len(_ring(card.get("boundary") or "")) >= 6:
+        return "surveyed"
+    lat, lon = _latlon(card.get("geo_point") or "")
+    return "pinned" if (lat or lon) else "unplaced"
+
+
+async def _combined_view(conn, uid: str, row: dict,
+                         with_members: bool = True) -> Combined:
+    """One combined property, with land and money totalled from its members.
+
+    Paper count is distinct files across the members plus files linked to the
+    combined view itself. These derived figures do not reach the portfolio:
+    `portfolio` reads `_cards`, so member land is counted there once.
+    """
+    cid = row["id"]
+    pairs_ = _combined_pairs(await _combined_member_rows(conn, uid, cid))
+    cards = {c["id"]: c for c in await _cards(conn, uid)}
+    mine = [(mid, rid, kind, sort) for (mid, rid, kind, sort) in pairs_ if rid in cards]
+    ids = [rid for (_m, rid, _k, _s) in mine]
+    counts = await _counts(conn, uid, ids) if ids else {}
+
+    farm = plot = built = worth = invested = 0.0
+    papers = surveyed = parcels_n = built_n = 0
+    villages: List[str] = []
+    mandals: List[str] = []
+    districts: List[str] = []
+    members: List[CombinedMember] = []
+    for (mid, rid, kind, sort) in mine:
+        d = cards[rid]
+        n = counts.get(rid, {})
+        ground = _ground_of(d)
+        if kind == "parcel":
+            parcels_n += 1
+            farm += d["extent"]
+        else:
+            built_n += 1
+            if d["extent_unit"] == "sq.ft":
+                built += d["extent"]
+            else:
+                plot += d["extent"]
+        worth += d["market_value"]
+        invested += d["purchase_price"]
+        if ground == "surveyed":
+            surveyed += 1
+        for word, bucket in ((d.get("village") or "", villages),
+                             (d.get("mandal") or "", mandals),
+                             (d.get("district") or "", districts)):
+            if word and word not in bucket:
+                bucket.append(word)
+        if with_members:
+            members.append(CombinedMember(
+                id=mid, record_id=rid, record_kind=kind, title=d["title"],
+                place_line=_place_line(d["village"], d["mandal"], d["district"]),
+                khata_no=d["khata_no"], owner_name=d["owner_name"],
+                status="archived" if d.get("archived") else d["status"],
+                extent=d["extent"], extent_unit=d["extent_unit"],
+                extent_detail=_card_extent_detail(d),
+                market_value=d["market_value"], paper_count=_i(n.get("papers")),
+                ground=ground,
+                sheet_title=await _fmb_sheet(conn, rid, d["title"]),
+                sheet_id=str((await _fmb_sheet_row(conn, rid)).get("id") or ""),
+                archived=bool(d.get("archived")), sort=sort))
+
+    # A joint sheet linked to three members is one file. Include files linked
+    # directly to the combined view, even when it has lost all its members.
+    cur = await conn.execute(
+        "SELECT count(DISTINCT d.id) AS c FROM documents d WHERE d.owner_user_id=%s"
+        " AND (d.record_id=ANY(%s) OR d.parcel_id=ANY(%s) OR d.property_id=ANY(%s)"
+        " OR EXISTS (SELECT 1 FROM document_record_links l"
+        " WHERE l.owner_user_id=%s AND l.document_id=d.id"
+        " AND (l.record_id=ANY(%s) OR l.record_id=%s)))",
+        (uid, ids, ids, ids, uid, ids, cid))
+    papers = _i((await cur.fetchone() or {}).get("c"))
+
+    return Combined(
+        id=cid, name=row.get("name") or "Combined property",
+        note=row.get("note") or "",
+        member_count=len(mine), parcel_count=parcels_n, property_count=built_n,
+        farm_extent=farm, plot_extent=plot, built_extent=built,
+        extent_line=_combined_extent_line(farm, plot, built),
+        market_value=worth, invested=invested, paper_count=papers,
+        surveyed_count=surveyed,
+        combined_spend=await _combined_spend(conn, uid, cid),
+        member_spend=await _member_spend(conn, uid, ids),
+        place_line=_combined_place_line(villages, mandals, districts),
+        # Short of the two records a holding is made of — which happens when a
+        # member record is deleted from Properties, not by anything done here.
+        is_complete=len(mine) >= COMBINED_MIN_MEMBERS,
+        created_at=row.get("created_at") or "", updated_at=row.get("updated_at") or "",
+        members=members)
+
+
+async def _combined_member_ids(conn, uid: str, cid: str) -> List[str]:
+    """Just the member record ids this account still owns, in order."""
+    pairs_ = _combined_pairs(await _combined_member_rows(conn, uid, cid))
+    owned = {c["id"] for c in await _cards(conn, uid)}
+    return [rid for (_m, rid, _k, _s) in pairs_ if rid in owned]
+
+
+async def _combined_joint_sheets(conn, uid: str, ids: List[str],
+                                 titles: dict) -> List["CombinedJointSheet"]:
+    """The joint FMBs filed on any of these members, one entry per sheet.
+
+    Grouped by `joint_fmb_id`, listing only links to current members. Older
+    uploads have one document row per member; newer uploads keep one document
+    row with several links. Both shapes return one sheet."""
+    if not ids:
+        return []
+    cur = await conn.execute(
+        "SELECT d.id, d.name, l.record_id, d.joint_fmb_id, d.file_ref, d.created_at"
+        " FROM documents d JOIN document_record_links l ON l.document_id=d.id"
+        " AND l.owner_user_id=d.owner_user_id WHERE d.owner_user_id=%s"
+        " AND d.joint_fmb_id <> '' AND l.record_id = ANY(%s)"
+        " ORDER BY d.created_at, d.id", (uid, ids))
+    order = {rid: i for i, rid in enumerate(ids)}
+    groups: dict = {}
+    for d in await cur.fetchall():
+        g = groups.setdefault(d["joint_fmb_id"], {
+            "name": d.get("name") or "Joint FMB", "file_ref": d.get("file_ref") or "",
+            "created_at": d.get("created_at") or "", "copies": []})
+        g["copies"].append((d["record_id"], d["id"]))
+    out: List[CombinedJointSheet] = []
+    for jid, g in groups.items():
+        copies = sorted(g["copies"], key=lambda c: order.get(c[0], len(order)))
+        out.append(CombinedJointSheet(
+            id=jid, name=g["name"],
+            record_ids=[rid for rid, _p in copies],
+            record_titles=[titles.get(rid, "") for rid, _p in copies],
+            paper_ids=[pid for _r, pid in copies],
+            created_at=g["created_at"], file_ref=g["file_ref"]))
+    out.sort(key=lambda s: s.created_at, reverse=True)
+    return out
+
+
+async def _combined_members_for(conn, uid: str, record_ids: List[str],
+                                cid: str = "") -> Optional[List[tuple]]:
+    """[(record_id, kind)] when every id may join this holding, else None.
+
+    Four refusals, and all four are about what a combined property MEANS rather
+    than about types:
+
+      · fewer than two records, or more than the ceiling;
+      · a record that is not this account's — `_cards` is the owner-scoped read
+        every other 360 surface trusts, and an id it does not return is
+        answered exactly like one that does not exist;
+      · a record the account does not hold outright (`stake` managed or watch).
+        Combining land is a statement about your own holding; land you watch or
+        look after for somebody else is not yours to group, and its costs are
+        not yours to total;
+      · a record already inside another combined property. One acre cannot be
+        in two holdings, or both would report it.
+
+    None, never a partial list: dropping the ids it did not like would build a
+    holding quietly short of what the owner asked for.
+    """
+    wanted = list(dict.fromkeys(i.strip() for i in (record_ids or []) if i and i.strip()))
+    if not (COMBINED_MIN_MEMBERS <= len(wanted) <= COMBINED_MAX_MEMBERS):
+        return None
+    cards = {c["id"]: c for c in await _cards(conn, uid)}
+    out: List[tuple] = []
+    for rid in wanted:
+        card = cards.get(rid)
+        if not card:
+            return None
+        if (card.get("stake") or "owned") != "owned":
+            return None
+        out.append((rid, card["kind"]))
+    # Locked, so a concurrent create cannot slip between this check and the
+    # insert. The unique indexes are still the backstop.
+    cur = await conn.execute(
+        "SELECT parcel_id, property_id FROM combined_property_members"
+        " WHERE owner_user_id=%s AND combined_property_id <> %s"
+        " AND (parcel_id = ANY(%s) OR property_id = ANY(%s)) FOR UPDATE",
+        (uid, cid, wanted, wanted))
+    if await cur.fetchone():
+        return None
+    return out
+
+
+async def _write_combined_members(conn, uid: str, cid: str,
+                                  members: List[tuple]) -> None:
+    """Insert the membership rows in the order they were given.
+
+    `sort` is that order rather than anything derived: the owner listed the
+    records in the order they think of the holding — the home field first — and
+    a list re-sorted by survey number would not be theirs.
+    """
+    import uuid as _uuid
+    now = _now_iso()
+    for i, (rid, kind) in enumerate(members):
+        await conn.execute(
+            "INSERT INTO combined_property_members (id, owner_user_id,"
+            " combined_property_id, parcel_id, property_id, sort, created_at)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (f"cpm-{_uuid.uuid4().hex[:12]}", uid, cid,
+             rid if kind == "parcel" else None,
+             rid if kind == "property" else None, i, now))
+
+
+def _metres_word(m: float) -> str:
+    """"240 m" / "1.4 km". Whole metres, because these outlines are traced over
+    imagery and rounded to six decimals — a centimetre here would be a claim
+    the coordinates cannot support."""
+    return f"{m / 1000:.1f} km" if m >= 1000 else f"{m:,.0f} m"
+
+
+def _combined_relation_detail(verdict: dict) -> str:
+    """One sentence about two outlines, and never a verdict about the ground.
+
+    Every one of these is a statement about the COORDINATES ON FILE. Two
+    boundaries traced by different people on different days disagree by a metre
+    or so on the same wall, so "adjoining" says they run alongside each other as
+    drawn — not that a surveyor has agreed they do.
+    """
+    relation = verdict["relation"]
+    gap, run = verdict["gap_m"], verdict["run_m"]
+    if relation == "adjoining":
+        return (f"Side by side — the saved outlines run together for about"
+                f" {_metres_word(run)}"
+                + (f", within {gap:.1f} m." if gap else "."))
+    if relation == "overlapping":
+        return ("The saved outlines overlap by about"
+                f" {_metres_word(verdict['depth_m'])}. One of the two boundaries"
+                " needs checking against its paper.")
+    if relation == "corner":
+        return "They meet only near a corner, not along a boundary."
+    return f"About {_metres_word(gap)} apart."
+
+
+def _combined_fmb_caption(members: int, drawn: int, pieces: int,
+                          relations: List[CombinedRelation]) -> str:
+    """What this map is allowed to say it is showing.
+
+    It is never "the combined FMB": no office issued this, and the sentence has
+    to keep saying so on the screen where somebody might screenshot it.
+    """
+    # design.md § App vocabulary: a combined view's members are RECORDS, and a
+    # boundary is "saved", never "surveyed" (a member is one of Pattadar's own
+    # people). The claim this line exists to make is unchanged.
+    if not drawn:
+        return ("No record in this view has a saved boundary yet, so there is"
+                " nothing to place side by side.")
+    if drawn == 1:
+        return ("One record has a saved boundary. It is drawn as filed; the"
+                " others need a boundary before they can sit beside it.")
+    head = f"{drawn} saved boundaries, each drawn as its own record filed it"
+    if any(r.relation == "overlapping" for r in relations):
+        tail = (". Two of them overlap — the sources disagree and a person has"
+                " to look.")
+    elif pieces == 1:
+        tail = ", touching as one piece of ground."
+    elif drawn == 2 and relations:
+        # Two outlines that do not touch: the distance belongs here, in the one
+        # line that already describes the map. It used to need a panel, a
+        # heading and a capsule of its own to say "About 9.5 km apart".
+        tail = f", about {_metres_word(relations[0].gap_m)} apart."
+    else:
+        tail = f", in {pieces} separate pieces."
+    return head + tail + " Not a merged or official FMB."
 
 
 # ── Query namespace ───────────────────────────────────────────────────
@@ -3014,7 +4259,7 @@ async def _write_ledger(conn, uid: str, ticket_id: str, plan: list, *,
                 headline=ticketing.event_headline("payment", "", {
                     "entry": row.get("entry") or "", "amount": _f(row.get("amount")),
                     "payee": row.get("payee") or ""}),
-                detail=("Recorded, not charged" if not ticketing.is_live(provider)
+                detail=("Not charged" if not ticketing.is_live(provider)
                         else row.get("note") or ""))
     return n
 
@@ -3492,29 +4737,35 @@ def _governance_policy(row: dict) -> GovernancePolicy:
     return GovernancePolicy(
         id=row.get("id") or "", scope_key=row.get("scope_key") or "",
         country_code=row.get("country_code") or "", state_code=row.get("state_code") or "",
-        district_code=row.get("district_code") or "", revision=_i(row.get("revision")),
+        district_code=row.get("district_code") or "",
+        mandal_code=row.get("mandal_code") or "*", village_code=row.get("village_code") or "*",
+        revision=_i(row.get("revision")),
         status=row.get("status") or "", schema_version=_i(row.get("schema_version")),
         document=row.get("document") or "{}", source_digest=row.get("source_digest") or "",
         created_by=row.get("created_by") or "", created_at=row.get("created_at") or "",
         published_by=row.get("published_by") or "", published_at=row.get("published_at") or "")
 
 
-async def _policy_row(conn, country_code: str, state_code: str,
-                      district_code: str, published_only: bool = True) -> dict:
-    """Most-specific current policy: district, state wildcard, country wildcard."""
+async def _policy_row(conn, country_code: str, state_code: str, district_code: str,
+                      mandal_code: str = "*", village_code: str = "*",
+                      published_only: bool = True) -> dict:
+    """Most-specific current policy: village, mandal, district, state, country wildcard."""
     try:
-        country, state, district, _key = governance.normalize_scope(
-            country_code, state_code, district_code)
+        country, state, district, mandal, village, _key = governance.normalize_scope(
+            country_code, state_code, district_code, mandal_code, village_code)
     except ValueError:
         return {}
     status = ("AND status='published'" if published_only
               else "AND status IN ('draft','published')")
     cur = await conn.execute(
         "SELECT * FROM governance_policy_sets WHERE country_code=%s "
-        "AND state_code IN (%s,'*') AND district_code IN (%s,'*') " + status +
-        " ORDER BY (CASE WHEN state_code=%s THEN 2 ELSE 0 END"
-        " + CASE WHEN district_code=%s THEN 1 ELSE 0 END) DESC, revision DESC LIMIT 1",
-        (country, state, district, state, district))
+        "AND state_code IN (%s,'*') AND district_code IN (%s,'*') "
+        "AND mandal_code IN (%s,'*') AND village_code IN (%s,'*') " + status +
+        " ORDER BY (CASE WHEN state_code=%s THEN 8 ELSE 0 END"
+        " + CASE WHEN district_code=%s THEN 4 ELSE 0 END"
+        " + CASE WHEN mandal_code=%s THEN 2 ELSE 0 END"
+        " + CASE WHEN village_code=%s THEN 1 ELSE 0 END) DESC, revision DESC LIMIT 1",
+        (country, state, district, mandal, village, state, district, mandal, village))
     return await cur.fetchone() or {}
 
 
@@ -3637,6 +4888,24 @@ async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "",
         pass
 
 
+def _actor_word(uid: str, principal: str, kind: str) -> str:
+    """Who acted, in the words the owner reads — never the identity key.
+
+    `actor_principal` is the gateway identity (a subject, or a legacy owner key
+    bound through IDENTITY_LEGACY_BINDINGS). It is a machine value, and for the
+    Pattadar desk or a share recipient it is somebody else's identifier, so the
+    record's Activity says what kind of actor it was — the same words Account →
+    Activity uses for the same events (apps/web/src/w360/pages/Audit.tsx)."""
+    if principal and principal == uid:
+        return "You"
+    return {
+        "admin": "Pattadar desk",
+        "system": "System",
+        "recipient": "A recipient",
+        "owner": "Another account",
+    }.get(kind, "Someone")
+
+
 async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]:
     """One record's audited changes, newest first, spined on the hash chain.
 
@@ -3661,7 +4930,7 @@ async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]
     scope = ("affected_owner=%s AND resource_id=%s AND action "
              + ("= %s" if action else "NOT LIKE '%%_read'"))
     args = [uid, record_id] + ([action] if action else [])
-    cols = "event_id, action, occurred_at, actor_principal, metadata"
+    cols = "event_id, action, occurred_at, actor_principal, actor_kind, metadata"
     cur = await conn.execute(
         f"SELECT {cols} FROM audit_events_v2 WHERE {scope}"
         f" UNION ALL SELECT {cols} FROM audit_outbox WHERE state='pending' AND {scope}"
@@ -3695,7 +4964,7 @@ async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]
         out.append({
             "id": r["event_id"], "action": r["action"],
             "at": at.isoformat() if hasattr(at, "isoformat") else str(at),
-            "by": r["actor_principal"], "detail": detail,
+            "by": r["actor_principal"], "kind": r.get("actor_kind") or "", "detail": detail,
             "field": str(meta.get("field") or values.get("field") or ""),
             "was": str(values.get("from") or ""), "now": str(values.get("to") or ""),
         })
@@ -4778,7 +6047,16 @@ class WebQuery:
             ]
 
             covers = await _covers(conn, uid)
-            recent = [_to_card(r, tags.get(r["id"], []), covers.get(r["id"], ""))
+            # `recent` shares one selection set with the property grid, so it is
+            # served the same facts rather than four cards quietly reading
+            # "0 papers". Narrowed to these four ids: this resolver is mounted
+            # by the Shell on every authenticated route, and account-wide
+            # aggregates for a four-card strip would be paid for everywhere.
+            shown_ids = [r["id"] for r in rows[:4]]
+            countmap = await _counts(conn, uid, shown_ids)
+            heroes = await _paper_heroes(conn, uid, shown_ids)
+            recent = [_to_card(r, tags.get(r["id"], []), covers.get(r["id"], ""),
+                               countmap.get(r["id"]), heroes.get(r["id"], ""))
                       for r in rows[:4]]
 
             # Two booleans the rail needs on every screen. They ride here
@@ -4806,19 +6084,22 @@ class WebQuery:
     async def governance_policy(
         self, info: strawberry.Info, country_code: str = "IN",
         state_code: str = "AP", district_code: str = "*",
+        mandal_code: str = "*", village_code: str = "*",
     ) -> Optional[GovernancePolicy]:
         """Published owner guidance for the most-specific jurisdiction."""
         uid = _uid(info)
         if uid == "system":
             return None
         async with _pool.connection() as conn:
-            row = await _policy_row(conn, country_code, state_code, district_code, True)
+            row = await _policy_row(conn, country_code, state_code, district_code,
+                                    mandal_code, village_code, True)
             return _governance_policy(row) if row else None
 
     @strawberry.field
     async def governance_admin_policy(
         self, info: strawberry.Info, country_code: str = "IN",
         state_code: str = "AP", district_code: str = "*",
+        mandal_code: str = "*", village_code: str = "*",
     ) -> Optional[GovernancePolicy]:
         """Current policy envelope, including authoring metadata.
 
@@ -4830,17 +6111,19 @@ class WebQuery:
         async with _pool.connection() as conn:
             if not await _is_super_admin(conn, uid):
                 return None
-            row = await _policy_row(conn, country_code, state_code, district_code, False)
+            row = await _policy_row(conn, country_code, state_code, district_code,
+                                    mandal_code, village_code, False)
             return _governance_policy(row) if row else None
 
     @strawberry.field
     async def governance_admin_policies(
         self, info: strawberry.Info, country_code: str = "IN",
     ) -> List[GovernancePolicy]:
-        """Latest revision at every scope, including archived and draft rows."""
+        """Latest revision at every scope (state, district, mandal, village),
+        including archived and draft rows."""
         uid = _uid(info)
         try:
-            country, _state, _district, _key = governance.normalize_scope(
+            country, _state, _district, _mandal, _village, _key = governance.normalize_scope(
                 country_code, "*", "*")
         except ValueError:
             return []
@@ -4856,17 +6139,39 @@ class WebQuery:
     async def governance_policy_history(
         self, info: strawberry.Info, scope_key: str,
     ) -> List[GovernancePolicyEvent]:
-        """Append-only policy trail: who did what, when, and for which scope."""
+        """Append-only policy trail: who did what, when, and for which scope.
+
+        Cascades downward: the trail for a state also carries every district,
+        mandal and village change recorded under it, so a state-level admin
+        never has to click into each child scope to see what happened there.
+        A fully-concrete (village) scope has no descendants, so its trail is
+        just its own exact events.
+
+        ``scope_key`` is normalized rather than trusted as-is: a pre-migration
+        three-segment key or a wildcard in a non-trailing position would
+        otherwise either match nothing (a silent, wrong "no history") or
+        cascade far wider than the caller's scope actually names.
+        """
         uid = _uid(info)
-        key = (scope_key or "").strip().upper()
-        if not key:
+        parts = (scope_key or "").strip().split("/")
+        if len(parts) != 5:
+            return []
+        try:
+            _country, _state, _district, _mandal, _village, key = governance.normalize_scope(*parts)
+        except ValueError:
             return []
         async with _pool.connection() as conn:
             if not await _is_super_admin(conn, uid):
                 return []
-            cur = await conn.execute(
-                "SELECT * FROM governance_policy_events WHERE scope_key=%s"
-                " ORDER BY created_at DESC,id DESC", (key,))
+            pattern = governance.cascade_pattern(key)
+            if pattern:
+                cur = await conn.execute(
+                    "SELECT * FROM governance_policy_events WHERE scope_key LIKE %s ESCAPE '\\'"
+                    " ORDER BY created_at DESC,id DESC", (pattern,))
+            else:
+                cur = await conn.execute(
+                    "SELECT * FROM governance_policy_events WHERE scope_key=%s"
+                    " ORDER BY created_at DESC,id DESC", (key,))
             return [_governance_event(row) for row in await cur.fetchall()]
 
     @strawberry.field
@@ -4875,18 +6180,33 @@ class WebQuery:
         kinds: Optional[List[str]] = None,
         statuses: Optional[List[str]] = None,
         stakes: Optional[List[str]] = None,
-        derived: Optional[List[str]] = None,
+        villages: Optional[List[str]] = None,
+        khatas: Optional[List[str]] = None,
+        owners: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         groups: Optional[List[str]] = None,
     ) -> PropertyList:
         uid = _uid(info)
         kinds, statuses = kinds or [], statuses or []
-        stakes, derived, tags = stakes or [], derived or [], tags or []
+        stakes, tags = stakes or [], tags or []
+        # Village and khata were one "derived" facet whose keep() test also
+        # matched mandal and district and combined its selections with AND —
+        # so picking two villages, or a village and a khata, asked for records
+        # that were in BOTH and drew an empty grid. They are two facets now,
+        # each an OR over its own field, matching every other facet here.
+        villages, khatas, owners = villages or [], khatas or [], owners or []
         groups = groups or []
         async with _pool.connection() as conn:
             all_rows = await _cards(conn, uid)
             tagmap = await _tags_for(conn, uid, "record")
             covers = await _covers(conn, uid)
+            # Both are account-wide grouped aggregates rather than anything
+            # per-card: five queries however many records come back, on the
+            # same reasoning that gives the facet counter and the grid one
+            # `_cards`. No `ids` argument, because on this screen the answer is
+            # the account and the filter runs in Python below.
+            countmap = await _counts(conn, uid)
+            heroes = await _paper_heroes(conn, uid)
             # The account's groups, for the facet's labels. Read here rather
             # than derived from the cards so a group shows up under its own
             # name, and so the facet can be built at all for a group whose
@@ -4926,9 +6246,16 @@ class WebQuery:
                     gid = r.get("group_id") or ""
                     if not (gid in groups if gid else PERSONAL in groups):
                         return False
-                for d in derived:
-                    if d not in (r["village"], r["khata_no"], r["mandal"], r["district"]):
-                        return False
+                # Village, khata and owner each narrow within themselves by OR
+                # (one of the ticked villages) and across each other by AND
+                # (that village AND that khata), which is how every other facet
+                # on this screen already behaves.
+                if villages and r["village"] not in villages:
+                    return False
+                if khatas and r["khata_no"] not in khatas:
+                    return False
+                if owners and r["owner_name"] not in owners:
+                    return False
                 return True
 
             shown = [r for r in rows if keep(r)]
@@ -4954,11 +6281,20 @@ class WebQuery:
                 for t in tagmap.get(r["id"], []):
                     if t not in all_tags:
                         all_tags.append(t)
-            all_derived: List[str] = []
+            # One pass over the active records for the three record-derived
+            # facets, each keeping first-seen order and dropping blanks — a
+            # parcel with no village, or a built property with no khata, must
+            # not offer an empty-string option that a URL cannot carry.
+            all_villages: List[str] = []
+            all_khatas: List[str] = []
+            all_owners: List[str] = []
             for r in base:
-                for cand in (r["village"], r["khata_no"]):
-                    if cand and cand not in all_derived:
-                        all_derived.append(cand)
+                if r["village"] and r["village"] not in all_villages:
+                    all_villages.append(r["village"])
+                if r["khata_no"] and r["khata_no"] not in all_khatas:
+                    all_khatas.append(r["khata_no"])
+                if r["owner_name"] and r["owner_name"] not in all_owners:
+                    all_owners.append(r["owner_name"])
             personal_n = len([r for r in base if not (r.get("group_id") or "")])
 
             status_group = group(
@@ -4977,10 +6313,24 @@ class WebQuery:
                 group("stake", "My stake",
                       [("owned", "Owned"), ("managed", "Managed"), ("watch", "Watch")],
                       stakes, lambda r: r["stake"]),
-                FacetGroup(key="derived", label="Derived", options=[
-                    FacetOption(key=d, label=d, active=d in derived,
-                                count=len([r for r in base if d in (r["village"], r["khata_no"])]))
-                    for d in all_derived]),
+                # Village and khata are their own sections now — a khata is a
+                # revenue-record number and a village is a place, and folding
+                # them together read as one heading over two unlike things.
+                FacetGroup(key="village", label="Village", options=[
+                    FacetOption(key=v, label=v, active=v in villages,
+                                count=len([r for r in base if r["village"] == v]))
+                    for v in all_villages]),
+                FacetGroup(key="khata", label="Khata", options=[
+                    FacetOption(key=k, label=k, active=k in khatas,
+                                count=len([r for r in base if r["khata_no"] == k]))
+                    for k in all_khatas]),
+                # Owner. A parcel wears its passbook's owner; a built property
+                # wears its own. "Show me everything Telukutla Saraswathi
+                # holds" is now one ticked box.
+                FacetGroup(key="owner", label="Owner", options=[
+                    FacetOption(key=o, label=o, active=o in owners,
+                                count=len([r for r in base if r["owner_name"] == o]))
+                    for o in all_owners]),
                 FacetGroup(key="tags", label="Your tags", options=[
                     FacetOption(key=t, label=t, active=t in tags,
                                 count=len([r for r in base if t in tagmap.get(r["id"], [])]))
@@ -5002,20 +6352,21 @@ class WebQuery:
                 ]),
             ]
 
-            bits = [*derived, *tags,
+            bits = [*villages, *khatas, *owners, *tags,
                     *[group_name.get(g, "In your own name" if g == PERSONAL else g)
                       for g in groups],
                     *[o.label.lower() for g in facets if g.key == "status"
                       for o in g.options if o.active]]
             summary = " · ".join(bits)
-            active_count = (len(kinds) + len(statuses) + len(stakes) + len(derived)
-                            + len(tags) + len(groups))
+            active_count = (len(kinds) + len(statuses) + len(stakes) + len(villages)
+                            + len(khatas) + len(owners) + len(tags) + len(groups))
 
             return PropertyList(
                 shown=len(shown), total=len(rows), hidden=len(hidden),
                 filter_summary=summary, hidden_places=hidden_places,
                 active_count=active_count,
-                cards=[_to_card(r, tagmap.get(r["id"], []), covers.get(r["id"], ""))
+                cards=[_to_card(r, tagmap.get(r["id"], []), covers.get(r["id"], ""),
+                                countmap.get(r["id"]), heroes.get(r["id"], ""))
                        for r in shown],
                 facets=facets)
 
@@ -5035,11 +6386,21 @@ class WebQuery:
                 return _i((await cur.fetchone() or {}).get("c"))
 
             papers = await count(
-                "SELECT count(*) AS c FROM documents WHERE record_id=%s", (id,))
+                "SELECT count(DISTINCT d.id) AS c FROM documents d WHERE d.owner_user_id=%s AND ("
+                "d.record_id=%s OR d.parcel_id=%s OR d.property_id=%s OR EXISTS ("
+                "SELECT 1 FROM document_record_links l WHERE l.owner_user_id=d.owner_user_id "
+                "AND l.document_id=d.id AND l.record_id=%s))",
+                (uid, id, id, id, id))
             features = await count(
                 "SELECT count(*) AS c FROM land_features WHERE entity_id=%s", (id,))
+            # The People tab now holds two lists — the ownership chain and the
+            # staff — so its badge counts both, or it disagrees with what the
+            # tab shows. Owners moved to record_owners; staff stayed in
+            # record_people.
             people = await count(
-                "SELECT count(*) AS c FROM record_people WHERE record_id=%s", (id,))
+                "SELECT count(*) AS c FROM record_people WHERE record_id=%s", (id,)) \
+                + await count(
+                "SELECT count(*) AS c FROM record_owners WHERE record_id=%s", (id,))
             services = await count(
                 "SELECT count(*) AS c FROM work_requests WHERE entity_id=%s AND closed=false", (id,))
             # Photos only — a visit's video is counted beside them, not among
@@ -5081,6 +6442,20 @@ class WebQuery:
                 f"KHATA {d['khata_no']}" if d["khata_no"] else "",
                 d["classification"].upper() if d["kind"] == "parcel" else "") if p])
 
+            # Which holding this record belongs to, if any. Scoped by owner like
+            # every other read here; the record itself was already proven to be
+            # this owner's by `_cards` above. One row at most — see the
+            # cardinality note on RecordDetail.combined_id.
+            cur = await conn.execute(
+                "SELECT c.id AS id, c.name AS name"
+                " FROM combined_property_members m"
+                " JOIN combined_properties c ON c.id = m.combined_property_id"
+                "  AND c.owner_user_id = m.owner_user_id"
+                " WHERE m.owner_user_id=%s AND (m.parcel_id=%s OR m.property_id=%s)"
+                " LIMIT 1",
+                (uid, id, id))
+            holding = await cur.fetchone() or {}
+
             table = "parcels" if d["kind"] == "parcel" else "properties"
             cur = await conn.execute(
                 f"SELECT purchase_date, reg_date FROM {table} WHERE id=%s", (id,))
@@ -5121,7 +6496,9 @@ class WebQuery:
                 tags=tagmap.get(id, []),
                 note_body=note.get("body", ""),
                 note_author=note.get("author") or d["owner_name"] or "You",
-                note_at=note.get("created_at", ""))
+                note_at=note.get("created_at", ""),
+                combined_id=holding.get("id") or "",
+                combined_name=holding.get("name") or "")
 
     @strawberry.field
     async def corrections(self, info: strawberry.Info, record_id: str) -> List[Correction]:
@@ -5137,7 +6514,8 @@ class WebQuery:
             if not await _record_kind(conn, uid, record_id):
                 return []
             return [Correction(id=e["id"], field=e["field"], was=e["was"],
-                               now=e["now"], at=e["at"], by=e["by"])
+                               now=e["now"], at=e["at"],
+                               by=_actor_word(uid, e["by"], e["kind"]))
                     for e in await _trail(conn, uid, record_id, "record.corrected")]
 
     @strawberry.field
@@ -5149,16 +6527,25 @@ class WebQuery:
         recorded, a paper filed, a pin moved, a photo added or removed. Reads
         are excluded so the log is a record of CHANGES, not of viewing. Scoped
         to the caller's own record; `_record_kind` returns '' for anything not
-        theirs, so nothing another owner did can appear here. "Nothing on this
-        list can be edited or removed" is what the screen says, so the list
-        comes from the store where that is enforced — see `_trail`."""
+        theirs, so nothing another owner did can appear here. The list comes
+        from the append-only, chained store — see `_trail` — so a change cannot
+        be quietly taken off it.
+
+        `by` is said in words (`_actor_word`), and a correction's old and new
+        values travel as fields: its legacy line is the JSON they were stored
+        as, which is not text for a screen."""
         uid = _uid(info)
         async with _pool.connection() as conn:
             if not await _record_kind(conn, uid, record_id):
                 return []
-            return [HistoryEvent(id=e["id"], action=e["action"], detail=e["detail"],
-                                 at=e["at"], by=e["by"])
-                    for e in await _trail(conn, uid, record_id)]
+            return [HistoryEvent(
+                id=e["id"], action=e["action"],
+                detail="" if e["action"] == "record.corrected" else e["detail"],
+                at=e["at"], by=_actor_word(uid, e["by"], e["kind"]),
+                field=e["field"] if e["action"] == "record.corrected" else "",
+                was=e["was"] if e["action"] == "record.corrected" else "",
+                now=e["now"] if e["action"] == "record.corrected" else "")
+                for e in await _trail(conn, uid, record_id)]
 
     @strawberry.field
     async def assignable(self, info: strawberry.Info) -> List[str]:
@@ -5190,7 +6577,7 @@ class WebQuery:
         an unscoped catalogue uses the Andhra Pradesh baseline."""
         uid = _uid(info)
         visual_document: dict = governance.BASELINE_DOCUMENT
-        source_scope = "IN/AP/*"
+        source_scope = "IN/AP/*/*/*"
         async with _pool.connection() as conn:
             state_code = "AP"
             district = "*"
@@ -5206,7 +6593,8 @@ class WebQuery:
                         state_code = "*"
                     if state_code != "*":
                         district = str(record.get("district") or "*")
-            policy_row = await _policy_row(conn, "IN", state_code, district, True)
+            policy_row = await _policy_row(conn, "IN", state_code, district,
+                                           published_only=True)
             if policy_row:
                 try:
                     candidate = json.loads(policy_row.get("document") or "{}")
@@ -5242,10 +6630,16 @@ class WebQuery:
         uid = _uid(info)
         async with _pool.connection() as conn:
             cur = await conn.execute(
-                "SELECT * FROM documents WHERE record_id=%s AND owner_user_id=%s "
-                "ORDER BY sort, created_at DESC", (record_id, uid))
+                "SELECT * FROM documents WHERE owner_user_id=%s AND "
+                "(record_id=%s OR parcel_id=%s OR property_id=%s OR EXISTS ("
+                " SELECT 1 FROM document_record_links l WHERE l.owner_user_id=documents.owner_user_id"
+                " AND l.document_id=documents.id AND l.record_id=%s)) "
+                "ORDER BY sort, created_at DESC",
+                (uid, record_id, record_id, record_id, record_id))
             docs = await cur.fetchall()
+            propertymap = await _paper_property_map(conn, uid, [d["id"] for d in docs])
             tagmap = await _tags_for(conn, uid, "paper")
+            cards = {c["id"]: c["title"] for c in await _cards(conn, uid)}
             cur = await conn.execute(
                 "SELECT document_id FROM share_links WHERE owner_user_id=%s AND revoked=false", (uid,))
             shared = {r["document_id"] for r in await cur.fetchall()}
@@ -5254,7 +6648,13 @@ class WebQuery:
                 detail=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
                 icon=d.get("shelf") or "unsorted", tags=tagmap.get(d["id"], []),
                 shared=d["id"] in shared, page_count=_i(d.get("page_count")),
-                file_ref=d.get("file_ref") or "")
+                file_ref=d.get("file_ref") or "", mime_type=d.get("mime_type") or "",
+                record_id=record_id, record_title=cards.get(record_id, ""),
+                linked_properties=propertymap.get(d["id"], []),
+                created_at=d.get("created_at") or "",
+                joint_fmb_id=d.get("joint_fmb_id") or "",
+                folder_id=d.get("folder_id") or "",
+                size_bytes=_i(d.get("size_bytes")))
                 for d in docs]
 
     @strawberry.field
@@ -5269,39 +6669,85 @@ class WebQuery:
 
         `shelf` is the stored column, the same one `vault` groups its counts
         by, so a card reading 12 and this list agreeing is structural rather
-        than a coincidence to be maintained. Two keys are special:
+        than a coincidence to be maintained. `all` is the owner-scoped register
+        used for bulk filing. Photos in this list are only unfiled image rows;
+        linked photos live in the record galleries. Two keys are special:
 
           · 'unsorted' also claims rows whose shelf is NULL or '' — that is
             what the count does (``r["shelf"] or "unsorted"``), and a card
             saying 13 over a list of 4 would be the same class of lie this
             resolver exists to fix.
-          · 'photos' is not a documents shelf at all: `vault` counts it from
-            parcel_photos. Papers on that shelf therefore genuinely is empty,
-            and the screen sends people to the record's Photos tab instead.
+          · 'photos' also counts linked photos from both photo tables; the list
+            shows only unfiled photo files so a person can file them.
         """
         uid = _uid(info)
         async with _pool.connection() as conn:
-            if shelf == "unsorted":
+            if shelf == "all":
+                cur = await conn.execute(
+                    "SELECT * FROM documents WHERE owner_user_id=%s "
+                    "ORDER BY created_at DESC, id", (uid,))
+            elif shelf == "unsorted":
                 cur = await conn.execute(
                     "SELECT * FROM documents WHERE owner_user_id=%s "
                     "AND (shelf IS NULL OR shelf='' OR shelf='unsorted') "
+                    "ORDER BY created_at DESC", (uid,))
+            elif shelf == "photos":
+                cur = await conn.execute(
+                    "SELECT * FROM documents WHERE owner_user_id=%s AND shelf='photos' "
+                    "AND COALESCE(record_id,'')='' AND COALESCE(parcel_id,'')='' "
+                    "AND COALESCE(passbook_id,'')='' AND COALESCE(property_id,'')='' "
+                    "AND NOT EXISTS (SELECT 1 FROM document_record_links l "
+                    "WHERE l.owner_user_id=documents.owner_user_id AND l.document_id=documents.id) "
                     "ORDER BY created_at DESC", (uid,))
             else:
                 cur = await conn.execute(
                     "SELECT * FROM documents WHERE owner_user_id=%s AND shelf=%s "
                     "ORDER BY created_at DESC", (uid, shelf))
             docs = await cur.fetchall()
+            propertymap = await _paper_property_map(conn, uid, [d["id"] for d in docs])
             tagmap = await _tags_for(conn, uid, "paper")
             cur = await conn.execute(
                 "SELECT document_id FROM share_links WHERE owner_user_id=%s AND revoked=false", (uid,))
             shared = {r["document_id"] for r in await cur.fetchall()}
+            cards = {c["id"]: c["title"] for c in await _cards(conn, uid)}
             return [Paper(
                 id=d["id"], title=d.get("title") or d.get("name") or "Paper",
                 detail=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
                 icon=d.get("shelf") or "unsorted", tags=tagmap.get(d["id"], []),
                 shared=d["id"] in shared, page_count=_i(d.get("page_count")),
-                file_ref=d.get("file_ref") or "")
+                file_ref=d.get("file_ref") or "", mime_type=d.get("mime_type") or "",
+                record_id=(d.get("record_id") or d.get("parcel_id") or d.get("property_id") or ""),
+                record_title=cards.get(d.get("record_id") or d.get("parcel_id")
+                                       or d.get("property_id") or "", ""),
+                linked_properties=propertymap.get(d["id"], []),
+                created_at=d.get("created_at") or "",
+                joint_fmb_id=d.get("joint_fmb_id") or "",
+                folder_id=d.get("folder_id") or "",
+                size_bytes=_i(d.get("size_bytes")))
                 for d in docs]
+
+    @strawberry.field
+    async def vault_folders(self, info: strawberry.Info) -> List[VaultFolder]:
+        """Every folder the owner has made, flat, with how much is in each.
+
+        A joint FMB filed against several properties is one document row per
+        property sharing one `joint_fmb_id`; the list shows it as one file, so
+        the count does too."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT f.id, f.name, f.parent_id, f.created_at,"
+                " (SELECT count(DISTINCT CASE WHEN d.joint_fmb_id<>'' THEN 'j:' || d.joint_fmb_id"
+                "                             ELSE d.id END)"
+                "    FROM documents d WHERE d.owner_user_id=f.owner_user_id AND d.folder_id=f.id) AS file_count,"
+                " (SELECT count(*) FROM vault_folders c"
+                "    WHERE c.owner_user_id=f.owner_user_id AND c.parent_id=f.id) AS folder_count"
+                " FROM vault_folders f WHERE f.owner_user_id=%s ORDER BY lower(f.name), f.id", (uid,))
+            return [VaultFolder(
+                id=r["id"], name=r["name"], parent_id=r.get("parent_id") or "",
+                file_count=_i(r.get("file_count")), folder_count=_i(r.get("folder_count")),
+                created_at=r.get("created_at") or "")
+                for r in await cur.fetchall()]
 
     @strawberry.field
     async def features(self, info: strawberry.Info, record_id: str) -> FeatureList:
@@ -5345,7 +6791,11 @@ class WebQuery:
                     spec=r.get("spec") or feature_schema.summary(type_key, attributes),
                     icon=r.get("icon") or "feature", category=r.get("category") or "other",
                     condition=r.get("condition") or "",
-                    condition_state=r.get("condition_state") or "good",
+                    # An empty state is a feature nobody has looked at, which
+                    # is "unknown" (spec § W07) — never a green "good". The
+                    # column's own DEFAULT 'good' is a schema question and is
+                    # left alone here; add_feature always writes a state.
+                    condition_state=r.get("condition_state") or "unknown",
                     note=r.get("note") or "", lat=_f(r.get("lat")), lon=_f(r.get("lon")),
                     pin_label=r.get("pin_label") or "", photo_count=pics.get(r["id"], 0),
                     actions=_jlist(r.get("actions")), type_key=type_key,
@@ -5377,9 +6827,16 @@ class WebQuery:
             # job from "broken" and the two must not be counted together.
             cats.append(FacetOption(key="unchecked", label="Not checked", count=unchecked, active=False))
 
+            # When somebody was last on the ground: the newest photograph of
+            # THIS owner's record, from the table its kind files photos in.
+            # This read used to be the one query here with no owner scope and
+            # a hard-coded parcel_photos, so it could answer with a stranger's
+            # capture date and name for a record id it did not own, and a
+            # built property always read as never visited.
             cur = await conn.execute(
-                "SELECT captured_at, captured_by FROM parcel_photos WHERE parcel_id=%s "
-                "ORDER BY captured_at DESC LIMIT 1", (record_id,))
+                f"SELECT captured_at, captured_by FROM {_photo_table(kind)}"
+                f" WHERE {_photo_key(kind)}=%s AND owner_user_id=%s"
+                " ORDER BY captured_at DESC LIMIT 1", (record_id, uid))
             last = await cur.fetchone() or {}
             type_defs = [FeatureTypeDefinition(
                 key=item["key"], label=item["label"], category=item["category"],
@@ -5406,7 +6863,8 @@ class WebQuery:
                 pay_label=r.get("pay_label") or "", pay_value=r.get("pay_value") or "",
                 due_label=r.get("due_label") or "", due_value=r.get("due_value") or "",
                 visibility=r.get("visibility") or "", actions=_jlist(r.get("actions")),
-                compact=bool(r.get("compact"))) for r in await cur.fetchall()]
+                compact=bool(r.get("compact")),
+                photo_ref=r.get("photo_ref") or "") for r in await cur.fetchall()]
 
             cur = await conn.execute(
                 "SELECT * FROM people_payments WHERE record_id=%s AND owner_user_id=%s "
@@ -5456,6 +6914,71 @@ class WebQuery:
                 people=people, payments=pays, count=len(people),
                 monthly_out=monthly, seasonal_in=seasonal,
                 wallet_balance=balance, wallet_note=note, wallet_live=wallet_live)
+
+    @strawberry.field
+    async def owners(self, info: strawberry.Info, record_id: str) -> OwnersView:
+        """The ownership chain of a record: the current owner first, then the
+        previous owners newest-first. Scoped to the caller like every other
+        record read."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM record_owners WHERE record_id=%s AND owner_user_id=%s "
+                "ORDER BY is_current DESC, sort, id", (record_id, uid))
+            owners = [Owner(
+                id=r["id"], name=r["name"],
+                initials="".join(w[0] for w in (r["name"] or "").split()[:2]).upper(),
+                parentage=r.get("parentage") or "", address=r.get("address") or "",
+                role=r.get("role") or "Owner", is_current=bool(r.get("is_current")),
+                acquired_via=r.get("acquired_via") or "",
+                photo_ref=r.get("photo_ref") or "") for r in await cur.fetchall()]
+            current = next((o.name for o in owners if o.is_current), "")
+            return OwnersView(owners=owners, count=len(owners), current_name=current)
+
+    @strawberry.field
+    async def transfers(self, info: strawberry.Info, record_id: str) -> TransfersView:
+        """The chain of title as events: who parted with the land, who received
+        it, how much each received, and on which paper. Scoped to the caller
+        like every other record read.
+
+        Two queries, not one per transfer: the parties of every transfer on the
+        record come back in a single pass and are grouped in memory, so a chain
+        of forty deeds costs two round trips rather than forty-one."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM record_transfers WHERE record_id=%s AND owner_user_id=%s "
+                "ORDER BY registered_on DESC, sort, id", (record_id, uid))
+            rows = await cur.fetchall()
+            if not rows:
+                return TransfersView(transfers=[], count=0, unverified_count=0)
+            ids = [r["id"] for r in rows]
+            cur = await conn.execute(
+                "SELECT * FROM record_transfer_parties WHERE transfer_id = ANY(%s)"
+                " AND owner_user_id=%s ORDER BY side, sort, id", (ids, uid))
+            grouped: dict[str, list[TransferParty]] = {}
+            for p in await cur.fetchall():
+                grouped.setdefault(p["transfer_id"], []).append(TransferParty(
+                    id=p["id"], side=p.get("side") or "to",
+                    owner_id=p.get("owner_id") or "", name=p.get("name") or "",
+                    parentage=p.get("parentage") or "", address=p.get("address") or "",
+                    extent=_f(p.get("extent")), extent_unit=p.get("extent_unit") or "",
+                    share_num=_i(p.get("share_num")), share_den=_i(p.get("share_den")),
+                    is_gpa=bool(p.get("is_gpa"))))
+            transfers = [Transfer(
+                id=r["id"], kind=r.get("kind") or "sale",
+                deed_document_id=r.get("deed_document_id") or "",
+                deed_no=r.get("deed_no") or "", sro=r.get("sro") or "",
+                registered_on=r.get("registered_on") or "",
+                prior_transfer_id=r.get("prior_transfer_id") or "",
+                note=r.get("note") or "", source=r.get("source") or "manual",
+                verified=bool(r.get("verified")),
+                from_parties=[p for p in grouped.get(r["id"], []) if p.side == "from"],
+                to_parties=[p for p in grouped.get(r["id"], []) if p.side == "to"],
+            ) for r in rows]
+            return TransfersView(
+                transfers=transfers, count=len(transfers),
+                unverified_count=sum(1 for t in transfers if not t.verified))
 
     @strawberry.field
     async def boundary(self, info: strawberry.Info, record_id: str) -> Optional[BoundaryView]:
@@ -5674,7 +7197,12 @@ class WebQuery:
                 paid_total=paid_total, paid_per_unit=(paid_total / lot_extent) if lot_extent else 0,
                 extras_total=extras_total, govt_total=govt_total,
                 govt_per_unit=(govt_total / lot_extent) if lot_extent else 0,
-                govt_revised=_ddmmyyyy(_today())[3:],
+                # Nothing stores when the SRO guideline rate was last revised.
+                # This used to send today's month, so the screen printed
+                # "revised <this month>" on every read — a date the data never
+                # said. Empty until a real revision date is filed; the client
+                # prints no date for an empty value.
+                govt_revised="",
                 market_total=market,
                 # Nothing paid, nothing to compare: the screen prints "there is
                 # no gain to show" off these being absent rather than zero.
@@ -5760,6 +7288,304 @@ class WebQuery:
                 extent=d["extent"], extent_unit=d["extent_unit"],
                 categories=cats, rows=items, feature_options=feats)
 
+    # ── Combined properties ───────────────────────────────────────────
+
+    @strawberry.field
+    async def combined_properties(self, info: strawberry.Info) -> List[Combined]:
+        """Every holding this account has combined, newest first."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM combined_properties WHERE owner_user_id=%s"
+                " ORDER BY created_at DESC, id", (uid,))
+            rows = await cur.fetchall()
+            return [await _combined_view(conn, uid, r) for r in rows]
+
+    @strawberry.field
+    async def combined_property(self, info: strawberry.Info,
+                                id: str) -> Optional[Combined]:
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            row = await _combined_row(conn, uid, id)
+            return await _combined_view(conn, uid, row) if row else None
+
+    @strawberry.field
+    async def combined_papers(self, info: strawberry.Info,
+                              id: str) -> List[CombinedPaper]:
+        """The holding's own files and its members' files, each shown once.
+
+        Group-level links carry the holding name; member-level links still
+        name the survey they concern. Neither relation copies stored bytes.
+        """
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            row = await _combined_row(conn, uid, id)
+            if not row:
+                return []
+            ids = await _combined_member_ids(conn, uid, id)
+            titles = {c["id"]: c["title"] for c in await _cards(conn, uid)}
+            cur = await conn.execute(
+                "SELECT DISTINCT d.* FROM documents d WHERE d.owner_user_id=%s AND ("
+                " d.record_id = ANY(%s) OR d.parcel_id = ANY(%s) OR d.property_id = ANY(%s)"
+                " OR EXISTS (SELECT 1 FROM document_record_links l WHERE l.owner_user_id=%s"
+                " AND l.document_id=d.id AND (l.record_id=ANY(%s) OR l.record_id=%s)))"
+                " ORDER BY d.created_at DESC, d.id", (uid, ids, ids, ids, uid, ids, id))
+            docs = await cur.fetchall()
+            cur = await conn.execute(
+                "SELECT document_id,record_id FROM document_record_links"
+                " WHERE owner_user_id=%s AND record_id=ANY(%s)", (uid, [id, *ids]))
+            links: dict = {}
+            for link in await cur.fetchall():
+                links.setdefault(link["document_id"], set()).add(link["record_id"])
+            tagmap = await _tags_for(conn, uid, "paper")
+            cur2 = await conn.execute(
+                "SELECT document_id FROM share_links WHERE owner_user_id=%s"
+                " AND revoked=false", (uid,))
+            shared = {r["document_id"] for r in await cur2.fetchall()}
+            order = {rid: i for i, rid in enumerate(ids)}
+            order[id] = -1
+            out: List[CombinedPaper] = []
+            seen: set = set()
+            for d in docs:
+                if d["id"] in seen:
+                    continue
+                seen.add(d["id"])
+                linked = links.get(d["id"], set())
+                direct = (d.get("record_id"), d.get("parcel_id"), d.get("property_id"))
+                primary_member = next((k for k in direct if k in ids), "")
+                rid = id if id in linked else primary_member or next(
+                    (k for k in ids if k in linked), "")
+                out.append(CombinedPaper(
+                    id=d["id"], title=d.get("title") or d.get("name") or "Paper",
+                    detail=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
+                    icon=d.get("shelf") or "unsorted", tags=tagmap.get(d["id"], []),
+                    shared=d["id"] in shared, page_count=_i(d.get("page_count")),
+                    file_ref=d.get("file_ref") or "",
+                    record_id=rid,
+                    record_title=(row.get("name") or "Combined view") if rid == id
+                                 else titles.get(rid, "")))
+            # Holding-level files first, then members in their chosen order.
+            out.sort(key=lambda p: order.get(p.record_id, len(order)))
+            return out
+
+    @strawberry.field
+    async def combined_fmb(self, info: strawberry.Info, id: str) -> Optional[CombinedFmb]:
+        """The members' surveyed outlines on one map, and how they lie.
+
+        Every outline is drawn as its own record filed it, with its own survey
+        number: two thirty-acre parcels side by side appear side by side, and
+        the boundary between them stays on the map. Nothing is unioned and
+        nothing is stored — there is no such thing here as a merged FMB, and a
+        line this server drew is not a sheet any office issued.
+
+        A member whose sheet is a photograph or a PDF with no corner table has
+        no coordinates to place; it is listed by name with its sheet to open,
+        rather than left as a silent gap in the picture.
+        """
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            row = await _combined_row(conn, uid, id)
+            if not row:
+                return None
+            pairs_ = _combined_pairs(await _combined_member_rows(conn, uid, id))
+            cards = {c["id"]: c for c in await _cards(conn, uid)}
+            mine = [(rid, kind) for (_m, rid, kind, _s) in pairs_ if rid in cards]
+            joint = await _combined_joint_sheets(
+                conn, uid, [rid for rid, _k in mine],
+                {rid: cards[rid]["title"] for rid, _k in mine})
+            joint_papers = {pid for s in joint for pid in s.paper_ids}
+
+            shapes: List[CombinedSurveyShape] = []
+            rings: dict = {}
+            sheets = 0
+            recorded_ac = 0.0
+            comparable = True
+            for rid, kind in mine:
+                d = cards[rid]
+                ring = _ring(d.get("boundary") or "")
+                lat, lon = _located(d.get("geo_point") or "", ring)
+                ground = _ground_of(d)
+                sheet = await _fmb_sheet(conn, rid, d["title"])
+                sheet_id = str((await _fmb_sheet_row(conn, rid)).get("id") or "")
+                if sheet:
+                    sheets += 1
+                corners = combined_geometry.valid_ring(ring)
+                if corners:
+                    rings[rid] = corners
+                note = ""
+                if ground == "surveyed" and not corners:
+                    note = ("Its saved outline could not be read as a closed"
+                            " shape, so it is not drawn here.")
+                elif ground == "pinned":
+                    note = ("Only a location pin is on file — no surveyed"
+                            " outline to draw.")
+                elif ground == "unplaced":
+                    note = ("Nothing on this record says where it is."
+                            + (" Its sheet is filed; open it to place the corners."
+                               if sheet else ""))
+                if corners:
+                    # Compared and measured in the same local metre plane the
+                    # relations use, so an area and a gap on this screen cannot
+                    # come from two different projections.
+                    if d["extent_unit"] == "ac":
+                        recorded_ac += d["extent"]
+                    else:
+                        comparable = False
+                shapes.append(CombinedSurveyShape(
+                    record_id=rid, title=d["title"], kind=kind,
+                    ring=ring if corners else [], lat=lat, lon=lon,
+                    extent_label=(f"{d['extent']:,.2f} ac" if d["extent_unit"] == "ac"
+                                  else f"{_in_group(d['extent'])} {d['extent_unit']}"),
+                    sheet_title=sheet, sheet_id=sheet_id, ground=ground, note=note,
+                    corners=len(corners) if corners else 0,
+                    recorded_ac=(d["extent"] if d["extent_unit"] == "ac" else 0.0),
+                    comparable=(d["extent_unit"] == "ac"),
+                    sheet_joint=bool(sheet_id) and sheet_id in joint_papers))
+
+            # Measured in a local metre plane about the group, never in degrees:
+            # a degree of longitude is not a degree of latitude, and these
+            # outlines come from different sources at different accuracies.
+            origin = combined_geometry.centre_of(list(rings.values()))
+            metres = {rid: combined_geometry.to_metres(r, origin)
+                      for rid, r in rings.items()}
+            drawn = [rid for rid, _k in mine if rid in metres]
+
+            # Each outline's own measurements, filled back onto its shape.
+            measured_ac = 0.0
+            by_id = {s.record_id: s for s in shapes}
+            for rid in drawn:
+                sides = combined_geometry.side_lengths_m(metres[rid])
+                bearings = combined_geometry.side_bearings(metres[rid])
+                acres = combined_geometry.area_sq_m(metres[rid]) / 4046.8564224
+                measured_ac += acres
+                shape = by_id[rid]
+                shape.side_lengths = [round(m, 1) for m in sides]
+                shape.side_bearings = [round(b, 1) for b in bearings]
+                shape.perimeter_m = round(sum(sides), 1)
+                shape.measured_ac = round(acres, 2)
+
+            relations: List[CombinedRelation] = []
+            touching: List[tuple] = []
+            for i, a in enumerate(drawn):
+                for b in drawn[i + 1:]:
+                    verdict = combined_geometry.relate(metres[a], metres[b])
+                    if verdict["relation"] in ("adjoining", "corner"):
+                        touching.append((a, b))
+                    relations.append(CombinedRelation(
+                        from_record_id=a, to_record_id=b,
+                        from_title=cards[a]["title"], to_title=cards[b]["title"],
+                        relation=verdict["relation"], gap_m=verdict["gap_m"],
+                        run_m=verdict["run_m"],
+                        detail=_combined_relation_detail(verdict)))
+            pieces = combined_geometry.clusters(drawn, touching) if drawn else []
+            missing = [cards[rid]["title"] for rid, _k in mine if rid not in metres]
+
+            return CombinedFmb(
+                id=id, name=row.get("name") or "Combined property",
+                shapes=shapes, relations=relations,
+                drawn_count=len(drawn),
+                surveyed_count=len([s for s in shapes if s.ground == "surveyed"]),
+                sheet_count=sheets, piece_count=len(pieces),
+                caption=_combined_fmb_caption(len(mine), len(drawn), len(pieces),
+                                              relations),
+                missing=missing,
+                measured_ac=round(measured_ac, 2),
+                recorded_ac=round(recorded_ac, 2),
+                comparable=bool(drawn) and comparable,
+                joint_sheets=joint)
+
+    @strawberry.field
+    async def combined_expenses(self, info: strawberry.Info, id: str,
+                                year: Optional[str] = None
+                                ) -> Optional[CombinedExpenseView]:
+        """What the whole holding has cost, and what each survey has cost.
+
+        Two ledgers in one list, and the `scope` column is the point of it: a
+        fence around sixty acres is one cost against the holding, while a
+        mutation fee is a cost against the survey it was paid for. Folding them
+        together without saying which is which would make it impossible to
+        answer "what has THIS survey cost me" ever again.
+        """
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            row = await _combined_row(conn, uid, id)
+            if not row:
+                return None
+            ids = await _combined_member_ids(conn, uid, id)
+            titles = {c["id"]: c["title"] for c in await _cards(conn, uid)}
+            farm = sum(c["extent"] for c in await _cards(conn, uid)
+                       if c["id"] in ids and c["kind"] == "parcel")
+
+            cur = await conn.execute(
+                "SELECT * FROM combined_property_expenses WHERE owner_user_id=%s"
+                " AND combined_property_id=%s", (uid, id))
+            raw = [(r, "combined", "") for r in await cur.fetchall()]
+            if ids:
+                cur = await conn.execute(
+                    "SELECT * FROM land_expenses WHERE owner_user_id=%s"
+                    " AND entity_id = ANY(%s)", (uid, ids))
+                raw += [(r, "record", r.get("entity_id") or "")
+                        for r in await cur.fetchall()]
+
+            # Sorted here, not in SQL: spent_on is DD/MM/YYYY text, so ORDER BY
+            # would put 28/07 above 12/08 — and the two ledgers are one list.
+            raw.sort(key=lambda t: _datekey(t[0].get("spent_on") or ""), reverse=True)
+            years = sorted({(r.get("fiscal_year") or "") for r, _s, _rid in raw
+                            if r.get("fiscal_year")}, reverse=True) or [_fiscal_year()]
+            yr = year or years[0]
+            sel = [(r, s, rid) for (r, s, rid) in raw
+                   if (r.get("fiscal_year") or years[0]) == yr]
+
+            rows = [CombinedExpenseRow(
+                id=r["id"], title=r.get("title") or "", subtitle=r.get("subtitle") or "",
+                kind=r.get("kind") or "running", category=r.get("category") or "other",
+                amount=_f(r.get("amount")), spent_on=r.get("spent_on") or "",
+                paid_by=r.get("paid_by") or "", vendor=r.get("vendor") or "",
+                note=r.get("note") or "", recoverable=bool(r.get("recoverable")),
+                has_receipt=bool(r.get("has_receipt")),
+                fiscal_year=r.get("fiscal_year") or "",
+                scope=scope, record_id=rid,
+                record_title=titles.get(rid, "") if scope == "record" else "",
+                invoice_no=r.get("invoice_no") or "",
+                warranty_until=r.get("warranty_until") or "",
+                receipt_file_ref=r.get("receipt_file_ref") or "",
+                receipt_file_name=r.get("receipt_file_name") or "",
+                receipt_mime_type=r.get("receipt_mime_type") or "",
+                receipt_size_bytes=_i(r.get("receipt_size_bytes")))
+                for (r, scope, rid) in sel]
+
+            capital = sum(x.amount for x in rows if x.kind == "capital")
+            running = sum(x.amount for x in rows if x.kind == "running")
+            income = sum(x.amount for x in rows if x.kind == "income")
+            owed = sum(x.amount for x in rows if x.recoverable)
+
+            cats = [FacetOption(key="all", label="All", count=len(rows), active=True)]
+            for c in list(dict.fromkeys(x.category for x in rows)):
+                cats.append(FacetOption(
+                    key=c, label=c, count=len([x for x in rows if x.category == c]),
+                    active=False))
+            scopes = [
+                FacetOption(key="all", label="Everything", count=len(rows), active=True),
+                FacetOption(key="combined", label="The whole holding",
+                            count=len([x for x in rows if x.scope == "combined"]),
+                            active=False),
+                FacetOption(key="record", label="One survey",
+                            count=len([x for x in rows if x.scope == "record"]),
+                            active=False),
+            ]
+            return CombinedExpenseView(
+                id=id, name=row.get("name") or "Combined property",
+                year=yr, years=years,
+                spent=capital + running, capital=capital, running=running,
+                income=income, owed_back=owed,
+                combined_spend=sum(x.amount for x in rows
+                                   if x.scope == "combined" and x.kind != "income"),
+                member_spend=sum(x.amount for x in rows
+                                 if x.scope == "record" and x.kind != "income"),
+                farm_extent=farm,
+                per_acre_running=(running / farm) if farm else 0.0,
+                categories=cats, scopes=scopes, rows=rows)
+
     @strawberry.field
     async def vault(self, info: strawberry.Info) -> VaultView:
         uid = _uid(info)
@@ -5770,7 +7596,17 @@ class WebQuery:
             cur = await conn.execute(
                 "SELECT count(*) AS c FROM parcel_photos WHERE owner_user_id=%s "
                 "AND media_kind='photo'", (uid,))
-            counts["photos"] = _i((await cur.fetchone() or {}).get("c"))
+            parcel_photo_count = _i((await cur.fetchone() or {}).get("c"))
+            cur = await conn.execute(
+                "SELECT count(*) AS c FROM property_photos WHERE owner_user_id=%s "
+                "AND media_kind='photo'", (uid,))
+            property_photo_count = _i((await cur.fetchone() or {}).get("c"))
+            cur = await conn.execute(
+                "SELECT count(*) AS c FROM documents WHERE owner_user_id=%s AND shelf='photos' "
+                "AND COALESCE(record_id,'')='' AND COALESCE(parcel_id,'')='' "
+                "AND COALESCE(passbook_id,'')='' AND COALESCE(property_id,'')=''", (uid,))
+            unfiled_photo_count = _i((await cur.fetchone() or {}).get("c"))
+            counts["photos"] = parcel_photo_count + property_photo_count + unfiled_photo_count
 
             spec = [
                 ("title", "Title", "Deeds, wills, agreements"),
@@ -5790,7 +7626,7 @@ class WebQuery:
             links = [_link(r) for r in await cur.fetchall()]
             return VaultView(
                 total=sum(s.count for s in shelves),
-                region_note="encrypted in Mumbai (ap-south-1) · versioned, never overwritten",
+                region_note="Encrypted in Mumbai, India · Versioned, never overwritten",
                 shelves=shelves, links=links)
 
     @strawberry.field
@@ -5897,20 +7733,36 @@ class WebQuery:
     @strawberry.field
     async def orders(self, info: strawberry.Info,
                      record_id: Optional[str] = None,
-                     include_closed: bool = False) -> List[Order]:
+                     include_closed: bool = False,
+                     combined_id: Optional[str] = None) -> List[Order]:
         """Services ordered against a record — the Services hanger, and the
         'Assigned to me' list when no record is named.
 
         `include_closed` defaults false, so this answers exactly what it has
         always answered for every caller that does not ask; the Services
-        screen's own "Everything, including done" is the one that does."""
+        screen's own "Everything, including done" is the one that does.
+
+        `combined_id` answers the same question for a whole combined holding:
+        every order placed against any of its members. An order is still placed
+        against ONE survey — a patta copy is issued for a survey number, not for
+        whatever the owner calls the group — so this filters existing tickets
+        rather than creating a second kind of order with an aggregate on it.
+        """
         uid = _uid(info)
         async with _pool.connection() as conn:
             sql = "SELECT * FROM work_requests WHERE owner_user_id=%s"
             args: tuple = (uid,)
             if not include_closed:
                 sql += " AND closed=false"
-            if record_id is not None:
+            if combined_id is not None:
+                if not await _combined_row(conn, uid, combined_id):
+                    return []
+                member_ids = await _combined_member_ids(conn, uid, combined_id)
+                if not member_ids:
+                    return []
+                sql += " AND entity_id = ANY(%s)"
+                args = (uid, member_ids)
+            elif record_id is not None:
                 # "Not asked for" and "asked for, with no record chosen" are
                 # different questions. `''` read as absent made the Services
                 # hanger's "what is already ordered HERE" list every open order
@@ -6134,14 +7986,11 @@ class WebQuery:
                 "WHERE owner_user_id=%s AND role LIKE '%%caretaker%%'", (uid,))
             watchers = {r["record_id"]: (r["person_name"], r["pay_value"])
                         for r in await cur.fetchall()}
-            cur = await conn.execute(
-                "SELECT record_id, count(*) AS c FROM documents WHERE owner_user_id=%s "
-                "GROUP BY record_id", (uid,))
-            papers = {r["record_id"]: _i(r["c"]) for r in await cur.fetchall()}
-            cur = await conn.execute(
-                "SELECT parcel_id, count(*) AS c FROM parcel_photos WHERE owner_user_id=%s "
-                "GROUP BY parcel_id", (uid,))
-            pics = {r["parcel_id"]: _i(r["c"]) for r in await cur.fetchall()}
+            # Shared with the property grid. This used to count photographs out
+            # of `parcel_photos` alone, so every flat and shop on the map
+            # reported none however many had been filed; `_counts` reads both
+            # tables. Papers are unchanged.
+            countmap = await _counts(conn, uid)
 
             out = []
             for d in rows:
@@ -6158,7 +8007,8 @@ class WebQuery:
                     ring=ring,
                     feature_chips=featmap.get(d["id"], [])[:4],
                     watcher=w[0], watcher_pay=w[1],
-                    paper_count=papers.get(d["id"], 0), photo_count=pics.get(d["id"], 0)))
+                    paper_count=_i(countmap.get(d["id"], {}).get("papers")),
+                    photo_count=_i(countmap.get(d["id"], {}).get("photos"))))
 
             counts = [
                 FacetOption(key="all", label="All", count=len(out), active=True),
@@ -6723,6 +8573,147 @@ async def _record_kind(conn, uid: str, rid: str) -> str:
     return "property" if await cur.fetchone() else ""
 
 
+async def _paper_target_kind(conn, uid: str, rid: str) -> str:
+    """An owned file destination: one record or a combined holding."""
+    kind = await _record_kind(conn, uid, rid)
+    if kind:
+        return kind
+    cur = await conn.execute(
+        "SELECT 1 FROM combined_properties WHERE id=%s AND owner_user_id=%s",
+        (rid, uid))
+    return "combined" if await cur.fetchone() else ""
+
+
+# ── Documents: the owner's folders and tags ─────────────────────────────
+
+_FOLDER_NAME_MAX = 80
+#: How deep folders go. A file manager with no floor lets a mis-drag bury a
+#: deed thirty levels down; eight is deeper than anyone files land papers.
+_FOLDER_DEPTH_MAX = 8
+_TAG_MAX = 40
+#: The most files one move or tag touches — a page of the list is 25, and a
+#: select-all across a search is bounded by what a person can check.
+_BULK_MAX = 500
+
+
+def _folder_name(raw: str) -> str:
+    """A folder name as it will be stored, or a ValueError saying why not."""
+    name = " ".join((raw or "").split())
+    if not name:
+        raise ValueError("Give the folder a name")
+    if len(name) > _FOLDER_NAME_MAX:
+        raise ValueError(f"Keep a folder name under {_FOLDER_NAME_MAX} characters")
+    if any(c in name for c in "/\\"):
+        raise ValueError("A folder name cannot contain / or \\")
+    return name
+
+
+def _tag_word(raw: str) -> str:
+    """A tag as it will be stored: trimmed, inner space collapsed, bounded."""
+    word = " ".join((raw or "").split())
+    if len(word) > _TAG_MAX:
+        raise ValueError(f"Keep a tag under {_TAG_MAX} characters")
+    return word
+
+
+def _tag_row_id() -> str:
+    """A tag row's own id.
+
+    The row id used to be `tag-{uid}-{entity}-{tag}` cut to 64 characters. An
+    identity key is `subject_` + 64 hex, so the cut left every tag an owner ever
+    wrote with the SAME primary key — the second tag anywhere hit a duplicate
+    key that `ON CONFLICT (owner, type, entity, tag)` does not cover. The
+    natural key is that unique index; the row id only has to be unique."""
+    return f"tag-{secrets.token_hex(12)}"
+
+
+async def _folder_chain(conn, uid: str, folder_id: str) -> List[str]:
+    """The folder and every folder above it, nearest first — [] when it is
+    not this owner's. Walked in SQL so ownership is checked at every step."""
+    if not folder_id:
+        return []
+    cur = await conn.execute(
+        "WITH RECURSIVE up AS ("
+        " SELECT id, parent_id, 1 AS depth FROM vault_folders WHERE id=%s AND owner_user_id=%s"
+        " UNION ALL"
+        " SELECT f.id, f.parent_id, up.depth + 1 FROM vault_folders f JOIN up ON f.id = up.parent_id"
+        " WHERE f.owner_user_id=%s AND up.depth < 64)"
+        " SELECT id FROM up ORDER BY depth", (folder_id, uid, uid))
+    return [r["id"] for r in await cur.fetchall()]
+
+
+async def _folder_height(conn, uid: str, folder_id: str) -> int:
+    """How many levels a folder is, counting itself: 1 for a folder with no
+    subfolders. What a move has to add to its new parent's depth."""
+    cur = await conn.execute(
+        "WITH RECURSIVE down AS ("
+        " SELECT id, 1 AS depth FROM vault_folders WHERE id=%s AND owner_user_id=%s"
+        " UNION ALL"
+        " SELECT f.id, down.depth + 1 FROM vault_folders f JOIN down ON f.parent_id = down.id"
+        " WHERE f.owner_user_id=%s AND down.depth < 64)"
+        " SELECT COALESCE(max(depth), 0) AS h FROM down", (folder_id, uid, uid))
+    row = await cur.fetchone()
+    return _i(row["h"]) if row else 0
+
+
+async def _free_folder_name(conn, uid: str, parent_id: str, name: str, skip_id: str = "") -> str:
+    """`name`, or `name (2)`, `name (3)`… — the first one not already taken
+    under `parent_id`. Used where the owner did not choose the clash: deleting
+    a folder lifts its subfolders into the parent, and a "Deeds" inside meeting
+    a "Deeds" outside must not make the delete fail."""
+    cur = await conn.execute(
+        "SELECT lower(name) AS n FROM vault_folders WHERE owner_user_id=%s AND parent_id=%s AND id<>%s",
+        (uid, parent_id, skip_id))
+    taken = {r["n"] for r in await cur.fetchall()}
+    if name.lower() not in taken:
+        return name
+    n = 2
+    while f"{name} ({n})".lower() in taken:
+        n += 1
+    return f"{name} ({n})"
+
+
+async def _owned_document_ids(conn, uid: str, ids: List[str]) -> List[str]:
+    """The subset of `ids` that are this owner's own vault files."""
+    if not ids:
+        return []
+    cur = await conn.execute(
+        "SELECT id FROM documents WHERE owner_user_id=%s AND id = ANY(%s)", (uid, list(ids)))
+    found = {r["id"] for r in await cur.fetchall()}
+    return [i for i in ids if i in found]
+
+
+async def _paper_property_map(conn, uid: str, document_ids: List[str]) -> dict:
+    """Owned record and combined-view links per private vault document."""
+    if not document_ids:
+        return {}
+    owned = {c["id"]: c for c in await _cards(conn, uid)}
+    cur = await conn.execute(
+        "SELECT document_id,record_id FROM document_record_links "
+        "WHERE owner_user_id=%s AND document_id=ANY(%s) ORDER BY created_at,record_id",
+        (uid, document_ids))
+    links = await cur.fetchall()
+    combined_ids = list({row["record_id"] for row in links if row["record_id"] not in owned})
+    combined: dict = {}
+    if combined_ids:
+        cur = await conn.execute(
+            "SELECT id,name FROM combined_properties WHERE owner_user_id=%s AND id=ANY(%s)",
+            (uid, combined_ids))
+        combined = {row["id"]: row for row in await cur.fetchall()}
+    out: dict = {}
+    for row in links:
+        card = owned.get(row["record_id"])
+        holding = combined.get(row["record_id"])
+        if not card and not holding:
+            continue
+        out.setdefault(row["document_id"], []).append(PaperProperty(
+            id=row["record_id"],
+            title=card["title"] if card else holding["name"] or "Combined view",
+            kind=(card.get("kind") or "parcel") if card else "combined",
+            document_id=row["document_id"]))
+    return out
+
+
 async def _record_label(conn, kind: str, rid: str) -> str:
     """What to call a record in an audit line.
 
@@ -7044,10 +9035,41 @@ class WebMutation:
                     # paper a built property had ever been sent.
                     own_key = "parcel_id" if kind == "parcel" else "property_id"
                     cur = await conn.execute(
-                        f"SELECT id, reading_id FROM documents WHERE owner_user_id=%s"
-                        f" AND (record_id=%s OR {own_key}=%s)", (uid, rid, rid))
+                        f"SELECT d.id, d.reading_id FROM documents d WHERE d.owner_user_id=%s"
+                        f" AND (d.record_id=%s OR d.{own_key}=%s OR EXISTS ("
+                        "SELECT 1 FROM document_record_links l WHERE l.owner_user_id=%s"
+                        " AND l.document_id=d.id AND l.record_id=%s))"
+                        " AND NOT EXISTS (SELECT 1 FROM document_record_links l2"
+                        " WHERE l2.owner_user_id=%s AND l2.document_id=d.id"
+                        " AND l2.record_id<>%s)",
+                        (uid, rid, rid, uid, rid, uid, rid))
                     docs = await cur.fetchall()
                     doc_ids = [r["id"] for r in docs]
+                    # A file linked to another property survives this record's
+                    # deletion; remove only the association with the deleted one.
+                    await conn.execute(
+                        "DELETE FROM document_record_links WHERE owner_user_id=%s AND record_id=%s",
+                        (uid, rid))
+                    await conn.execute(
+                        "UPDATE documents d SET record_id=COALESCE((SELECT l.record_id"
+                        " FROM document_record_links l WHERE l.owner_user_id=%s AND l.document_id=d.id"
+                        " ORDER BY l.created_at,l.record_id LIMIT 1),''),"
+                        " parcel_id=CASE WHEN EXISTS (SELECT 1 FROM parcels p WHERE p.id=COALESCE(("
+                        "SELECT l.record_id FROM document_record_links l WHERE l.owner_user_id=%s"
+                        " AND l.document_id=d.id ORDER BY l.created_at,l.record_id LIMIT 1),''))"
+                        " THEN COALESCE((SELECT l.record_id FROM document_record_links l"
+                        " WHERE l.owner_user_id=%s AND l.document_id=d.id"
+                        " ORDER BY l.created_at,l.record_id LIMIT 1),'') ELSE '' END,"
+                        " property_id=CASE WHEN EXISTS (SELECT 1 FROM properties pr WHERE pr.id=COALESCE(("
+                        "SELECT l.record_id FROM document_record_links l WHERE l.owner_user_id=%s"
+                        " AND l.document_id=d.id ORDER BY l.created_at,l.record_id LIMIT 1),''))"
+                        " THEN COALESCE((SELECT l.record_id FROM document_record_links l"
+                        " WHERE l.owner_user_id=%s AND l.document_id=d.id"
+                        " ORDER BY l.created_at,l.record_id LIMIT 1),'') ELSE '' END"
+                        " WHERE d.owner_user_id=%s AND (d.record_id=%s OR d.parcel_id=%s OR d.property_id=%s)"
+                        " AND EXISTS (SELECT 1 FROM document_record_links l"
+                        " WHERE l.owner_user_id=%s AND l.document_id=d.id)",
+                        (uid, uid, uid, uid, uid, uid, rid, rid, rid, uid))
                     # The reading behind a paper must go too. init_db's vault
                     # backfill re-creates a document row for every reading that
                     # has none, so a deleted deed came back at the next restart.
@@ -7095,9 +9117,30 @@ class WebMutation:
                             "UPDATE service_payments SET note = CASE WHEN note='' THEN"
                             " 'record deleted' ELSE note END WHERE ticket_id = ANY(%s)"
                             " AND owner_user_id=%s", (wr, uid))
+                    # The chain of title goes with the record. Its endpoints key
+                    # off the transfer rather than the record, so they are swept
+                    # first — after the transfers are gone nothing can find them.
+                    cur = await conn.execute(
+                        "SELECT id FROM record_transfers WHERE record_id=%s", (rid,))
+                    tids = [r["id"] for r in await cur.fetchall()]
+                    if tids:
+                        await conn.execute(
+                            "DELETE FROM record_transfer_parties WHERE transfer_id = ANY(%s)",
+                            (tids,))
+                        # Anything still pointing at these as its predecessor
+                        # loses only the link. delete_transfer does the same; a
+                        # dangling id would leave another chain claiming it
+                        # rests on a deed nothing can open.
+                        await conn.execute(
+                            "UPDATE record_transfers SET prior_transfer_id=''"
+                            " WHERE prior_transfer_id = ANY(%s)", (tids,))
                     for table, col in (
                         ("record_tags", "entity_id"), ("boundary_marks", "record_id"),
                         ("record_people", "record_id"), ("people_payments", "record_id"),
+                        # record_owners was missing from this sweep: deleting a
+                        # record left its ownership chain behind, owner-scoped
+                        # rows pointing at a record_id nothing could open.
+                        ("record_owners", "record_id"), ("record_transfers", "record_id"),
                         ("purchase_lots", "record_id"), ("capital_costs", "record_id"),
                         ("waiting_items", "record_id"), ("land_features", "entity_id"),
                         ("land_expenses", "entity_id"), ("notes", "entity_id"),
@@ -7156,7 +9199,7 @@ class WebMutation:
                     "INSERT INTO record_tags (id, owner_user_id, entity_type, entity_id,"
                     " tag, created_at) VALUES (%s,%s,'record',%s,%s, to_char(now(),'YYYY-MM-DD'))"
                     " ON CONFLICT (owner_user_id, entity_type, entity_id, tag) DO NOTHING",
-                    (f"tag-{uid}-{rid}-{word}"[:64], uid, rid, word))
+                    (_tag_row_id(), uid, rid, word))
                 await _audit(conn, uid, "tag_record", rid, f"Tagged “{word}”")
                 n += 1
         return n
@@ -7371,7 +9414,7 @@ class WebMutation:
                     " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s,%s,"
                     " 'placed',%s,%s,%s,%s,%s,%s,%s)",
                     (tid, uid, kind, offer["label"], record_id, price,
-                     note.strip() or "Requested from the missing papers list", due, now,
+                     note.strip() or "From missing documents", due, now,
                      json.dumps({**answers, "attachment_manifest": manifest}), now,
                      price, share, area_key, area_label, batch_id,
                      canonical_service_kind(kind)))
@@ -7485,13 +9528,22 @@ class WebMutation:
     async def set_tag(self, info: strawberry.Info, entity_type: str, entity_id: str,
                       tag: str, on: bool = True) -> bool:
         uid = _uid(info)
+        if on:
+            tag = _tag_word(tag)
+            if not tag:
+                return False
         async with _pool.connection() as conn:
+            # A paper tag has to be on a file this owner holds. The rows were
+            # already owner-scoped, so nobody could READ a tag on someone
+            # else's id — but anyone could WRITE one against any id at all.
+            if entity_type == "paper" and on and not await _owned_document_ids(conn, uid, [entity_id]):
+                return False
             if on:
                 await conn.execute(
                     "INSERT INTO record_tags (id, owner_user_id, entity_type, entity_id, tag, created_at) "
                     "VALUES (%s,%s,%s,%s,%s, to_char(now(),'YYYY-MM-DD')) "
                     "ON CONFLICT (owner_user_id, entity_type, entity_id, tag) DO NOTHING",
-                    (f"tag-{uid}-{entity_id}-{tag}"[:64], uid, entity_type, entity_id, tag))
+                    (_tag_row_id(), uid, entity_type, entity_id, tag))
             else:
                 await conn.execute(
                     "DELETE FROM record_tags WHERE owner_user_id=%s AND entity_type=%s "
@@ -7544,14 +9596,7 @@ class WebMutation:
         uid = _uid(info)
         if paid < 0 or extent < 0 or govt_value < 0:
             return ""
-        # Store DD/MM/YYYY — the shape everything that reads bought_on expects
-        # (the value view takes the last four chars as the year, and the built
-        # depreciation path parses day/month/year off `/` positions). The web
-        # date input hands over ISO YYYY-MM-DD, so an ISO value is converted
-        # here rather than left to break the money read as a stray '6-12'.
-        _b = (bought_on or "").strip()
-        if len(_b) == 10 and _b[4] == "-" and _b[7] == "-":
-            _b = f"{_b[8:10]}/{_b[5:7]}/{_b[0:4]}"
+        _b = _lot_date(bought_on)
         import uuid as _uuid
         async with _pool.connection() as conn:
             if not await _record_kind(conn, uid, record_id):
@@ -7587,6 +9632,37 @@ class WebMutation:
             if row:
                 await _audit(conn, uid, "delete_purchase", row["record_id"],
                              "Removed a purchase" + (f" · {_f(row.get('paid')):,.0f}" if row.get("paid") else ""))
+            return bool(row)
+
+    @strawberry.mutation
+    async def update_purchase(
+        self, info: strawberry.Info, lot_id: str, bought_on: str, paid: float,
+        extent: float = 0, extent_unit: str = "ac", govt_value: float = 0,
+        seller: str = "", deed_no: str = "", sro: str = "",
+    ) -> bool:
+        """Correct one registration in place.
+
+        A lot could be recorded and removed but never fixed, so a price typed
+        wrong stayed on the property unless the owner deleted the whole lot and
+        typed it again. Same fields and the same rules as `save_purchase`; the
+        rate is derived again from paid / extent, and the lot keeps its place
+        in `sort`. Scoped to the caller's own row: another owner's lot id
+        updates nothing and answers False."""
+        uid = _uid(info)
+        if paid < 0 or extent < 0 or govt_value < 0:
+            return False
+        rate = (paid / extent) if extent > 0 else 0.0
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE purchase_lots SET bought_on=%s, extent=%s, extent_unit=%s, rate=%s,"
+                " paid=%s, govt_value=%s, seller=%s, deed_no=%s, sro=%s"
+                " WHERE id=%s AND owner_user_id=%s RETURNING record_id",
+                (_lot_date(bought_on), extent, (extent_unit or "ac"), rate, paid, govt_value,
+                 seller, deed_no, sro, lot_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_purchase", row["record_id"],
+                             "Corrected a purchase" + (f" · {paid:,.0f}" if paid else ""))
             return bool(row)
 
     @strawberry.mutation
@@ -7762,10 +9838,12 @@ class WebMutation:
         the storage gateway first; file_ref is the node id that comes back, and
         without one there is nothing to render, so an empty ref is refused.
 
-        Everything this cannot honestly know stays empty: no coordinates, no
-        device-clock check, no verification. A browser upload has no on-site
-        proof, and the gallery's 'uploaded, location unproven' legend is
-        already written for exactly this case."""
+        No metadata is copied off the file here. EXIF — including the photo's
+        own GPS — travels inside the stored image, and the gallery reads it back
+        and checks it against the land at view time (see exifGeo/RecordPhotos),
+        so nothing is duplicated into a column that could go stale or leak. This
+        row stays what it always was: a pointer at the bytes, with verification
+        left false because a browser upload has no on-site proof."""
         uid = _uid(info)
         if not file_ref.strip():
             return ""
@@ -7798,7 +9876,8 @@ class WebMutation:
                 # captured_by stays empty on purpose: the gallery renders it as
                 # "<name> · Pattadar caretaker, ID verified" and counts it as
                 # proof. The account that filed a photo is not the person who
-                # stood in the field, and saying so would be a lie.
+                # stood in the field, and saying so would be a lie. Coordinates
+                # stay 0 too — the photo's own GPS is read live from the file.
                 (pid, record_id, uid, file_ref.strip(), (category or "general"),
                  caption, when, "", _now_iso(), sha256,
                  (media_kind or "photo"), width, height, file_name, sort))
@@ -7811,6 +9890,7 @@ class WebMutation:
         self, info: strawberry.Info, record_id: str, file_ref: str,
         name: str = "", subtitle: str = "", shelf: str = "",
         page_count: int = 0, mime_type: str = "", size_bytes: int = 0,
+        folder_id: str = "",
     ) -> str:
         """Files an already-uploaded document against a record. Same two-step
         as a photo: bytes to the storage gateway, then this row pointing at the
@@ -7826,23 +9906,113 @@ class WebMutation:
             return ""
         import uuid as _uuid
         async with _pool.connection() as conn:
-            if not await _record_kind(conn, uid, record_id):
+            kind = await _record_kind(conn, uid, record_id) if record_id else ""
+            if record_id and not kind:
                 return ""
             cur = await conn.execute(
-                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM documents WHERE record_id=%s",
-                (record_id,))
+                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM documents "
+                "WHERE owner_user_id=%s AND record_id=%s", (uid, record_id or ""))
             sort = (await cur.fetchone() or {}).get("s", 1)
+            # Uploaded from inside one of the owner's folders: it lands there.
+            # A folder that is not theirs (or was just deleted) files it at the
+            # top level instead — the bytes are already stored, and refusing
+            # here would strand them with no row pointing at them.
+            if folder_id and not await _folder_chain(conn, uid, folder_id):
+                folder_id = ""
             did = f"doc-{_uuid.uuid4().hex[:12]}"
             await conn.execute(
                 "INSERT INTO documents (id, owner_user_id, name, subtitle, shelf,"
-                " page_count, record_id, parcel_id, doc_type, created_at, size_bytes,"
-                " file_ref, mime_type, source)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'upload')",
+                " page_count, record_id, parcel_id, property_id, doc_type, created_at, size_bytes,"
+                " file_ref, mime_type, source, folder_id)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'upload',%s)",
                 (did, uid, (name or "Paper"), subtitle, (shelf or "unsorted"),
-                 page_count, record_id, record_id, (shelf or "unsorted"),
-                 _now_iso(), size_bytes, file_ref.strip(), mime_type))
-            await _audit(conn, uid, "add_paper", record_id, f"Filed a paper: {name or 'Paper'}")
+                 page_count, record_id or "", record_id if kind == "parcel" else "",
+                 record_id if kind == "property" else "", (shelf or "unsorted"),
+                 _now_iso(), size_bytes, file_ref.strip(), mime_type, folder_id))
+            if record_id:
+                await conn.execute(
+                    "INSERT INTO document_record_links (owner_user_id,document_id,record_id,created_at)"
+                    " VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                    (uid, did, record_id, _now_iso()))
+            await _audit(conn, uid, "add_paper", record_id or did,
+                         f"{'Filed' if record_id else 'Saved'} a paper: {name or 'Paper'}")
         return did
+
+    @strawberry.mutation
+    async def link_papers(self, info: strawberry.Info, paper_ids: List[str],
+                          record_ids: List[str]) -> bool:
+        """Link owner-held vault items to one or more records without copying files.
+
+        A joint FMB or a drone survey can describe several properties. The
+        relation table records each association while the vault keeps one file
+        row and one storage object. Photo files also appear in each target's
+        gallery, pointing at the same stored bytes.
+        """
+        uid = _uid(info)
+        ids = list(dict.fromkeys(i.strip() for i in paper_ids if i and i.strip()))
+        targets = list(dict.fromkeys(i.strip() for i in record_ids if i and i.strip()))
+        if not ids or not targets:
+            return False
+        import uuid as _uuid
+        async with _pool.connection() as conn:
+            kinds = {rid: await _paper_target_kind(conn, uid, rid) for rid in targets}
+            if any(not kind for kind in kinds.values()):
+                return False
+            cur = await conn.execute(
+                "SELECT * FROM documents WHERE owner_user_id=%s AND id=ANY(%s) "
+                "ORDER BY created_at", (uid, ids))
+            rows = await cur.fetchall()
+            if len(rows) != len(ids):
+                return False
+            async with conn.transaction():
+                for row in rows:
+                    # The legacy primary columns point only to individual
+                    # records. A file linked solely to a combined view remains
+                    # an unparented vault item with a relation to that view.
+                    primary = next((rid for rid in targets if kinds[rid] != "combined"), "")
+                    if primary and not (row.get("record_id") or row.get("parcel_id")
+                                        or row.get("property_id")):
+                        primary_kind = kinds[primary]
+                        await conn.execute(
+                            "UPDATE documents SET record_id=%s, parcel_id=%s, property_id=%s, "
+                            "passbook_id='' WHERE id=%s AND owner_user_id=%s",
+                            (primary, primary if primary_kind == "parcel" else "",
+                             primary if primary_kind == "property" else "", row["id"], uid))
+                    for record_id in targets:
+                        await conn.execute(
+                            "INSERT INTO document_record_links (owner_user_id,document_id,record_id,created_at) "
+                            "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                            (uid, row["id"], record_id, _now_iso()))
+                        mime = str(row.get("mime_type") or "").lower()
+                        media_kind = "video" if mime.startswith("video/") else "photo"
+                        is_media = (row.get("shelf") == "photos"
+                                    and (mime.startswith("image/") or mime.startswith("video/")))
+                        if is_media and kinds[record_id] != "combined":
+                            kind = kinds[record_id]
+                            table, key = _photo_table(kind), _photo_key(kind)
+                            cur = await conn.execute(
+                                f"SELECT 1 FROM {table} WHERE {key}=%s AND owner_user_id=%s "
+                                "AND file_ref=%s LIMIT 1",
+                                (record_id, uid, row.get("file_ref") or ""))
+                            if not await cur.fetchone():
+                                sort_cur = await conn.execute(
+                                    f"SELECT COALESCE(MAX(sort),0)+1 AS s FROM {table} "
+                                    f"WHERE {key}=%s AND owner_user_id=%s", (record_id, uid))
+                                sort = _i((await sort_cur.fetchone() or {}).get("s")) or 1
+                                photo_id = f"ph-{_uuid.uuid4().hex[:12]}"
+                                await conn.execute(
+                                    f"INSERT INTO {table} (id,{key},owner_user_id,file_ref,category,caption,"
+                                    "latitude,longitude,captured_at,captured_by,is_cover,created_at,source,sha256,"
+                                    "order_ref,verified,feature_id,accuracy_m,device_clock_ok,pin_distance_m,"
+                                    "media_kind,width,height,file_name,local_time,sort) "
+                                    "VALUES (%s,%s,%s,%s,'general',%s,0,0,'','',false,%s,'upload','',"
+                                    "'',false,'',0,false,0,%s,0,0,%s,'',%s)",
+                                    (photo_id, record_id, uid, row.get("file_ref") or "",
+                                     row.get("name") or row.get("title") or "", _now_iso(), media_kind,
+                                     row.get("name") or row.get("title") or "Photo", sort))
+                        await _audit(conn, uid, "link_paper", record_id,
+                                     f"Linked a paper: {row.get('name') or row.get('title') or 'Paper'}")
+        return True
 
     @strawberry.mutation
     async def create_request(
@@ -8015,11 +10185,12 @@ class WebMutation:
     async def add_person(
         self, info: strawberry.Info, record_id: str, person_name: str,
         role: str = "", summary: str = "", arrangement: str = "",
-        pay_label: str = "", pay_value: str = "",
+        pay_label: str = "", pay_value: str = "", photo_ref: str = "",
     ) -> str:
         """Puts someone on the record — a tenant, a caretaker, a neighbour who
         holds the key. Only the name is required: who someone is to this land
-        is often known long before what they are paid."""
+        is often known long before what they are paid. `photo_ref` is a storage
+        node id (from the upload gateway) for their photo, or empty."""
         uid = _uid(info)
         if not person_name.strip():
             return ""
@@ -8039,10 +10210,10 @@ class WebMutation:
             await conn.execute(
                 "INSERT INTO record_people (id, owner_user_id, record_id, person_name,"
                 " initials, role, badges, summary, arrangement, pay_label, pay_value,"
-                " due_label, due_value, visibility, actions, compact, sort)"
-                " VALUES (%s,%s,%s,%s,%s,%s,'[]',%s,%s,%s,%s,'','','','[]',false,%s)",
+                " due_label, due_value, visibility, actions, compact, sort, photo_ref)"
+                " VALUES (%s,%s,%s,%s,%s,%s,'[]',%s,%s,%s,%s,'','','','[]',false,%s,%s)",
                 (pid, uid, record_id, name, initials, role, summary,
-                 arrangement, pay_label, pay_value, sort))
+                 arrangement, pay_label, pay_value, sort, photo_ref.strip()))
             await _audit(conn, uid, "add_person", record_id,
                          f"Added {name}" + (f" ({role})" if role else ""))
         return pid
@@ -8051,10 +10222,11 @@ class WebMutation:
     async def update_person(
         self, info: strawberry.Info, person_id: str, person_name: str = "",
         role: str = "", summary: str = "", arrangement: str = "",
-        pay_label: str = "", pay_value: str = "",
+        pay_label: str = "", pay_value: str = "", photo_ref: str = "",
     ) -> bool:
         """Edits one person. Empty arguments are skipped, so changing a role
-        cannot blank the arrangement the caller never mentioned."""
+        cannot blank the arrangement the caller never mentioned. To clear a
+        photo, pass photo_ref='-' (a lone dash), since '' means 'unchanged'."""
         uid = _uid(info)
         sets, args = [], []
         for col, val in (("person_name", person_name), ("role", role),
@@ -8063,6 +10235,9 @@ class WebMutation:
             if val:
                 sets.append(f"{col}=%s")
                 args.append(val)
+        if photo_ref:
+            sets.append("photo_ref=%s")
+            args.append("" if photo_ref.strip() == "-" else photo_ref.strip())
         if person_name.strip():
             sets.append("initials=%s")
             args.append("".join(w[0] for w in person_name.split()[:2]).upper())
@@ -8095,6 +10270,374 @@ class WebMutation:
                              f"Removed {row.get('person_name') or 'a person'}")
             return bool(row)
 
+    # ── Owners: the ownership chain, kept apart from staff ─────────────
+    @strawberry.mutation
+    async def add_owner(
+        self, info: strawberry.Info, record_id: str, name: str,
+        parentage: str = "", address: str = "", role: str = "Owner",
+        is_current: bool = True, acquired_via: str = "", photo_ref: str = "",
+    ) -> str:
+        """Puts an owner on the record's chain — the person who holds it now
+        (is_current) or one who held it before. Only the name is required; the
+        parentage and address are what a deed prints beside it. No pay: an owner
+        is not staff. `photo_ref` is a storage node id for their photo, or empty."""
+        uid = _uid(info)
+        if not name.strip():
+            return ""
+        import uuid as _uuid
+        async with _pool.connection() as conn:
+            if not await _record_kind(conn, uid, record_id):
+                return ""
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM record_owners WHERE record_id=%s",
+                (record_id,))
+            sort = (await cur.fetchone() or {}).get("s", 1)
+            oid = f"ro-{_uuid.uuid4().hex[:12]}"
+            await conn.execute(
+                "INSERT INTO record_owners (id, owner_user_id, record_id, name, parentage,"
+                " address, role, is_current, acquired_via, sort, created_at, photo_ref)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (oid, uid, record_id, name.strip(), parentage.strip(), address.strip(),
+                 role.strip() or "Owner", bool(is_current), acquired_via.strip(), sort,
+                 _now_iso(), photo_ref.strip()))
+            await _audit(conn, uid, "add_owner", record_id,
+                         f"Added {name.strip()}" + (f" ({role.strip()})" if role.strip() else ""))
+        return oid
+
+    @strawberry.mutation
+    async def update_owner(
+        self, info: strawberry.Info, owner_id: str, name: str = "",
+        parentage: str = "", address: str = "", role: str = "",
+        is_current: Optional[bool] = None, photo_ref: str = "",
+    ) -> bool:
+        """Edits one owner. Empty text arguments are skipped so changing a role
+        cannot blank the address; is_current is only touched when given. Pass
+        photo_ref='-' to clear the photo, since '' means 'unchanged'."""
+        uid = _uid(info)
+        sets, args = [], []
+        for col, val in (("name", name), ("parentage", parentage),
+                         ("address", address), ("role", role)):
+            if val:
+                sets.append(f"{col}=%s")
+                args.append(val.strip())
+        if is_current is not None:
+            sets.append("is_current=%s")
+            args.append(bool(is_current))
+        if photo_ref:
+            sets.append("photo_ref=%s")
+            args.append("" if photo_ref.strip() == "-" else photo_ref.strip())
+        if not sets:
+            return False
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                f"UPDATE record_owners SET {', '.join(sets)}"
+                " WHERE id=%s AND owner_user_id=%s RETURNING id, record_id, name",
+                (*args, owner_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_owner", row["record_id"],
+                             f"Edited {row.get('name') or 'an owner'}")
+            return bool(row)
+
+    @strawberry.mutation
+    async def delete_owner(self, info: strawberry.Info, owner_id: str) -> bool:
+        """Removes one owner from the chain. Does not touch the same person on
+        any other record."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM record_owners WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, record_id, name",
+                (owner_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "delete_owner", row["record_id"],
+                             f"Removed {row.get('name') or 'an owner'}")
+            return bool(row)
+
+    # ── Transfers: the chain of title as events ───────────────────────
+    # A transfer is created empty and then given its endpoints, because that is
+    # the order the screen works in: the user draws a link, then says how much
+    # went to whom. Every write here is owner-scoped and audited.
+
+    @strawberry.mutation
+    async def add_transfer(
+        self, info: strawberry.Info, record_id: str, kind: str = "sale",
+        deed_document_id: str = "", deed_no: str = "", sro: str = "",
+        registered_on: str = "", prior_transfer_id: str = "", note: str = "",
+        source: str = "manual", verified: bool = True,
+    ) -> str:
+        """Files one event in the chain of title. Returns its id, or '' when the
+        record is not the caller's.
+
+        `verified=False` is how a reading STAGES a proposal: the edge exists but
+        the graph draws it as unconfirmed until a person accepts it. A deed the
+        owner typed themselves is verified by definition — they are the source."""
+        uid = _uid(info)
+        import uuid as _uuid
+        async with _pool.connection() as conn:
+            if not await _record_kind(conn, uid, record_id):
+                return ""
+            # A deed reference is only accepted if that paper is also the
+            # caller's. Otherwise a transfer could cite a document id belonging
+            # to somebody else and the screen would offer to open it.
+            doc = deed_document_id.strip()
+            if doc:
+                cur = await conn.execute(
+                    "SELECT 1 FROM registered_documents WHERE id=%s AND owner_user_id=%s",
+                    (doc, uid))
+                if not await cur.fetchone():
+                    cur = await conn.execute(
+                        "SELECT 1 FROM documents WHERE id=%s AND owner_user_id=%s", (doc, uid))
+                    if not await cur.fetchone():
+                        doc = ""
+            prior = prior_transfer_id.strip()
+            if prior:
+                # Same record, not merely the same account: a chain is the story
+                # of ONE piece of land, and a link to another record's deed would
+                # draw two unrelated histories into one graph.
+                cur = await conn.execute(
+                    "SELECT 1 FROM record_transfers WHERE id=%s AND owner_user_id=%s"
+                    " AND record_id=%s", (prior, uid, record_id))
+                if not await cur.fetchone():
+                    prior = ""
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM record_transfers WHERE record_id=%s",
+                (record_id,))
+            sort = (await cur.fetchone() or {}).get("s", 1)
+            tid = f"rt-{_uuid.uuid4().hex[:12]}"
+            await conn.execute(
+                "INSERT INTO record_transfers (id, owner_user_id, record_id, kind,"
+                " deed_document_id, deed_no, sro, registered_on, prior_transfer_id, note,"
+                " source, verified, sort, created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (tid, uid, record_id, kind.strip() or "sale", doc, deed_no.strip(),
+                 sro.strip(), registered_on.strip(), prior, note.strip(),
+                 source.strip() or "manual", bool(verified), sort, _now_iso()))
+            await _audit(conn, uid, "add_transfer", record_id,
+                         f"Added a {kind.strip() or 'sale'} transfer"
+                         + (f" on deed {deed_no.strip()}" if deed_no.strip() else ""))
+        return tid
+
+    @strawberry.mutation
+    async def update_transfer(
+        self, info: strawberry.Info, transfer_id: str, kind: str = "",
+        deed_document_id: str = "", deed_no: str = "", sro: str = "",
+        registered_on: str = "", note: str = "", verified: Optional[bool] = None,
+    ) -> bool:
+        """Edits one transfer. Empty text arguments are skipped, so changing the
+        date cannot blank the deed number; `verified` is only touched when given.
+        Pass '-' to clear a text field, the same convention update_owner uses for
+        a photo."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            # The same check add_transfer makes. Without it this path was the way
+            # to point a transfer at a stranger's paper: the document read behind
+            # the link is owner-scoped, so the cost was a dead "The paper"
+            # button rather than a disclosure — but the contract says a deed
+            # reference is validated, and it has to be true on both paths.
+            if deed_document_id and deed_document_id.strip() != "-":
+                doc = deed_document_id.strip()
+                cur = await conn.execute(
+                    "SELECT 1 FROM registered_documents WHERE id=%s AND owner_user_id=%s",
+                    (doc, uid))
+                if not await cur.fetchone():
+                    cur = await conn.execute(
+                        "SELECT 1 FROM documents WHERE id=%s AND owner_user_id=%s", (doc, uid))
+                    if not await cur.fetchone():
+                        deed_document_id = ""
+            sets, args = [], []
+            for col, val in (("kind", kind), ("deed_document_id", deed_document_id),
+                             ("deed_no", deed_no), ("sro", sro),
+                             ("registered_on", registered_on), ("note", note)):
+                if val:
+                    sets.append(f"{col}=%s")
+                    args.append("" if val.strip() == "-" else val.strip())
+            if verified is not None:
+                sets.append("verified=%s")
+                args.append(bool(verified))
+            if not sets:
+                return False
+            cur = await conn.execute(
+                f"UPDATE record_transfers SET {', '.join(sets)}"
+                " WHERE id=%s AND owner_user_id=%s RETURNING id, record_id, deed_no",
+                (*args, transfer_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_transfer", row["record_id"],
+                             "Edited a transfer"
+                             + (f" on deed {row['deed_no']}" if row.get("deed_no") else ""))
+            return bool(row)
+
+    @strawberry.mutation
+    async def delete_transfer(self, info: strawberry.Info, transfer_id: str) -> bool:
+        """Removes one event and its endpoints. Any transfer that pointed at it
+        as its predecessor loses only that link — deleting one deed must not
+        cascade away the rest of somebody's chain."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "DELETE FROM record_transfers WHERE id=%s AND owner_user_id=%s"
+                    " RETURNING id, record_id, deed_no", (transfer_id, uid))
+                row = await cur.fetchone()
+                if not row:
+                    return False
+                await conn.execute(
+                    "DELETE FROM record_transfer_parties WHERE transfer_id=%s"
+                    " AND owner_user_id=%s", (transfer_id, uid))
+                await conn.execute(
+                    "UPDATE record_transfers SET prior_transfer_id='' WHERE"
+                    " prior_transfer_id=%s AND owner_user_id=%s", (transfer_id, uid))
+                await _audit(conn, uid, "delete_transfer", row["record_id"],
+                             "Removed a transfer"
+                             + (f" on deed {row['deed_no']}" if row.get("deed_no") else ""))
+            return True
+
+    @strawberry.mutation
+    async def set_transfer_party(
+        self, info: strawberry.Info, transfer_id: str, side: str,
+        owner_id: str = "", name: str = "", parentage: str = "", address: str = "",
+        extent: float = 0, extent_unit: str = "", share_num: int = 0, share_den: int = 0,
+        is_gpa: bool = False, party_id: str = "",
+    ) -> str:
+        """Adds or edits one endpoint of a transfer. `party_id` edits in place;
+        without it a new endpoint is added.
+
+        A party needs either a name or a link to an existing owner — an endpoint
+        with neither is a line on the graph pointing at nobody."""
+        uid = _uid(info)
+        import uuid as _uuid
+        want = "from" if side.strip().lower() == "from" else "to"
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT record_id FROM record_transfers WHERE id=%s AND owner_user_id=%s",
+                (transfer_id, uid))
+            owning = await cur.fetchone()
+            if not owning:
+                return ""
+            # A linked owner must be an owner ON THIS RECORD and the caller's.
+            oid = owner_id.strip()
+            label = name.strip()
+            if oid:
+                cur = await conn.execute(
+                    "SELECT name FROM record_owners WHERE id=%s AND owner_user_id=%s"
+                    " AND record_id=%s", (oid, uid, owning["record_id"]))
+                found = await cur.fetchone()
+                if not found:
+                    oid = ""
+                elif not label:
+                    # The graph must be able to label the node even when the
+                    # caller only sent a link.
+                    label = found.get("name") or ""
+            if not label and not oid:
+                return ""
+            # Extent and share describe what somebody RECEIVED. Carrying them on
+            # the giving side would invite two contradictory areas for one event.
+            ext = max(0.0, float(extent or 0)) if want == "to" else 0.0
+            unit = (extent_unit.strip() if want == "to" else "")
+            num = max(0, int(share_num or 0)) if want == "to" else 0
+            den = max(0, int(share_den or 0)) if want == "to" else 0
+            if den <= 0 or num <= 0:
+                num, den = 0, 0
+            if party_id.strip():
+                cur = await conn.execute(
+                    "UPDATE record_transfer_parties SET side=%s, owner_id=%s, name=%s,"
+                    " parentage=%s, address=%s, extent=%s, extent_unit=%s, share_num=%s,"
+                    " share_den=%s, is_gpa=%s WHERE id=%s AND owner_user_id=%s"
+                    " AND transfer_id=%s RETURNING id",
+                    (want, oid, label, parentage.strip(), address.strip(), ext, unit,
+                     num, den, bool(is_gpa), party_id.strip(), uid, transfer_id))
+                row = await cur.fetchone()
+                if row:
+                    await _audit(conn, uid, "update_transfer_party",
+                                 owning["record_id"], f"Edited {label or 'a party'}")
+                return row["id"] if row else ""
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM record_transfer_parties"
+                " WHERE transfer_id=%s AND side=%s", (transfer_id, want))
+            sort = (await cur.fetchone() or {}).get("s", 1)
+            pid = f"tp-{_uuid.uuid4().hex[:12]}"
+            await conn.execute(
+                "INSERT INTO record_transfer_parties (id, owner_user_id, transfer_id, side,"
+                " owner_id, name, parentage, address, extent, extent_unit, share_num,"
+                " share_den, is_gpa, sort, created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (pid, uid, transfer_id, want, oid, label, parentage.strip(),
+                 address.strip(), ext, unit, num, den, bool(is_gpa), sort, _now_iso()))
+            await _audit(conn, uid, "add_transfer_party", owning["record_id"],
+                         f"Added {label or 'a party'} to a transfer")
+        return pid
+
+    @strawberry.mutation
+    async def remove_transfer_party(self, info: strawberry.Info, party_id: str) -> bool:
+        """Takes one endpoint off a transfer. The transfer itself stays: a deed
+        whose buyer was entered wrongly is still a deed."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM record_transfer_parties WHERE id=%s AND owner_user_id=%s"
+                " RETURNING id, transfer_id, name", (party_id, uid))
+            row = await cur.fetchone()
+            if not row:
+                return False
+            cur = await conn.execute(
+                "SELECT record_id FROM record_transfers WHERE id=%s", (row["transfer_id"],))
+            owning = await cur.fetchone() or {}
+            await _audit(conn, uid, "remove_transfer_party",
+                         owning.get("record_id") or "",
+                         f"Removed {row.get('name') or 'a party'} from a transfer")
+            return True
+
+    @strawberry.mutation
+    async def link_transfer_prior(
+        self, info: strawberry.Info, transfer_id: str, prior_transfer_id: str,
+    ) -> bool:
+        """Points one transfer at the one that came before it — the "further
+        down as per the linked documents" edge. Pass an empty prior to unlink.
+
+        Refuses a cycle: a chain that loops is not a chain, and the graph would
+        walk it forever."""
+        uid = _uid(info)
+        if transfer_id.strip() and transfer_id.strip() == prior_transfer_id.strip():
+            return False
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT record_id FROM record_transfers WHERE id=%s AND owner_user_id=%s",
+                (transfer_id, uid))
+            mine = await cur.fetchone()
+            if not mine:
+                return False
+            prior = prior_transfer_id.strip()
+            if prior:
+                # Both ends on the same record — see add_transfer.
+                cur = await conn.execute(
+                    "SELECT 1 FROM record_transfers WHERE id=%s AND owner_user_id=%s"
+                    " AND record_id=%s", (prior, uid, mine["record_id"]))
+                if not await cur.fetchone():
+                    return False
+                # Walk up from the proposed predecessor: if this transfer is
+                # already somewhere above it, the link would close a loop.
+                seen, cursor = set(), prior
+                while cursor and cursor not in seen:
+                    seen.add(cursor)
+                    if cursor == transfer_id.strip():
+                        return False
+                    cur = await conn.execute(
+                        "SELECT prior_transfer_id FROM record_transfers WHERE id=%s"
+                        " AND owner_user_id=%s", (cursor, uid))
+                    nxt = await cur.fetchone()
+                    cursor = (nxt or {}).get("prior_transfer_id") or ""
+            cur = await conn.execute(
+                "UPDATE record_transfers SET prior_transfer_id=%s WHERE id=%s"
+                " AND owner_user_id=%s RETURNING record_id", (prior, transfer_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "link_transfer_prior", row["record_id"],
+                             "Linked a transfer to the one before it" if prior
+                             else "Unlinked a transfer from its predecessor")
+            return bool(row)
+
     @strawberry.mutation
     async def delete_photo(self, info: strawberry.Info, photo_id: str) -> bool:
         """Unfiles a photo. The stored bytes stay: a share link may cite them,
@@ -8119,11 +10662,20 @@ class WebMutation:
             for table, key in (("parcel_photos", "parcel_id"),
                                ("property_photos", "property_id")):
                 cur = await conn.execute(
-                    f"SELECT {key} AS rid FROM {table} WHERE id=%s AND owner_user_id=%s",
+                    f"SELECT {key} AS rid,media_kind,file_name FROM {table} "
+                    "WHERE id=%s AND owner_user_id=%s",
                     (photo_id, uid))
                 row = await cur.fetchone()
                 if not row:
                     continue
+                # A recording cannot cover a property card. Reject BEFORE
+                # clearing the existing photo cover; legacy rows may say
+                # media_kind='photo' despite a video/audio extension.
+                name = str(row.get("file_name") or "").lower()
+                if (row.get("media_kind") or "photo") != "photo" or name.endswith(
+                    (".mp4", ".mov", ".m4v", ".webm", ".3gp", ".mp3", ".m4a",
+                     ".aac", ".wav", ".ogg", ".oga", ".opus")):
+                    return False
                 await conn.execute(
                     f"UPDATE {table} SET is_cover=false WHERE {key}=%s AND owner_user_id=%s",
                     (row["rid"], uid))
@@ -8160,6 +10712,174 @@ class WebMutation:
                 await _audit(conn, uid, "update_paper", row["record_id"],
                              f"Updated a paper: {row.get('name') or ''}".strip())
             return bool(row)
+
+    # ── Documents: folders ───────────────────────────────────────────────
+    # Every write below is owner-scoped in SQL. A folder id that is not the
+    # caller's reads exactly like one that does not exist.
+
+    @strawberry.mutation
+    async def create_vault_folder(self, info: strawberry.Info, name: str, parent_id: str = "") -> str:
+        """Make a folder at the top level or inside one of the owner's own.
+        Returns the new id. A refused name raises, so the reason reaches the
+        owner instead of a silent nothing."""
+        uid = _uid(info)
+        name = _folder_name(name)
+        async with _pool.connection() as conn:
+            if parent_id:
+                chain = await _folder_chain(conn, uid, parent_id)
+                if not chain:
+                    raise ValueError("That folder is not yours, or it has been deleted")
+                if len(chain) >= _FOLDER_DEPTH_MAX:
+                    raise ValueError(f"Folders go {_FOLDER_DEPTH_MAX} levels deep at most")
+            fid = f"fld-{secrets.token_hex(10)}"
+            try:
+                await conn.execute(
+                    "INSERT INTO vault_folders (id, owner_user_id, parent_id, name, created_at)"
+                    " VALUES (%s,%s,%s,%s,%s)", (fid, uid, parent_id, name, _now_iso()))
+            except _pg_errors.UniqueViolation:
+                raise ValueError(f"A folder called “{name}” is already here")
+            await _audit(conn, uid, "create_folder", "", f"Made a folder: {name}")
+        return fid
+
+    @strawberry.mutation
+    async def rename_vault_folder(self, info: strawberry.Info, folder_id: str, name: str) -> bool:
+        uid = _uid(info)
+        name = _folder_name(name)
+        async with _pool.connection() as conn:
+            try:
+                cur = await conn.execute(
+                    "UPDATE vault_folders SET name=%s WHERE id=%s AND owner_user_id=%s RETURNING id",
+                    (name, folder_id, uid))
+            except _pg_errors.UniqueViolation:
+                raise ValueError(f"A folder called “{name}” is already here")
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "rename_folder", "", f"Renamed a folder: {name}")
+            return bool(row)
+
+    @strawberry.mutation
+    async def move_vault_folder(self, info: strawberry.Info, folder_id: str, parent_id: str = "") -> bool:
+        """Put a folder inside another one, or back at the top level ('')."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "SELECT id, name, parent_id FROM vault_folders WHERE id=%s AND owner_user_id=%s"
+                    " FOR UPDATE", (folder_id, uid))
+                row = await cur.fetchone()
+                if not row:
+                    return False
+                if (row.get("parent_id") or "") == parent_id:
+                    return True
+                depth = 0
+                if parent_id:
+                    chain = await _folder_chain(conn, uid, parent_id)
+                    if not chain:
+                        raise ValueError("That folder is not yours, or it has been deleted")
+                    # A folder inside its own subfolder is a loop nobody can
+                    # open their way out of.
+                    if folder_id in chain:
+                        raise ValueError("A folder cannot go inside itself")
+                    depth = len(chain)
+                if depth + await _folder_height(conn, uid, folder_id) > _FOLDER_DEPTH_MAX:
+                    raise ValueError(f"Folders go {_FOLDER_DEPTH_MAX} levels deep at most")
+                try:
+                    await conn.execute(
+                        "UPDATE vault_folders SET parent_id=%s WHERE id=%s AND owner_user_id=%s",
+                        (parent_id, folder_id, uid))
+                except _pg_errors.UniqueViolation:
+                    raise ValueError(f"A folder called “{row['name']}” is already there")
+                await _audit(conn, uid, "move_folder", "", f"Moved a folder: {row['name']}")
+        return True
+
+    @strawberry.mutation
+    async def delete_vault_folder(self, info: strawberry.Info, folder_id: str) -> bool:
+        """Remove a folder. Never removes a file: what was inside — files and
+        subfolders — moves up one level, into the folder that held it."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "SELECT id, name, parent_id FROM vault_folders WHERE id=%s AND owner_user_id=%s"
+                    " FOR UPDATE", (folder_id, uid))
+                row = await cur.fetchone()
+                if not row:
+                    return False
+                parent = row.get("parent_id") or ""
+                # Drop the folder first, so its own name no longer blocks a
+                # child of the same name from taking its place.
+                await conn.execute(
+                    "DELETE FROM vault_folders WHERE id=%s AND owner_user_id=%s", (folder_id, uid))
+                cur = await conn.execute(
+                    "SELECT id, name FROM vault_folders WHERE owner_user_id=%s AND parent_id=%s"
+                    " ORDER BY lower(name), id", (uid, folder_id))
+                for child in await cur.fetchall():
+                    free = await _free_folder_name(conn, uid, parent, child["name"], child["id"])
+                    await conn.execute(
+                        "UPDATE vault_folders SET parent_id=%s, name=%s WHERE id=%s AND owner_user_id=%s",
+                        (parent, free, child["id"], uid))
+                await conn.execute(
+                    "UPDATE documents SET folder_id=%s WHERE owner_user_id=%s AND folder_id=%s",
+                    (parent, uid, folder_id))
+                await _audit(conn, uid, "delete_folder", "", f"Removed a folder: {row['name']}")
+        return True
+
+    @strawberry.mutation
+    async def move_papers_to_folder(self, info: strawberry.Info, paper_ids: List[str],
+                                    folder_id: str = "") -> int:
+        """File owned documents into one folder ('' is the top level). Returns
+        how many of the asked-for files moved. The copies of one joint FMB go
+        together, because the list shows them as one file."""
+        uid = _uid(info)
+        ids = list(dict.fromkeys(i for i in paper_ids if i))[:_BULK_MAX]
+        if not ids:
+            return 0
+        async with _pool.connection() as conn:
+            if folder_id and not await _folder_chain(conn, uid, folder_id):
+                raise ValueError("That folder is not yours, or it has been deleted")
+            cur = await conn.execute(
+                "UPDATE documents SET folder_id=%s WHERE owner_user_id=%s AND ("
+                " id = ANY(%s) OR (joint_fmb_id<>'' AND joint_fmb_id IN ("
+                "  SELECT joint_fmb_id FROM documents"
+                "   WHERE owner_user_id=%s AND id = ANY(%s) AND joint_fmb_id<>'')))"
+                " RETURNING id", (folder_id, uid, ids, uid, ids))
+            moved = {r["id"] for r in await cur.fetchall()}
+            n = sum(1 for i in ids if i in moved)
+            if n:
+                await _audit(conn, uid, "move_papers", "",
+                             f"Moved {n} document{'s' if n != 1 else ''} to a folder")
+        return n
+
+    @strawberry.mutation
+    async def tag_papers(self, info: strawberry.Info, paper_ids: List[str], tag: str,
+                         on: bool = True) -> int:
+        """One tag onto — or off — many owned documents. Returns how many
+        changed hands; a file that is not the caller's is skipped, not tagged."""
+        uid = _uid(info)
+        word = _tag_word(tag)
+        if not word:
+            return 0
+        ids = list(dict.fromkeys(i for i in paper_ids if i))[:_BULK_MAX]
+        async with _pool.connection() as conn:
+            owned = await _owned_document_ids(conn, uid, ids)
+            n = 0
+            for did in owned:
+                if on:
+                    cur = await conn.execute(
+                        "INSERT INTO record_tags (id, owner_user_id, entity_type, entity_id, tag, created_at)"
+                        " VALUES (%s,%s,'paper',%s,%s, to_char(now(),'YYYY-MM-DD'))"
+                        " ON CONFLICT (owner_user_id, entity_type, entity_id, tag) DO NOTHING RETURNING id",
+                        (_tag_row_id(), uid, did, word))
+                else:
+                    cur = await conn.execute(
+                        "DELETE FROM record_tags WHERE owner_user_id=%s AND entity_type='paper'"
+                        " AND entity_id=%s AND tag=%s RETURNING id", (uid, did, word))
+                if await cur.fetchone():
+                    n += 1
+            if n:
+                await _audit(conn, uid, "tag_papers", "",
+                             f"{'Tagged' if on else 'Untagged'} {n} document{'s' if n != 1 else ''} “{word}”")
+        return n
 
     @strawberry.mutation
     async def delete_expense(self, info: strawberry.Info, expense_id: str) -> bool:
@@ -8401,18 +11121,65 @@ class WebMutation:
             return bool(row)
 
     @strawberry.mutation
-    async def delete_paper(self, info: strawberry.Info, paper_id: str) -> bool:
+    async def delete_paper(self, info: strawberry.Info, paper_id: str,
+                           record_id: Optional[str] = None) -> bool:
         """Unfiles a paper from its record. The stored bytes are left alone:
         a document version may be shared by a link or cited by a reading, and
         this screen is not the place that decides a file is gone for good."""
         uid = _uid(info)
         async with _pool.connection() as conn:
+            if record_id:
+                kind = await _paper_target_kind(conn, uid, record_id)
+                if not kind:
+                    return False
+                async with conn.transaction():
+                    cur = await conn.execute(
+                        "DELETE FROM document_record_links WHERE owner_user_id=%s AND document_id=%s"
+                        " AND record_id=%s RETURNING document_id", (uid, paper_id, record_id))
+                    if not await cur.fetchone():
+                        return False
+                    # Keep the file in the vault and choose another linked record as
+                    # the legacy primary when the removed association was primary.
+                    cur = await conn.execute(
+                        "SELECT l.record_id, CASE WHEN p.id IS NOT NULL THEN 'parcel'"
+                        " ELSE 'property' END AS kind FROM document_record_links l"
+                        " LEFT JOIN parcels p ON p.id=l.record_id"
+                        " LEFT JOIN properties pr ON pr.id=l.record_id"
+                        " WHERE l.owner_user_id=%s AND l.document_id=%s"
+                        " AND (p.id IS NOT NULL OR pr.id IS NOT NULL)"
+                        " ORDER BY l.created_at,l.record_id LIMIT 1",
+                        (uid, paper_id))
+                    next_link = await cur.fetchone()
+                    cur = await conn.execute(
+                        "SELECT record_id,parcel_id,property_id,name,file_ref FROM documents"
+                        " WHERE id=%s AND owner_user_id=%s", (paper_id, uid))
+                    paper = await cur.fetchone()
+                    if paper and record_id in {paper.get("record_id"), paper.get("parcel_id"),
+                                               paper.get("property_id")}:
+                        next_id = (next_link or {}).get("record_id", "")
+                        next_kind = (next_link or {}).get("kind", "")
+                        await conn.execute(
+                            "UPDATE documents SET record_id=%s,parcel_id=%s,property_id=%s"
+                            " WHERE id=%s AND owner_user_id=%s",
+                            (next_id, next_id if next_kind == "parcel" else "",
+                             next_id if next_kind == "property" else "", paper_id, uid))
+                    if kind != "combined" and paper and paper.get("file_ref"):
+                        table, key = _photo_table(kind), _photo_key(kind)
+                        await conn.execute(
+                            f"DELETE FROM {table} WHERE owner_user_id=%s AND {key}=%s AND file_ref=%s",
+                            (uid, record_id, paper["file_ref"]))
+                    await _audit(conn, uid, "unlink_paper", record_id,
+                                 f"Unlinked a paper: {paper.get('name') or ''}".strip() if paper else "Unlinked a paper")
+                return True
             cur = await conn.execute(
                 "DELETE FROM documents WHERE id=%s AND owner_user_id=%s"
                 " RETURNING id, record_id, name",
                 (paper_id, uid))
             gone = await cur.fetchone()
             if gone:
+                await conn.execute(
+                    "DELETE FROM document_record_links WHERE owner_user_id=%s AND document_id=%s",
+                    (uid, paper_id))
                 await conn.execute(
                     "DELETE FROM share_links WHERE document_id=%s AND owner_user_id=%s",
                     (paper_id, uid))
@@ -9652,15 +12419,15 @@ class WebMutation:
     async def save_governance_policy(
         self, info: strawberry.Info, country_code: str, state_code: str,
         district_code: str, document: str, reason: str = "",
-        expected_revision: int = 0,
+        expected_revision: int = 0, mandal_code: str = "*", village_code: str = "*",
     ) -> Optional[GovernancePolicy]:
         """Create a new immutable draft revision for one jurisdiction scope."""
         uid = _uid(info)
         if len(document) > 500_000 or len(reason) > 4000:
             return None
         try:
-            country, state, district, key = governance.normalize_scope(
-                country_code, state_code, district_code)
+            country, state, district, mandal, village, key = governance.normalize_scope(
+                country_code, state_code, district_code, mandal_code, village_code)
             raw = json.loads(document)
             if not isinstance(raw, dict):
                 return None
@@ -9668,6 +12435,8 @@ class WebMutation:
             jurisdiction["countryCode"] = country
             jurisdiction["stateCode"] = state
             jurisdiction["districtCode"] = district
+            jurisdiction["mandalCode"] = mandal
+            jurisdiction["villageCode"] = village
             checked = governance.validate_document(raw)
             body = governance.canonical_json(checked)
             source_digest = governance.digest(checked)
@@ -9693,10 +12462,10 @@ class WebMutation:
             policy_id = "gps-" + secrets.token_hex(10)
             row = await (await conn.execute(
                 "INSERT INTO governance_policy_sets"
-                " (id,scope_key,country_code,state_code,district_code,revision,status,"
-                " schema_version,document,source_digest,created_by,created_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,'draft',1,%s,%s,%s,%s) RETURNING *",
-                (policy_id, key, country, state, district, revision, body,
+                " (id,scope_key,country_code,state_code,district_code,mandal_code,village_code,"
+                " revision,status,schema_version,document,source_digest,created_by,created_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'draft',1,%s,%s,%s,%s) RETURNING *",
+                (policy_id, key, country, state, district, mandal, village, revision, body,
                  source_digest, uid, now))).fetchone()
             await _record_governance_event(
                 conn, row, uid, "create" if not latest else "revise",
@@ -9825,3 +12594,333 @@ class WebMutation:
                 "UPDATE desk_tasks SET state='closed', closed_at=%s"
                 " WHERE id=%s AND state='open'", (_now_iso(), tid))
             return bool(cur.rowcount)
+
+    # ── Combined properties ───────────────────────────────────────────
+    #
+    # Everything here writes the AGGREGATE and nothing else. No mutation below
+    # touches a parcel, a property, a deed, a boundary, an owner chain or a
+    # record's own expenses — a combined property is a way of holding records
+    # together, and the records do not learn that it exists.
+    #
+    # Each returns the falsy value on refusal ("" or False), like every other
+    # write in this file, and says nothing about whether an id it refused
+    # belongs to somebody else.
+
+    @strawberry.mutation
+    async def create_combined_property(self, info: strawberry.Info, name: str,
+                                       record_ids: List[str],
+                                       note: str = "") -> str:
+        """Hold several records as one property. Returns its id, or "".
+
+        Two records at the least: one record held as a combined property is the
+        record, and the screen already has a name for that.
+        """
+        uid = _uid(info)
+        label = (name or "").strip()
+        if not label or len(label) > 120:
+            return ""
+        import uuid as _uuid
+        cid = f"cp-{_uuid.uuid4().hex[:12]}"
+        async with _pool.connection() as conn:
+            try:
+                # The holding and its members are one act: a combined property
+                # with no members is a name over nothing, and nothing in the app
+                # could explain it.
+                async with conn.transaction():
+                    members = await _combined_members_for(conn, uid, record_ids)
+                    if members is None:
+                        return ""
+                    now = _now_iso()
+                    await conn.execute(
+                        "INSERT INTO combined_properties (id, owner_user_id, name,"
+                        " note, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (cid, uid, label, (note or "").strip()[:500], now, now))
+                    await _write_combined_members(conn, uid, cid, members)
+                    await _audit(conn, uid, "create_combined_property", cid,
+                                 f"Combined {len(members)} records as “{label}”",
+                                 label=label)
+            except _pg_errors.UniqueViolation:
+                # Two tabs combining the same record at once. The partial unique
+                # indexes are the arbiter, and the loser is told nothing
+                # happened rather than being handed a holding missing a member.
+                return ""
+        return cid
+
+    @strawberry.mutation
+    async def update_combined_property(self, info: strawberry.Info, id: str,
+                                       name: str, note: str = "") -> bool:
+        """Rename the holding, or change its note. Membership is a separate
+        write — renaming and re-membering are different decisions and a form
+        that did both would make the second one invisible."""
+        uid = _uid(info)
+        label = (name or "").strip()
+        if not label or len(label) > 120:
+            return False
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE combined_properties SET name=%s, note=%s, updated_at=%s"
+                " WHERE id=%s AND owner_user_id=%s",
+                (label, (note or "").strip()[:500], _now_iso(), id, uid))
+            if not cur.rowcount:
+                return False
+            await _audit(conn, uid, "update_combined_property", id,
+                         f"Renamed to “{label}”", label=label)
+            return True
+
+    @strawberry.mutation
+    async def set_combined_members(self, info: strawberry.Info, id: str,
+                                   record_ids: List[str]) -> bool:
+        """Replace the whole membership list in one act.
+
+        Full replacement rather than add/remove calls: the owner is looking at a
+        list of ticked records and pressing Save once, and validating the whole
+        desired set means a refusal leaves the holding exactly as it was instead
+        of half-changed.
+
+        Removing a record from a combined property removes the MEMBERSHIP. The
+        record, its papers, its boundary and its own costs are untouched and it
+        goes back to standing on its own in Properties.
+        """
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            try:
+                async with conn.transaction():
+                    row = await (await conn.execute(
+                        "SELECT id FROM combined_properties WHERE id=%s"
+                        " AND owner_user_id=%s FOR UPDATE", (id, uid))).fetchone()
+                    if not row:
+                        return False
+                    members = await _combined_members_for(conn, uid, record_ids, cid=id)
+                    if members is None:
+                        return False
+                    await conn.execute(
+                        "DELETE FROM combined_property_members WHERE owner_user_id=%s"
+                        " AND combined_property_id=%s", (uid, id))
+                    await _write_combined_members(conn, uid, id, members)
+                    await conn.execute(
+                        "UPDATE combined_properties SET updated_at=%s WHERE id=%s",
+                        (_now_iso(), id))
+                    await _audit(conn, uid, "set_combined_members", id,
+                                 f"Now holds {len(members)} records")
+            except _pg_errors.UniqueViolation:
+                return False
+        return True
+
+    @strawberry.mutation
+    async def delete_combined_property(self, info: strawberry.Info, id: str) -> bool:
+        """Undo the grouping.
+
+        This deletes the holding, its membership rows and the costs recorded
+        against the WHOLE holding — and nothing else. Every member record stays
+        exactly where it was, with its papers, its survey, its photographs, its
+        people and its own ledger, and reappears in Properties on its own.
+
+        The combined-level costs go because they have nowhere else to live: they
+        were never about any one survey, which is the whole reason this holding
+        exists. The confirm dialog says so before anything happens.
+        """
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT name FROM combined_properties WHERE id=%s"
+                    " AND owner_user_id=%s FOR UPDATE", (id, uid))).fetchone()
+                if not row:
+                    return False
+                spent = await (await conn.execute(
+                    "SELECT count(*) AS c FROM combined_property_expenses"
+                    " WHERE owner_user_id=%s AND combined_property_id=%s",
+                    (uid, id))).fetchone()
+                held = await (await conn.execute(
+                    "SELECT count(*) AS c FROM combined_property_members"
+                    " WHERE owner_user_id=%s AND combined_property_id=%s",
+                    (uid, id))).fetchone()
+                # Both children cascade off the composite owner/parent key; they
+                # are deleted explicitly as well so this reads as what it does
+                # and does not depend on the constraint being present.
+                await conn.execute(
+                    "DELETE FROM combined_property_expenses WHERE owner_user_id=%s"
+                    " AND combined_property_id=%s", (uid, id))
+                await conn.execute(
+                    "DELETE FROM combined_property_members WHERE owner_user_id=%s"
+                    " AND combined_property_id=%s", (uid, id))
+                # Private files survive ungrouping; only their association
+                # with this combined view is removed.
+                await conn.execute(
+                    "DELETE FROM document_record_links WHERE owner_user_id=%s AND record_id=%s",
+                    (uid, id))
+                await conn.execute(
+                    "DELETE FROM combined_properties WHERE id=%s AND owner_user_id=%s",
+                    (id, uid))
+                await _audit(conn, uid, "delete_combined_property", id,
+                             f"Ungrouped {_i(held.get('c') if held else 0)} records"
+                             f" · {_i(spent.get('c') if spent else 0)} combined costs removed",
+                             label=(row.get("name") or "").strip())
+                return True
+
+    @strawberry.mutation
+    async def save_combined_expense(
+        self, info: strawberry.Info, combined_id: str, title: str, amount: float,
+        spent_on: str, kind: str = "running", category: str = "other",
+        paid_by: str = "", vendor: str = "", note: str = "",
+        recoverable: bool = False, fiscal_year: str = "",
+        invoice_no: str = "", warranty_until: str = "",
+        receipt_file_ref: str = "", receipt_file_name: str = "",
+        receipt_mime_type: str = "", receipt_size_bytes: int = 0,
+    ) -> str:
+        """One cost against the whole holding — the fence, the well, the year's
+        tax. Returns the row id, or "".
+
+        This is the write the combined property exists for. A cost filed here is
+        NOT copied onto the members and is not divided between them: dividing it
+        would be inventing a split nobody agreed, and the Expenses tab reports
+        the holding's own costs beside its members' with the scope on every row.
+        """
+        uid = _uid(info)
+        label = (title or "").strip()
+        if not label or not math.isfinite(amount) or amount < 0:
+            return ""
+        if kind not in ("capital", "running", "income"):
+            return ""
+        import uuid as _uuid
+        # DD/MM/YYYY is what everything reading a ledger date expects; the web
+        # date input hands over ISO, so it is converted at the door rather than
+        # left to sort as text against the other rows.
+        when = (spent_on or "").strip()
+        if len(when) == 10 and when[4] == "-" and when[7] == "-":
+            when = f"{when[8:10]}/{when[5:7]}/{when[0:4]}"
+        async with _pool.connection() as conn:
+            if not await _combined_row(conn, uid, combined_id):
+                return ""
+            eid = f"cpe-{_uuid.uuid4().hex[:12]}"
+            await conn.execute(
+                "INSERT INTO combined_property_expenses (id, owner_user_id,"
+                " combined_property_id, title, subtitle, kind, category, amount,"
+                " spent_on, paid_by, vendor, note, recoverable, fiscal_year,"
+                " has_receipt, invoice_no, warranty_until, receipt_file_ref,"
+                " receipt_file_name, receipt_mime_type, receipt_size_bytes, created_at)"
+                " VALUES (%s,%s,%s,%s,'',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (eid, uid, combined_id, label, kind, (category or "other").strip(),
+                 float(amount), when, paid_by.strip(), vendor.strip(),
+                 note.strip()[:500], bool(recoverable),
+                 fiscal_year.strip() or _fiscal_year(when),
+                 bool(receipt_file_ref.strip()), invoice_no.strip(),
+                 warranty_until.strip(), receipt_file_ref.strip(),
+                 receipt_file_name.strip(), receipt_mime_type.strip(),
+                 max(0, _i(receipt_size_bytes)), _now_iso()))
+            await _audit(conn, uid, "add_combined_expense", combined_id,
+                         f"Recorded a cost for the whole holding: {label}")
+        return eid
+
+    @strawberry.mutation
+    async def delete_combined_expense(self, info: strawberry.Info,
+                                      expense_id: str) -> bool:
+        """Remove one line from the holding's own ledger. A member's own expense
+        is deleted from that member, by `deleteExpense` — this cannot reach it."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM combined_property_expenses WHERE id=%s AND owner_user_id=%s"
+                " RETURNING combined_property_id, title", (expense_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "delete_combined_expense",
+                             row["combined_property_id"],
+                             f"Removed a cost: {row.get('title') or ''}".strip())
+            return bool(row)
+
+    @strawberry.mutation
+    async def add_joint_fmb(
+        self, info: strawberry.Info, combined_id: str, file_ref: str,
+        name: str = "", mime_type: str = "", size_bytes: int = 0,
+        page_count: int = 0, record_ids: Optional[List[str]] = None,
+    ) -> str:
+        """File ONE uploaded FMB sheet that covers several members of this
+        holding. Returns its joint id, or "".
+
+        One document row and one stored file are linked to every covered
+        member. Each record's papers and map views resolve those links.
+
+        `record_ids` picks which members it covers (default: all of them). At
+        least two, all current members, or nothing is written. No sheet is
+        read for corners here: one outline read off a joint sheet would belong
+        to no single survey, so tracing stays on each record's own screen.
+        """
+        uid = _uid(info)
+        ref = (file_ref or "").strip()
+        if not ref:
+            return ""
+        import uuid as _uuid
+        async with _pool.connection() as conn:
+            if not await _combined_row(conn, uid, combined_id):
+                return ""
+            members = await _combined_member_ids(conn, uid, combined_id)
+            if record_ids is None:
+                chosen = members
+            else:
+                wanted = set(record_ids)
+                if not wanted <= set(members):
+                    return ""
+                chosen = [rid for rid in members if rid in wanted]
+            if len(chosen) < 2:
+                return ""
+            titles = {c["id"]: c["title"] for c in await _cards(conn, uid)}
+            label = (name or "").strip()[:200] or "Joint FMB"
+            jid = f"jf-{_uuid.uuid4().hex[:12]}"
+            now = _now_iso()
+            async with conn.transaction():
+                primary = chosen[0]
+                primary_kind = await _record_kind(conn, uid, primary)
+                cur = await conn.execute(
+                    "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM documents"
+                    " WHERE record_id=%s", (primary,))
+                sort = (await cur.fetchone() or {}).get("s", 1)
+                did = f"doc-{_uuid.uuid4().hex[:12]}"
+                await conn.execute(
+                    "INSERT INTO documents (id, owner_user_id, name, subtitle, shelf,"
+                    " page_count, record_id, parcel_id, property_id, doc_type, created_at,"
+                    " size_bytes, file_ref, mime_type, source, sort, joint_fmb_id)"
+                    " VALUES (%s,%s,%s,%s,'map',%s,%s,%s,%s,'map',%s,%s,%s,%s,'upload',%s,%s)",
+                    (did, uid, label,
+                     f"Joint FMB · covers {', '.join(titles.get(r, r) for r in chosen)}"[:300],
+                     max(0, _i(page_count)), primary,
+                     primary if primary_kind == "parcel" else "",
+                     primary if primary_kind == "property" else "", now,
+                     max(0, _i(size_bytes)), ref, (mime_type or "").strip(), sort, jid))
+                for rid in chosen:
+                    await conn.execute(
+                        "INSERT INTO document_record_links (owner_user_id,document_id,record_id,created_at)"
+                        " VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (uid, did, rid, now))
+                    await _audit(conn, uid, "add_paper", rid,
+                                 f"Filed a joint FMB: {label}")
+                await _audit(conn, uid, "add_joint_fmb", combined_id,
+                             f"Filed a joint FMB across {len(chosen)} records")
+        return jid
+
+    @strawberry.mutation
+    async def delete_joint_fmb(self, info: strawberry.Info, joint_id: str) -> bool:
+        """Unfile a joint FMB from every linked record. Stored bytes remain.
+        Older uploads may still contain several document rows."""
+        uid = _uid(info)
+        jid = (joint_id or "").strip()
+        if not jid:
+            return False
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "DELETE FROM documents WHERE owner_user_id=%s AND joint_fmb_id=%s"
+                    " RETURNING id, record_id, name", (uid, jid))
+                gone = list(await cur.fetchall())
+                if not gone:
+                    return False
+                await conn.execute(
+                    "DELETE FROM document_record_links WHERE owner_user_id=%s"
+                    " AND document_id = ANY(%s)", (uid, [g["id"] for g in gone]))
+                await conn.execute(
+                    "DELETE FROM share_links WHERE owner_user_id=%s"
+                    " AND document_id = ANY(%s)", (uid, [g["id"] for g in gone]))
+                for g in gone:
+                    await _audit(conn, uid, "delete_paper", g["record_id"],
+                                 f"Removed a joint FMB: {g.get('name') or ''}".strip())
+        return True

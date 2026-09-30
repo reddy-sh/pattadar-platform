@@ -20,6 +20,10 @@ output "spa_bucket_name" {
   description = "SPA bucket the built web app is synced to (null when enable_cdn = false)."
   value       = one(aws_s3_bucket.spa[*].id)
 }
+output "village_maps_origin_enabled" {
+  description = "Whether CloudFront routes /vm/* to the persistent village-maps bucket."
+  value       = local.vm_enabled
+}
 
 output "rds_endpoint" {
   description = "RDS endpoint (host:port)."

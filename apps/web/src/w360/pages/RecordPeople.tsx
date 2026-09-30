@@ -4,53 +4,42 @@
  *  app. The card is therefore graded: the ones you pay get the full arrangement
  *  grid (what, how much, when next, what they can see); the ones you don't get
  *  a single line and one action. "Can see" is on the card and not in a settings
- *  screen because it is the fact people get wrong. */
+ *  screen because it is the fact people get wrong.
+ *
+ *  Staff have two ways to look at the same people: CARDS (roomy, one per
+ *  person) and a TABLE (dense, one row each). Owners add a third, the CHAIN
+ *  of title, which is read-only until "Edit chain" is pressed. Clicking any
+ *  card, row, or owner on the chain opens the person's own drawer — the one
+ *  place their details are edited and the one place they are removed. Those
+ *  views carry no inline pencil or trash of their own, so "click to open, act
+ *  inside" remains the only interaction. */
 import PersonAddAltOutlined from '@mui/icons-material/PersonAddAltOutlined';
-import EditOutlined from '@mui/icons-material/EditOutlined';
+import AddOutlined from '@mui/icons-material/AddOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import NorthEastOutlined from '@mui/icons-material/NorthEastOutlined';
 import SouthWestOutlined from '@mui/icons-material/SouthWestOutlined';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined';
 import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined';
+import PhotoCameraOutlined from '@mui/icons-material/PhotoCameraOutlined';
 
-import { useAddPerson, useDeletePerson, usePeople, useUpdatePerson } from '../api';
-import { useToast } from '../Toast';
 import {
-  Card, Chip, Empty, Failed, Loading, inGroup, initialsOf, inr, inrFullish, plural,
+  useAddPerson, useDeleteOwner, useDeletePerson,
+  useOwners, usePeople, useTransfers, useUpdateOwner, useUpdatePerson,
+} from '../api';
+import type { Owner, Payment, Person } from '../api';
+import {
+  Card, Chip, Empty, Failed, Loading, PhotoImg, inGroup, initialsOf, inrFullish, plural,
 } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
+import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
+import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useRecordCtx } from './Record';
+import { OwnerChain, TransferDrawer } from './OwnerChain';
 import { SectionHead } from './RecordHead';
-
-/** Where a seeded action label actually goes, or null when it goes nowhere.
- *
- *  `p.actions` is free text: record_people stores a JSON list of words and
- *  there is nothing behind any of them. Drawn as-is, one record put about a
- *  dozen disabled buttons on the screen — "Message", "Change pay", "Visit
- *  schedule", "Record a payment", "Permissions", "Extend access", "End the
- *  lease" — each explaining itself in a title attribute that no browser shows
- *  on a disabled control. A data-driven label with no capability behind it is
- *  still a dead control, so a label is drawn only when this function can name
- *  the screen that answers it; the rest are dropped, and the footnote under
- *  the list says where those things actually happen.
- *
- *  Matched on the label because the label is all the row carries — no paper
- *  id, no ticket id, no photo count — which is also why each of these lands on
- *  the screen that holds the thing rather than on the thing itself. Same shape
- *  as the 'Photos' action on RecordFeatures. */
-function destOf(label: string, recordId: string): string | null {
-  // The agreement is a paper filed on this record, and Papers is the index tab.
-  if (label === 'Lease agreement') return `/app/records/${recordId}`;
-  // Every job ordered on this land, each row with its own ticket and tracking.
-  if (label === 'Track order') return `/app/records/${recordId}/services`;
-  // Invitations is one of the screens W360 has not redrawn; /app/invitations
-  // is the rail entry that hands it to the previous interface, which sends one.
-  if (label === 'Invite to the app') return '/app/invitations';
-  return null;
-}
+import { ConfirmDialog } from './PropertyActions';
 
 /** The five people who actually turn up on a parcel. `role` is free text in the
  *  column, so these are a shortcut rather than an enumeration — "Someone else"
@@ -58,6 +47,106 @@ function destOf(label: string, recordId: string): string | null {
  *  of, which is the same shape the Features starter kit keeps. */
 const ROLES = ['Tenant', 'Caretaker', 'Agent', 'Family', 'Watchman'];
 const OTHER = 'Someone else';
+
+/** Roles that describe who OWNS the land rather than who looks after it —
+ *  filed from a deed reading (see partiesFromReading in PropertyActions). An
+ *  owner has no pay, no visit schedule and no "arrangement", so the card must
+ *  not print the caretaker's "No arrangement recorded yet" line under them. */
+const OWNERSHIP_ROLES = new Set(['owner', 'previous owner', 'power-of-attorney holder']);
+const isOwnershipRole = (role: string): boolean =>
+  OWNERSHIP_ROLES.has(role.trim().toLowerCase());
+
+/** The arrangement/pay/visibility cells a person actually carries — empty for
+ *  anyone filed with just a name and role, which is most of them. Shared by the
+ *  card and the drawer so both show exactly the same four. */
+function payCells(p: Person): Array<[string, string]> {
+  return ([
+    ['Arrangement', p.arrangement],
+    [p.payLabel, p.payValue],
+    [p.dueLabel, p.dueValue],
+    ['Can see', p.visibility],
+  ] as Array<[string, string]>).filter(([k, v]) => k && v);
+}
+
+/** Which way a recorded payment went, in a word — the arrow and the colour
+ *  beside it are not enough on their own. Never "paid": while the payments
+ *  provider is a stub nothing has moved through Pattadar. */
+const paymentWord = (p: Payment) => (
+  p.state === 'escrow' ? 'Held' : p.direction === 'in' ? 'In' : 'Out');
+
+/** A person's face where the initials avatar used to be. When a photo is on
+ *  file it renders it (through the authenticated, HEIC-transcoding read every
+ *  other W360 image uses); otherwise it falls back to the initials, so a person
+ *  with no photo looks exactly as they did before. */
+function PersonPhoto({ photoRef, name, size = '2.75rem' }: {
+  photoRef: string; name: string; size?: string;
+}) {
+  const initials = <span className="avatarlg" style={{ width: size, height: size }}>{initialsOf(name)}</span>;
+  if (!photoRef) return initials;
+  return (
+    <span className="avatarlg personphoto" style={{ width: size, height: size, padding: 0, overflow: 'hidden' }}>
+      <PhotoImg fileRef={photoRef} alt={name} thumb={160} fallback={initials} className="personphoto-img" />
+    </span>
+  );
+}
+
+/** A photo picker for the drawers: shows the current photo (or a placeholder),
+ *  a "Choose a photo" button that uploads to storage and hands back the node
+ *  id, and a Remove when one is set. Reuses uploadToDrive — the same two-step
+ *  every other upload takes — and enforces the 15 MB product cap up front. The
+ *  parent owns the ref; this only uploads and reports.
+ *
+ *  Especially for staff: a caretaker or watchman is who a neighbour is asked
+ *  about, so a face on the card is the point of the whole feature. */
+function PhotoField({ name, photoRef, onChange }: {
+  name: string; photoRef: string; onChange: (ref: string) => void;
+}) {
+  const pick = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const chosen = async (input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setErr('Choose an image file.'); return; }
+    if (file.size > MAX_UPLOAD_BYTES) { setErr(`That photo is ${mb(file.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)}.`); return; }
+    setErr('');
+    setBusy(true);
+    try {
+      const node = await uploadToDrive(file);
+      onChange(node.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : STORAGE_OFFLINE_MSG);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="field">
+      <label>Photo</label>
+      <div className="row tight" style={{ alignItems: 'center' }}>
+        <PersonPhoto photoRef={photoRef} name={name || '?'} size="3.5rem" />
+        <input ref={pick} type="file" hidden accept="image/*" disabled={busy}
+               aria-label="Choose a photo"
+               onChange={(e) => void chosen(e.currentTarget)} />
+        <button type="button" className="btn sm" disabled={busy}
+                onClick={() => pick.current?.click()}>
+          <PhotoCameraOutlined sx={{ fontSize: 15 }} /> {busy ? 'Uploading…' : photoRef ? 'Replace photo' : 'Choose a photo'}
+        </button>
+        {/* "Remove photo", not "Remove": the same drawer's other Remove takes
+            the person off the property. */}
+        {photoRef && !busy && (
+          <button type="button" className="btn sm" onClick={() => onChange('')}>Remove photo</button>
+        )}
+      </div>
+      {err
+        ? <span className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{err}</span>
+        : <span className="note">Up to {mb(MAX_UPLOAD_BYTES)}.</span>}
+    </div>
+  );
+}
 
 /**
  * Assigning someone, in the drawer every hanger now uses.
@@ -82,47 +171,23 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
   returnFocus: React.RefObject<HTMLButtonElement | null>;
 }) {
   const addPerson = useAddPerson();
-  /** Nothing is pre-selected, and pressing the chosen chip again clears it.
-   *
-   *  A pre-selected "Tenant" would file every person nobody thought about as a
-   *  tenant — a claim about somebody else's land that the owner never made, and
-   *  the same mistake as attributing a power bill to whichever bore happens to
-   *  sort first. The server agrees: only the name is required, because "who
-   *  someone is to this land is often known long before what they are paid". */
+  /** Nothing is pre-selected, and pressing the chosen chip again clears it. */
   const [role, setRole] = useState('');
   const [ownRole, setOwnRole] = useState('');
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [period, setPeriod] = useState<'month' | 'season'>('month');
   const [summary, setSummary] = useState('');
+  const [photoRef, setPhotoRef] = useState('');
   const [err, setErr] = useState('');
 
   const theirRole = (role === OTHER ? ownRole : role).trim();
   const canFile = name.trim().length > 0 && !addPerson.isPending;
-  /** Anything closing this would throw away. The role chip starts on a default
-   *  nobody chose, so it is not dirt on its own — a panel that nags about
-   *  discarding a form nobody touched is a panel people learn to dismiss. */
-  const dirty = [name, ownRole, amount, summary, role].some((v) => v.trim().length > 0);
+  const dirty = [name, ownRole, amount, summary, role].some((v) => v.trim().length > 0) || !!photoRef;
 
-  /** What the two pay columns have to look like.
-   *
-   *  They are text, and the record's own totals are read back OUT of that text:
-   *  `_rupees` takes the digits before the slash, and web360.py splits a
-   *  person's pay into the monthly and seasonal figures by testing whether the
-   *  value contains the word "month" or "season". So this shape — the seed's
-   *  own — is load-bearing. Written any other way, the pay files fine and then
-   *  does not appear in either of the two numbers on the rail of this very
-   *  screen, which reads as a save that half worked. */
   const payValue = amount ? `₹${inGroup(Number(amount))} / ${period}` : '';
   const payLabel = amount ? (period === 'month' ? 'Pay' : 'They pay you') : '';
 
-  /** Puts someone on the record.
-   *
-   *  Nothing is cleared and the panel does not close until the server has
-   *  answered with an id. The original form cleared itself and closed on the
-   *  same tick it fired the mutation, without awaiting it, so a refused write —
-   *  a record that is not yours, or no network — read as a person who was
-   *  accepted and then lost: no card, no message, and the typed name gone. */
   const file = async () => {
     if (!canFile) return;
     setErr('');
@@ -132,12 +197,10 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
         personName: name.trim(),
         role: theirRole,
         summary: summary.trim(),
-        // Nothing here can honestly claim Pattadar manages this person — that
-        // is what "Through Pattadar" means on a seeded card — so the column is
-        // left for whoever files the arrangement to set.
         arrangement: '',
         payLabel,
         payValue,
+        photoRef,
       });
       if (!res.web.addPerson) {
         setErr('That person was not filed. This record may no longer be yours to edit.');
@@ -145,7 +208,7 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
       }
       onClose();
     } catch {
-      setErr('That person was not filed. What you typed is still here — try Assign again.');
+      setErr('That person was not filed. Try again.');
     }
   };
 
@@ -153,17 +216,14 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'People')}
       title="Assign someone"
-      sub="They get a card of their own on this record — what they do here, what they are owed, and when it is next due."
       onClose={onClose}
       onSubmit={() => void file()}
       busy={addPerson.isPending}
       dirty={dirty}
       discardCopy={{
         title: 'Discard this person?',
-        body: 'Nobody has been filed yet. Closing this panel loses the name and the arrangement you have entered.',
+        body: 'What you have entered will be lost.',
       }}
-      // The name, not the chip row: it is the one field that is required and the
-      // one thing somebody standing in a field always knows.
       initialFocus="#pe-name"
       returnFocus={returnFocus}
       primary={(
@@ -180,12 +240,12 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
         <label>What they do here</label>
         <div className="row tight">
           {[...ROLES, OTHER].map((r) => (
-            <Chip key={r} active={role === r} onClick={() => setRole(role === r ? '' : r)}>
+            <Chip key={r} wash active={role === r} onClick={() => setRole(role === r ? '' : r)}>
               {r}
             </Chip>
           ))}
         </div>
-        <span className="note">Optional — a name on its own is a person on this land.</span>
+        <span className="note">Optional.</span>
       </div>
 
       {role === OTHER && (
@@ -197,35 +257,26 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
         </div>
       )}
 
-      {/* The one required field, and the only one a person standing in a field
-          always knows. It takes the opening focus for that reason. */}
       <div className="field">
         <label htmlFor="pe-name">Their name</label>
         <input id="pe-name" type="text" value={name} placeholder="Who is it"
                onChange={(e) => setName(e.target.value)} />
       </div>
 
-      {/* Raw digits in the value. Rebuilding "₹18,400" from the number on every
-          keystroke throws the caret to the end of the string, stalls backspace
-          on the ₹ and the commas, and makes an empty field impossible. The
-          grouped form goes under the field, which is the shape the expense
-          drawer settled on after hitting exactly that. */}
+      <PhotoField name={name} photoRef={photoRef} onChange={setPhotoRef} />
+
       <div className="field">
         <label htmlFor="pe-amt">What they are owed</label>
         <div className="row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
           <input id="pe-amt" type="text" inputMode="numeric" value={amount} placeholder="₹ amount"
                  style={{ flex: '1 1 auto', minWidth: 0 }}
                  onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))} />
-          <Chip active={period === 'month'} onClick={() => setPeriod('month')}>a month</Chip>
-          <Chip active={period === 'season'} onClick={() => setPeriod('season')}>a season</Chip>
+          <Chip wash active={period === 'month'} onClick={() => setPeriod('month')}>a month</Chip>
+          <Chip wash active={period === 'season'} onClick={() => setPeriod('season')}>a season</Chip>
         </div>
-        <span className="note">
-          {amount
-            ? period === 'month'
-              ? `₹${inGroup(Number(amount))} a month, counted in what goes out`
-              : `₹${inGroup(Number(amount))} a season, counted in what comes in at harvest`
-            : 'Leave it empty if the arrangement is unpaid'}
-        </span>
+        {amount && (
+          <span className="note">₹{inGroup(Number(amount))} a {period}</span>
+        )}
       </div>
 
       <div className="field">
@@ -235,13 +286,8 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
                   onChange={(e) => setSummary(e.target.value)} />
       </div>
 
-      {/* Said rather than offered. The card has a "Can see" cell, but access to
-          a record is granted as a share link on Papers, and add_person carries
-          no visibility argument — so a chip row here would file nothing and
-          leave the owner believing they had restricted something. */}
       <p className="note" style={{ margin: 0 }}>
-        Assigning somebody does not let them see this record. Access is a share link, made on
-        the Papers tab and listed with its expiry date.
+        Assigning someone does not give them access.
       </p>
 
       {err && (
@@ -251,90 +297,642 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
   );
 }
 
-export function RecordPeople() {
-  // Filing a person is the drawer's own mutation now — it holds the form, so it
-  // holds the write and the pending state that greys its button.
-  const editPerson = useUpdatePerson();
+/**
+ * One person, opened. Shows everything on them, edits the three columns the
+ * server will actually take (name, role, the details line) and removes them.
+ *
+ * This is now the ONLY place a person is edited or removed — the card and the
+ * table row carry no inline controls, so there is one editor to reason about
+ * rather than an inline form duplicated per view. Empty edit fields are simply
+ * not sent (updatePerson skips empty arguments), so opening the drawer and
+ * closing it changes nothing.
+ */
+function PersonDrawer({ person, recordTitle, onClose, returnFocus }: {
+  person: Person;
+  recordTitle: string;
+  onClose: () => void;
+  returnFocus: React.RefObject<HTMLElement | null>;
+}) {
+  const updatePerson = useUpdatePerson();
   const delPerson = useDeletePerson();
-  const toast = useToast();
-  const [naming, setNaming] = useState(false);
-  const [editId, setEditId] = useState('');
-  const [draft, setDraft] = useState('');
-  const [confirmId, setConfirmId] = useState('');
-  const assignTrigger = useRef<HTMLButtonElement>(null);
-  const renameTriggers = useRef(new Map<string, HTMLButtonElement>());
-  const removeTriggers = useRef(new Map<string, HTMLButtonElement>());
-  const rec = useRecordCtx();
-  const { data, isLoading, error } = usePeople(rec.id);
+  const [name, setName] = useState(person.name);
+  const [role, setRole] = useState(person.role);
+  const [summary, setSummary] = useState(person.summary);
+  const [photoRef, setPhotoRef] = useState(person.photoRef);
+  const [confirming, setConfirming] = useState(false);
+  const [err, setErr] = useState('');
+  /** The confirmation's own answer, printed inside it: it holds open until
+   *  the server says the person is gone. */
+  const [removeErr, setRemoveErr] = useState('');
 
-  const restoreRowFocus = (buttons: Map<string, HTMLButtonElement>, personId: string) => {
-    requestAnimationFrame(() => buttons.get(personId)?.focus());
-  };
+  const cells = payCells(person);
+  const dirty = name.trim() !== person.name
+    || role.trim() !== person.role
+    || summary.trim() !== person.summary
+    || photoRef !== person.photoRef;
+  const canSave = name.trim().length > 0 && dirty && !updatePerson.isPending;
 
-  /** Renames one person. The editor stays open on anything but a success: what
-   *  was typed is the only copy of it, and closing the form is how it was
-   *  being thrown away. */
-  const rename = async (personId: string) => {
-    if (!draft.trim() || editPerson.isPending) return;
+  const save = async () => {
+    if (!canSave) return;
+    setErr('');
     try {
-      const res = await editPerson.mutateAsync({
-        personId, personName: draft.trim(), role: '', summary: '',
+      // Only what changed leaves the form; updatePerson skips empty arguments,
+      // so blanking a field here does not wipe the column — clearing a role is
+      // done by choosing a different one, not by sending "".
+      const res = await updatePerson.mutateAsync({
+        personId: person.id,
+        personName: name.trim() !== person.name ? name.trim() : '',
+        role: role.trim() !== person.role ? role.trim() : '',
+        summary: summary.trim() !== person.summary ? summary.trim() : '',
+        // '' means unchanged; a lone '-' clears the photo (server convention).
+        photoRef: photoRef === person.photoRef ? '' : (photoRef || '-'),
       });
       if (!res.web.updatePerson) {
-        toast.bad('That name was not changed. The person may already be off this record.');
+        setErr('That change was not saved. This person may already be off this property.');
         return;
       }
-      setEditId('');
-      restoreRowFocus(renameTriggers.current, personId);
+      onClose();
     } catch {
-      toast.bad('That name could not be changed. What you typed is still here.');
+      setErr('That change could not be saved. Try again.');
     }
   };
 
-  /** Takes someone off this record. The confirm used to be dismissed before
-   *  the delete was even sent, so a refusal left the card sitting there with
-   *  nothing said about it. It now stands until the row is actually gone. */
-  const remove = async (personId: string) => {
+  const remove = async () => {
     if (delPerson.isPending) return;
+    setRemoveErr('');
     try {
-      const res = await delPerson.mutateAsync({ personId });
+      const res = await delPerson.mutateAsync({ personId: person.id });
       if (!res.web.deletePerson) {
-        toast.bad('That person was not removed. They may already be off this record.');
+        setRemoveErr('That person was not removed. They may already be off this property.');
         return;
       }
-      setConfirmId('');
-      requestAnimationFrame(() => assignTrigger.current?.focus());
+      onClose();
     } catch {
-      toast.bad('That person could not be removed. They are still filed here.');
+      setRemoveErr('That person could not be removed. They are still filed here.');
     }
   };
 
   return (
-    <>
-      <SectionHead
-        title="Who looks after it"
-        sub={data && `${plural(data.count, 'person', 'people')} · ${inr(data.monthlyOut)} a month`
-          + ` going out · ${inr(data.seasonalIn)} a season coming in`}
-        actions={(
+    <Drawer
+      eyebrow={drawerEyebrow(recordTitle, 'People')}
+      title={person.name}
+      sub={person.role || 'On this property'}
+      onClose={onClose}
+      onSubmit={() => void save()}
+      busy={updatePerson.isPending || delPerson.isPending}
+      dirty={dirty}
+      over={confirming ? (
+        <ConfirmDialog
+          title={`Remove ${person.name}?`}
+          // What delete_person does (web360.py): this property's row only.
+          body={`${person.name} comes off this property only. The same person on any other property is not touched.`}
+          actionLabel="Remove"
+          danger
+          busy={delPerson.isPending}
+          error={removeErr}
+          onConfirm={() => void remove()}
+          onClose={() => { setRemoveErr(''); setConfirming(false); }}
+        />
+      ) : undefined}
+      discardCopy={{
+        title: 'Discard these changes?',
+        body: 'Your changes will be lost.',
+      }}
+      initialFocus="#pd-name"
+      returnFocus={returnFocus}
+      primary={(
+        <DrawerAction
+          label="Save changes"
+          working="Saving…"
+          pending={updatePerson.isPending}
+          paused={updatePerson.isPaused}
+          disabled={!canSave}
+        />
+      )}
+    >
+      <div className="field">
+        <label htmlFor="pd-name">Their name</label>
+        <input id="pd-name" type="text" value={name}
+               onChange={(e) => setName(e.target.value)} />
+      </div>
+
+      <PhotoField name={name} photoRef={photoRef} onChange={setPhotoRef} />
+
+      <div className="field">
+        <label>What they are to this land</label>
+        <div className="row tight">
+          {ROLES.map((r) => (
+            <Chip key={r} wash active={role.trim().toLowerCase() === r.toLowerCase()}
+                  onClick={() => setRole(r)}>
+              {r}
+            </Chip>
+          ))}
+        </div>
+        {/* Owners and previous owners come off a deed and use words that are not
+            in the caretaker list; a free-text box keeps them editable without
+            forcing them onto a chip that would mislabel them. */}
+        <input type="text" value={role} placeholder="Or type a role"
+               style={{ marginTop: 'var(--space-sm)' }}
+               aria-label="Role"
+               onChange={(e) => setRole(e.target.value)} />
+      </div>
+
+      <div className="field">
+        <label htmlFor="pd-sum">Details</label>
+        <textarea id="pd-sum" rows={3} value={summary}
+                  placeholder="Parentage, address or arrangement"
+                  onChange={(e) => setSummary(e.target.value)} />
+      </div>
+
+      {/* Read-only. Pay is written once, when someone is assigned (the
+          assign drawer's payLabel/payValue), and nothing edits it or the
+          visibility afterwards — updatePerson has no argument for either — so
+          these are shown when present but not editable here. */}
+      {cells.length > 0 && (
+        <div className="field">
+          <label>Arrangement</label>
+          <div className="grid4">
+            {cells.map(([k, v]) => (
+              <div key={k}>
+                <span className="eyebrow" style={{ margin: '0 0 0.3125rem' }}>{k}</span>
+                <span style={{ fontSize: '0.9375rem' }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <hr className="hr" />
+
+      {/* Remove lives here, behind the shared confirmation (the drawer's
+          `over`), so a destructive action is never a stray click on a list —
+          and the confirmation takes focus and names who goes. */}
+      <button type="button" className="btn sm" aria-haspopup="dialog"
+              onClick={() => { setRemoveErr(''); setConfirming(true); }}>
+        <DeleteOutlineOutlined sx={{ fontSize: 16 }} /> Remove from this property
+      </button>
+
+      {err && (
+        <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>
+      )}
+    </Drawer>
+  );
+}
+
+/** A person as a full card, clickable to open their drawer. No inline controls
+ *  of its own — the whole card is the button. */
+function PersonCard({ person, onOpen }: { person: Person; onOpen: () => void }) {
+  const cells = payCells(person);
+  return (
+    <article className="card pad-lg peoplecard" style={{ cursor: 'pointer' }}>
+      {/* The whole card opens the drawer. A button wrapping the content keeps it
+          keyboard-reachable and announced as one control; the actions that used
+          to sit on the card now live inside the drawer it opens. */}
+      <button type="button" className="cardopen" onClick={onOpen}
+              aria-label={`Open ${person.name}`}
+              style={{ all: 'unset', display: 'block', width: '100%', cursor: 'pointer' }}>
+        <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', gap: 'var(--space-md)' }}>
+          <PersonPhoto photoRef={person.photoRef} name={person.name} />
+          <div className="grow">
+            <div className="row" style={{ gap: 'var(--space-xs)' }}>
+              <h2>{person.name}</h2>
+              {person.badges.map((b) => (
+                <span key={b} className={`pill ${b.includes('verified') ? 'owned' : 'managed'}`}>
+                  {b.includes('verified') && <VerifiedOutlined sx={{ fontSize: 12 }} />}
+                  {b}
+                </span>
+              ))}
+              {person.badges.length === 0 && person.role && (
+                <span className="pill managed">{person.role}</span>
+              )}
+            </div>
+            {person.summary && (
+              <p className="note" style={{ marginTop: '0.375rem', color: 'var(--w-ink-2)' }}>
+                {person.summary}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {cells.length > 0 ? (
           <>
-          {/* "Payment history" stood here as a disabled button whose reason
-              lived in a title attribute, which no browser shows on a disabled
-              control — a screen that looked real and would not open. Nothing
-              was behind it: the payments filed against this record are the
-              rail's own list, and the ledger across every record is the
-              wallet, which the rail links. The Last payments card says so. */}
-          <button ref={assignTrigger} type="button" className="btn primary"
-                  aria-haspopup="dialog" aria-expanded={naming}
-                  onClick={() => setNaming(true)}>
-            <PersonAddAltOutlined sx={{ fontSize: 17 }} /> Assign someone
-          </button>
+            <hr className="hr" />
+            <div className="grid4">
+              {cells.map(([k, v]) => (
+                <div key={k}>
+                  <span className="eyebrow" style={{ margin: '0 0 0.3125rem' }}>{k}</span>
+                  <span style={{ fontSize: '0.9375rem' }}>{v}</span>
+                </div>
+              ))}
+            </div>
           </>
+        ) : isOwnershipRole(person.role) ? (
+          /* An owner or previous owner has no "arrangement" — that is a
+             caretaker's word. Their parentage and address (the line above) IS
+             their record, so nothing more is drawn. */
+          null
+        ) : (
+          <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
+            No arrangement recorded yet.
+          </p>
+        )}
+      </button>
+    </article>
+  );
+}
+
+/** The same people as a dense table, each row opening the drawer. Both compact
+ *  (ticket-remembered) and full people appear here — the table is one flat list
+ *  by design, since its whole point is to scan many at once. */
+function PeopleTable({ people, onOpen }: {
+  people: Person[];
+  onOpen: (p: Person) => void;
+}) {
+  return (
+    <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+      <table className="peopletable" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left' }}>Name</th>
+            <th style={{ textAlign: 'left' }}>Role</th>
+            <th style={{ textAlign: 'left' }}>Details</th>
+            <th style={{ textAlign: 'left' }}>Pay</th>
+          </tr>
+        </thead>
+        <tbody>
+          {people.map((p) => {
+            // The pay column reads the same figure the rail sums — the value
+            // string after any label — and shows a dash when there is none, so
+            // an owner's row is not blank where a tenant's has a number.
+            const pay = p.payValue || '—';
+            // A native row, not role="button": a row announced as one button
+            // hides its cells from a screen reader walking the table. The name
+            // is the real control; a click anywhere else on the row is the
+            // pointer's shortcut to the same drawer.
+            return (
+              <tr key={p.id} className="peoplerow" style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button')) return;
+                    onOpen(p);
+                  }}>
+                <td>
+                  <button type="button" className="rowopen" aria-label={`Open ${p.name}`}
+                          onClick={() => onOpen(p)}>
+                    <PersonPhoto photoRef={p.photoRef} name={p.name} size="1.75rem" />
+                    <strong style={{ fontSize: '0.9375rem' }}>{p.name}</strong>
+                  </button>
+                </td>
+                <td>{p.role ? <span className="pill managed">{p.role}</span> : <span className="note">—</span>}</td>
+                <td><span className="note">{p.summary || '—'}</span></td>
+                <td><span className="note mono">{pay}</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The status treatment for an owner: the person who holds the land now reads
+ *  GREEN (a live, present fact), everyone before them reads RED/muted (a fact
+ *  that has passed). The colour never stands alone — it rides a bordered widget
+ *  AND a worded pill, so it survives colour-blindness and a greyscale print. */
+function ownerTone(isCurrent: boolean) {
+  return isCurrent
+    ? { pill: 'owned', word: 'Current owner', cls: 'ownercard current' }
+    : { pill: 'was', word: 'Previous owner', cls: 'ownercard past' };
+}
+
+/** Drawer for one owner — name, parentage, address, role, and whether they hold
+ *  it now. The one place an owner is edited or removed. No pay: an owner is not
+ *  staff, which is the whole reason owners are a side of this tab of their own
+ *  (the Owners segment). */
+function OwnerDrawer({ owner, recordTitle, onClose, returnFocus }: {
+  owner: Owner;
+  recordTitle: string;
+  onClose: () => void;
+  returnFocus: React.RefObject<HTMLElement | null>;
+}) {
+  const updateOwner = useUpdateOwner();
+  const delOwner = useDeleteOwner();
+  const [removeErr, setRemoveErr] = useState('');
+  const [name, setName] = useState(owner.name);
+  const [parentage, setParentage] = useState(owner.parentage);
+  const [address, setAddress] = useState(owner.address);
+  const [role, setRole] = useState(owner.role);
+  const [isCurrent, setIsCurrent] = useState(owner.isCurrent);
+  const [photoRef, setPhotoRef] = useState(owner.photoRef);
+  const [confirming, setConfirming] = useState(false);
+  const [err, setErr] = useState('');
+
+  const dirty = name.trim() !== owner.name || parentage.trim() !== owner.parentage
+    || address.trim() !== owner.address || role.trim() !== owner.role
+    || isCurrent !== owner.isCurrent || photoRef !== owner.photoRef;
+  const canSave = name.trim().length > 0 && dirty && !updateOwner.isPending;
+
+  const save = async () => {
+    if (!canSave) return;
+    setErr('');
+    try {
+      const res = await updateOwner.mutateAsync({
+        ownerId: owner.id,
+        name: name.trim() !== owner.name ? name.trim() : '',
+        parentage: parentage.trim() !== owner.parentage ? parentage.trim() : '',
+        address: address.trim() !== owner.address ? address.trim() : '',
+        role: role.trim() !== owner.role ? role.trim() : '',
+        isCurrent,
+        photoRef: photoRef === owner.photoRef ? '' : (photoRef || '-'),
+      });
+      if (!res.web.updateOwner) {
+        setErr('That change was not saved. This owner may already be off this property.');
+        return;
+      }
+      onClose();
+    } catch {
+      setErr('That change could not be saved. Try again.');
+    }
+  };
+
+  const remove = async () => {
+    if (delOwner.isPending) return;
+    setRemoveErr('');
+    try {
+      const res = await delOwner.mutateAsync({ ownerId: owner.id });
+      if (!res.web.deleteOwner) {
+        setRemoveErr('That owner was not removed. They may already be off this property.');
+        return;
+      }
+      onClose();
+    } catch {
+      setRemoveErr('That owner could not be removed. They are still on this property.');
+    }
+  };
+
+  return (
+    <Drawer
+      eyebrow={drawerEyebrow(recordTitle, 'Owners')}
+      title={owner.name}
+      sub={ownerTone(isCurrent).word}
+      onClose={onClose}
+      onSubmit={() => void save()}
+      busy={updateOwner.isPending || delOwner.isPending}
+      dirty={dirty}
+      over={confirming ? (
+        <ConfirmDialog
+          title={`Remove ${owner.name}?`}
+          // What delete_owner does (web360.py): the owner row only. A transfer
+          // that names them keeps the name, so they stay on the chain as a
+          // party named on a deed.
+          body={`${owner.name} comes off this property's owners. A transfer that names them keeps their name.`}
+          actionLabel="Remove"
+          danger
+          busy={delOwner.isPending}
+          error={removeErr}
+          onConfirm={() => void remove()}
+          onClose={() => { setRemoveErr(''); setConfirming(false); }}
+        />
+      ) : undefined}
+      discardCopy={{
+        title: 'Discard these changes?',
+        body: 'Your changes will be lost.',
+      }}
+      initialFocus="#od-name"
+      returnFocus={returnFocus}
+      primary={(
+        <DrawerAction label="Save changes" working="Saving…"
+          pending={updateOwner.isPending} paused={updateOwner.isPaused} disabled={!canSave} />
+      )}
+    >
+      <div className="field">
+        <label htmlFor="od-name">Name</label>
+        <input id="od-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <PhotoField name={name} photoRef={photoRef} onChange={setPhotoRef} />
+      <div className="field">
+        <label htmlFor="od-par">Parentage</label>
+        <input id="od-par" type="text" value={parentage} placeholder="S/o, W/o, D/o …"
+               onChange={(e) => setParentage(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="od-addr">Address</label>
+        <textarea id="od-addr" rows={2} value={address} placeholder="Village, mandal, district"
+                  onChange={(e) => setAddress(e.target.value)} />
+        <span className="note">Aadhaar or PAN are never kept here.</span>
+      </div>
+      <div className="field">
+        <label htmlFor="od-role">Role</label>
+        <input id="od-role" type="text" value={role} placeholder="Owner, Previous owner, Power-of-attorney holder"
+               onChange={(e) => setRole(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Do they hold it now?</label>
+        <div className="row tight">
+          <Chip wash active={isCurrent} onClick={() => setIsCurrent(true)}>Current owner</Chip>
+          <Chip wash active={!isCurrent} onClick={() => setIsCurrent(false)}>Previous owner</Chip>
+        </div>
+      </div>
+
+      <hr className="hr" />
+
+      <button type="button" className="btn sm" aria-haspopup="dialog"
+              onClick={() => { setRemoveErr(''); setConfirming(true); }}>
+        <DeleteOutlineOutlined sx={{ fontSize: 16 }} /> Remove from this property
+      </button>
+
+      {err && (
+        <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>
+      )}
+    </Drawer>
+  );
+}
+
+/** An owner as a card: a coloured left rail and a worded status pill — green
+ *  for who holds it now, red-muted for who held it before. The whole card
+ *  opens the owner's drawer. */
+function OwnerCard({ owner, onOpen }: { owner: Owner; onOpen: () => void }) {
+  const tone = ownerTone(owner.isCurrent);
+  const detail = [owner.parentage, owner.address].filter(Boolean).join(' · ');
+  return (
+    <article className={`card pad-lg peoplecard ${tone.cls}`} style={{ cursor: 'pointer' }}>
+      <button type="button" className="cardopen" onClick={onOpen}
+              aria-label={`Open ${owner.name}`}
+              style={{ all: 'unset', display: 'block', width: '100%', cursor: 'pointer' }}>
+        <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', gap: 'var(--space-md)' }}>
+          <PersonPhoto photoRef={owner.photoRef} name={owner.name} />
+          <div className="grow">
+            <div className="row" style={{ gap: 'var(--space-xs)' }}>
+              <h2>{owner.name}</h2>
+              <span className={`pill ${tone.pill}`}>{tone.word}</span>
+              {/* A second pill only when the deed's role adds something the
+                  status pill does not already say — e.g. "Power-of-attorney
+                  holder". "Owner"/"Previous owner" would just repeat it. */}
+              {owner.role && owner.role.trim().toLowerCase() !== tone.word.toLowerCase() && (
+                <span className="pill managed">{owner.role}</span>
+              )}
+            </div>
+            {detail && (
+              <p className="note" style={{ marginTop: '0.375rem', color: 'var(--w-ink-2)' }}>{detail}</p>
+            )}
+            {owner.acquiredVia && (
+              <p className="note" style={{ marginTop: '0.25rem' }}>Acquired via {owner.acquiredVia}</p>
+            )}
+          </div>
+        </div>
+      </button>
+    </article>
+  );
+}
+
+/** Owners as a dense table, current-first, each row opening the drawer. The
+ *  status cell carries the same green/red worded pill as the card. */
+function OwnersTable({ owners, onOpen }: {
+  owners: Owner[];
+  onOpen: (o: Owner) => void;
+}) {
+  return (
+    <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+      <table className="peopletable" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left' }}>Name</th>
+            <th style={{ textAlign: 'left' }}>Status</th>
+            <th style={{ textAlign: 'left' }}>Parentage & address</th>
+            <th style={{ textAlign: 'left' }}>Acquired via</th>
+          </tr>
+        </thead>
+        <tbody>
+          {owners.map((o) => {
+            const tone = ownerTone(o.isCurrent);
+            const detail = [o.parentage, o.address].filter(Boolean).join(' · ');
+            return (
+              <tr key={o.id} className={`peoplerow ${o.isCurrent ? 'ownerrow-current' : 'ownerrow-past'}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('button')) return;
+                    onOpen(o);
+                  }}>
+                <td>
+                  <button type="button" className="rowopen" aria-label={`Open ${o.name}`}
+                          onClick={() => onOpen(o)}>
+                    <PersonPhoto photoRef={o.photoRef} name={o.name} size="1.75rem" />
+                    <strong style={{ fontSize: '0.9375rem' }}>{o.name}</strong>
+                  </button>
+                </td>
+                <td><span className={`pill ${tone.pill}`}>{tone.word}</span></td>
+                <td><span className="note">{detail || '—'}</span></td>
+                <td><span className="note">{o.acquiredVia || '—'}</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function RecordPeople() {
+  /** Which side of the tab: the ownership chain, or the people who work it. */
+  const [section, setSection] = useState<'owners' | 'staff'>('owners');
+  const [naming, setNaming] = useState(false);
+  /** The person whose drawer is open, or null. One drawer, opened from either
+   *  view. */
+  const [openPerson, setOpenPerson] = useState<Person | null>(null);
+  /** The owner whose drawer is open, or null. */
+  const [openOwner, setOpenOwner] = useState<Owner | null>(null);
+  /** Owners gain a read-only chain canvas; staff keep the two list views. The
+   *  choices are separate so moving between sections never leaves a view
+   *  control with no pressed option. */
+  const [ownerView, setOwnerView] = useState<'chain' | 'cards' | 'table'>('chain');
+  const [staffView, setStaffView] = useState<'cards' | 'table'>('cards');
+  const assignTrigger = useRef<HTMLButtonElement>(null);
+  /** Where focus goes when an owner's drawer closes and the card, row or chain
+   *  node that opened it is gone — removing an owner takes it with them. The
+   *  drawer returns focus to its opener when that is still on the page
+   *  (Drawer.tsx useSealedPage); this is the Owners side's always-there
+   *  control, as "Assign someone" is the staff side's. */
+  const ownersSegment = useRef<HTMLButtonElement>(null);
+  const rec = useRecordCtx();
+  const { data, isLoading, error } = usePeople(rec.id);
+  const ownersQ = useOwners(rec.id);
+  const owners = ownersQ.data?.owners ?? [];
+  /** The chain of title. Only fetched for the Owners side of the tab, and the
+   *  graph is the only view that reads it — Cards and Table are about people. */
+  const transfersQ = useTransfers(section === 'owners' ? rec.id : undefined);
+  /** A record can have a chain of title before anybody is filed as an owner —
+   *  a transfer needs only names. Gating the graph on the owners list hid those
+   *  transfers behind "No owners recorded yet" with no way to reach them. */
+  const hasChain = (transfersQ.data?.count ?? 0) > 0;
+  const showingChain = (owners.length > 0 || hasChain) && ownerView === 'chain';
+
+  const openFrom = (person: Person) => setOpenPerson(person);
+  const openOwnerFrom = (owner: Owner) => setOpenOwner(owner);
+
+  /** The first transfer, filed from the empty Owners state. */
+  const [firstTransfer, setFirstTransfer] = useState(false);
+  const transferTrigger = useRef<HTMLButtonElement>(null);
+
+  // The rail only while it has something true to say: the pay figures wait
+  // until somebody on this property has an arrangement (as Missing documents
+  // waits for a gap), and the payments list until one is recorded.
+  const hasArrangement = !!data?.people.some((p) => p.payValue || p.arrangement);
+  const hasPayments = (data?.payments.length ?? 0) > 0;
+  const hasRail = hasArrangement || hasPayments;
+
+  return (
+    <>
+      {/* One heading for the tab, its own noun, and one word per side — the
+          same concept used to have five names here (Owners, Ownership history,
+          Recorded order, Chain of title, "the chain"), with the heading
+          flipping between two of them. The pay figures are said once, in the
+          rail, so the staff side's line is the headcount. */}
+      <SectionHead
+        title="People"
+        sub={section === 'owners'
+          ? (ownersQ.data && (owners.length
+              ? `${plural(owners.length, 'owner')} · ${ownersQ.data.currentName || 'Current owner not set'}`
+              : ''))
+          : (data && plural(data.count, 'person', 'people'))}
+        actions={(
+          <div className="row tight">
+            {/* Owners | Caretakers & staff — the two concerns kept apart. */}
+            <div className="segmented" role="group" aria-label="Owners or staff">
+              <button ref={ownersSegment} type="button" aria-pressed={section === 'owners'}
+                      onClick={() => setSection('owners')}>Owners</button>
+              <button type="button" aria-pressed={section === 'staff'}
+                      onClick={() => setSection('staff')}>Caretakers & staff</button>
+            </div>
+            {/* One view choice per section. Chain is ownership-only because
+                staff have no succession relationship to draw. */}
+            {section === 'owners' && (owners.length > 0 || hasChain) && (
+              <div className="segmented" role="group" aria-label="Ownership view">
+                <button type="button" aria-pressed={ownerView === 'chain'}
+                        onClick={() => setOwnerView('chain')}>Chain</button>
+                <button type="button" aria-pressed={ownerView === 'cards'}
+                        onClick={() => setOwnerView('cards')}>Cards</button>
+                <button type="button" aria-pressed={ownerView === 'table'}
+                        onClick={() => setOwnerView('table')}>Table</button>
+              </div>
+            )}
+            {section === 'staff' && data && data.people.length > 0 && (
+              <div className="segmented" role="group" aria-label="Staff view">
+                <button type="button" aria-pressed={staffView === 'cards'}
+                        onClick={() => setStaffView('cards')}>Cards</button>
+                <button type="button" aria-pressed={staffView === 'table'}
+                        onClick={() => setStaffView('table')}>Table</button>
+              </div>
+            )}
+            {section === 'staff' && (
+              <button ref={assignTrigger} type="button" className="btn primary"
+                      aria-haspopup="dialog" aria-expanded={naming}
+                      onClick={() => setNaming(true)}>
+                <PersonAddAltOutlined sx={{ fontSize: 17 }} /> Assign someone
+              </button>
+            )}
+          </div>
         )}
       />
 
-      {/* A drawer, like every other "add a thing" on this record. It used to be
-          an inline row-form under the button, which is why the only two things
-          it could take were a name and a role. */}
       {naming && (
         <AssignDrawer
           recordId={rec.id}
@@ -344,307 +942,225 @@ export function RecordPeople() {
         />
       )}
 
-      {isLoading && <Loading h="24rem" />}
-
-      {/* A read that fails twice settles into no data and no loading flag, and
-          this screen had no branch for it: the tab strip sat over an empty
-          page, which reads as a record with nobody on it rather than as a
-          server that could not be asked. The `!data` guard keeps a list that
-          has already landed — a background refetch that fails must not take
-          the people off the screen. */}
-      {error && !data && (
-        <Failed what="The people on this record" error={error} boxed h="24rem" />
+      {/* One drawer for whichever person is open, from cards or table.
+          Focus goes back to the card or row that opened it; the fallback is
+          for when that is gone — a removal takes the card with it — and is a
+          control that is always on this side of the tab, so the next Tab does
+          not restart at the top of the document. */}
+      {openPerson && (
+        <PersonDrawer
+          person={openPerson}
+          recordTitle={rec.title}
+          returnFocus={assignTrigger}
+          onClose={() => setOpenPerson(null)}
+        />
       )}
 
-      {data && (
-        <div className="split" style={{ marginTop: 'var(--space-md)' }}>
+      {openOwner && (
+        <OwnerDrawer
+          owner={openOwner}
+          recordTitle={rec.title}
+          returnFocus={ownersSegment}
+          onClose={() => setOpenOwner(null)}
+        />
+      )}
+
+      {firstTransfer && (
+        <TransferDrawer
+          recordId={rec.id}
+          recordTitle={rec.title}
+          transfer={null}
+          owners={owners}
+          others={[]}
+          seed={null}
+          returnFocus={transferTrigger}
+          onClose={() => setFirstTransfer(false)}
+        />
+      )}
+
+      {/* ── OWNERS HISTORY ─────────────────────────────────────────── */}
+      {/* No marginTop: `.sechead` already carries margin-bottom: var(--space-md),
+          and Location and Media both sit straight under it. Adding a second
+          space-md here put this tab's content one whole step lower than every
+          other hanger on the same record. */}
+      {section === 'owners' && (
+        <div className={`people-owners${showingChain ? ' chain' : ''}`}>
+          {ownersQ.isLoading ? (
+            <Loading h="18rem" />
+          ) : ownersQ.error && !ownersQ.data ? (
+            <Failed what="The ownership chain" error={ownersQ.error} boxed h="18rem" />
+          ) : owners.length === 0 && !hasChain ? (
+            // A chain of title starts with a transfer, and the only "Add a
+            // transfer" used to be drawn inside the chain view it would create.
+            <Empty boxed h="16rem" icon="person" title="No owners recorded yet"
+                   action={(
+                     <button ref={transferTrigger} type="button" className="btn sm"
+                             aria-haspopup="dialog" onClick={() => setFirstTransfer(true)}>
+                       <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a transfer
+                     </button>
+                   )} />
+          ) : ownerView === 'chain' ? (
+            <OwnerChain
+              recordId={rec.id}
+              recordTitle={rec.title}
+              owners={owners}
+              transfersQ={transfersQ}
+              onOpenOwner={openOwnerFrom}
+            />
+          ) : ownerView === 'table' ? (
+            <OwnersTable
+              owners={owners}
+              onOpen={openOwnerFrom}
+            />
+          ) : (
+            <div className="stack">
+              {owners.map((o) => (
+                <OwnerCard
+                  key={o.id}
+                  owner={o}
+                  onOpen={() => openOwnerFrom(o)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── STAFF ──────────────────────────────────────────────────── */}
+      {section === 'staff' && isLoading && <Loading h="24rem" />}
+
+      {section === 'staff' && error && !data && (
+        <Failed what="The people on this property" error={error} boxed h="24rem" />
+      )}
+
+      {section === 'staff' && data && (
+        <div className={`split${hasRail ? '' : ' no-rail'}`}>
           <div className="stack">
-            {/* Guarded on the whole list, not on the non-compact half of it:
-                people remembered from a closed ticket are filed compact, so a
-                record whose only people came that way has a populated one-line
-                card and is not a record with nobody on it. */}
             {data.people.length === 0 ? (
-              <Empty
-                boxed
-                h="16rem"
-                icon="person"
-                title="Nobody is filed on this land yet"
-                action={
-                  <button type="button" className="btn primary" aria-haspopup="dialog"
-                          onClick={() => setNaming(true)}>
-                    <PersonAddAltOutlined sx={{ fontSize: 17 }} /> Assign someone
-                  </button>
-                }
-              >
-                A tenant, a caretaker, an agent — whoever looks after it. What they are
-                owed, and what they can see of this record, is kept on their card.
-              </Empty>
+              // No second "Assign someone": the head's is the one flow, and a
+              // second filled button under it was the viewport's third fill.
+              <Empty boxed h="16rem" icon="person" title="No caretakers or staff recorded" />
+            ) : staffView === 'table' ? (
+              <PeopleTable
+                people={data.people}
+                onOpen={openFrom}
+              />
             ) : (
               <>
-            {data.people.filter((p) => !p.compact).map((p) => {
-              // A person filed from the inline form has no arrangement, no pay
-              // and no visibility — add_person writes those columns empty — so
-              // the four-column grid had nothing to fill and the card showed a
-              // full-width rule over a blank band, as though it had half
-              // failed. The rule belongs to the cells and goes with them.
-              const cells = ([
-                ['Arrangement', p.arrangement],
-                [p.payLabel, p.payValue],
-                [p.dueLabel, p.dueValue],
-                ['Can see', p.visibility],
-              ] as Array<[string, string]>).filter(([k, v]) => k && v);
-              return (
-              <article className="card pad-lg" key={p.id}>
-                <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', gap: 'var(--space-md)' }}>
-                  {/* Derived, not stored: saved initials belonged to the cast
-                      the screen was drawn with and drifted from the names. */}
-                  <span className="avatarlg">{initialsOf(p.name)}</span>
-                  <div className="grow">
-                    <div className="row" style={{ gap: 'var(--space-xs)' }}>
-                      <h2>{p.name}</h2>
-                      {p.badges.map((b) => (
-                        <span key={b} className={`pill ${b.includes('verified') ? 'owned' : 'managed'}`}>
-                          {b.includes('verified') && <VerifiedOutlined sx={{ fontSize: 12 }} />}
-                          {b}
-                        </span>
+                {/* Cards: full cards for the people filed with a role, then the
+                    one-line block for those remembered from a closed ticket. */}
+                {data.people.filter((p) => !p.compact).map((p) => (
+                  <PersonCard
+                    key={p.id}
+                    person={p}
+                    onOpen={() => openFrom(p)}
+                  />
+                ))}
+
+                {data.people.some((p) => p.compact) && (
+                  <div className="card" style={{ padding: 0 }}>
+                    <div className="rows boxed">
+                      {data.people.filter((p) => p.compact).map((p) => (
+                        <button type="button" key={p.id} className="cardopen"
+                                aria-label={`Open ${p.name}`}
+                                onClick={() => openFrom(p)}
+                                style={{ all: 'unset', display: 'flex', width: '100%', cursor: 'pointer', gap: 'var(--space-sm)', alignItems: 'center' }}>
+                          <span className="avatarlg" style={{ width: '2.25rem', height: '2.25rem', fontSize: '0.75rem' }}>
+                            {initialsOf(p.name)}
+                          </span>
+                          <span className="grow">
+                            <span className="row tight">
+                              <strong style={{ fontSize: '0.9375rem' }}>{p.name}</strong>
+                              {p.badges.map((b) => <span key={b} className="pill">{b}</span>)}
+                            </span>
+                            <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>{p.summary}</span>
+                          </span>
+                        </button>
                       ))}
-                      {p.badges.length === 0 && p.role && <span className="pill managed">{p.role}</span>}
                     </div>
-                    {/* An empty paragraph still carries its margin, which is
-                        the grey gap that appeared under a name-only person. */}
-                    {p.summary && (
-                      <p className="note" style={{ marginTop: '0.375rem', color: 'var(--w-ink-2)' }}>{p.summary}</p>
-                    )}
                   </div>
-                </div>
-
-                {cells.length > 0 ? (
-                  <>
-                    <hr className="hr" />
-
-                    <div className="grid4">
-                      {cells.map(([k, v]) => (
-                        <div key={k}>
-                          <span className="eyebrow" style={{ margin: '0 0 0.3125rem' }}>{k}</span>
-                          <span style={{ fontSize: '0.9375rem' }}>{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  /* Stated, not offered: nothing in W360 can set an
-                     arrangement, pay or visibility today — updatePerson sends
-                     a name and nothing else — so a button here would point at
-                     an editor that does not exist. */
-                  <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                    No arrangement recorded yet.
-                  </p>
                 )}
-
-                <div className="row tight" style={{ marginTop: 'var(--space-md)' }}>
-                  {p.actions.map((a) => {
-                    const to = destOf(a, rec.id);
-                    return to ? <Link key={a} className="btn sm" to={to}>{a}</Link> : null;
-                  })}
-                  <span className="grow" />
-                  {editId === p.id ? (
-                    <form className="row tight"
-                          onSubmit={(e) => { e.preventDefault(); void rename(p.id); }}>
-                      <span className="search" style={{ flex: '1 1 8rem', minWidth: 0 }}>
-                        <input value={draft} autoFocus aria-label={`Rename ${p.name}`}
-                               onChange={(e) => setDraft(e.target.value)} />
-                      </span>
-                      {/* Save was live over an emptied box and closed the
-                          editor on a write the handler had already skipped,
-                          so a cleared name read as a rename that silently
-                          did nothing. */}
-                      <button type="submit" className="btn sm"
-                              disabled={!draft.trim() || editPerson.isPending}>
-                        {editPerson.isPending ? 'Saving…' : 'Save'}
-                      </button>
-                      <button type="button" className="btn sm" onClick={() => {
-                        setEditId('');
-                        restoreRowFocus(renameTriggers.current, p.id);
-                      }}>Cancel</button>
-                    </form>
-                  ) : confirmId === p.id ? (
-                    <>
-                      <button type="button" className="btn sm danger" disabled={delPerson.isPending}
-                              onClick={() => void remove(p.id)}>
-                        {delPerson.isPending ? 'Removing…' : 'Remove'}
-                      </button>
-                      <button type="button" className="btn sm" onClick={() => {
-                        setConfirmId('');
-                        restoreRowFocus(removeTriggers.current, p.id);
-                      }}>Keep</button>
-                    </>
-                  ) : (
-                    <>
-                      <button ref={(node) => { if (node) renameTriggers.current.set(p.id, node); }}
-                              type="button" className="iconbtn" aria-label={`Rename ${p.name}`}
-                              onClick={() => { setEditId(p.id); setDraft(p.name); }}
-                              style={{ border: 0, background: 'none' }}>
-                        <EditOutlined sx={{ fontSize: 16 }} />
-                      </button>
-                      <button ref={(node) => { if (node) removeTriggers.current.set(p.id, node); }}
-                              type="button" className="iconbtn" aria-label={`Remove ${p.name}`}
-                              onClick={() => setConfirmId(p.id)}
-                              style={{ border: 0, background: 'none' }}>
-                        <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </article>
-              );
-            })}
-
-            {data.people.some((p) => p.compact) && (
-              <div className="card" style={{ padding: 0 }}>
-                <div className="rows boxed">
-                  {data.people.filter((p) => p.compact).map((p) => (
-                    <div key={p.id}>
-                      <span className="avatarlg" style={{ width: '2.25rem', height: '2.25rem', fontSize: '0.75rem' }}>
-                        {initialsOf(p.name)}
-                      </span>
-                      <span className="grow">
-                        <span className="row tight">
-                          <strong style={{ fontSize: '0.9375rem' }}>{p.name}</strong>
-                          {p.badges.map((b) => <span key={b} className="pill">{b}</span>)}
-                        </span>
-                        <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>{p.summary}</span>
-                      </span>
-                      <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                        {p.actions.map((a) => {
-                          const to = destOf(a, rec.id);
-                          return to ? <Link key={a} className="btn sm" to={to}>{a}</Link> : null;
-                        })}
-                        {confirmId === p.id ? (
-                          <>
-                            <button type="button" className="btn sm danger" disabled={delPerson.isPending}
-                                    onClick={() => void remove(p.id)}>
-                              {delPerson.isPending ? 'Removing…' : 'Remove'}
-                            </button>
-                            <button type="button" className="btn sm" onClick={() => {
-                              setConfirmId('');
-                              restoreRowFocus(removeTriggers.current, p.id);
-                            }}>Keep</button>
-                          </>
-                        ) : (
-                          <button ref={(node) => { if (node) removeTriggers.current.set(p.id, node); }}
-                                  type="button" className="iconbtn" aria-label={`Remove ${p.name}`}
-                                  onClick={() => setConfirmId(p.id)}
-                                  style={{ border: 0, background: 'none' }}>
-                            <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Where the dropped action labels actually happen. Said once,
-                under the list, rather than drawn a dozen times as buttons that
-                refuse — the vault footnotes its own links list the same way,
-                and the sentence about a longer link is the one it uses. */}
-            <p className="note">
-              Who can see this record is granted as a link: you make one on this record's
-              Papers tab, and every live link is listed with its date on{' '}
-              <Link className="accent" to="/app/papers">Papers</Link>, where giving somebody
-              longer means revoking theirs and sharing again. Taking somebody off this land
-              is the remove control on their own card. Messaging a person, setting a visit
-              schedule, changing what they are paid and paying them from Pattadar are not
-              switched on yet.
-            </p>
               </>
             )}
           </div>
 
           <aside className="stack">
-            <Card title="Money on people" className="railcard">
-              <p className="num" style={{ fontSize: '1.75rem', margin: 0 }}>
-                {inr(data.monthlyOut)}{' '}
-                <span className="note" style={{ fontSize: '0.8125rem' }}>out, this month</span>
-              </p>
-              <p className="num up" style={{ fontSize: '1.75rem', margin: '0.375rem 0 0' }}>
-                {inr(data.seasonalIn)}{' '}
-                <span className="note" style={{ fontSize: '0.8125rem' }}>in, at harvest</span>
-              </p>
-              <hr className="hr" />
-              <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', gap: 'var(--space-sm)' }}>
-                <span className="accent" style={{ display: 'flex', paddingTop: '0.125rem' }}>
-                  <AccountBalanceWalletOutlined sx={{ fontSize: 18 }} />
-                </span>
-                <span>
-                  <strong style={{ fontSize: '0.875rem' }}>Paid from your Pattadar wallet</strong>
-                  {/* Whole rupees, not a lakh short form. inr() printed this
-                      balance as "₹1.01 L" while /app/wallet prints its figures
-                      to the rupee a click away — one wallet rounded two ways
-                      is how a "where did my money go" call starts. */}
-                  <span className="note" style={{ display: 'block' }}>
-                    Balance {inrFullish(data.walletBalance)} · {data.walletNote}
-                  </span>
-                </span>
-              </div>
-              {/* "Top up the wallet" was a disabled button whose reason lived
-                  in a title attribute, which no browser shows on a disabled
-                  control — so the screen instructed a top-up in the line above
-                  and then refused it without a word. Paying out of Pattadar is
-                  not switched on anywhere yet; Wallet.tsx and Ticket.tsx say
-                  this in exactly these words, so the three flip together when
-                  the provider goes live and the top-up comes back here. The
-                  wallet itself is real, so that is the control that stays. */}
-              {!data.walletLive && (
-                <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                  Adding money to the wallet is not switched on yet.
+            {/* The two pay figures, said once on this tab and in one format —
+                whole rupees, the way each person's own pay is written
+                ("₹8,000 / month"), so the sum can be checked against them. */}
+            {hasArrangement && (
+              <Card title="Payments to people" className="railcard">
+                <p className="num" style={{ fontSize: '1.75rem', margin: 0 }}>
+                  {inrFullish(data.monthlyOut)}{' '}
+                  <span className="note" style={{ fontSize: '0.8125rem' }}>out, each month</span>
                 </p>
-              )}
-              <Link to="/app/wallet" className="btn soft"
-                    style={{ width: '100%', justifyContent: 'center', marginTop: 'var(--space-sm)' }}>
-                See the wallet
-              </Link>
-            </Card>
+                {data.seasonalIn > 0 && (
+                  <p className="num up" style={{ fontSize: '1.75rem', margin: '0.375rem 0 0' }}>
+                    {inrFullish(data.seasonalIn)}{' '}
+                    <span className="note" style={{ fontSize: '0.8125rem' }}>in, each season</span>
+                  </p>
+                )}
+                <hr className="hr" />
+                {/* The wallet in its own words. While the payments provider is
+                    a stub no rupee moves through Pattadar, so this never says
+                    "paid from your wallet" — `walletNote` is the API's own
+                    sentence for the state it is in, the same words the Wallet
+                    page shows. */}
+                <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', gap: 'var(--space-sm)' }}>
+                  <span className="accent" style={{ display: 'flex', paddingTop: '0.125rem' }}>
+                    <AccountBalanceWalletOutlined sx={{ fontSize: 18 }} aria-hidden />
+                  </span>
+                  <span>
+                    <strong style={{ fontSize: '0.875rem' }}>
+                      {data.walletLive ? 'Paid from your Pattadar wallet' : 'Your Pattadar wallet'}
+                    </strong>
+                    <span className="note" style={{ display: 'block' }}>
+                      Balance {inrFullish(data.walletBalance)} · {data.walletNote}
+                    </span>
+                  </span>
+                </div>
+                <Link to="/app/wallet" className="btn soft"
+                      style={{ width: '100%', justifyContent: 'center', marginTop: 'var(--space-sm)' }}>
+                  See the wallet
+                </Link>
+              </Card>
+            )}
 
-            <Card title="Last payments" className="railcard">
-              {data.payments.length === 0 ? (
-                /* Every record reads this way until money actually moves, and
-                   a headed card with a hairline and nothing under it reads as
-                   a card that failed to load. */
-                <p className="note">Nothing has been paid on this record yet.</p>
-              ) : (
-              <div className="rows">
-                {data.payments.map((p) => (
-                  <div key={p.id}>
-                    <span style={{ display: 'flex', color: p.state === 'escrow' ? 'var(--w-warn)' : p.direction === 'in' ? 'var(--w-ok)' : 'var(--w-ink-3)' }}>
-                      {p.state === 'escrow'
-                        ? <AccessTimeOutlined sx={{ fontSize: 16 }} />
-                        : p.direction === 'in'
-                          ? <SouthWestOutlined sx={{ fontSize: 16 }} />
-                          : <NorthEastOutlined sx={{ fontSize: 16 }} />}
-                    </span>
-                    <span className="grow">
-                      <span style={{ display: 'block', fontSize: '0.875rem' }}>{p.title}</span>
-                      <span className="note mono" style={{ display: 'block', fontSize: '0.6875rem' }}>
-                        {p.subtitle}
+            {(hasPayments || hasArrangement) && (
+              <Card title="Recent payments" className="railcard">
+                {data.payments.length === 0 ? (
+                  <p className="note">No payments recorded on this property yet.</p>
+                ) : (
+                <div className="rows">
+                  {data.payments.map((p) => (
+                    <div key={p.id}>
+                      <span style={{ display: 'flex', color: p.state === 'escrow' ? 'var(--w-warn)' : p.direction === 'in' ? 'var(--w-ok)' : 'var(--w-ink-3)' }}>
+                        {p.state === 'escrow'
+                          ? <AccessTimeOutlined sx={{ fontSize: 16 }} aria-hidden />
+                          : p.direction === 'in'
+                            ? <SouthWestOutlined sx={{ fontSize: 16 }} aria-hidden />
+                            : <NorthEastOutlined sx={{ fontSize: 16 }} aria-hidden />}
                       </span>
-                    </span>
-                    <span className={`num ${p.direction === 'in' ? 'up' : ''}`} style={{ fontSize: '0.8125rem' }}>
-                      {inr(p.amount)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              )}
-              {/* The header carried a disabled "Payment history" button, and
-                  there is no per-record history behind it — these rows are
-                  every payment filed against this record. The ledger that
-                  spans records is the wallet, linked from the card above. */}
-              <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                The ledger across all your records is in the wallet.
-              </p>
-            </Card>
+                      <span className="grow">
+                        <span style={{ display: 'block', fontSize: '0.875rem' }}>{p.title}</span>
+                        <span className="note mono" style={{ display: 'block', fontSize: '0.6875rem' }}>
+                          {p.subtitle}
+                        </span>
+                      </span>
+                      {/* The direction in a word, not only an arrow and a colour. */}
+                      <span className={`num ${p.direction === 'in' ? 'up' : ''}`}
+                            style={{ fontSize: '0.8125rem', textAlign: 'right' }}>
+                        {inrFullish(p.amount)}
+                        <span className="note" style={{ display: 'block', fontSize: '0.6875rem' }}>
+                          {paymentWord(p)}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                )}
+              </Card>
+            )}
           </aside>
         </div>
       )}

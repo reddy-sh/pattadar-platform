@@ -269,7 +269,7 @@ export function DeedImportDialog({ open, onClose, onSaved, onToast }: Props) {
                         color={p.role === 'buyer' ? 'success' : 'warning'}
                         variant="outlined"
                       />
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
                         {p.name}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">

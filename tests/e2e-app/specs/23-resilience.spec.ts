@@ -131,22 +131,22 @@ interface Screen {
 const SCREENS: Screen[] = [
   { name: 'the dashboard', route: '/app', field: 'portfolio',
     waits: 'Loading your dashboard', namesWait: true, via: 'text',
-    failedWhat: 'Your dashboard', neverSays: 'Nothing in your portfolio yet',
+    failedWhat: 'Your dashboard', neverSays: 'No properties yet',
     where: 'pages/Dashboard.tsx:181' },
 
   { name: 'the properties list', route: '/app/properties', field: 'properties',
     waits: 'Loading your properties', namesWait: true, via: 'label',
-    failedWhat: 'Your properties', neverSays: 'Nothing filed yet',
+    failedWhat: 'Your properties', neverSays: 'No properties yet',
     where: 'pages/Properties.tsx:932' },
 
   { name: 'the properties map', route: '/app/properties?view=map', field: 'properties',
     waits: 'Loading the map of your properties', namesWait: true, via: 'label',
-    failedWhat: 'Your properties', neverSays: 'Nothing filed yet',
+    failedWhat: 'Your properties', neverSays: 'No properties yet',
     where: 'pages/Properties.tsx:934' },
 
   { name: 'the properties table', route: '/app/properties?view=list', field: 'properties',
     waits: 'Loading your properties', namesWait: true, via: 'label',
-    failedWhat: 'Your properties', neverSays: 'Nothing filed yet',
+    failedWhat: 'Your properties', neverSays: 'No properties yet',
     where: 'pages/Properties.tsx:933' },
 
   { name: 'what has been shared with me', route: '/app/shared', field: 'sharedKits',
@@ -161,7 +161,7 @@ const SCREENS: Screen[] = [
 
   { name: 'the services list', route: '/app/services', field: 'orders',
     waits: 'Loading work you have ordered', namesWait: false, via: 'text',
-    failedWhat: 'Work you have ordered', neverSays: 'Nothing is on order',
+    failedWhat: 'Work you have ordered', neverSays: 'No open orders',
     where: 'pages/Orders.tsx:426' },
 
   // Ordering asks which land first, and that screen reads twice: the owner's
@@ -169,24 +169,22 @@ const SCREENS: Screen[] = [
   // there so somebody with no land yet can still read what this costs. They
   // fail apart — a catalogue that will not load must not withhold thirty
   // perfectly good cards — so each one is its own row.
-  // Named both ways, and the two nouns do not agree: the skeleton it borrows
-  // from the Properties grid announces "Loading your properties" and the
-  // failure beside it says "Your land did not load". Recorded rather than
-  // failed — ui.tsx:646-652 asks for the two words to match, but a screen that
-  // names the wait at all is on the right side of this file's defect families.
+  // Named both ways with the same noun: the skeleton it borrows from the
+  // Properties grid announces "Loading your properties" and the failure beside
+  // it says "Your properties did not load".
   { name: 'the land chooser', route: '/app/order', field: 'properties',
     waits: 'Loading your properties', namesWait: true, via: 'label',
-    failedWhat: 'Your land', neverSays: 'No land to order against yet',
+    failedWhat: 'Your properties', neverSays: 'Add a property before ordering',
     where: 'pages/OrderLand.tsx:196' },
 
   { name: 'the catalogue under the land chooser', route: '/app/order', field: 'servicesOffered',
     waits: 'Loading the list of services', namesWait: true, via: 'text',
-    failedWhat: 'The list of services', neverSays: 'There is nothing on offer just now',
+    failedWhat: 'The list of services', neverSays: 'No services are available right now',
     where: 'pages/OrderLand.tsx:274' },
 
   { name: 'the vault', route: '/app/papers', field: 'vault',
-    waits: 'Loading your papers', namesWait: true, via: 'text',
-    failedWhat: 'Your papers', neverSays: '',
+    waits: 'Loading your documents', namesWait: true, via: 'text',
+    failedWhat: 'Your documents', neverSays: '',
     where: 'pages/Vault.tsx:419' },
 
   { name: 'the Title shelf', route: '/app/papers/shelf/title', field: 'vaultPapers',
@@ -196,7 +194,7 @@ const SCREENS: Screen[] = [
 
   { name: 'a paper in the reader', route: `/app/papers/${PAPER.deed}`, field: 'document',
     waits: 'Loading this paper', namesWait: false, via: 'text',
-    failedWhat: 'This paper', neverSays: 'This paper is not in your vault',
+    failedWhat: 'This document', neverSays: "This document isn't in your account",
     where: 'pages/Reader.tsx:176' },
 
   // The one-service screen. `field` is still `ticket` and always will be —
@@ -207,54 +205,60 @@ const SCREENS: Screen[] = [
   // (docs/specs/2026-09-14-service-detail.md §1.2).
   { name: 'a service', route: `/app/services/${TICKET.placed}`, field: 'ticket',
     waits: 'Loading this service', namesWait: true, via: 'text',
-    failedWhat: 'This service', neverSays: 'This service is not here',
+    failedWhat: 'This service', neverSays: "This order isn't in your account",
     where: 'pages/Ticket.tsx:867' },
 
   { name: 'the wallet', route: '/app/wallet', field: 'wallet',
     waits: 'Loading your wallet', namesWait: false, via: 'text',
-    failedWhat: 'Your wallet', neverSays: 'Nothing has moved yet',
+    failedWhat: 'Your wallet', neverSays: 'No transactions yet',
     where: 'pages/Wallet.tsx:40' },
 
   { name: 'a record 360', route: `/app/records/${ID.parcel}`, field: 'record',
-    waits: 'Loading this record', namesWait: true, via: 'label',
-    failedWhat: 'This record', neverSays: 'That record is not in your portfolio',
+    waits: 'Loading this property', namesWait: true, via: 'label',
+    failedWhat: 'This property', neverSays: "This property isn't in your account",
     where: 'pages/Record.tsx:63' },
 
   { name: "a record's papers", route: `/app/records/${ID.parcel}`, field: 'papers',
     waits: 'Loading the papers on this parcel', namesWait: true, via: 'label',
-    failedWhat: 'These papers', neverSays: 'Nothing is filed against this parcel yet',
+    failedWhat: 'These documents', neverSays: 'No documents on this parcel yet',
     where: 'pages/RecordPapers.tsx:544' },
 
+  // The record tabs below name their wait in the failure's own noun since
+  // 28/09/2026 (the property-tab UX pass): Site features, the service
+  // orders, the money figures, the expenses and the activity.
   { name: 'what is on the land', route: `/app/records/${ID.parcel}/features`, field: 'features',
-    waits: 'Loading what is on this land', namesWait: false, via: 'text',
-    failedWhat: 'What is on this land', neverSays: '',
-    where: 'pages/RecordFeatures.tsx:407' },
+    waits: 'Loading site features', namesWait: true, via: 'text',
+    failedWhat: 'Site features', neverSays: 'No site features recorded yet',
+    where: 'pages/RecordFeatures.tsx' },
 
   { name: 'the people on a record', route: `/app/records/${ID.parcel}/people`, field: 'people',
     waits: 'Loading the people on this record', namesWait: false, via: 'text',
-    failedWhat: 'The people on this record', neverSays: 'Nobody is filed on this land yet',
+    failedWhat: 'The people on this property', neverSays: 'No caretakers or staff recorded',
     where: 'pages/RecordPeople.tsx:208' },
 
   { name: "a record's services", route: `/app/records/${ID.parcel}/services`, field: 'orders',
-    waits: "Loading this record's services", namesWait: false, via: 'text',
-    failedWhat: "This record's services", neverSays: 'Nothing is on order',
-    where: 'pages/Orders.tsx:274' },
+    waits: "Loading this property's service orders", namesWait: true, via: 'text',
+    failedWhat: "This property's service orders", neverSays: 'No open orders',
+    where: 'pages/Orders.tsx RecordServices' },
 
   { name: 'what a record is worth', route: `/app/records/${ID.parcel}/money`, field: 'money',
-    waits: 'Loading what this record is worth', namesWait: false, via: 'text',
-    failedWhat: 'What this record is worth', neverSays: 'No purchase recorded for this record',
-    where: 'pages/RecordMoney.tsx:83' },
+    waits: 'Loading the money figures', namesWait: true, via: 'text',
+    failedWhat: 'The money figures', neverSays: 'No purchase recorded yet',
+    where: 'pages/RecordMoney.tsx' },
 
   { name: 'what a record has cost', route: `/app/records/${ID.parcel}/expenses`, field: 'expenses',
-    waits: 'Loading what this record has cost', namesWait: false, via: 'text',
-    failedWhat: 'What this record has cost', neverSays: 'Nothing spent on this record yet',
-    where: 'pages/RecordExpenses.tsx:334' },
+    waits: 'Loading the expenses', namesWait: true, via: 'text',
+    failedWhat: 'The expenses', neverSays: 'No costs recorded yet',
+    where: 'pages/RecordExpenses.tsx' },
 
-  { name: "a record's audit trail", route: `/app/records/${ID.parcel}/history`, field: 'corrections',
-    waits: 'Loading what has been changed', namesWait: false, via: 'text',
-    failedWhat: "This record's corrections",
-    neverSays: 'Nothing has been corrected on this record yet',
-    where: 'pages/Orders.tsx:300', noFailure: 'pages/Orders.tsx:284,300' },
+  // The Activity tab reads the record's own history (`recordHistory`), not
+  // the corrections list this row used to name, and it has a failure branch
+  // of its own now: an outage is not "nothing ever changed".
+  { name: "a record's audit trail", route: `/app/records/${ID.parcel}/history`, field: 'recordHistory',
+    waits: "Loading this property's activity", namesWait: true, via: 'text',
+    failedWhat: "This property's activity",
+    neverSays: 'No activity recorded yet',
+    where: 'pages/Orders.tsx RecordHistory' },
 
   { name: "a record's boundary", route: `/app/records/${ID.parcel}/map`, field: 'boundary',
     waits: 'Loading this boundary', namesWait: true, via: 'text',
@@ -355,13 +359,15 @@ test.describe('While an answer is still coming', () => {
 
 test.describe('While an answer is still coming, in words', () => {
   for (const s of SCREENS) {
-    // ── defect (fourteen of them) ────────────────────────────────────────
+    // ── defect (every row marked `namesWait: false`) ─────────────────────
     // `Loading` takes a `what` precisely so the waiting word and the failure
     // word agree (ui.tsx:646-652), and these screens do not pass one. What the
-    // owner gets is a grey slab captioned "Loading…" — on the money tab, on
-    // the wallet, on the photographs of their own land. The noun each one is
-    // owed is the row's `waits`, and it is the noun that screen ALREADY hands
-    // `Failed` two lines below the one named in `where`.
+    // owner gets is a grey slab captioned "Loading…" — on the wallet, on the
+    // photographs of their own land. The noun each one is owed is the row's
+    // `waits`, and it is the noun that screen ALREADY hands `Failed` two lines
+    // below the one named in `where`. (The money tab, the expenses, site
+    // features, a record's service orders and its activity name theirs since
+    // 28/09/2026 and are ordinary rows now.)
     //
     // The Title shelf (Shelf.tsx:109) is worse than the other thirteen: it
     // draws `SkRowItems` bare, and those are `aria-hidden` placeholders with
@@ -426,9 +432,7 @@ test.describe('When a read is refused', () => {
         // per caller reads as several things broken rather than one.
         await expect(alert).toHaveCount(1);
         await expect(alert).toContainText(`${s.failedWhat} did not load`);
-        // The sentence that stops somebody ringing support in a panic.
-        await expect(alert).toContainText('Nothing has been lost');
-        await expect(alert).toContainText('Your records are untouched.');
+        await expect(alert).toContainText('Check your connection and try again.');
         // The server's own words, printed verbatim, for whoever is being asked
         // "what does it say?" down a phone line.
         await expect(alert).toContainText(why);
@@ -576,7 +580,9 @@ test('a screen that owns a narrower remedy re-reads only the list that failed', 
 
   const alert = failure(page);
   await expect(alert).toBeVisible({ timeout: 20_000 });
-  await expect(alert).toContainText('These papers did not load');
+  // The Documents tab's own noun (design.md § App vocabulary), the same one
+  // the "a record's papers" row above hands `Failed`.
+  await expect(alert).toContainText('These documents did not load');
   const papersBefore = world.calls('papers').length;
   const recordBefore = world.calls('record').length;
   expect(recordBefore).toBeGreaterThan(0);
@@ -604,7 +610,7 @@ test('one dead read on a record leaves everything else on the record readable', 
 
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Sy 214/2');
   await expect(page.getByText('Katragunta', { exact: false }).first()).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Features' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Site features' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Money' })).toBeVisible();
   await expect(page.getByRole('navigation').first()).toBeVisible();
 });
@@ -686,7 +692,7 @@ test.describe('The twenty-second deadline', () => {
       // to put in front of an owner, so it is turned into this one.
       await expect(alert).toContainText('The server did not answer in time.');
       // And the thing it must never turn into.
-      await expect(page.getByText('Nothing in your portfolio yet')).toHaveCount(0);
+      await expect(page.getByText('No properties yet')).toHaveCount(0);
       await expect(emptyState(page)).toHaveCount(0);
     });
 
@@ -701,7 +707,7 @@ test.describe('The twenty-second deadline', () => {
       await expect(alert).toContainText('The server did not answer in time.');
       // The worst possible reading of a slow server: five records, and the
       // screen says the account holds nothing.
-      await expect(page.getByText('Nothing filed yet')).toHaveCount(0);
+      await expect(page.getByText('No properties yet')).toHaveCount(0);
       await expect(page.getByText('Add your first parcel or property')).toHaveCount(0);
     });
   });
@@ -815,7 +821,7 @@ test.describe('When the answer is the wrong shape', () => {
     world.set('vault', null);
     await page.goto('/app/papers');
 
-    await expect(failure(page)).toContainText('Your papers did not load');
+    await expect(failure(page)).toContainText('Your documents did not load');
     await expect(emptyState(page)).toHaveCount(0);
   });
 
@@ -824,7 +830,7 @@ test.describe('When the answer is the wrong shape', () => {
     await page.goto('/app');
 
     await expect(failure(page)).toContainText('Your dashboard did not load');
-    await expect(page.getByText('Nothing in your portfolio yet')).toHaveCount(0);
+    await expect(page.getByText('No properties yet')).toHaveCount(0);
   });
 
   test.describe('when a screen dies mid-render', () => {
@@ -845,7 +851,7 @@ test.describe('When the answer is the wrong shape', () => {
         .filter({ hasText: 'stopped before it finished drawing' });
       await expect(boundary).toContainText('This screen stopped before it finished drawing',
         { timeout: 20_000 });
-      await expect(boundary).toContainText('this is a fault in the page, not in your records');
+      await expect(boundary).toContainText('Reload to try again.');
       // The machine's own words, small and grey, for whoever is being asked
       // what it says.
       await expect(boundary).toContainText(/shelves|null|not a function|undefined/i);
@@ -883,11 +889,11 @@ test.describe('The maps screen, whose index is not a query', () => {
     // /api/gateway/pattadar/village-maps, not through GraphQL — so `never()`
     // here is a `world.route` that does not answer.
     world.route(/\/api\/gateway\/pattadar\/village-maps/, () => ({ delayMs: 600_000, json: [] }));
-    await page.goto('/app/villages');
+    await page.goto('/app/maps');
 
     await expect(grey(page).first()).toBeVisible();
-    await expect(page.getByText('No village maps yet')).toHaveCount(0);
-    await expect(page.getByText('Village maps could not be loaded')).toHaveCount(0);
+    await expect(page.getByText('No cadastral maps yet')).toHaveCount(0);
+    await expect(page.getByText('Cadastral maps could not be loaded')).toHaveCount(0);
     await expect(emptyState(page)).toHaveCount(0);
   });
 
@@ -895,13 +901,13 @@ test.describe('The maps screen, whose index is not a query', () => {
   // apps/web/src/w360/pages/VillageMaps.tsx:568 draws `<Loading h="70vh" />`
   // with no `what`, so the entire Maps screen is a 70vh grey slab captioned
   // "Loading…". The noun is right there in the heading this screen already
-  // has; the owner is owed "Loading your village maps…", the way the vault,
+  // has; the owner is owed "Loading your cadastral maps…", the way the vault,
   // the dashboard, a boundary and a job all name theirs.
   test.fail('the maps screen says what it is waiting for while it waits', async ({ page, world }) => {
     world.route(/\/api\/gateway\/pattadar\/village-maps/, () => ({ delayMs: 600_000, json: [] }));
-    await page.goto('/app/villages');
+    await page.goto('/app/maps');
 
-    await expect(waiting(page).filter({ hasText: 'Loading your village maps' }))
+    await expect(waiting(page).filter({ hasText: 'Loading your cadastral maps' }))
       .toBeVisible({ timeout: 3_000 });
   });
 });
@@ -960,7 +966,7 @@ test.describe('Two screens asking for the same thing', () => {
     // A flow that drew its first question over a record it could not name would
     // be asking which service to run on nothing.
     await expect(failure(page)).toHaveCount(1);
-    await expect(failure(page)).toContainText('This record did not load');
+    await expect(failure(page)).toContainText('This property did not load');
     await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toHaveCount(0);
   });
 });

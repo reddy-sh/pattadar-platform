@@ -58,11 +58,11 @@ def main() -> int:
     if command != "python3 scripts/validate-agent-governance.py":
         fail("governance hook must call the canonical orchestrator")
 
-    adapter = ROOT / ".claude" / "skills" / "sync-ios" / "SKILL.md"
-    if not adapter.is_file() or ".kiro/skills/sync-ios/SKILL.md" not in adapter.read_text():
-        fail("Claude sync-ios adapter does not point to canonical Kiro skill")
+    # The `.claude/skills/sync-ios` adapter this used to require was removed in
+    # the Kiro migration (78e7545). `.kiro/skills` is the only canonical copy;
+    # requiring a deleted file made every run of this validator fail.
 
-    print(f"Validated Agent Skills governance: {len(skills)} skills, catalog, steering, hook, evals and adapter")
+    print(f"Validated Agent Skills governance: {len(skills)} skills, catalog, steering, hook and evals")
     return 0
 
 

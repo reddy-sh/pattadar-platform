@@ -237,7 +237,7 @@ test.describe('W01 · the things waiting on you', () => {
     // A lock row is about something shared out, and every live link — its
     // terms, its days left, its revoke — lives on Papers.
     await page.goto('/app');
-    await rows.filter({ hasText: "Advocate's link" }).getByRole('link', { name: 'Open Papers' }).click();
+    await rows.filter({ hasText: "Advocate's link" }).getByRole('link', { name: 'Open Documents' }).click();
     await expect(page).toHaveURL(/\/app\/papers$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Papers');
 
@@ -281,13 +281,13 @@ test.describe('W01 · the things waiting on you', () => {
     });
 
     await page.goto('/app');
-    await expect(page.getByText('Nothing in your portfolio yet')).toBeVisible();
+    await expect(page.getByText('No properties yet')).toBeVisible();
 
     // One sentence, not four ₹0 tiles over an empty chart and a heading with
     // nothing under it. A screen that draws its whole chrome around no data
     // reads as an app that failed to load.
     await expect(page.locator('main .strip')).toHaveCount(0);
-    await expect(page.getByText('Where the value sits')).toHaveCount(0);
+    await expect(page.getByText('Value by village')).toHaveCount(0);
     await expect(page.getByText('Recently opened')).toHaveCount(0);
 
     // The deliberate exception: an invitation, or a link about to expire, can
@@ -300,11 +300,11 @@ test.describe('W01 · the things waiting on you', () => {
     // And the one thing to do actually does it — the drawer opens on arrival
     // rather than leaving the newcomer on a list with an Add button they have
     // to find for themselves.
-    await page.getByRole('link', { name: 'Add your first record' }).click();
+    await page.getByRole('link', { name: 'Add a property' }).click();
     await expect(page).toHaveURL(/\/app\/properties/);
     const drawer = page.locator('aside.drawer');
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByRole('heading', { name: 'Add a record' })).toBeVisible();
+    await expect(drawer.getByRole('heading', { name: 'Add a property' })).toBeVisible();
   });
 });
 
@@ -318,7 +318,7 @@ test.describe('W02 · the list with nothing on it', () => {
     // An account that holds nothing and an account that put everything away
     // both report total === 0. Telling the second one "Nothing here yet" and
     // inviting it to add its first record is a lie about its own portfolio.
-    await expect(page.getByText('Nothing active')).toBeVisible();
+    await expect(page.getByText('All properties are archived')).toBeVisible();
     await expect(page.getByText(`${ids.length} records are archived`)).toBeVisible();
     await expect(page.getByText('Nothing here yet')).toHaveCount(0);
 
@@ -332,7 +332,7 @@ test.describe('W02 · the list with nothing on it', () => {
     await expect(page.getByText(/\d+ of \d+ shown/)).toHaveCount(0);
 
     // The way back cannot be inside the filter that was just withdrawn.
-    await expect(page.getByRole('button', { name: 'Add a record' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add a property' })).toBeVisible();
     await page.getByRole('button', { name: 'Show archived' }).click();
 
     // Ticking the facet from here has to be the same act as ticking it in the
@@ -363,7 +363,7 @@ test.describe('W02 · the list with nothing on it', () => {
     await page.getByRole('checkbox', { name: 'Select Sy 777 BULK-A' }).check();
     await expect(bar).toBeVisible();
     // Every label counts the selection, not the screen.
-    await expect(bar).toContainText('1 record selected');
+    await expect(bar).toContainText('1 property selected');
     await expect(bar.getByRole('button', { name: 'Order EC ×1' })).toBeVisible();
 
     await page.getByRole('checkbox', { name: 'Select Sy 777 BULK-B' }).check();
@@ -455,7 +455,7 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
     // The bug this guards: Escape dismissing a browser autofill dropdown took
     // the whole half-filled record with it, with nothing to reopen.
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('heading', { name: 'Discard this record?' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Discard this property?' })).toBeVisible();
     await expect(drawer).toBeVisible();   // still mounted behind the question
 
     await page.locator('.dlg').getByRole('button', { name: 'Keep editing' }).click();
@@ -465,7 +465,7 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
     // A slipped click on the dimmed page is the same accident and gets the same
     // question — a guard on Escape alone would leave the wider target open.
     await page.locator('.scrim').first().click();
-    await expect(page.getByRole('heading', { name: 'Discard this record?' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Discard this property?' })).toBeVisible();
     await page.locator('.dlg').getByRole('button', { name: 'Discard', exact: true }).click();
     await expect(drawer).toHaveCount(0);
 
@@ -481,7 +481,7 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
     await expect(drawer).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'Discard this record?' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Discard this property?' })).toHaveCount(0);
   });
 
   test('a deed that will not upload does not make the saved record look unsaved', async ({ page, request }) => {
@@ -500,12 +500,12 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
     });
     await expect(drawer.locator('#rd-title')).toHaveValue('Sy 777 FILEFAIL');
 
-    await page.getByRole('button', { name: 'Add record' }).click();
+    await page.getByRole('button', { name: 'Add property' }).click();
 
     // Closing here would carry the message away with the drawer, and the only
     // statement that the parcel has no deed filed against it would be gone.
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByText(/The record was saved, but its deed could not be filed/)).toBeVisible();
+    await expect(drawer.getByText(/The property was saved, but its deed could not be filed/)).toBeVisible();
     // It must name where the paper can be added, or "could not be filed" is a
     // dead end.
     await expect(drawer.getByText(/Papers/)).toBeVisible();
@@ -513,7 +513,7 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
     // The primary button is now a way out, not a second save — press it again
     // and the same parcel would be filed twice.
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Add record' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Add property' })).toHaveCount(0);
 
     // Even Escape asks here, and for a different reason than a half-typed
     // record: the work is saved, and it is the NOTICE that cannot be recovered.

@@ -22,7 +22,7 @@ import ssl
 import httpx
 
 from ..config import IMPORT_MODEL, MODEL_TIMEOUT_SECONDS
-from ..usage import cacheable_system, log_usage
+from ..usage import cacheable_system, log_usage, merge_usage, safe_file_label
 
 _log = logging.getLogger("pattadar")
 
@@ -192,6 +192,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
         return {"_error": (413, f"File too large (max {max_mb} MB)")}
     b64 = base64.standard_b64encode(data).decode()
     mime = (mime or "").lower(); name = (name or "").lower()
+    log_name = safe_file_label(name)
     # Trust the BYTES, not the client's label. Pickers and share sheets happily
     # hand over a PNG named .jpg, or a generic octet-stream, and forwarding that
     # verbatim earns a flat 400 from the vision API ("appears to be a image/png
@@ -213,34 +214,36 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
     try:
         r = await send_messages(payload, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
     except httpx.TimeoutException:
-        _log.warning("AI extract timed out (file=%s, model=%s)", name, IMPORT_MODEL)
+        _log.warning("AI extract timed out (file=%s, model=%s)", log_name, IMPORT_MODEL)
         return {"_error": (504, "AI took too long to read this document (timed out). It may be large or multi-page — try again, or use 'enter details manually'.")}
     except Exception as e:
-        _log.warning("AI extract failed (file=%s, bytes=%d): %r", name, len(data), e)
+        _log.warning("AI extract failed (file=%s, bytes=%d): %r", log_name, len(data), e)
         return {"_error": (502, failure_message(e, len(data)))}
     if r.status_code != 200:
-        _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
+        _log.warning("AI extract non-200 (file=%s, status=%s): %s", log_name, r.status_code, (r.text or '')[:300])
         return {"_error": (502, "AI call failed")}
     body = r.json()
-    log_usage(body, endpoint=endpoint, name=name, attempt="first")
+    usage = log_usage(body, endpoint=endpoint, name=log_name, attempt="first")
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
     # more with the model reasoning less, which leaves far more of the ceiling
     # for the answer. Only worth doing when that is demonstrably what happened.
     if (not fields) and body.get("stop_reason") == "max_tokens":
-        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", name)
+        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", log_name)
         retry = dict(payload)
         retry["output_config"] = {"effort": "low"}
         try:
             r2 = await send_messages(retry, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
             if r2.status_code == 200:
                 body = r2.json()
-                log_usage(body, endpoint=endpoint, name=name, attempt="low-effort-retry")
+                # The retry is a second paid call; the reported cost is the sum.
+                usage = merge_usage(usage, log_usage(
+                    body, endpoint=endpoint, name=log_name, attempt="low-effort-retry"))
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = extract_json(text)
         except Exception as e:
-            _log.warning("AI extract low-effort retry failed (file=%s): %r", name, e)
+            _log.warning("AI extract low-effort retry failed (file=%s): %r", log_name, e)
     if not text or not fields:
         # An empty or unparseable reply used to be returned as a 200 with
         # {"fields": {}} — the app then prefilled nothing and the form sat there
@@ -248,7 +251,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
         # we could not read is a failure and must say so.
         _log.warning(
             "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
-            name, len(data), body.get("stop_reason"), len(text),
+            log_name, len(data), body.get("stop_reason"), len(text),
         )
         if body.get("stop_reason") == "max_tokens":
             return {"_error": (502, "This document is long enough that the reading ran out of room. "
@@ -256,4 +259,4 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
         return {"_error": (502, "Nothing could be read from this document. It may be a scan of "
                                 "photographs rather than text — try a clearer copy, or enter the "
                                 "details by hand.")}
-    return {"fields": fields, "raw": text}
+    return {"fields": fields, "raw": text, "usage": usage}

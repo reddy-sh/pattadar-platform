@@ -616,7 +616,7 @@ export function AddPropertyDialog({ open, onClose, onCreated, notify }: Props) {
               ) : (
                 <UploadFileOutlinedIcon color="primary" sx={{ fontSize: 30 }} />
               )}
-              <Typography sx={{ fontWeight: 600, mt: 1 }}>
+              <Typography sx={{ fontWeight: 700, mt: 1 }}>
                 {readingLone ? loneReadingMessage : 'Drop one or more documents, or click to upload'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -660,7 +660,7 @@ export function AddPropertyDialog({ open, onClose, onCreated, notify }: Props) {
                     }}
                   >
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
+                      <Typography variant="body2" noWrap sx={{ fontWeight: 400 }}>
                         {d.fileName}
                       </Typography>
                       <Box sx={{ mt: 0.25 }}>

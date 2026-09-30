@@ -1,6 +1,10 @@
 # Pattadar UX Redesign — Material Design 3 on Emerald & Gold
 
-**Status:** Historical design spec. The former `tests/e2e-ux` Playwright gate was retired on 2026-09-16; current automated regression coverage lives in CI unit tests and `tests/e2e-web360`.
+**Status:** Historical design spec. Its palette (emerald/gold) is superseded by Bloom amber in `design.md`; read that file, not this one, for current colour.
+
+The former `tests/e2e-ux` Playwright gate was retired on 2026-09-16; current automated regression coverage lives in CI unit tests and `tests/e2e-web360`.
+
+**The accessibility gates below were unenforced from 2026-09-16 to 2026-09-25.** `scripts/a11y-web-tests.ts` now re-enforces the statically checkable ones for `apps/web`: every icon-only control has an accessible name, all six semantic palette slots are defined on all three schemes, colour literals stay inside a named exception budget, and a `var(--token)` that resolves to no declaration fails the build. Still **not** covered, because they need a browser: 44×44 touch targets, visible focus, zoom/reflow, reading and focus order, Esc-closes-every-overlay, and "no console errors". Those are the gap that the retirement of `tests/e2e-ux` left open, and a static guard cannot close them.
 
 ## Principles (Google-standard, applied to this product)
 

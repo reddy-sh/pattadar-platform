@@ -13,6 +13,24 @@
  */
 import { useQuery } from '@tanstack/react-query';
 
+/**
+ * ONE vocabulary for "the live read failed", owned here because this file owns
+ * the `isSample` flag that raises it.
+ *
+ * Six surfaces used to describe this state in their own words, and five of them
+ * described it wrongly: a "Sample data" chip on the three record pages, a
+ * "Sample data — the live service is not reachable." caption under the deeds
+ * and market-value tables, and " · sample data" on a group's member count. No
+ * sample row has painted since 2026-07-26 — `emptyLike` zero-fills instead — so
+ * every one of those told the owner their screen was showing fiction when it
+ * was showing nothing. The sentence below is `PageHeader`'s existing tooltip,
+ * reused verbatim rather than reworded, because the e2e suite already depends
+ * on it.
+ */
+export const UNREACHABLE_LABEL = 'Service unreachable';
+export const UNREACHABLE_NOTE =
+  'The live service is not reachable — nothing is shown until it responds.';
+
 /** Shape-correct emptiness: arrays → [], objects → recurse, numbers → 0,
  *  strings → '', booleans → false. Keeps every consumer type-safe with no
  *  fake values. */

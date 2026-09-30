@@ -53,7 +53,7 @@ const OPENERS: Record<string, { title: string; message: string; noGeo?: string }
   },
   opinion: {
     title: 'Ask an advocate',
-    message: 'Please read these papers and tell me whether the title is clean.',
+    message: 'Please read these documents and tell me whether the title is clean.',
   },
   visit: {
     title: 'Ask someone to visit',
@@ -73,8 +73,8 @@ const RAISE_FAILED =
   + 'Services before trying again — if the job is already there, it was filed.';
 const RAISE_REJECTED = 'That request was not accepted. A message is required.';
 const PAPER_FAILED =
-  'That file was stored but could not be filed against this record, so no '
-  + 'request was raised. Try again, or file it under Papers first.';
+  'That file was stored but could not be filed against this property, so no '
+  + 'request was raised. Try again, or file it under Documents first.';
 
 export function RequestWork() {
   const { id } = useParams();
@@ -170,7 +170,7 @@ export function RequestWork() {
         }
         const node = await uploadToDrive(f);
         if (!node) { stop(STORAGE_OFFLINE_MSG); return; }
-        const title = f.name || 'Paper';
+        const title = f.name || 'Document';
         const filed = await addPaper.mutateAsync({
           recordId: id, fileRef: node.id, name: title, subtitle: 'Added for this request',
           shelf: 'unsorted', pageCount: 0, mimeType: node.mimeType, sizeBytes: node.sizeBytes,
@@ -216,7 +216,7 @@ export function RequestWork() {
   // A read that settled with nothing is not a read still running. `retry: 1`
   // means a failed record read ends here for good, and drawing the skeleton
   // for it rendered the outage as an eternity.
-  if (!rec) return <main><Failed what="This record" error={recError} h="60vh" /></main>;
+  if (!rec) return <main><Failed what="This property" error={recError} h="60vh" /></main>;
 
   return (
     <main>
@@ -228,17 +228,13 @@ export function RequestWork() {
             <ArrowBackOutlined sx={{ fontSize: 14 }} /> Back to {rec.title}
           </button>
           <h1>{opener.title}</h1>
-          <p className="note">
-            They do not need an account. You choose exactly what leaves this record.
-          </p>
         </div>
       </header>
 
       {duplicate && (
         <Card className="alert" title="This request already exists">
           <p className="note" style={{ marginTop: 0 }}>
-            {duplicate.title} is already running on {rec.title}. Open it to see its status,
-            messages and files, or cancel it before starting again.
+            {duplicate.title} is already running on {rec.title}.
           </p>
           <div className="row tight">
             <Link className="btn primary" to={`/app/services/${duplicate.id}`}>Open request</Link>
@@ -252,14 +248,14 @@ export function RequestWork() {
       {!duplicate && ordersError && (
         <Card className="alert" title="Existing requests could not be checked">
           <p className="note" style={{ margin: 0 }}>
-            Nothing can be raised until Pattadar confirms that the same work is not already open.
+            Nothing can be raised until they are checked.
           </p>
         </Card>
       )}
 
       {!duplicate && <div className="split" style={{ marginTop: 'var(--space-md)', minWidth: 0 }}>
         <div className="stack" style={{ minWidth: 0 }}>
-          <Card title="Who is asking">
+          <Card title="Your details">
             <div className="row tight" style={{ marginBottom: 'var(--space-sm)' }}>
               <button type="button" className={`chip${asOwner ? '' : ' static'}`}
                       aria-pressed={asOwner} onClick={() => setAsOwner(true)}>
@@ -282,19 +278,9 @@ export function RequestWork() {
             <textarea className="input" rows={5} style={{ width: '100%' }}
                       aria-label="Message" value={message}
                       onChange={(e) => { setTouched(true); setMessage(e.target.value); }} />
-            <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
-              Your name is added at the end. Nothing else about the record goes in
-              unless you type it.
-            </p>
           </Card>
 
-          <Card title="Raise the request">
-            <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-              It goes on this record as <strong>Placed</strong>. Someone is put on it
-              from the people this account works with, or Pattadar writes to a new
-              person on your behalf — either way the system does the sending, so it
-              can be taken back. You follow it under Services.
-            </p>
+          <Card title="Send the request">
             {/* The confirmation used to redirect itself two seconds later. It asks
                 the owner to do something — open the job and put somebody on it —
                 and then took the screen away mid-sentence, with the link they were
@@ -302,8 +288,7 @@ export function RequestWork() {
             {madeId ? (
               <div className="row tight">
                 <p className="note grow">
-                  Filed as a job. Nobody has it yet — open it to put somebody on it, or to have
-                  Pattadar send it to a surveyor.
+                  Request sent. Not assigned yet.
                 </p>
                 <Link className="btn sm" to={`/app/services/${madeId}`}>Open the job</Link>
                 <button type="button" className="btn sm"
@@ -318,7 +303,7 @@ export function RequestWork() {
                           disabled={!message.trim() || busy}
                           onClick={() => void raiseIt()}>
                     <SendOutlined sx={{ fontSize: 16 }} />
-                    {busy ? 'Raising…' : 'Create request'}
+                    {busy ? 'Sending…' : 'Send request'}
                   </button>
                   <button type="button" className="btn" onClick={() => nav(`/app/records/${id}`)}>
                     Cancel
@@ -330,8 +315,7 @@ export function RequestWork() {
                     bright primary button, pressed it, and was told nothing. */}
                 {!message.trim() && (
                   <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                    Type your message first. The request is the message — there is nothing
-                    to raise without it.
+                    Type your message first.
                   </p>
                 )}
               </>
@@ -343,14 +327,14 @@ export function RequestWork() {
             )}
             <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
               {attachmentCount === 0
-                ? 'Nothing of yours is attached. The request carries only your message.'
-                : `Whoever it is assigned to sees the ${attachmentCount} thing${attachmentCount === 1 ? '' : 's'} you ticked, and nothing else.`}
+                ? 'Nothing attached.'
+                : `${attachmentCount} attached.`}
             </p>
           </Card>
         </div>
 
         <aside className="stack" style={{ minWidth: 0 }}>
-          <Card title="What to send" aside={<Chip>{attachmentCount}</Chip>}>
+          <Card title="Attachments" aside={<Chip>{attachmentCount}</Chip>}>
             <label className="row tight" style={{ cursor: 'pointer' }}>
               {/* Ticked only when there is something to send. The state starts
                   true for the ordinary surveyed record, and a record with no
@@ -363,8 +347,8 @@ export function RequestWork() {
                 <strong style={{ fontSize: '0.9375rem' }}>The boundary, as GeoJSON</strong>
                 <span className="note" style={{ display: 'block' }}>
                   {surveyed
-                    ? `${ring.length} corners. Geometry only — no name, no khata, no survey number.`
-                    : 'This record has no surveyed boundary yet. Your message asks for the corners to be established on site.'}
+                    ? `${ring.length} corners. Geometry only.`
+                    : 'No boundary saved yet.'}
                 </span>
               </span>
             </label>
@@ -372,7 +356,7 @@ export function RequestWork() {
 
           <Card title="Photos" aside={<Chip>{pickedPhotos.length}</Chip>}>
             {(photos?.photos ?? []).length === 0 ? (
-              <p className="note">No photos on this record.</p>
+              <p className="note">No photos on this property.</p>
             ) : (
               <div className="rows boxed">
                 {(photos?.photos ?? []).slice(0, 12).map((p) => (
@@ -392,9 +376,9 @@ export function RequestWork() {
             )}
           </Card>
 
-          <Card title="Papers" aside={<Chip>{pickedPapers.length}</Chip>}>
+          <Card title="Documents" aside={<Chip>{pickedPapers.length}</Chip>}>
             {(papers ?? []).length === 0 ? (
-              <p className="note">Nothing is filed against this record.</p>
+              <p className="note">Nothing is filed against this property.</p>
             ) : (
               <div className="rows boxed">
                 {(papers ?? []).map((d) => (
@@ -410,11 +394,11 @@ export function RequestWork() {
               </div>
             )}
             <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-              A paper names people. Send one only when the person asking needs it.
+              Documents name people.
             </p>
           </Card>
 
-          <Card title="Something else" aside={<Chip>{extra.length}</Chip>}>
+          <Card title="Other" aside={<Chip>{extra.length}</Chip>}>
             {/* A real button over a hidden input, not a <label> wrapping one.
                 The label took no focus and the input is `hidden`, so the tab
                 order skipped this card entirely and a keyboard could not add a
@@ -446,8 +430,7 @@ export function RequestWork() {
               </p>
             )}
             <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-              Each one is filed against this record as a paper when you raise the
-              request, then named on it. Up to {mb(MAX_UPLOAD_BYTES)} each.
+              Up to {mb(MAX_UPLOAD_BYTES)} each.
             </p>
           </Card>
         </aside>

@@ -122,8 +122,8 @@ export function AccountPage() {
 
       <section className="account-section" aria-labelledby="account-certificates-title">
         <div className="account-section__heading">
-          <div><span className="context-line">Credentials</span><h2 id="account-certificates-title">My certificates</h2></div>
-          <WorkspacePremiumOutlined />
+          <div><span className="context-line">Credentials</span><h2 id="account-certificates-title">Completion previews</h2></div>
+          <Link className="text-action" to="/credentials">How certificates work <ArrowForwardRounded /></Link>
         </div>
         <p className="account-governance-note">
           Completed courses currently unlock a completion preview. Formally issued credentials will appear here only after the required assessment, reviewer approval, and verification record are available.

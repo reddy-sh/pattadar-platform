@@ -25,9 +25,9 @@ export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeader
           <span className="brand__mark"><SchoolOutlined /></span>
           <span><strong>Pattadar</strong><small>University</small></span>
         </Link>
-        <button className="search-pill" type="button" onClick={onSearch} aria-label="Search courses, state guides, locations, and work">
+        <button className="search-pill" type="button" onClick={onSearch} aria-label="Search pathways, courses, certificates, state guides, locations, and work">
           <SearchRounded />
-          <span>Search courses, states, roles, locations</span>
+          <span>Search paths, courses, states, roles</span>
           <kbd>⌘K</kbd>
         </button>
         <div className="app-header__actions">
@@ -59,10 +59,12 @@ export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeader
       </div>
       <nav className="section-nav page-shell" aria-label="University">
         <NavLink to="/" end>Explore</NavLink>
+        <NavLink to="/pathways">Pathways</NavLink>
         <NavLink to="/learn">My learning</NavLink>
+        <NavLink to="/credentials">Certificates</NavLink>
         <NavLink to="/opportunities">Opportunities</NavLink>
         <NavLink to="/states">State guides</NavLink>
-        <NavLink to="/locations/hyderabad">Locations</NavLink>
+        <NavLink to="/locations">Locations</NavLink>
       </nav>
     </header>
   );

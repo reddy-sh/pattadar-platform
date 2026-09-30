@@ -28,6 +28,7 @@
 import { World } from './world';
 import type { Answer } from './world';
 import { ID, PAPER, FEATURE, PERSON, PHOTO, TICKET, KIT, LINK, MARK, EXPENSE } from './ids';
+import { FEATURE_TYPES } from './featureTypes';
 
 // ── builders ───────────────────────────────────────────────────────────
 
@@ -57,6 +58,17 @@ function card(over: Record<string, unknown> = {}): Record<string, unknown> {
     lon: 79.2698502,
     ring: [15.7410, 79.2694, 15.7410, 79.2704, 15.7402, 79.2704, 15.7402, 79.2694],
     coverFileRef: 'file-cover-parcel',
+    // What the tile answers without being opened. Every one of these is a
+    // branch on the card: a zero count drops out of the digest instead of
+    // printing "0 papers", an empty deed line prints no label over no number,
+    // and `litigation` is a capsule on the band rather than a status word.
+    extentDetail: '4 Acres 12 Guntas · 430 Cents · 20,812 Sq.yd',
+    paperCount: 6,
+    photoCount: 12,
+    featureCount: 4,
+    deedLine: 'D.No 4521/2019 · Markapur SRO',
+    litigation: false,
+    paperFileRef: '',
     ...over,
   };
 }
@@ -82,6 +94,23 @@ export const CARDS: Record<string, unknown>[] = [
     lon: 0,
     ring: [],
     coverFileRef: '',
+    extentDetail: '1 Acre 8 Guntas · 120 Cents · 5,808 Sq.yd',
+    // No photograph and no ground, but a scan of its own. The card's artwork
+    // chain falls through to the paper rather than to the illustration that is
+    // identical on every parcel in the account.
+    //
+    // A UUID, not `file-sketch-sy88`. `isStorageRef` is a strict UUID test
+    // (pages/documents/storage.ts) because legacy rows carry filenames where a
+    // node id belongs, so a readable name here would be skipped before any
+    // fetch and the card would draw nothing. It is also not named
+    // `file-map-…`: the seeded content route answers a PDF for those refs and
+    // an image for everything else, and a PDF is exactly what this field is
+    // never allowed to carry.
+    paperFileRef: '9f1c7e52-3b84-4a17-9d60-6c2f5a8e41bd',
+    paperCount: 1,
+    photoCount: 0,
+    featureCount: 0,
+    deedLine: '',
   }),
   card({
     id: ID.flat,
@@ -103,6 +132,17 @@ export const CARDS: Record<string, unknown>[] = [
     lon: 78.3996,
     ring: [],
     coverFileRef: 'file-cover-flat',
+    // Both extents. `extent` can only carry the slab, so the ground under it
+    // only reaches the reader through this line.
+    extentDetail: '1,450 Sq.ft built · 200 Sq.yd land',
+    // A suit, on a holding whose status is plainly `owned`. The two facts are
+    // not alternatives, which is the whole reason litigation is its own field
+    // and its own capsule.
+    litigation: true,
+    deedLine: 'D.No 1180/2021 · Kukatpally SRO',
+    paperCount: 3,
+    photoCount: 5,
+    featureCount: 0,
   }),
   card({
     id: ID.shop,
@@ -123,6 +163,11 @@ export const CARDS: Record<string, unknown>[] = [
     lon: 79.2699,
     ring: [],
     coverFileRef: '',
+    extentDetail: '30 sq.m',
+    paperCount: 2,
+    photoCount: 0,
+    featureCount: 0,
+    deedLine: 'D.No 806/2016 · Markapur SRO',
   }),
   card({
     id: ID.watched,
@@ -139,6 +184,14 @@ export const CARDS: Record<string, unknown>[] = [
     tags: ['neighbour'],
     ring: [],
     coverFileRef: '',
+    extentDetail: '2 Acres · 200 Cents · 9,680 Sq.yd',
+    // A neighbour's land, watched and nothing more. Empty of everything a
+    // record accumulates, which is the one case where the card has to write a
+    // sentence instead of counting to zero four times.
+    paperCount: 0,
+    photoCount: 0,
+    featureCount: 0,
+    deedLine: '',
   }),
 ];
 
@@ -170,10 +223,12 @@ function facetsFor(cards: Record<string, unknown>[], active: Record<string, stri
     group('kind', 'Kind', 'kind', { parcel: 'Land', flat: 'Flat', shop: 'Shop' }),
     group('status', 'Status', 'status', { owned: 'Owned', watch: 'Watch', archived: 'Archived', for_sale: 'For sale', disputed: 'Disputed', managed: 'Managed' }),
     group('stake', 'Your stake', 'stake', { owned: 'Owned', watch: 'Watching', managed: 'Managed' }),
-    { key: 'derived', label: 'What it has', options: [
-      { key: 'surveyed', label: 'Surveyed', count: cards.filter((c) => ((c.ring as number[]) ?? []).length > 0).length, active: (active.derived ?? []).includes('surveyed') },
-      { key: 'no_papers', label: 'No papers', count: 1, active: (active.derived ?? []).includes('no_papers') },
-    ] },
+    // Village, khata and owner are three record-derived facets, each counted
+    // off the cards' own field so the rail can never disagree with the grid —
+    // and each labelled by its own value, exactly like the server does it.
+    group('village', 'Village', 'village', {}),
+    group('khata', 'Khata', 'khataNo', {}),
+    group('owner', 'Owner', 'ownerName', {}),
     { key: 'tags', label: 'Tags', options: [...tagCounts.entries()].map(([k, count]) => ({ key: k, label: k, count, active: (active.tags ?? []).includes(k) })) },
   ];
 }
@@ -221,18 +276,26 @@ const PORTFOLIO = {
 const properties: Answer = (vars) => {
   const want = (key: string) => ((vars[key] as string[] | undefined) ?? []).filter(Boolean);
   const kinds = want('kinds'); const statuses = want('statuses');
-  const stakes = want('stakes'); const derived = want('derived'); const tags = want('tags');
+  const stakes = want('stakes'); const tags = want('tags');
+  // Village, khata and owner each narrow within themselves by OR and across
+  // each other by AND — the same shape as every other facet, and the fix for
+  // the old combined "derived" facet that matched two villages with AND and
+  // drew an empty grid.
+  const villages = want('villages'); const khatas = want('khatas'); const owners = want('owners');
 
   let cards = CARDS.filter((c) => (statuses.includes('archived') ? true : c.status !== 'archived'));
   if (kinds.length) cards = cards.filter((c) => kinds.includes(c.kind as string));
   if (statuses.length) cards = cards.filter((c) => statuses.includes(c.status as string));
   if (stakes.length) cards = cards.filter((c) => stakes.includes(c.stake as string));
-  if (derived.includes('surveyed')) cards = cards.filter((c) => ((c.ring as number[]) ?? []).length > 0);
+  if (villages.length) cards = cards.filter((c) => villages.includes(c.village as string));
+  if (khatas.length) cards = cards.filter((c) => khatas.includes(c.khataNo as string));
+  if (owners.length) cards = cards.filter((c) => owners.includes(c.ownerName as string));
   if (tags.length) cards = cards.filter((c) => ((c.tags as string[]) ?? []).some((t) => tags.includes(t)));
 
-  const activeCount = kinds.length + statuses.length + stakes.length + derived.length + tags.length;
+  const activeCount = kinds.length + statuses.length + stakes.length
+    + villages.length + khatas.length + owners.length + tags.length;
   const total = CARDS.length;
-  const summaryBits = [...kinds, ...statuses, ...stakes, ...derived, ...tags];
+  const summaryBits = [...kinds, ...statuses, ...stakes, ...villages, ...khatas, ...owners, ...tags];
   return {
     shown: cards.length,
     total,
@@ -241,7 +304,10 @@ const properties: Answer = (vars) => {
     hiddenPlaces: cards.length === total ? [] : ['Markapur'],
     activeCount,
     cards,
-    facets: facetsFor(CARDS, { kind: kinds, status: statuses, stake: stakes, derived, tags }),
+    facets: facetsFor(CARDS, {
+      kind: kinds, status: statuses, stake: stakes,
+      village: villages, khata: khatas, owner: owners, tags,
+    }),
   };
 };
 
@@ -266,11 +332,27 @@ function recordOf(id: string): Record<string, unknown> | null {
     boughtYear: id === ID.parcel ? '1998' : id === ID.flat ? '2019' : '',
     lat: c.lat, lon: c.lon, ring: c.ring,
     mapCaption: ((c.ring as number[]) ?? []).length ? 'Walked 12 Aug 2026 · 8 corners' : 'Never surveyed',
-    paperCount: id === ID.parcel ? 12 : id === ID.flat ? 5 : 0,
-    featureCount: id === ID.parcel ? 14 : 0,
-    peopleCount: id === ID.parcel ? 3 : id === ID.flat ? 1 : 0,
-    serviceCount: id === ID.parcel ? 2 : 0,
-    photoCount: id === ID.parcel ? 18 : 0,
+    // The tab strip's counts, as `Query.web.record` counts them (web360.py
+    // `record`): off the same rows each tab lists, so a tab never says a
+    // number its own list contradicts. Founder decision 28/09/2026 (design.md
+    // § App vocabulary, "Property tabs"): the seed agrees with itself rather
+    // than the client recounting. They used to be 12 / 14 / 3 / 2 / 18 over
+    // lists of 5 / 4 / 4 / 6 / 2.
+    //
+    //   papers    — the PAPERS rows for the record;
+    //   features  — the FEATURES rows (the parcel's only);
+    //   people    — the staff (PEOPLE, the parcel's only) plus the owners
+    //               answer, which gives every record its one owner;
+    //   services  — the ORDERS against the record that are not closed;
+    //   photos    — stills only, videos beside them (web360.py counts
+    //               media_kind='photo'), so the clip in PHOTOS is not one.
+    paperCount: (PAPERS[id] ?? []).length,
+    featureCount: id === ID.parcel ? (FEATURES.features as unknown[]).length : 0,
+    peopleCount: (id === ID.parcel ? (PEOPLE.people as unknown[]).length : 0) + 1,
+    serviceCount: id === ID.parcel ? TICKET_SHAPES.filter((t) => !t.closed).length : 0,
+    photoCount: id === ID.parcel
+      ? (PHOTOS.photos as Record<string, unknown>[]).filter((p) => p.mediaKind !== 'video').length
+      : 0,
     photoNote: id === ID.parcel ? 'Last visit 12 Aug 2026' : 'Nothing has been photographed here',
     tags: c.tags,
     noteBody: id === ID.parcel ? 'The eastern boundary is disputed with the adjoining survey.' : '',
@@ -295,19 +377,28 @@ const PAPERS: Record<string, Record<string, unknown>[]> = {
   [ID.watched]: [],
 };
 
+// The counts and the words are the ones `Query.web.features` would build from
+// these four rows (web360.py `features`): the total and the repair count off
+// the rows, one category per category a row is in, a walked date as an ISO
+// day, and a condition key out of good / warn / bad / unknown — the API never
+// sends the `ok` or the blank this seed used to spell them with. Aligned
+// 28/09/2026 with the founder's tab-count decision (design.md § App
+// vocabulary, "Property tabs"); it used to claim 14 features, 2 repairs and
+// four categories over 4 rows, 0 of them broken.
 const FEATURES: Record<string, unknown> = {
-  total: 14, needsRepair: 2, walkedOn: '12 Aug 2026', walkedBy: 'Shankar Reddy',
+  total: 4, needsRepair: 0, walkedOn: '2026-08-12', walkedBy: 'Shankar Reddy',
+  // Selected since 37ae2ca; the Add-a-feature panel draws its chips from it.
+  types: FEATURE_TYPES,
   categories: [
-    { key: 'water', label: 'Water', count: 4, active: false },
-    { key: 'power', label: 'Power', count: 2, active: false },
-    { key: 'boundary', label: 'Boundary', count: 3, active: false },
-    { key: 'crop', label: 'Crop', count: 5, active: false },
+    { key: 'water', label: 'Water', count: 2, active: false },
+    { key: 'boundary', label: 'Boundary', count: 1, active: false },
+    { key: 'crop', label: 'Crop', count: 1, active: false },
   ],
   features: [
-    { id: FEATURE.well, label: 'Open well', spec: '30 ft · 6 in pipe', icon: 'well', category: 'water', condition: 'Working', conditionState: 'ok', note: 'Rewired in 2024', lat: 15.7408, lon: 79.2697, pinLabel: 'W1', photoCount: 4, actions: ['photo', 'repair'] },
+    { id: FEATURE.well, label: 'Open well', spec: '30 ft · 6 in pipe', icon: 'well', category: 'water', condition: 'Working', conditionState: 'good', note: 'Rewired in 2024', lat: 15.7408, lon: 79.2697, pinLabel: 'W1', photoCount: 4, actions: ['photo', 'repair'] },
     { id: FEATURE.pump, label: 'Submersible pump', spec: '5 HP', icon: 'pump', category: 'water', condition: 'Needs repair', conditionState: 'warn', note: 'Starter burnt out', lat: 15.7407, lon: 79.2698, pinLabel: 'W2', photoCount: 1, actions: ['photo', 'repair'] },
-    { id: FEATURE.fence, label: 'Barbed fence', spec: '420 m · 4 strand', icon: 'fence', category: 'boundary', condition: 'Not checked', conditionState: '', note: '', lat: 0, lon: 0, pinLabel: '', photoCount: 0, actions: ['photo'] },
-    { id: FEATURE.trees, label: 'Mango trees', spec: '46 trees · 12 years', icon: 'trees', category: 'crop', condition: 'Working', conditionState: 'ok', note: '', lat: 15.7405, lon: 79.2701, pinLabel: 'C1', photoCount: 6, actions: ['photo'] },
+    { id: FEATURE.fence, label: 'Barbed fence', spec: '420 m · 4 strand', icon: 'fence', category: 'boundary', condition: 'Not checked', conditionState: 'unknown', note: '', lat: 0, lon: 0, pinLabel: '', photoCount: 0, actions: ['photo'] },
+    { id: FEATURE.trees, label: 'Mango trees', spec: '46 trees · 12 years', icon: 'trees', category: 'crop', condition: 'Working', conditionState: 'good', note: '', lat: 15.7405, lon: 79.2701, pinLabel: 'C1', photoCount: 6, actions: ['photo'] },
   ],
 };
 
@@ -620,6 +711,9 @@ const ORDERS = TICKET_SHAPES.map((t) => ({
   assignee: t.assignee, cost: KIND_OF[t.id].cost, stage: t.stage, stageLabel: t.stageLabel,
   needsYou: t.needsYou, dueDate: t.closed ? '' : '2026-09-25',
   recordId: ID.parcel, recordTitle: 'Sy 214/2', params: '{}',
+  // Selected since 8ee7822 (w360/api.ts Order). Orders.tsx recordTypeLabel
+  // calls replaceAll on them, so an absent value crashed the Services list.
+  recordKind: 'parcel', recordClassification: 'agri', recordLocation: 'Katragunta, Markapur, Prakasam',
   status: t.status, statusLabel: t.statusLabel, statusState: t.statusState, ref: t.ref,
   held: t.held, pendingReview: t.pendingReview,
 }));
@@ -733,32 +827,46 @@ const WALLET = {
  *  charges. Every assertion about grouping, about which services need the land
  *  located, and about what an order costs was therefore testing a catalogue
  *  the product does not sell. A fixture is allowed to choose the DATA; it is
- *  not allowed to invent the SHAPE. */
+ *  not allowed to invent the SHAPE.
+ *
+ *  `shelves` and `visual` joined the shape in 37ae2ca, both non-null in the
+ *  API's `ServiceOffer`, and were missing here until 26/09/2026. Without them
+ *  RecordPapers crashed on `o.shelves.some` on every record. The values are
+ *  what the API answers: shelves from SERVICE_CATALOGUE, visuals from
+ *  `_service_visual_for` over governance.BASELINE_DOCUMENT's serviceVisuals. */
+const offerVisual = (assetKey: string, alt: string, caption: string) =>
+  ({ assetKey, src: `/service-visuals/${assetKey}.webp`, alt, caption, sourceScope: 'IN/AP/*/*/*' });
 const OFFERS = [
-  { key: 'ec', label: 'Encumbrance Certificate', price: 1_180, group: 'Records', blurb: "The registrar's list of every transaction on this land, for a period you choose.", days: 7, fields: [
+  { key: 'ec', label: 'Encumbrance Certificate', price: 1_180, group: 'Records', blurb: "The registrar's list of every transaction on this land, for a period you choose.", days: 7,
+    shelves: ['search'], visual: offerVisual('ec', "A records officer traces a property's registered transaction history.", 'Shows the registration history used to find mortgages and other recorded claims.'), fields: [
     { name: 'from_year', label: 'From year', kind: 'year', required: false, options: [], help: 'Leave both empty for the full history, which is what the registrar gives by default.' },
     { name: 'to_year', label: 'To year', kind: 'year', required: false, options: [], help: '' },
     { name: 'purpose', label: 'What it is for', kind: 'select', required: false, options: ['Sale', 'Loan', 'Court', 'Own records'], help: '' },
   ] },
-  { key: 'survey', label: 'Boundary re-survey', price: 2_900, group: 'On the ground', blurb: 'A licensed surveyor walks the boundary and pins each corner against the FMB sheet.', days: 21, fields: [
+  { key: 'survey', label: 'Boundary re-survey', price: 2_900, group: 'On the ground', blurb: 'A licensed surveyor walks the boundary and pins each corner against the FMB sheet.', days: 21,
+    shelves: [], visual: offerVisual('survey', 'A licensed surveyor measures a field boundary with surveying equipment.', 'A surveyor measures boundary corners on the land and marks where they fall.'), fields: [
     { name: 'which_side', label: 'Which boundary', kind: 'select', required: true, options: ['All four', 'North', 'South', 'East', 'West'], help: '' },
     { name: 'dispute', label: 'Is a neighbour disputing it?', kind: 'select', required: true, options: ['No', 'Yes'], help: 'A disputed boundary is surveyed with both parties present.' },
     { name: 'notes', label: 'Anything the surveyor should know', kind: 'textarea', required: false, options: [], help: '' },
   ] },
-  { key: 'site_visit', label: 'Site visit', price: 1_200, group: 'On the ground', blurb: 'Someone stands on the land, photographs it and reports what they found.', days: 7, fields: [
+  { key: 'site_visit', label: 'Site visit', price: 1_200, group: 'On the ground', blurb: 'Someone stands on the land, photographs it and reports what they found.', days: 7,
+    shelves: [], visual: offerVisual('site_visit', 'A field worker photographs and inspects a property on site.', 'A field worker visits, photographs and reports what is present on the land.'), fields: [
     { name: 'visit_on', label: 'Preferred date', kind: 'date', required: false, options: [], help: 'Left empty, we go within the week.' },
     { name: 'check', label: 'What to check', kind: 'select', required: true, options: ['General condition', 'Crop', 'Encroachment', 'Water', 'Fencing'], help: '' },
     { name: 'meet', label: 'Who to meet on site', kind: 'text', required: false, options: [], help: '' },
   ] },
-  { key: 'title_opinion', label: 'Title opinion', price: 4_500, group: 'Legal', blurb: 'An advocate reads the chain of documents and writes whether the title is clean.', days: 14, fields: [
+  { key: 'title_opinion', label: 'Title opinion', price: 4_500, group: 'Legal', blurb: 'An advocate reads the chain of documents and writes whether the title is clean.', days: 14,
+    shelves: [], visual: offerVisual('title_opinion', 'An advocate reviews a chain of property ownership documents.', 'An advocate traces the ownership chain and gives a written title opinion.'), fields: [
     { name: 'years', label: 'How far back to trace', kind: 'select', required: true, options: ['13 years', '30 years'], help: 'Banks usually ask for 30.' },
     { name: 'for_bank', label: 'Which bank, if it is for a loan', kind: 'text', required: false, options: [], help: '' },
   ] },
-  { key: 'mutation', label: 'Mutation / name transfer', price: 2_200, group: 'Records', blurb: "Getting the revenue record moved into the new owner's name after a sale.", days: 30, fields: [
+  { key: 'mutation', label: 'Mutation / name transfer', price: 2_200, group: 'Records', blurb: "Getting the revenue record moved into the new owner's name after a sale.", days: 30,
+    shelves: [], visual: offerVisual('mutation', 'A revenue officer transfers a land record from the previous owner to the new owner.', "Updates the revenue record to the new owner's name after a registered sale."), fields: [
     { name: 'new_owner', label: 'Name to transfer into', kind: 'text', required: true, options: [], help: '' },
     { name: 'deed_no', label: 'Registered deed number', kind: 'text', required: true, options: [], help: '' },
   ] },
-  { key: 'patta_copy', label: 'Certified patta copy', price: 450, group: 'Records', blurb: 'A stamped copy of the pattadar passbook entry from the village office.', days: 5, fields: [
+  { key: 'patta_copy', label: 'Certified patta copy', price: 450, group: 'Records', blurb: 'A stamped copy of the pattadar passbook entry from the village office.', days: 5,
+    shelves: ['revenue'], visual: offerVisual('patta_copy', 'An owner receives a certified copy of the pattadar landholding entry.', 'A certified copy of the current pattadar landholding entry from the revenue office.'), fields: [
     { name: 'copies', label: 'How many copies', kind: 'number', required: true, options: [], help: '' },
   ] },
 ];
@@ -976,6 +1084,12 @@ export const SEED: Record<string, Answer> = {
   mapRecords: MAP_VIEW,
   search,
   vaultPapers,
+  // Documents' own folders. None by default, so every screen that opens
+  // /app/papers draws the top level exactly as before folders existed.
+  vaultFolders: [],
+  // Documents asks for combined views so its filter can find a file through
+  // the view its property belongs to. None by default.
+  combinedProperties: [],
   orders,
   ticket: (vars) => ticketOf(String(vars.id ?? '')),
   wallet: WALLET,
@@ -1005,6 +1119,25 @@ export const SEED: Record<string, Answer> = {
   disciplines: () => DISCIPLINES,
   candidates: () => CANDIDATES,
   associatesForTicket: () => ASSOCIATES.filter((a) => a.state === 'active').map(CARD_OF),
+  // Published owner guidance (w360/GovernanceGuidance.tsx). Null is what the
+  // API answers when nothing is published for the scope (web360.py
+  // governance_policy), so the guidance card stays off the screens written
+  // before governance existed. A test about guidance sets its own policy.
+  governancePolicy: null,
+  // Current owner chain (RecordHead.tsx useOwners, RecordPapers.tsx useOwners).
+  owners: { owners: [{ id: 'w-owner-1', name: 'Shankar Reddy', initials: 'SR', parentage: 'T. Narayana Reddy', address: 'Katragunta, Markapur, Prakasam', role: 'Pattadar', isCurrent: true, acquiredVia: 'hereditary', photoRef: '' }], count: 1, currentName: 'Shankar Reddy' },
+  // Chain of title (useTransfers). None recorded is the common case.
+  transfers: { transfers: [], count: 0, unverifiedCount: 0 },
+  // Audit trail (RecordHead.tsx useRecordHistory). Empty is the common case
+  // — most records have not been changed since onboarding.
+  recordHistory: [],
+  // Read through the ROOT schema rather than `web` — w360/api.ts useNotes, on
+  // every record head — so it is keyed with world.ts's ROOT prefix. Without it
+  // the world answered 400 and every record screen failed the console guard.
+  'root.notes': [],
+  // Home reads the account's setup tasks (w360/SetupChecklist.tsx) through the
+  // root schema on every visit. None by default, so the checklist stays away.
+  'root.setupTasks': [],
 
   // writes — the happy answer for each, in the type api.ts expects back
   setTag: true,
@@ -1088,6 +1221,15 @@ const TINY_PDF = Buffer.from(
  * does overrides just that one with `world.route()`.
  */
 export function seedRest(world: World): void {
+  // Native audio/video first mints an exact-file HttpOnly stream session; the
+  // sealed world does not model cookies, but it returns the pinned same-origin
+  // URL so player/poster behavior remains inside the API seal.
+  world.route(/\/api\/gateway\/storage\/files\/[^/]+\/stream-session/, (route) => {
+    const url = new URL(route.request().url());
+    const node = url.pathname.split('/').at(-2) || 'file';
+    return { json: { url: `/api/gateway/storage/files/${node}/content?version=version-1`, expiresIn: 900 } };
+  });
+
   // Stored bytes. The format is decided by what the app asked for: a paper
   // preview asks for the PDF, a photo tile asks for an image.
   world.route(/\/api\/gateway\/storage\/files\/[^/]+\/content/, (route) => {
@@ -1151,6 +1293,15 @@ export function seedRest(world: World): void {
   world.route(/\/api\/gateway\/pattadar\/import-status\//, () => ({
     json: { state: 'failed', error: 'Nothing could be read from that file.' },
   }));
+
+  // The inbox behind the bell (w360/inbox.ts): empty, nothing running, and
+  // browser push switched off — the Shell asks on every screen. A test about
+  // notifications seeds its own.
+  world.route(/\/api\/gateway\/pattadar\/inbox\/read/, () => ({ json: { marked: 0 } }));
+  world.route(/\/api\/gateway\/pattadar\/inbox(\?|$)/, () => ({
+    json: { unread: 0, running: 0, items: [] },
+  }));
+  world.route(/\/api\/gateway\/pattadar\/push\/key/, () => ({ json: { enabled: false, key: '' } }));
 
   // The dev-only access-token seam. AuthProvider (import.meta.env.DEV only)
   // POSTs this once on mount to mint a Bearer for the storage routes — on the

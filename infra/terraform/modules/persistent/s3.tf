@@ -223,6 +223,59 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
       noncurrent_days = var.noncurrent_version_expiration_days
     }
   }
+
+  # Direct-to-S3 uploads land under pending/ and are copied to their real key
+  # once the gateway has confirmed them. An upload the client started and never
+  # completed has nothing pointing at it, so it is reaped here. One day, not
+  # hours: a presigned form lives 15 minutes, but a client that uploaded and
+  # then lost its connection before calling upload-complete can retry.
+  rule {
+    id     = "expire-unconfirmed-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "pending/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
+  # A multipart upload that was abandoned leaves billable parts behind that no
+  # object listing shows.
+  rule {
+    id     = "abort-incomplete-multipart"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+# Browsers POST upload forms straight at this bucket, so the bucket itself must
+# answer the preflight — a presigned form with no CORS rule fails at OPTIONS,
+# before the signature is ever checked. Only the origins that serve the app are
+# allowed, and only the methods a direct upload needs: reads stay proxied
+# through the gateway, so GET is not here.
+resource "aws_s3_bucket_cors_configuration" "documents" {
+  bucket = aws_s3_bucket.documents.id
+
+  cors_rule {
+    allowed_methods = ["POST"]
+    allowed_origins = var.documents_cors_origins
+    allowed_headers = ["*"]
+    # The client needs the ETag back to verify what S3 stored.
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
 }
 
 data "aws_iam_policy_document" "documents_bucket" {

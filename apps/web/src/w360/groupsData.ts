@@ -340,7 +340,7 @@ export const useAssignHolding = () =>
     (v) => (v.kind === 'property'
       ? assignPropertyToGroup(v.recordId, v.groupId)
       : assignLandToGroup(v.passbookId, v.groupId)),
-    'That holding could not be reassigned.',
+    'That property could not be reassigned.',
     { also: [[KEY, 'portfolio'], [KEY, 'properties'], [KEY, 'map']] },
   );
 

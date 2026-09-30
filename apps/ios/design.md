@@ -9,7 +9,8 @@ Authority: native platform conventions plus Google Material accessibility and in
 
 The repository root's `design.md` is the **web** system. Its macrostructures are
 web routes (`/`, `/app/*`, `/privacy`), its components are MUI, and its type is
-three Google faces served by `@fontsource`. None of that crosses to a phone.
+one face, Atkinson Hyperlegible, served by `@fontsource`. None of that crosses
+to a phone.
 
 What crosses is the **brand**, and it is exactly three things:
 
@@ -18,9 +19,11 @@ What crosses is the **brand**, and it is exactly three things:
    `Color.accentColor`, every `.tint`, and every system control in the app.
 2. **The warm paper**, derived from the same OKLCH ramp — `Palette.ground`,
    `.card`, `.cardRaised`, `.record`, `.recordDeep`.
-3. **The serif register for records.** The web sets its display in Inter Tight
-   with an Instrument Serif accent line. A phone has neither, and shipping
-   webfonts to get them would be a worse trade than the platform's own serif.
+3. **The serif register for records.** Until 27/09/2026 the web set its display
+   in Inter Tight with an Instrument Serif accent line; it now sets every word
+   in Atkinson Hyperlegible. Whether the phone follows is an open decision in
+   `docs/specs/TODO-one-platform.md`. Until it is made, shipping webfonts to a
+   phone is a worse trade than the platform's own serif.
    `Font.recordDisplay` / `.recordTitle` are the native equivalent: New York,
    the system serif, used for the same job — the name of a thing you own.
 

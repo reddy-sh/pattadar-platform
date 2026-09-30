@@ -6,6 +6,7 @@ Moved verbatim from services/api/src/main.py (AI consolidation, Phase 1). The
 from __future__ import annotations
 
 import logging
+import os
 
 from .config import CACHE_MIN_TOKENS, IMPORT_MODEL
 
@@ -14,6 +15,12 @@ _log = logging.getLogger("pattadar")
 # Prompts already checked against the floor, so the notice is logged once per
 # prompt rather than once per upload.
 _cache_floor_checked: set[int] = set()
+
+
+def safe_file_label(name: str | None) -> str:
+    """A non-PII label for telemetry: extension only, never user filename."""
+    ext = os.path.splitext(str(name or ""))[1].lower()
+    return f"document{ext}" if ext and len(ext) <= 10 and ext[1:].isalnum() else "document"
 
 def cacheable_system(text: str) -> list[dict]:
     """The system prompt as a single cache-marked block.
@@ -69,8 +76,8 @@ def usd_per_mtok(model: str) -> dict:
         "cache_read": p["input"] * 0.1,
     }
 
-def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -> None:
-    """Record what a read actually cost.
+def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -> dict:
+    """Record what a read actually cost, AND hand the same numbers back.
 
     Nothing on this path used to read `usage`, so nobody could say what reading
     a deed cost, which half of the bill was thinking, or whether the cache was
@@ -81,6 +88,12 @@ def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -
 
     `input_tokens` is only the UNCACHED remainder, so the prompt total is the
     sum of all three input classes, not that field alone.
+
+    The log line is the operator's copy and is unchanged. The returned dict is
+    the owner's copy: a reading carries it through to the client so the "What
+    this document says" panel can show what that one read cost. `usd` is list
+    price for `model`, pre-margin, and is 0.0 for a model we have no price for —
+    the caller decides whether an owner sees the dollars or only the tokens.
     """
     u = body.get("usage") or {}
     read = int(u.get("cache_read_input_tokens") or 0)
@@ -97,7 +110,35 @@ def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -
     _log.info(
         "ai.usage endpoint=%s attempt=%s model=%s file=%s prompt_total=%d "
         "(fresh=%d cache_write=%d cache_read=%d) output=%d stop=%s usd=%.4f",
-        endpoint, attempt, IMPORT_MODEL, name or "-",
+        endpoint, attempt, IMPORT_MODEL, safe_file_label(name),
         fresh + write + read, fresh, write, read, out,
         body.get("stop_reason"), usd,
     )
+    return {
+        "model": IMPORT_MODEL,
+        # The whole prompt, priced or not: fresh is only the uncached remainder.
+        "input_tokens": fresh + write + read,
+        "output_tokens": out,
+        # Kept apart so a client that wants to can show the cache at work; a
+        # second read of the same document type shows cache_read_tokens > 0.
+        "cache_write_tokens": write,
+        "cache_read_tokens": read,
+        "usd": round(usd, 4),
+    }
+
+
+def merge_usage(first: dict, second: dict) -> dict:
+    """Two paid calls for one reading add up; the low-effort retry does not
+    replace the first attempt, it follows it, and the owner paid for both.
+
+    Model is kept from whichever names one (they are the same call), and the
+    dollars are re-rounded once at the end so summing four-decimal figures does
+    not drift a hundredth."""
+    return {
+        "model": second.get("model") or first.get("model") or IMPORT_MODEL,
+        "input_tokens": first["input_tokens"] + second["input_tokens"],
+        "output_tokens": first["output_tokens"] + second["output_tokens"],
+        "cache_write_tokens": first["cache_write_tokens"] + second["cache_write_tokens"],
+        "cache_read_tokens": first["cache_read_tokens"] + second["cache_read_tokens"],
+        "usd": round(first["usd"] + second["usd"], 4),
+    }

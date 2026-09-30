@@ -204,21 +204,15 @@ test.describe('the record map with no tiles at all', () => {
     await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
     // The screen opens on satellite (RecordBoundary.tsx:260), so the first
-    // notice must name the imagery layer and point at the way out of it.
+    // notice must name the imagery layer.
     const notice = page.locator('.plot .nogeo.low');
     await expect(notice).toContainText('Satellite imagery is unavailable here.', { timeout: 20_000 });
-    await expect(notice).toContainText('Try Street view or zoom out.');
-    // The sentence that makes the notice safe to ignore — and it has to be true.
-    await expect(notice).toContainText('Your saved boundary and any drawing remain visible.');
     await expect(page.locator('path.w-ring')).toHaveCount(1);
 
-    // Falling back is the advice the notice just gave. Following it must change
-    // the message, because a notice that says "try the other one" and then says
-    // the same thing again has told the owner nothing.
+    // Switching basemap must change the message to name the other layer.
     await page.getByRole('button', { name: 'Satellite', exact: true }).click();
-    await expect(notice).toContainText('Street map tiles are unavailable. Try Satellite or check your connection.',
+    await expect(notice).toContainText('Street map tiles are unavailable.',
       { timeout: 20_000 });
-    await expect(notice).toContainText('Your saved boundary and any drawing remain visible.');
     // Still drawn on the second basemap: the ring comes off the record, not off
     // the network, which is the whole claim the notice is making.
     await expect(page.locator('path.w-ring')).toHaveCount(1);
@@ -240,7 +234,8 @@ test.describe('the record map with no tiles at all', () => {
 });
 
 test.describe('handing a village plot to a record that already exists', () => {
-  /** MARRIPALEM ships at apps/web/public/vm/marripalem.geojson; the seed's own
+  /** MARRIPALEM ships at apps/web/public/vm/ap/markapuram/konakanamitla/
+   *  maripalem.geojson (the fixture mandal the landing opens on); the seed's own
    *  records are all in Kothapalli, Chinnapuram and Peddapuram, so the adopt
    *  list is empty there until this test files something into the village. */
   const VILLAGE = 'MARRIPALEM';
@@ -251,7 +246,7 @@ test.describe('handing a village plot to a record that already exists', () => {
   const FIXTURE_NO = '845';
 
   const open = async (page: Pg) => {
-    await page.goto('/app/villages');
+    await page.goto('/app/maps');
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) }).click();
     await expect(page.locator('.vc-badge')).toContainText(VILLAGE, { timeout: 30_000 });
@@ -272,7 +267,7 @@ test.describe('handing a village plot to a record that already exists', () => {
     const card = await open(page);
     // The precondition for the whole block: the plot belongs to nobody the
     // account knows, so it is offered rather than merely reported.
-    await expect(card).toContainText('Not one of your records');
+    await expect(card).toContainText('Not one of your properties');
     await expect(card.getByText('Or give it to a record in this village')).toBeVisible();
     // The count note is how an owner knows the list is not the whole story —
     // it is capped, and ordered by how near each record's number is to the plot
@@ -308,7 +303,7 @@ test.describe('handing a village plot to a record that already exists', () => {
     // somebody selects. Now that the fixture carries a ring it must be gone —
     // and with nothing else in the village, the whole block goes with it.
     const again = await open(page);
-    await expect(again).toContainText('Not one of your records');
+    await expect(again).toContainText('Not one of your properties');
     await expect(again.getByText('Or give it to a record in this village')).toHaveCount(0);
     await expect(again.locator('.vm-list .villagerow', { hasText: FIXTURE_NO })).toHaveCount(0);
   });

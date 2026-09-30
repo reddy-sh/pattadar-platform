@@ -14,16 +14,15 @@
   --cert-red-wash: #fae9e7;
   --cert-amber: #8a5700;
   --cert-shadow: rgb(43 34 26 / 14%);
-  --cert-font-display: var(--font-display, "Inter Tight", system-ui, sans-serif);
-  --cert-font-body: var(--font-body, "Inter Tight", system-ui, sans-serif);
-  --cert-font-mono: var(--font-mono, "JetBrains Mono", monospace);
 
   min-height: 100dvh;
   padding: 1.5rem;
   overflow-x: clip;
   background: var(--cert-ground);
   color: var(--cert-ink);
-  font-family: var(--cert-font-body);
+  /* The one face (design.md § Typography); the certificate names it once and
+     everything printed on it inherits. */
+  font-family: var(--font-sans);
 }
 .certificatePage *, .certificatePage *::before, .certificatePage *::after { box-sizing: border-box; }
 .certificatePage button, .certificatePage a { -webkit-tap-highlight-color: transparent; }
@@ -61,7 +60,7 @@
   border-radius: 0.25rem;
   background: var(--cert-paper);
   color: var(--cert-ink);
-  font: 650 0.75rem/1 var(--cert-font-body);
+  font: 700 0.75rem/1 var(--font-sans);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -114,11 +113,10 @@
   border-bottom: 1px solid var(--cert-rule);
 }
 .certificateIdentity { display: flex; align-items: center; gap: 0.875rem; min-width: 0; }
-.certificateBrand { margin: 0; color: var(--cert-brand-dark); font-size: 1.125rem; font-weight: 800; }
+.certificateBrand { margin: 0; color: var(--cert-brand-dark); font-size: 1.125rem; font-weight: 700; }
 .certificateKicker, .certificateOverline {
   margin: 0.25rem 0 0;
   color: var(--cert-muted);
-  font-family: var(--cert-font-mono);
   font-size: 0.6875rem;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -135,8 +133,8 @@
   color: var(--cert-brand-dark);
 }
 .universityMark::before { content: ""; position: absolute; inset: 0.3rem; border: 1px solid var(--cert-rule-strong); border-radius: 50%; }
-.universityMonogram { font-family: var(--cert-font-display); font-size: 1.45rem; font-weight: 850; line-height: 1; }
-.universityRing { position: absolute; bottom: 0.7rem; font-size: 0.42rem; font-weight: 750; line-height: 0.9; text-align: center; text-transform: uppercase; }
+.universityMonogram { font-size: 1.45rem; font-weight: 700; line-height: 1; }
+.universityRing { position: absolute; bottom: 0.7rem; font-size: 0.42rem; font-weight: 700; line-height: 0.9; text-align: center; text-transform: uppercase; }
 .universityMark.small { width: 2.25rem; }
 .universityMark.small .universityMonogram { font-size: 0.8rem; }
 .universityMark.small .universityRing { display: none; }
@@ -180,9 +178,8 @@
   border: 1px solid var(--cert-rule);
   border-radius: 50%;
   color: var(--cert-rule);
-  font-family: var(--cert-font-display);
   font-size: 5rem;
-  font-weight: 850;
+  font-weight: 700;
   opacity: 0.28;
 }
 .certificateBody > *:not(.certificateWatermark) { position: relative; z-index: 1; }
@@ -191,9 +188,8 @@
   max-width: 100%;
   margin: 0.8rem 0 0;
   color: var(--cert-ink);
-  font-family: var(--cert-font-display);
   font-size: 4rem;
-  font-weight: 780;
+  font-weight: 700;
   line-height: 1.02;
   overflow-wrap: anywhere;
 }
@@ -202,13 +198,12 @@
   max-width: 44rem;
   margin: 0.5rem 0;
   color: var(--cert-brand-dark);
-  font-family: var(--cert-font-display);
   font-size: 2rem;
-  font-weight: 680;
+  font-weight: 700;
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
-.certificateCourse { font-family: var(--cert-font-mono); font-size: 0.75rem; overflow-wrap: anywhere; }
+.certificateCourse { font-size: 0.75rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .certificateSkills { width: 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; margin-top: 1.25rem; }
 .certificateSkills span {
   padding: 0.35rem 0.6rem;
@@ -257,13 +252,13 @@
   background: var(--cert-brand-wash);
 }
 .verificationCopy { max-width: 34rem; }
-.verificationCopy h3 { margin: 0.35rem 0; font-family: var(--cert-font-display); font-size: 1.25rem; }
+.verificationCopy h3 { margin: 0.35rem 0; font-size: 1.25rem; }
 .verificationCopy > p:not(.certificateOverline) { margin: 0 0 0.75rem; color: var(--cert-muted); font-size: 0.75rem; line-height: 1.45; }
 .verificationCopy button { background: var(--cert-paper); }
 .certificateMarks { display: flex; align-items: center; gap: 1.25rem; }
 .certificateQr { display: grid; justify-items: center; gap: 0.25rem; }
 .certificateQr canvas { width: 7rem !important; height: 7rem !important; }
-.certificateQr span, .certificateBarcode span { color: var(--cert-muted); font-family: var(--cert-font-mono); font-size: 0.5625rem; }
+.certificateQr span, .certificateBarcode span { color: var(--cert-muted); font-size: 0.5625rem; font-variant-numeric: tabular-nums; }
 .certificateBarcode { width: 12rem; display: grid; gap: 0.35rem; }
 .certificateBarcode svg { width: 100%; height: 2.5rem; }
 .certificateBarcode span { overflow-wrap: anywhere; }
@@ -280,7 +275,7 @@
   line-height: 1.4;
 }
 .certificateFoot p { margin: 0; }
-.certificateCode { font-family: var(--cert-font-mono); overflow-wrap: anywhere; text-align: right; }
+.certificateCode { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; text-align: right; }
 .certificateFeedback { min-height: 1.25rem; margin: 0.75rem auto 0; color: var(--cert-brand-dark); font-size: 0.75rem; text-align: center; }
 
 .certificatePending, .certificateInvalidPage { display: grid; place-content: center; justify-items: center; gap: 1rem; }
@@ -296,9 +291,9 @@
   box-shadow: 0 1.5rem 4rem var(--cert-shadow);
   text-align: center;
 }
-.certificateInvalid h1 { margin: 0.5rem 0 0; font: 750 2rem/1.1 var(--cert-font-display); }
+.certificateInvalid h1 { margin: 0.5rem 0 0; font: 700 2rem/1.1 var(--font-sans); }
 .certificateInvalid p { margin: 0; color: var(--cert-muted); line-height: 1.5; }
-.certificateInvalid a { margin-top: 0.5rem; color: var(--cert-brand-dark); font-weight: 750; }
+.certificateInvalid a { margin-top: 0.5rem; color: var(--cert-brand-dark); font-weight: 700; }
 
 @media (min-width: 900px) {
   .certificateFrame { aspect-ratio: 1.414 / 1; }

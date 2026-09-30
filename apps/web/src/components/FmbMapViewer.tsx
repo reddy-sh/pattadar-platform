@@ -395,7 +395,7 @@ export function FmbMapViewer({
                       <text
                         x={midX + ox * 12} y={midY + oy * 12}
                         transform={`rotate(${angle} ${midX + ox * 12} ${midY + oy * 12})`}
-                        textAnchor="middle" fontSize={11} fontWeight={600}
+                        textAnchor="middle" fontSize={11} fontWeight={700}
                         fill={s.state === 'measured_only' ? RED : 'currentColor'}
                         pointerEvents="none"
                       >
@@ -443,7 +443,7 @@ export function FmbMapViewer({
               </g>
               <g transform={`translate(${INSET}, ${VIEW - 22})`} opacity={0.8}>
                 <rect width={scale.px} height={3} fill="currentColor" />
-                <text y={16} fontSize={10} fontWeight={600} fill="currentColor">
+                <text y={16} fontSize={10} fontWeight={700} fill="currentColor">
                   {scale.label}
                 </text>
               </g>

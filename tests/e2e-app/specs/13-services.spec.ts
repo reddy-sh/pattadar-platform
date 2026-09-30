@@ -179,12 +179,11 @@ test.describe('Services', () => {
   test('every order still running is on the list, with its stage, its status word and what it cost', async ({ page, world }) => {
     await page.goto('/app/services');
 
-    await expect(page.getByRole('heading', { name: 'Work you can order' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Services', level: 1 })).toBeVisible();
     // Not "paid from your wallet, held in escrow": placing an order takes
     // nothing from anybody, and funding is a separate later act on the ticket.
     await expect(page.getByText(
-      'Ordered against one record — nothing is taken when you order. Money is set aside on '
-      + 'the job afterwards, and is only owed once you accept what came back.',
+      'You pay only after you accept the work.',
     )).toBeVisible();
     // Six open jobs; the two closed ones are not asked for.
     await expect(page.locator('.rows.boxed > div')).toHaveCount(6);
@@ -219,11 +218,13 @@ test.describe('Services', () => {
     // reason the status word sits beside the rail at all.
     await expect(orderRow(page, 'W-2106')).toContainText('Sent out');
     const waiting = orderRow(page, 'W-2105');
+    // One status per order, said once: "Needs you" used to be a second pill
+    // beside "Waiting on you", the same fact twice (Orders.tsx statusOf).
     await expect(waiting).toContainText('Waiting on you');
-    await expect(waiting).toContainText('Needs you');
-    await expect(waiting).toContainText('2 to look at');
+    await expect(waiting).not.toContainText('Needs you');
+    await expect(waiting).toContainText('2 to review');
     // And a job nobody is waiting on carries neither.
-    await expect(orderRow(page, 'W-2103')).not.toContainText('Needs you');
+    await expect(orderRow(page, 'W-2103')).not.toContainText('Waiting on you');
   });
 
   test('each row says which property it is against, and that name is the way in', async ({ page }) => {
@@ -236,7 +237,7 @@ test.describe('Services', () => {
     await page.goto('/app/services');
     await expect(orderRow(page, 'W-2098')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Everything, including done' }).click();
+    await page.getByRole('button', { name: 'All' }).click();
 
     await expect.poll(() => world.calls('orders').some((c) => c.vars.includeClosed === true)).toBe(true);
     expect(world.lastVars('orders')).toMatchObject({ recordId: null, includeClosed: true });
@@ -250,7 +251,7 @@ test.describe('Services', () => {
 
   test('the Open chip puts the finished work away again, without a second round trip', async ({ page, world }) => {
     await page.goto('/app/services');
-    await page.getByRole('button', { name: 'Everything, including done' }).click();
+    await page.getByRole('button', { name: 'All' }).click();
     await expect(orderRow(page, 'W-2098')).toBeVisible();
     const asked = world.calls('orders').length;
 
@@ -260,7 +261,7 @@ test.describe('Services', () => {
     await expect(orderRow(page, 'W-2098')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Open', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'Everything, including done' }))
+    await expect(page.getByRole('button', { name: 'All' }))
       .toHaveAttribute('aria-pressed', 'false');
     // The open list was already held under its own key, so going back to it
     // costs nothing — the two chips are two queries, not one query re-asked.
@@ -269,9 +270,9 @@ test.describe('Services', () => {
 
   test('a row opens its own service', async ({ page }) => {
     await page.goto('/app/services');
-    await expect(orderRow(page, 'W-2101').getByRole('link', { name: 'Open the service' }))
+    await expect(orderRow(page, 'W-2101').getByRole('link', { name: 'Open order' }))
       .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
-    await expect(page.getByRole('link', { name: 'Open the service' })).toHaveCount(6);
+    await expect(page.getByRole('link', { name: 'Open order' })).toHaveCount(6);
   });
 
   test('following a row through lands on that service and opens its own job, not the list again', async ({ page }) => {
@@ -281,7 +282,7 @@ test.describe('Services', () => {
     // press is a link that will be the last one fixed when the redirect goes.
     await page.goto('/app/services');
 
-    await orderRow(page, 'W-2101').getByRole('link', { name: 'Open the service' }).click();
+    await orderRow(page, 'W-2101').getByRole('link', { name: 'Open order' }).click();
 
     await expect(page).toHaveURL(`/app/services/${TICKET.placed}`);
     // W-2101 is the encumbrance certificate and W-2102 is the corner survey,
@@ -300,7 +301,7 @@ test.describe('Services', () => {
   test('where a job has got to can be read without leaving the list', async ({ page }) => {
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2102');
-    const track = row.getByRole('button', { name: 'Track order' });
+    const track = row.getByRole('button', { name: 'Track' });
     await expect(track).toHaveAttribute('aria-expanded', 'false');
 
     await track.click();
@@ -314,34 +315,34 @@ test.describe('Services', () => {
 
   test('tracking a second job puts the first one away, so two panels cannot be read against each other', async ({ page }) => {
     await page.goto('/app/services');
-    await orderRow(page, 'W-2102').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2102').getByRole('button', { name: 'Track' }).click();
     await expect(orderRow(page, 'W-2102')).toContainText('Assigned · due 2026-09-25 · with Ravi Kumar');
 
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
 
     await expect(orderRow(page, 'W-2103')).toContainText('On site · due 2026-09-25 · with Ravi Kumar');
     await expect(orderRow(page, 'W-2102')).not.toContainText('with Ravi Kumar');
-    await expect(orderRow(page, 'W-2102').getByRole('button', { name: 'Track order' }))
+    await expect(orderRow(page, 'W-2102').getByRole('button', { name: 'Track' }))
       .toHaveAttribute('aria-expanded', 'false');
   });
 
   test('a job somebody already holds names who has it instead of offering to hand it out again', async ({ page }) => {
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2102');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
     await expect(row).toContainText('with Ravi Kumar, licensed surveyor');
     // The picker is for a job nobody is on. Offering it here would be a second
     // way to reassign work that the one-service screen already owns.
     await expect(row.getByLabel('Assign to')).toHaveCount(0);
-    await expect(row).not.toContainText('Nobody was ever put on this job.');
+    await expect(row).not.toContainText('Never assigned.');
   });
 
   test('an order placed before the form asked anything says so instead of showing a blank', async ({ page }) => {
     await page.goto('/app/services');
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
     await expect(orderRow(page, 'W-2103'))
-      .toContainText('This order was placed before the form asked for details.');
+      .toContainText('No details recorded.');
   });
 
   test('the answers I gave are readable back off the row', async ({ page, world }) => {
@@ -350,7 +351,7 @@ test.describe('Services', () => {
       : o)));
     await page.goto('/app/services');
 
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
     const row = orderRow(page, 'W-2103');
     await expect(row).toContainText('How many corners');
     await expect(row).toContainText('8');
@@ -362,15 +363,15 @@ test.describe('Services', () => {
     world.set('orders', OPEN_ORDERS.map((o) => (o.id === TICKET.onSite ? { ...o, params: 'not json' } : o)));
     await page.goto('/app/services');
 
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
     await expect(orderRow(page, 'W-2103')).toContainText('On site');
     await expect(orderRow(page, 'W-2103'))
-      .toContainText('This order was placed before the form asked for details.');
+      .toContainText('No details recorded.');
   });
 
   test('a job nobody is on yet is where somebody is put on it', async ({ page, world }) => {
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
 
     const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
     await expect(picker).toBeVisible();
@@ -397,7 +398,7 @@ test.describe('Services', () => {
       : o)))(vars));
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
     await row.getByLabel('Assign to').selectOption('Srinivas');
 
@@ -410,7 +411,7 @@ test.describe('Services', () => {
     // failed; only a resolved empty array is an answer about this account.
     world.set('assignable', World.never());
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
 
     const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
     await expect(picker).toBeVisible();
@@ -422,7 +423,7 @@ test.describe('Services', () => {
   test('names that could not be read leave the picker empty rather than saying nobody has ever worked here', async ({ page, world }) => {
     world.set('assignable', World.gqlError('the people store is down'));
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
 
     const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
     await expect(picker.locator('option')).toHaveText(['Nobody yet']);
@@ -437,7 +438,7 @@ test.describe('Services', () => {
   test('putting the picker back to nobody files nothing', async ({ page, world }) => {
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
     const picker = row.getByLabel('Assign to');
 
     await picker.selectOption('Ravi Kumar');
@@ -454,7 +455,7 @@ test.describe('Services', () => {
     world.set('assignRequest', World.slow(1500, true));
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
     await row.getByLabel('Assign to').selectOption('Ravi Kumar');
 
@@ -469,7 +470,7 @@ test.describe('Services', () => {
     world.set('assignRequest', (vars) => vars.assignee === 'Ravi Kumar');
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
     await row.getByLabel('Assign to').selectOption('Srinivas');
     await expect(row.getByRole('alert')).toContainText('That did not go through.');
@@ -484,7 +485,7 @@ test.describe('Services', () => {
   test('a name the machine will not take is put back, and the row says so', async ({ page, world }) => {
     world.set('assignRequest', false);
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
 
     const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
     await picker.selectOption('Srinivas');
@@ -500,7 +501,7 @@ test.describe('Services', () => {
   test('an assignment that never reached the server says the same thing, and says why', async ({ page, world }) => {
     world.set('assignRequest', World.gqlError('the work queue is down'));
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
     await orderRow(page, 'W-2101').getByLabel('Assign to').selectOption('Ravi Kumar');
 
     await expect(orderRow(page, 'W-2101').getByRole('alert'))
@@ -515,12 +516,12 @@ test.describe('Services', () => {
     world.set('assignRequest', false);
     await page.goto('/app/services');
     const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
     await row.getByLabel('Assign to').selectOption('Ravi Kumar');
     await expect(row.getByRole('alert')).toBeVisible();
 
     await row.getByRole('button', { name: 'Hide' }).click();
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
     await expect(row.getByRole('alert')).toHaveCount(0);
   });
@@ -528,25 +529,24 @@ test.describe('Services', () => {
   test('an account with nobody to hand work to is told so, not given a picker that cannot do anything', async ({ page, world }) => {
     world.set('assignable', []);
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
 
     // The whole sentence: it is not enough to say there is nobody, because the
     // job still has to reach a surveyor. The way through is named.
     await expect(orderRow(page, 'W-2101')).toContainText(
-      'Nobody has worked on your records yet, so there is no name to pick. Open the '
-      + 'service and send this to someone — Pattadar does the sending, so you can take it back.',
+      'No providers yet.',
     );
     await expect(orderRow(page, 'W-2101').getByLabel('Assign to')).toHaveCount(0);
   });
 
   test('a job that is over says nobody was ever on it rather than offering a picker', async ({ page }) => {
     await page.goto('/app/services');
-    await page.getByRole('button', { name: 'Everything, including done' }).click();
+    await page.getByRole('button', { name: 'All' }).click();
 
     const row = orderRow(page, 'W-2099');
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
-    await expect(row).toContainText('Nobody was ever put on this job.');
+    await expect(row).toContainText('Never assigned.');
     await expect(row.getByLabel('Assign to')).toHaveCount(0);
   });
 
@@ -554,17 +554,14 @@ test.describe('Services', () => {
     world.set('orders', []);
     await page.goto('/app/services');
 
-    await expect(page.getByText('Nothing is on order')).toBeVisible();
-    await expect(page.getByText(
-      'A survey, an EC, a title opinion or a site visit can be ordered from any record',
-    )).toBeVisible();
+    await expect(page.getByText('No open orders')).toBeVisible();
     // The chip row is gone: the one question an empty Open list raises is
     // answered by the button inside the empty state.
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Everything, including done' }).click();
+    await page.getByRole('button', { name: 'All' }).click();
 
-    await expect(page.getByText('Nothing has ever been ordered')).toBeVisible();
+    await expect(page.getByText('No orders yet')).toBeVisible();
     // Asked for everything, the chips are back — there is somewhere to go.
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toBeVisible();
   });
@@ -574,7 +571,7 @@ test.describe('Services', () => {
     await page.goto('/app/services');
 
     await expect(page.getByText('Loading…')).toBeVisible();
-    await expect(page.getByText('Nothing is on order')).toHaveCount(0);
+    await expect(page.getByText('No open orders')).toHaveCount(0);
     await expect(page.getByText('Work you have ordered did not load')).toHaveCount(0);
   });
 
@@ -584,11 +581,11 @@ test.describe('Services', () => {
 
     const failed = page.getByRole('alert').filter({ hasText: 'Work you have ordered did not load' });
     await expect(failed).toBeVisible();
-    await expect(failed).toContainText('Nothing has been lost');
+    await expect(failed).toContainText('Check your connection and try again.');
     await expect(failed).toContainText('the work queue is down');
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
     // Not the empty state. An outage is not an answer about your orders.
-    await expect(page.getByText('Nothing is on order')).toHaveCount(0);
+    await expect(page.getByText('No open orders')).toHaveCount(0);
   });
 
   test('the header goes straight into ordering, without a detour through the property list', async ({ page }) => {
@@ -645,7 +642,7 @@ test.describe('Services', () => {
     await page.goto('/app/services');
 
     const row = orderRow(page, 'W-2101');
-    await expect(row.getByRole('link', { name: 'Open the service' })).toBeVisible();
+    await expect(row.getByRole('link', { name: 'Open order' })).toBeVisible();
     await expect(row.getByRole('link')).toHaveCount(1);
     // And the rows that do have a name still carry it.
     await expect(orderRow(page, 'W-2102').getByRole('link', { name: 'Sy 214/2' })).toBeVisible();
@@ -685,7 +682,7 @@ test.describe('Services', () => {
     test.fail();
     world.set('assignable', World.gqlError('the people store is down'));
     await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track order' }).click();
+    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
     await expect(orderRow(page, 'W-2101').getByRole('button', { name: 'Hide' })).toBeVisible();
 
     // Either shape of fix counts: the module's own `Failed` ("… did not
@@ -704,13 +701,11 @@ test.describe('Waiting on you', () => {
     await page.goto('/app/assigned');
 
     await expect(page.getByRole('heading', { name: 'Waiting on you' })).toBeVisible();
-    await expect(page.getByText(
-      'Orders that have come back and need your decision.',
-    )).toBeVisible();
+    await expect(page.getByText('Needs your action')).toBeVisible();
 
-    // One of the eight: the delivered job with two things to look at.
+    // One of the eight: the delivered job with two things to review.
     await expect(page.locator('.rows.boxed > div')).toHaveCount(1);
-    await expect(orderRow(page, 'W-2105')).toContainText('2 to look at');
+    await expect(orderRow(page, 'W-2105')).toContainText('2 to review');
     // A job placed with nobody on it is not waiting on anybody.
     await expect(orderRow(page, 'W-2101')).toHaveCount(0);
     await expect(orderRow(page, 'W-2102')).toHaveCount(0);
@@ -728,8 +723,9 @@ test.describe('Waiting on you', () => {
     await page.goto('/app/assigned');
 
     await expect(page.locator('.rows.boxed > div')).toHaveCount(2);
-    await expect(orderRow(page, 'W-2103')).toContainText('3 to look at');
-    await expect(orderRow(page, 'W-2104')).toContainText('Needs you');
+    await expect(orderRow(page, 'W-2103')).toContainText('3 to review');
+    // The server's flag reads as the ticket machine's word for that state.
+    await expect(orderRow(page, 'W-2104')).toContainText('Waiting on you');
     // The row that was on the list only because the seed flagged it is gone.
     await expect(orderRow(page, 'W-2105')).toHaveCount(0);
   });
@@ -753,7 +749,7 @@ test.describe('Waiting on you', () => {
 
   test('the Open and Everything chips are gone, because a finished job is not waiting on anybody', async ({ page }) => {
     await page.goto('/app/assigned');
-    await expect(page.getByRole('button', { name: 'Everything, including done' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'All' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Order a service' })).toHaveCount(0);
   });
 
@@ -762,10 +758,9 @@ test.describe('Waiting on you', () => {
     await page.goto('/app/assigned');
 
     await expect(page.getByText('Nothing is waiting on you')).toBeVisible();
-    await expect(page.getByText('Money stays set aside until you do.')).toBeVisible();
     // Not the Services empty state: this list asks a different question.
-    await expect(page.getByText('Nothing is on order')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Everything you have ordered' }))
+    await expect(page.getByText('No open orders')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'All your service orders' }))
       .toHaveAttribute('href', '/app/services');
   });
 
@@ -795,12 +790,11 @@ test.describe("A record's services", () => {
   test('the record’s own list asks for that record’s work and nobody else’s', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/services`);
 
-    await expect(page.getByRole('heading', { name: 'What you have ordered' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Service orders' })).toBeVisible();
     // The same sentence the order flow one click away says, and the service
     // says on arrival: placing an order takes nothing from anybody.
     await expect(page.getByText(
-      'Nothing is taken when you order. Money is set aside on the job, and is only owed '
-      + 'once you accept what came back.',
+      'You pay only after you accept the work.',
     )).toBeVisible();
     await expect(page.getByText('Sy 214/2 · Katragunta')).toBeVisible();
 
@@ -813,13 +807,20 @@ test.describe("A record's services", () => {
 
   test('ordering from a record already knows which property it is for', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/services`);
-    await expect(page.getByRole('link', { name: 'Order a service' }))
+    // One way in: the property header's "Order a service", which is on every
+    // tab. The tab's own copy of it, under its heading, was the same link a
+    // few centimetres lower and is gone; the tab's head link goes to the list
+    // of every service order instead.
+    await expect(page.locator('header.pagehead').getByRole('link', { name: 'Order a service' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}/order`);
+    await expect(page.locator('header.sechead').getByRole('link', { name: 'Order a service' })).toHaveCount(0);
+    await expect(page.locator('header.sechead').getByRole('link', { name: 'All your service orders' }))
+      .toHaveAttribute('href', '/app/services');
   });
 
   test('a record whose work is all done can still be asked what it cost', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/services`);
-    await page.getByRole('button', { name: 'Everything, including done' }).click();
+    await page.getByRole('button', { name: 'All' }).click();
 
     await expect.poll(() => world.calls('orders').some(
       (c) => c.vars.recordId === ID.parcel && c.vars.includeClosed === true,
@@ -831,9 +832,9 @@ test.describe("A record's services", () => {
   test('a record nothing has been ordered against says so', async ({ page }) => {
     await page.goto(`/app/records/${ID.plot}/services`);
 
-    await expect(page.getByText('Nothing is on order')).toBeVisible();
+    await expect(page.getByText('No open orders')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Everything, including done' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'All' })).toBeVisible();
   });
 
   test('a record with nothing open can be asked what it has ever ordered, from the empty state itself', async ({ page, world }) => {
@@ -841,9 +842,9 @@ test.describe("A record's services", () => {
     // the empty state rather than by a filter chip over an empty box.
     world.set('orders', ordersAnswer(ORDERS.filter((o) => o.status === 'accepted' || o.status === 'cancelled')));
     await page.goto(`/app/records/${ID.parcel}/services`);
-    await expect(page.getByText('Nothing is on order')).toBeVisible();
+    await expect(page.getByText('No open orders')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Everything, including done' }).click();
+    await page.getByRole('button', { name: 'All' }).click();
 
     await expect.poll(() => world.calls('orders').some(
       (c) => c.vars.recordId === ID.parcel && c.vars.includeClosed === true,
@@ -858,18 +859,20 @@ test.describe("A record's services", () => {
     world.set('orders', World.never());
     await page.goto(`/app/records/${ID.parcel}/services`);
 
-    await expect(page.getByText('Loading…')).toBeVisible();
-    await expect(page.getByText('Nothing is on order')).toHaveCount(0);
+    // The waiting word names what it waits for, in the failure's own words
+    // ("This property's service orders did not load").
+    await expect(page.getByText("Loading this property's service orders…")).toBeVisible();
+    await expect(page.getByText('No open orders')).toHaveCount(0);
   });
 
   test('a record’s services that did not load says so in that record’s words', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
     await page.goto(`/app/records/${ID.parcel}/services`);
 
-    await expect(page.getByRole('alert').filter({ hasText: "This record's services did not load" }))
+    await expect(page.getByRole('alert').filter({ hasText: "This property's service orders did not load" }))
       .toBeVisible();
     // And not the empty state — an outage is not an answer about this record.
-    await expect(page.getByText('Nothing is on order')).toHaveCount(0);
+    await expect(page.getByText('No open orders')).toHaveCount(0);
   });
 });
 
@@ -972,9 +975,11 @@ test.describe("A record's audit", () => {
  *  name is its whole meat (title, place, extent, map word, jobs), so it is
  *  named by the text it contains rather than by a role name. */
 const landCard = (page: Page, title: string) =>
-  page.locator('main > .cards a.rec').filter({ hasText: title });
+  page.locator('main > .cards > div.rec').filter({ hasText: title });
 
-const landCards = (page: Page) => page.locator('main > .cards a.rec');
+// A div with one link in it since 07944a0 (OrderLand.tsx LandCard): the
+// "Include" tick box had to stop being interactive content inside an anchor.
+const landCards = (page: Page) => page.locator('main > .cards > div.rec');
 
 /** One tile in the catalogue strip under the grid. It composes nothing: it is
  *  a link that re-heads this same page. */
@@ -985,11 +990,7 @@ test.describe('Choosing the land', () => {
   test('the first question is which land, and this screen composes no order at all', async ({ page, world }) => {
     await page.goto('/app/order');
 
-    await expect(page.getByRole('heading', { name: 'Which land is this for?' })).toBeVisible();
-    await expect(page.getByText(
-      'Every service is done on one piece of land. Choose it, and we will show you what '
-      + 'that land actually needs.',
-    )).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Choose the property' })).toBeVisible();
 
     // Four of the five seeded records: the archived shop is not land anybody
     // can order work on, and `properties` leaves it out until the archived
@@ -1005,7 +1006,7 @@ test.describe('Choosing the land', () => {
     await expect(page.getByRole('heading', { name: 'What we need to know' })).toHaveCount(0);
     expect(world.calls('orderService')).toHaveLength(0);
     expect(world.lastVars('properties')).toMatchObject({
-      kinds: [], statuses: [], stakes: [], derived: [], tags: [],
+      kinds: [], statuses: [], stakes: [], villages: [], khatas: [], owners: [], tags: [],
     });
   });
 
@@ -1046,14 +1047,14 @@ test.describe('Choosing the land', () => {
     // the card must not print one until the read lands.
     await expect(landCard(page, 'Sy 214/2')).toContainText('4 acres');
     await expect(landCard(page, 'Sy 214/2')).not.toContainText('already running here');
-    await expect(page.getByText('We could not check what is already running on your land.')).toHaveCount(0);
+    await expect(page.getByText('Existing orders could not be checked.')).toHaveCount(0);
   });
 
   test('a count that could not be read is said once, and does not withhold the land', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
     await page.goto('/app/order');
 
-    await expect(page.getByText('We could not check what is already running on your land.')).toBeVisible();
+    await expect(page.getByText('Existing orders could not be checked.')).toBeVisible();
     // Thirty perfectly good cards are not withheld because a count failed.
     await expect(landCards(page)).toHaveCount(4);
     await expect(landCard(page, 'Sy 214/2')).not.toContainText('already running here');
@@ -1064,7 +1065,7 @@ test.describe('Choosing the land', () => {
     await page.goto('/app/order');
 
     await expect(page.getByRole('status', { name: 'Loading your properties' })).toBeVisible();
-    await expect(page.getByText('No land to order against yet')).toHaveCount(0);
+    await expect(page.getByText('Add a property before ordering')).toHaveCount(0);
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
@@ -1072,25 +1073,22 @@ test.describe('Choosing the land', () => {
     world.set('properties', World.gqlError('the portfolio read failed'));
     await page.goto('/app/order');
 
-    const failed = page.getByRole('alert').filter({ hasText: 'Your land did not load' });
+    const failed = page.getByRole('alert').filter({ hasText: 'Your properties did not load' });
     await expect(failed).toBeVisible();
     await expect(failed).toContainText('the portfolio read failed');
-    await expect(page.getByText('No land to order against yet')).toHaveCount(0);
+    await expect(page.getByText('Add a property before ordering')).toHaveCount(0);
   });
 
   test('an account with no land yet is told to add some, and can still read what this costs', async ({ page, world }) => {
     world.set('properties', propertyList([]));
     await page.goto('/app/order');
 
-    await expect(page.getByText('No land to order against yet')).toBeVisible();
-    await expect(page.getByText(
-      'A service is always done on one piece of land. Add the land first, then come back and order.',
-    )).toBeVisible();
+    await expect(page.getByText('Add a property before ordering')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Add a property' }))
       .toHaveAttribute('href', '/app/properties?new=1');
     // …and the catalogue is still under it: a first-time owner has to be able
     // to see what this app is for before being asked to add a property.
-    await expect(page.getByRole('heading', { name: 'What can be ordered' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Available services' })).toBeVisible();
     await expect(offerTile(page, 'Encumbrance Certificate')).toBeVisible();
   });
 
@@ -1099,7 +1097,7 @@ test.describe('Choosing the land', () => {
     await expect(landCards(page)).toHaveCount(4);
     const asked = world.calls('properties').length;
 
-    await page.getByLabel('Find your land').fill('Kukatpally');
+    await page.getByLabel('Find your property').fill('Kukatpally');
 
     await expect(landCards(page)).toHaveCount(1);
     await expect(landCard(page, 'Flat 4B, Sai Residency')).toBeVisible();
@@ -1111,10 +1109,9 @@ test.describe('Choosing the land', () => {
 
   test('a search that matches no land says so in my own words, and offers to clear itself', async ({ page }) => {
     await page.goto('/app/order');
-    await page.getByLabel('Find your land').fill('Vizag');
+    await page.getByLabel('Find your property').fill('Vizag');
 
-    await expect(page.getByText('No land matches “Vizag”')).toBeVisible();
-    await expect(page.getByText('Try the village name, the survey number or the khata number.')).toBeVisible();
+    await expect(page.getByText('No property matches “Vizag”')).toBeVisible();
     await expect(landCards(page)).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Clear' }).click();
@@ -1140,11 +1137,7 @@ test.describe('Choosing the land', () => {
   test('the catalogue under the grid prices every job and says what an owner calls it', async ({ page }) => {
     await page.goto('/app/order');
 
-    await expect(page.getByRole('heading', { name: 'What can be ordered' })).toBeVisible();
-    await expect(page.getByText(
-      'Six jobs, on any one piece of your land. Choose the land first — the price and the '
-      + 'wait are the same whichever you pick.',
-    )).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Available services' })).toBeVisible();
     await expect(page.locator('section.sec .cards a.rec')).toHaveCount(OFFERS.length);
 
     const ec = offerTile(page, 'Encumbrance Certificate');
@@ -1164,7 +1157,7 @@ test.describe('Choosing the land', () => {
     await offerTile(page, 'Boundary re-survey').click();
 
     await expect(page).toHaveURL('/app/order?service=survey');
-    await expect(page.getByRole('heading', { name: 'Which land is the boundary re-survey for?' }))
+    await expect(page.getByRole('heading', { name: 'Which property is the boundary re-survey for?' }))
       .toBeVisible();
     // Still nothing composed: the tile asked the same question again, more
     // narrowly, against no property at all.
@@ -1180,7 +1173,7 @@ test.describe('Choosing the land', () => {
     await offerTile(page, 'Site visit').click();
 
     await expect(page).toHaveURL('/app/order?service=site_visit&q=Katragunta');
-    await expect(page.getByLabel('Find your land')).toHaveValue('Katragunta');
+    await expect(page.getByLabel('Find your property')).toHaveValue('Katragunta');
     await expect(landCards(page)).toHaveCount(2);
     await expect(page.getByRole('link', { name: 'Choose a different service' }))
       .toHaveAttribute('href', '/app/order?q=Katragunta');
@@ -1212,7 +1205,7 @@ test.describe('Choosing the land', () => {
     await expect(landCard(page, 'Sy 214/2')).toBeVisible();
 
     await expect(page.getByText('Loading the list of services…')).toBeVisible();
-    await expect(page.getByText('There is nothing on offer just now')).toHaveCount(0);
+    await expect(page.getByText('No services are available right now')).toHaveCount(0);
   });
 
   test('a catalogue that did not load is named where it failed, and the land is still choosable', async ({ page, world }) => {
@@ -1230,11 +1223,7 @@ test.describe('Choosing the land', () => {
     world.set('servicesOffered', []);
     await page.goto('/app/order');
 
-    await expect(page.getByText('There is nothing on offer just now')).toBeVisible();
-    await expect(page.getByText(
-      'Nothing is wrong with your land. You can still ask a surveyor, an advocate or a '
-      + 'caretaker directly from any record.',
-    )).toBeVisible();
+    await expect(page.getByText('No services are available right now')).toBeVisible();
     await expect(landCards(page)).toHaveCount(4);
   });
 
@@ -1311,6 +1300,15 @@ const need = (page: Page, says: string) =>
   page.locator('.card.flat li').filter({ hasText: says });
 
 test.describe('Ordering a service', () => {
+  // Since 8ee7822 a service already running on the land is drawn as its open
+  // request instead of a tile that can be picked, and the seeded parcel has an
+  // EC and corner surveys open. Most of these tests are about ordering, so
+  // they start from a land with nothing running. The tests about what is
+  // already running set the seeded orders back themselves.
+  test.beforeEach(({ world }) => {
+    world.set('orders', ordersAnswer([]));
+  });
+
   // ── step 2 · what do you want done ─────────────────────────────────
 
   test('the flow opens on what this land needs, with the land itself beside it', async ({ page }) => {
@@ -1321,7 +1319,7 @@ test.describe('Ordering a service', () => {
 
     // The land is on the page at every step — here as the card the owner
     // already recognises, with what the record can say about where it is.
-    const land = card(page, 'This land');
+    const land = card(page, 'This property');
     await expect(land).toContainText('Sy 214/2');
     await expect(land).toContainText('Katragunta, Markapur, Prakasam');
     await expect(land).toContainText('4 acres');
@@ -1338,13 +1336,14 @@ test.describe('Ordering a service', () => {
     await expect(need(page, 'There is no boundary on record for this land.')
       .getByRole('link', { name: 'Locate / draw boundary' }))
       .toHaveAttribute('href', `/app/records/${ID.plot}/map`);
-    await expect(need(page, 'No papers are filed on this land yet.')
-      .getByRole('link', { name: 'Open Papers' }))
+    await expect(need(page, 'No documents are filed on this property yet.')
+      .getByRole('link', { name: 'Open Documents' }))
       .toHaveAttribute('href', `/app/records/${ID.plot}`);
     await expect(page.locator('.card.flat li')).toHaveCount(2);
   });
 
-  test('a job already running on this land is one of the things the land needs saying about it', async ({ page }) => {
+  test('a job already running on this land is one of the things the land needs saying about it', async ({ page, world }) => {
+    world.set('orders', ordersAnswer(ORDERS));
     await page.goto(`/app/records/${ID.parcel}/order`);
 
     await expect(need(page, 'An encumbrance certificate is already on order here.')
@@ -1352,12 +1351,12 @@ test.describe('Ordering a service', () => {
       .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
   });
 
-  test('a land with its boundary and its papers on record is told so, not given an empty box', async ({ page, world }) => {
+  test('a land with its boundary and its papers on record gets no needs box', async ({ page, world }) => {
     world.set('orders', ordersAnswer([]));
     await page.goto(`/app/records/${ID.parcel}/order`);
 
-    await expect(page.getByText('This land has its boundary and its papers on record.')).toBeVisible();
-    await expect(page.locator('.card.flat li')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
+    await expect(page.locator('.card.flat')).toHaveCount(0);
   });
 
   test('work on the ground is offered first, whatever order the catalogue arrives in', async ({ page }) => {
@@ -1400,10 +1399,9 @@ test.describe('Ordering a service', () => {
       'Your boundary is on record. The outline goes with the order, so the surveyor starts '
       + 'from your corners.',
     );
-    // Then what you already have running here…
-    await expect(svcTile(page, 'Encumbrance Certificate'))
-      .toContainText('You already have one of these running here.');
-    // …then what you are actually buying, which the blurb does not say. What
+    // Then what you are actually buying, which the blurb does not say. (What
+    // you already have running is no longer a line on a tile: since 8ee7822
+    // such a service is its open request — see the test below.) What
     // an owner CALLS it comes next in the precedence and is unreachable here
     // by construction: both keys in ALSO_CALLED (ec, mutation) are in
     // DELIVERABLE too, so a tile never falls through to it. It is asserted
@@ -1464,7 +1462,7 @@ test.describe('Ordering a service', () => {
     world.set('servicesOffered', []);
     await page.goto(`/app/records/${ID.parcel}/order`);
 
-    await expect(page.getByText('There is nothing on offer just now')).toBeVisible();
+    await expect(page.getByText('No services are available right now')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ask someone yourself' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}/request`);
     await expect(page.getByRole('button', { name: 'Answer what it needs' })).toHaveCount(0);
@@ -1476,7 +1474,7 @@ test.describe('Ordering a service', () => {
 
     await expect(page.getByRole('alert').filter({ hasText: 'The list of services did not load' }))
       .toBeVisible();
-    await expect(page.getByText('There is nothing on offer just now')).toHaveCount(0);
+    await expect(page.getByText('No services are available right now')).toHaveCount(0);
   });
 
   test('a catalogue still arriving is not one with nothing in it either', async ({ page, world }) => {
@@ -1484,7 +1482,7 @@ test.describe('Ordering a service', () => {
     await page.goto(`/app/records/${ID.parcel}/order`);
 
     await expect(page.getByText('Loading the list of services…')).toBeVisible();
-    await expect(page.getByText('There is nothing on offer just now')).toHaveCount(0);
+    await expect(page.getByText('No services are available right now')).toHaveCount(0);
   });
 
   test('a land whose running jobs could not be read is still ordered against, and says what it could not check', async ({ page, world }) => {
@@ -1525,9 +1523,9 @@ test.describe('Ordering a service', () => {
     await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
 
     await expect(page.getByText(
-      'Boundary re-survey on Sy 214/2. ₹2,900 · about 21 days once somebody is on it.',
+      'Boundary re-survey on Sy 214/2 · ₹2,900 · about 21 days',
     )).toBeVisible();
-    const sheet = card(page, 'The questions');
+    const sheet = card(page, 'Details for this service');
     await expect(sheet.getByLabel('Which boundary').locator('option'))
       .toHaveText(['Choose…', 'All four', 'North', 'South', 'East', 'West']);
     await expect(sheet.getByLabel('Is a neighbour disputing it?').locator('option'))
@@ -1548,7 +1546,7 @@ test.describe('Ordering a service', () => {
     await expect(page.getByLabel('From year')).toHaveAttribute('min', '1900');
     // And no question is dressed as a search box, which is what the old
     // `Field` did to every text, date and number answer on this screen.
-    await expect(card(page, 'The questions').locator('.search')).toHaveCount(0);
+    await expect(card(page, 'Details for this service').locator('.search')).toHaveCount(0);
 
     await page.goto(`/app/records/${ID.parcel}/order?service=patta_copy&step=tell`);
     await expect(page.getByLabel('How many copies')).toHaveAttribute('type', 'number');
@@ -1560,9 +1558,9 @@ test.describe('Ordering a service', () => {
 
   test('the questions that have to be answered are starred, and announced as required', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    const sheet = card(page, 'The questions');
+    const sheet = card(page, 'Details for this service');
 
-    await expect(sheet.getByText('Marked * — we cannot start without it.')).toBeVisible();
+    await expect(sheet.getByText('* Required')).toBeVisible();
     await expect(sheet.getByText('Which boundary *', { exact: true })).toBeVisible();
     await expect(sheet.getByLabel('Which boundary')).toHaveAttribute('aria-required', 'true');
     // The star is decoration; the attribute is what a screen reader is told.
@@ -1602,29 +1600,28 @@ test.describe('Ordering a service', () => {
 
   test('where the land is, is only asked about work somebody has to go and do', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    await expect(card(page, 'Where this land is')).toBeVisible();
+    await expect(card(page, 'Location & boundary')).toBeVisible();
 
     await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell`);
-    await expect(card(page, 'Where this land is')).toBeVisible();
+    await expect(card(page, 'Location & boundary')).toBeVisible();
 
     // An encumbrance certificate does not care where the land is.
     await page.goto(`/app/records/${ID.parcel}/order?service=ec&step=tell`);
-    await expect(card(page, 'Where this land is')).toHaveCount(0);
+    await expect(card(page, 'Location & boundary')).toHaveCount(0);
     await page.goto(`/app/records/${ID.parcel}/order?service=title_opinion&step=tell`);
-    await expect(card(page, 'Where this land is')).toHaveCount(0);
+    await expect(card(page, 'Location & boundary')).toHaveCount(0);
   });
 
   test('the boundary is only offered to be sent when there are corners to send', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    const where = card(page, 'Where this land is');
+    const where = card(page, 'Location & boundary');
     const send = where.getByRole('checkbox', { name: 'Send them the boundary you have drawn' });
     await expect(send).toBeChecked();
-    await expect(where).toContainText('Only the outline goes — no name, no khata, no survey number.');
 
     // A pin is not a boundary and cannot be sent: `public_manifest` hands the
     // worker `{items, boundary}` and nothing else.
     await page.goto(`/app/records/${ID.flat}/order?service=site_visit&step=tell`);
-    await expect(card(page, 'Where this land is'))
+    await expect(card(page, 'Location & boundary'))
       .toContainText('A pin cannot go with the order — only a drawn boundary can.');
     await expect(page.getByRole('checkbox', { name: 'Send them the boundary you have drawn' }))
       .toHaveCount(0);
@@ -1633,7 +1630,7 @@ test.describe('Ordering a service', () => {
     // rather than disabled, because there is nothing to decide.
     world.set('record', recordLike({ ring: [15.7410, 79.2694, 15.7402, 79.2704] }));
     await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    await expect(card(page, 'Where this land is'))
+    await expect(card(page, 'Location & boundary'))
       .toContainText('A pin cannot go with the order — only a drawn boundary can.');
     await expect(page.getByRole('checkbox', { name: 'Send them the boundary you have drawn' }))
       .toHaveCount(0);
@@ -1642,13 +1639,13 @@ test.describe('Ordering a service', () => {
   test('a land nobody can find is asked how to get there, and that answer becomes one that has to be given', async ({ page }) => {
     await page.goto(`/app/records/${ID.plot}/order?service=survey&step=tell`);
 
-    await expect(card(page, 'Where this land is')).toContainText(
+    await expect(card(page, 'Location & boundary')).toContainText(
       'Nothing on this record says where this land is. This is the service that puts that '
       + 'right — tell the surveyor where to come below.',
     );
     // The catalogue says this field is optional. On a land nobody can find it
     // is the only way anybody gets there.
-    await expect(card(page, 'The questions').getByText('Anything the surveyor should know *', { exact: true }))
+    await expect(card(page, 'Details for this service').getByText('Anything the surveyor should know *', { exact: true }))
       .toBeVisible();
     await expect(page.getByLabel('Anything the surveyor should know'))
       .toHaveAttribute('aria-required', 'true');
@@ -1664,10 +1661,10 @@ test.describe('Ordering a service', () => {
   test('a visit to a land nobody can find asks who to meet there instead', async ({ page }) => {
     await page.goto(`/app/records/${ID.plot}/order?service=site_visit&step=tell`);
 
-    await expect(card(page, 'Where this land is')).toContainText(
+    await expect(card(page, 'Location & boundary')).toContainText(
       'Nothing on this record says where this land is, so nobody can be sent to it yet.',
     );
-    await expect(card(page, 'The questions').getByText('Who to meet on site *', { exact: true })).toBeVisible();
+    await expect(card(page, 'Details for this service').getByText('Who to meet on site *', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Who to meet on site')).toHaveAttribute('aria-required', 'true');
     await expect(page.locator('#sf-meet-help'))
       .toHaveText('Nobody can find this land from the record, so write down how to get there.');
@@ -1675,10 +1672,9 @@ test.describe('Ordering a service', () => {
 
   test('everything filed on the land can be sent, with the papers kept out of the photos', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell`);
-    const give = card(page, 'What should they be given?');
+    const give = card(page, 'Documents to share with the provider');
 
-    await expect(give).toContainText('Whoever does this work sees only what you tick here.');
-    await expect(cardCount(page, 'What should they be given?')).toHaveText('0 of 8');
+    await expect(cardCount(page, 'Documents to share with the provider')).toHaveText('0 of 8');
     await expect(give).toContainText('Papers · 5');
     await expect(give).toContainText('Photos and video · 3');
     // Nothing is capped: the old screen stopped at eight papers and six
@@ -1691,37 +1687,33 @@ test.describe('Ordering a service', () => {
 
   test('a land with nothing filed on it can still be ordered against', async ({ page }) => {
     await page.goto(`/app/records/${ID.plot}/order?service=survey&step=tell`);
-    const give = card(page, 'What should they be given?');
+    const give = card(page, 'Documents to share with the provider');
 
-    await expect(give).toContainText('Nothing is filed on this land yet');
-    await expect(give).toContainText(
-      'You can still order — they simply go without paperwork. Anything you file later '
-      + 'will not be added to an order that has already gone in.',
-    );
-    await expect(give.getByRole('link', { name: 'File a paper first' }))
+    await expect(give).toContainText('No documents on this property yet');
+    await expect(give.getByRole('link', { name: 'Add a document first' }))
       .toHaveAttribute('href', `/app/records/${ID.plot}`);
     await expect(page.getByRole('button', { name: 'Check the order' })).toBeEnabled();
   });
 
   test('a land with papers and no photographs heads only the shelf it actually has', async ({ page }) => {
     await page.goto(`/app/records/${ID.flat}/order?service=ec&step=tell`);
-    const give = card(page, 'What should they be given?');
+    const give = card(page, 'Documents to share with the provider');
 
     await expect(give).toContainText('Papers · 1');
     await expect(give).not.toContainText('Photos and video');
     await expect(give.getByRole('checkbox')).toHaveCount(1);
-    await expect(cardCount(page, 'What should they be given?')).toHaveText('0 of 1');
-    await expect(give).not.toContainText('Nothing is filed on this land yet');
+    await expect(cardCount(page, 'Documents to share with the provider')).toHaveText('0 of 1');
+    await expect(give).not.toContainText('No documents on this property yet');
   });
 
   test('what is ticked is named on the order, so a surveyor sent to the wrong field can be shown what they were handed', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell&a.check=Crop`);
     await page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' }).check();
     await page.getByRole('checkbox', { name: 'The well from the gate' }).check();
-    await expect(cardCount(page, 'What should they be given?')).toHaveText('2 of 8');
+    await expect(cardCount(page, 'Documents to share with the provider')).toHaveText('2 of 8');
 
     await page.getByRole('button', { name: 'Check the order' }).click();
-    await expect(kvRow(page, 'Goes with it')).toContainText('1 paper, 1 photo');
+    await expect(kvRow(page, 'Goes with it')).toContainText('1 document, 1 photo');
     await page.getByRole('button', { name: /^Place/ }).click();
 
     await expect.poll(() => world.calls('orderService')).toHaveLength(1);
@@ -1774,8 +1766,7 @@ test.describe('Ordering a service', () => {
     await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
 
     await expect(page.getByText(
-      'Nothing is taken now. ₹2,900 is what this job costs. You set that money aside on the '
-      + 'job itself, and it is only owed once you accept what came back.',
+      'You pay only after you accept the work.',
     )).toBeVisible();
     await expect(page.getByRole('button', { name: 'Place the order · ₹2,900' })).toBeVisible();
   });
@@ -1784,7 +1775,7 @@ test.describe('Ordering a service', () => {
     await toReview(page, ID.parcel, 'patta_copy', { copies: '3' });
 
     await expect(page.getByText(
-      '₹450 is what is quoted for this job. The number of copies does not change it.',
+      'The number of copies does not change the price.',
     )).toBeVisible();
   });
 
@@ -1814,19 +1805,20 @@ test.describe('Ordering a service', () => {
     await expect(kvRow(page, 'Boundary')).toContainText('Nothing drawn yet');
   });
 
-  test('the review warns that this land already has one of these, and never blocks it', async ({ page }) => {
-    await toReview(page, ID.parcel, 'ec');
+  // Rewritten 27/09/2026. These used to say an owner is warned about a second
+  // copy of a running job and may place it anyway. Since 8ee7822 a running
+  // service is not offered at all: its tile becomes the open request, and
+  // the order is refused if it is reached another way (OrderService.tsx,
+  // `if (!offer || duplicate || existingUnavailable) return`).
+  test('a service already running on this land is offered back as its open request, not ordered twice', async ({ page, world }) => {
+    world.set('orders', ordersAnswer(ORDERS));
+    await page.goto(`/app/records/${ID.parcel}/order`);
 
-    const already = card(page, 'You already have one of these here');
-    await expect(already).toContainText(
-      'An encumbrance certificate is already running on this land — placed, at ₹1,200.',
-    );
-    await expect(already.getByRole('link', { name: 'Open the one you have' }))
+    const running = page.locator('.svc-existing').filter({ hasText: 'Encumbrance Certificate' });
+    await expect(running).toBeVisible();
+    await expect(running.getByRole('link', { name: 'Open request' }))
       .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
-    // Warned, not stopped: this screen restates the whole order first, so an
-    // owner who means it can go on.
-    await expect(page.getByRole('button', { name: 'Place a second one anyway' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: /^Place the order/ })).toHaveCount(0);
+    await expect(svcTile(page, 'Encumbrance Certificate')).toHaveCount(0);
   });
 
   test('a job asked for directly, under another name, still counts as the same job', async ({ page, world }) => {
@@ -1836,10 +1828,13 @@ test.describe('Ordering a service', () => {
       id: 'w-tkt-visit', ref: 'W-2200', kind: 'visit', title: 'Caretaker visit',
       stageLabel: 'Assigned', cost: 1_500,
     })]));
-    await toReview(page, ID.parcel, 'site_visit', { check: 'Crop' });
+    await page.goto(`/app/records/${ID.parcel}/order`);
 
-    await expect(card(page, 'You already have one of these here'))
-      .toContainText('A caretaker visit is already running on this land — assigned, at ₹1,500.');
+    const running = page.locator('.svc-existing').filter({ hasText: 'Site visit' });
+    await expect(running).toContainText('W-2200');
+    await expect(running.getByRole('link', { name: 'Open request' }))
+      .toHaveAttribute('href', '/app/services/w-tkt-visit');
+    await expect(svcTile(page, 'Site visit')).toHaveCount(0);
   });
 
   test('when what is running could not be read the review says so, rather than promising nothing is', async ({ page, world }) => {
@@ -1847,15 +1842,15 @@ test.describe('Ordering a service', () => {
     await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
 
     await expect(page.getByText(
-      'We could not check what is already running on this land, so look under Services '
-      + 'before you place a second one.',
+      'We could not check what is already running on this land. Check Services '
+      + 'before trying again.',
     )).toBeVisible();
     // The rail has a Services link of its own; this is the one inside the
     // sentence, which has to point at THIS land's list.
-    await expect(page.locator('p.note').filter({ hasText: 'so look under' })
+    await expect(page.locator('p.note').filter({ hasText: 'before trying again' })
       .getByRole('link', { name: 'Services' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
-    await expect(card(page, 'You already have one of these here')).toHaveCount(0);
+    await expect(card(page, 'This service is already ordered for this property')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Place the order · ₹450' })).toBeEnabled();
   });
 
@@ -1939,7 +1934,7 @@ test.describe('Ordering a service', () => {
     await expect(said).toContainText('That order was not accepted, and nothing was charged.');
     // The commonest cause, named, with somewhere to look — not "choose the
     // property or the service again".
-    await expect(said).toContainText('something you attached is no longer on this land');
+    await expect(said).toContainText('Something you attached may no longer be on this land');
     await expect(said).not.toContainText('That order did not go through');
     await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=patta_copy&step=check`);
     await expect(page.getByRole('heading', { name: 'That is placed.' })).toHaveCount(0);
@@ -2008,10 +2003,7 @@ test.describe('Ordering a service', () => {
     await page.goto(`/app/records/${ID.parcel}/order?service=gold-plating`);
 
     await expect(page.getByRole('heading', { name: 'That service is no longer offered' })).toBeVisible();
-    await expect(page.getByText(
-      'The link you followed names a service this catalogue does not have. It may have been '
-      + 'withdrawn or renamed. Nothing has been ordered.',
-    )).toBeVisible();
+    await expect(page.getByText('Nothing has been ordered.')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Place/ })).toHaveCount(0);
     expect(world.calls('orderService')).toHaveLength(0);
 
@@ -2037,7 +2029,9 @@ test.describe('Ordering a service', () => {
     let filed = false;
     world.set('orderService', () => { filed = true; return 1; });
     world.set('orders', (vars: Record<string, unknown>) =>
-      ordersAnswer(filed ? [...ORDERS, newJob()] : ORDERS)(vars));
+      // Nothing running before: the seeded corner surveys would make the
+      // survey tile an open request rather than something to order (8ee7822).
+      ordersAnswer(filed ? [newJob()] : [])(vars));
     await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
 
     await page.getByRole('button', { name: /^Place/ }).click();
@@ -2068,7 +2062,7 @@ test.describe('Ordering a service', () => {
     // The headline stands on the count, which is proof enough that it was
     // filed. Only the reference waits.
     await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
-    await expect(page.getByText('Loading your new job…')).toBeVisible();
+    await expect(page.getByText('Loading your new order…')).toBeVisible();
     await expect(page.getByText('did not go through')).toHaveCount(0);
   });
 
@@ -2080,8 +2074,7 @@ test.describe('Ordering a service', () => {
 
     await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
     await expect(page.getByText(
-      'Certified patta copy is filed against Sy 214/2. We could not pick it out of the list '
-      + 'just now — it is under Services on this land.',
+      'Certified patta copy is filed against Sy 214/2. It is under Services on this land.',
     )).toBeVisible();
     await expect(page.getByRole('link', { name: 'See what is running here' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
@@ -2107,7 +2100,7 @@ test.describe('Ordering a service', () => {
     // DoneStep's `read: 'failed'` branch (OrderService.tsx:1010) is never
     // taken and the "could not pick it out of the list" sentence covers this
     // too. What must never be said is that the order failed.
-    await expect(page.getByText('it is under Services on this land')).toBeVisible();
+    await expect(page.getByText('is under Services on this land')).toBeVisible();
     await expect(page.getByText('did not go through')).toHaveCount(0);
     await expect(page.getByText('was not accepted')).toHaveCount(0);
   });
@@ -2150,11 +2143,11 @@ test.describe('Ordering a service', () => {
     world.set('photos', World.gqlError('the vault is down'));
     await page.goto(`/app/records/${ID.parcel}/order?service=patta_copy&step=tell&a.copies=2`);
 
-    const give = card(page, 'What should they be given?');
+    const give = card(page, 'Documents to share with the provider');
     await expect(give).toContainText('What is filed on this land did not load');
     // And NOT the empty state: an outage is not an answer about what this
     // record holds. The record's own header counts twelve papers.
-    await expect(give).not.toContainText('Nothing is filed on this land yet');
+    await expect(give).not.toContainText('No documents on this property yet');
 
     // A papers outage is not a reason to refuse to sell.
     await page.getByRole('button', { name: 'Check the order' }).click();
@@ -2193,7 +2186,9 @@ test.describe('Ordering a service', () => {
     let filed = false;
     world.set('orderService', () => { filed = true; return 1; });
     world.set('orders', (vars: Record<string, unknown>) =>
-      ordersAnswer(filed ? [...ORDERS, newJob()] : ORDERS)(vars));
+      // Nothing running before: the seeded corner surveys would make the
+      // survey tile an open request rather than something to order (8ee7822).
+      ordersAnswer(filed ? [newJob()] : [])(vars));
     await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
     await page.getByRole('button', { name: /^Place/ }).click();
 
@@ -2207,12 +2202,28 @@ test.describe('Ordering a service', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe('Asking for work on a record', () => {
+  // Since 8ee7822 the request screen refuses to raise a second copy of a job
+  // that is already running, and the seeded parcel has corner surveys open.
+  // These tests are about composing a request, so they start from a record
+  // with nothing running; the guard has its own test just below.
+  test.beforeEach(({ world }) => {
+    world.set('orders', ordersAnswer([]));
+  });
+
+  test('a job already running on the land is offered back instead of being asked for twice', async ({ page, world }) => {
+    world.set('orders', ordersAnswer(ORDERS));
+    await page.goto(`/app/records/${ID.parcel}/request`);
+
+    await expect(page.getByRole('heading', { name: 'This request already exists' })).toBeVisible();
+    await expect(page.getByText('Corner survey is already running on Sy 214/2.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open request' })).toBeVisible();
+    await expect(page.getByLabel('Message', { exact: true })).toHaveCount(0);
+  });
+
   test('asking a surveyor opens with the words an owner would actually send', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/request`);
 
     await expect(page.getByRole('heading', { name: 'Ask a surveyor' })).toBeVisible();
-    await expect(page.getByText('They do not need an account. You choose exactly what leaves this record.'))
-      .toBeVisible();
     await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
       'Hey dear surveyor, please do the survey for this location. The boundary is attached as a GeoJSON file.',
     );
@@ -2224,10 +2235,8 @@ test.describe('Asking for work on a record', () => {
 
     const geo = page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ });
     await expect(geo).toBeChecked();
-    await expect(page.getByText('4 corners. Geometry only — no name, no khata, no survey number.'))
-      .toBeVisible();
-    await expect(page.getByText('Whoever it is assigned to sees the 1 thing you ticked, and nothing else.'))
-      .toBeVisible();
+    await expect(page.getByText('4 corners. Geometry only.')).toBeVisible();
+    await expect(page.getByText('1 attached.')).toBeVisible();
   });
 
   test('a record with no boundary asks for the corners to be established instead of promising a file', async ({ page }) => {
@@ -2240,9 +2249,8 @@ test.describe('Asking for work on a record', () => {
     const geo = page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ });
     await expect(geo).toBeDisabled();
     await expect(geo).not.toBeChecked();
-    await expect(page.getByText('This record has no surveyed boundary yet.')).toBeVisible();
-    await expect(page.getByText('Nothing of yours is attached. The request carries only your message.'))
-      .toBeVisible();
+    await expect(page.getByText('No boundary saved yet.')).toBeVisible();
+    await expect(page.getByText('Nothing attached.')).toBeVisible();
   });
 
   test('a boundary read that failed does not turn a surveyed record into an unsurveyed one', async ({ page, world }) => {
@@ -2267,7 +2275,7 @@ test.describe('Asking for work on a record', () => {
 
     await expect(page.getByRole('heading', { name: 'Ask an advocate' })).toBeVisible();
     await expect(page.getByLabel('Message', { exact: true }))
-      .toHaveValue('Please read these papers and tell me whether the title is clean.');
+      .toHaveValue('Please read these documents and tell me whether the title is clean.');
   });
 
   test('only the surveyor’s opener changes for an unsurveyed record, because only it promised a file', async ({ page }) => {
@@ -2279,11 +2287,11 @@ test.describe('Asking for work on a record', () => {
     await page.goto(`/app/records/${ID.plot}/request?kind=opinion`);
 
     await expect(page.getByLabel('Message', { exact: true }))
-      .toHaveValue('Please read these papers and tell me whether the title is clean.');
+      .toHaveValue('Please read these documents and tell me whether the title is clean.');
     // The box still says there is no boundary — the message just does not.
     await expect(page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ })).toBeDisabled();
-    await expect(page.getByText('This record has no surveyed boundary yet.')).toBeVisible();
-    await expect(page.getByText('Nothing of yours is attached.')).toBeVisible();
+    await expect(page.getByText('No boundary saved yet.')).toBeVisible();
+    await expect(page.getByText('Nothing attached.')).toBeVisible();
   });
 
   test('asking somebody to visit opens on what they should send back', async ({ page }) => {
@@ -2317,7 +2325,7 @@ test.describe('Asking for work on a record', () => {
   test('an advocate’s request is filed as an opinion, not as a survey', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/request?kind=opinion`);
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2329,11 +2337,9 @@ test.describe('Asking for work on a record', () => {
     await page.goto(`/app/records/${ID.parcel}/request`);
     await page.getByLabel('Message', { exact: true }).fill('   ');
 
-    const raise = page.getByRole('button', { name: 'Create request' });
+    const raise = page.getByRole('button', { name: 'Send request' });
     await expect(raise).toBeDisabled();
-    await expect(page.getByText(
-      'Type your message first. The request is the message — there is nothing to raise without it.',
-    )).toBeVisible();
+    await expect(page.getByText('Type your message first.')).toBeVisible();
     await raise.click({ force: true });
     expect(world.calls('createRequest')).toHaveLength(0);
   });
@@ -2342,10 +2348,10 @@ test.describe('Asking for work on a record', () => {
     await page.goto(`/app/records/${ID.parcel}/request`);
     await page.getByRole('checkbox', { name: 'The well from the gate' }).check();
     await page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' }).check();
-    await expect(page.getByText('Whoever it is assigned to sees the 3 things you ticked, and nothing else.'))
+    await expect(page.getByText('3 attached.'))
       .toBeVisible();
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2362,21 +2368,21 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('the count on the shelf and the sentence under the button are the same number', async ({ page }) => {
-    // Two places print what is attached — the Chip on "What to send"
+    // Two places print what is attached — the Chip on "Attachments"
     // (RequestWork.tsx:322) and the sentence at :313-317 — and both read the
     // same `attachmentCount`. On this screen those two disagreeing is the
     // difference between a surveyor being handed a deed and not.
     await page.goto(`/app/records/${ID.parcel}/request`);
-    await expect(cardCount(page, 'What to send')).toHaveText('1');
+    await expect(cardCount(page, 'Attachments')).toHaveText('1');
 
     await page.getByRole('checkbox', { name: 'The well from the gate' }).check();
     await page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' }).check();
 
-    await expect(cardCount(page, 'What to send')).toHaveText('3');
+    await expect(cardCount(page, 'Attachments')).toHaveText('3');
     // And each shelf counts only its own.
     await expect(cardCount(page, 'Photos')).toHaveText('1');
-    await expect(cardCount(page, 'Papers')).toHaveText('1');
-    await expect(page.getByText('Whoever it is assigned to sees the 3 things you ticked, and nothing else.'))
+    await expect(cardCount(page, 'Documents')).toHaveText('1');
+    await expect(page.getByText('3 attached.'))
       .toBeVisible();
   });
 
@@ -2385,11 +2391,11 @@ test.describe('Asking for work on a record', () => {
     const deed = page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' });
 
     await deed.check();
-    await expect(page.getByText('sees the 2 things you ticked')).toBeVisible();
+    await expect(page.getByText('2 attached.')).toBeVisible();
     await deed.uncheck();
-    await expect(page.getByText('sees the 1 thing you ticked')).toBeVisible();
+    await expect(page.getByText('1 attached.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2403,9 +2409,9 @@ test.describe('Asking for work on a record', () => {
   test('a request with nothing ticked carries only the message', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/request`);
     await page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ }).uncheck();
-    await expect(page.getByText('Nothing of yours is attached.')).toBeVisible();
+    await expect(page.getByText('Nothing attached.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2420,7 +2426,7 @@ test.describe('Asking for work on a record', () => {
     await page.getByRole('button', { name: 'I am acting for the owner' }).click();
     await page.getByLabel('Your name').fill('Venkat, for my brother');
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     expect(world.lastVars('createRequest')).toMatchObject({ requester: 'Venkat, for my brother' });
@@ -2431,7 +2437,7 @@ test.describe('Asking for work on a record', () => {
     await page.getByRole('button', { name: 'I am acting for the owner' }).click();
     await expect(page.getByLabel('Your name')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     expect(world.lastVars('createRequest')).toMatchObject({ requester: 'acting for the owner' });
@@ -2450,7 +2456,7 @@ test.describe('Asking for work on a record', () => {
     await expect(page.getByRole('button', { name: 'I am acting for the owner' }))
       .toHaveAttribute('aria-pressed', 'false');
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     // The name that was typed and then taken back does not travel.
@@ -2462,9 +2468,9 @@ test.describe('Asking for work on a record', () => {
     world.set('createRequest', World.slow(1500, 'w-req-new'));
     await page.goto(`/app/records/${ID.parcel}/request`);
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
-    const going = page.getByRole('button', { name: 'Raising…' });
+    const going = page.getByRole('button', { name: 'Sending…' });
     await expect(going).toBeVisible();
     await expect(going).toBeDisabled();
     await expect(page.getByRole('link', { name: 'Open the job' })).toBeVisible();
@@ -2473,16 +2479,14 @@ test.describe('Asking for work on a record', () => {
 
   test('a filed request stays on screen and hands me the job rather than taking it away', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
-    await expect(page.getByText(
-      'Filed as a job. Nobody has it yet — open it to put somebody on it',
-    )).toBeVisible();
+    await expect(page.getByText('Request sent. Not assigned yet.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open the job' }))
       .toHaveAttribute('href', '/app/services/w-req-new');
     // Both exits are the owner's act; nothing redirects itself.
     await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/request`));
-    await expect(page.getByRole('button', { name: 'Create request' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send request' })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Back to Services' }).click();
     await expect(page).toHaveURL(`/app/records/${ID.parcel}/services`);
@@ -2491,7 +2495,7 @@ test.describe('Asking for work on a record', () => {
   test('a request the server would not accept says what it wanted', async ({ page, world }) => {
     world.set('createRequest', '');
     await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText('That request was not accepted. A message is required.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open the job' })).toHaveCount(0);
@@ -2500,14 +2504,14 @@ test.describe('Asking for work on a record', () => {
   test('a request that died on the way back is reported, with the reason', async ({ page, world }) => {
     world.set('createRequest', World.gqlError('the gateway gave up'));
     await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     // The shared mutation helper toasts the reason…
     const toast = page.locator('.toast').filter({ hasText: 'That request' });
     await expect(toast).toContainText('That request could not be saved. Nothing has changed.');
     await expect(toast).toContainText('the gateway gave up');
     // …and the button comes back, so the owner is not left pressing nothing.
-    await expect(page.getByRole('button', { name: 'Create request' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Send request' })).toBeEnabled();
     await expect(page.getByRole('link', { name: 'Open the job' })).toHaveCount(0);
   });
 
@@ -2518,9 +2522,9 @@ test.describe('Asking for work on a record', () => {
     await page.getByLabel('Add a file to this request').setInputFiles({
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
-    await expect(card(page, 'Something else')).toContainText('Sale deed.pdf · 0.0 MB');
+    await expect(card(page, 'Other')).toContainText('Sale deed.pdf · 0.0 MB');
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     // Stored, then filed as a paper on the record — in that order.
     await expect.poll(() => world.restCalls(/storage\/files\?/)).toHaveLength(1);
@@ -2545,9 +2549,9 @@ test.describe('Asking for work on a record', () => {
     await pick.setInputFiles(file);
     await pick.setInputFiles(file);
 
-    await expect(cardCount(page, 'Something else')).toHaveText('1');
-    await expect(card(page, 'Something else')).toContainText('Sale deed.pdf · 0.0 MB');
-    await expect(page.getByText('Whoever it is assigned to sees the 2 things you ticked, and nothing else.'))
+    await expect(cardCount(page, 'Other')).toHaveText('1');
+    await expect(card(page, 'Other')).toContainText('Sale deed.pdf · 0.0 MB');
+    await expect(page.getByText('2 attached.'))
       .toBeVisible();
   });
 
@@ -2558,9 +2562,9 @@ test.describe('Asking for work on a record', () => {
     await pick.setInputFiles({ name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed') });
     await pick.setInputFiles({ name: 'EC.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 ec') });
 
-    await expect(cardCount(page, 'Something else')).toHaveText('2');
-    await expect(card(page, 'Something else')).toContainText('Sale deed.pdf · 0.0 MB, EC.pdf · 0.0 MB');
-    await expect(page.getByText('Whoever it is assigned to sees the 3 things you ticked, and nothing else.'))
+    await expect(cardCount(page, 'Other')).toHaveText('2');
+    await expect(card(page, 'Other')).toContainText('Sale deed.pdf · 0.0 MB, EC.pdf · 0.0 MB');
+    await expect(page.getByText('3 attached.'))
       .toBeVisible();
   });
 
@@ -2582,13 +2586,13 @@ test.describe('Asking for work on a record', () => {
   test('a file over the limit is refused by name before a byte is sent, and no request is raised', async ({ page, world }) => {
     await page.goto(`/app/records/${ID.parcel}/request`);
     await page.getByLabel('Add a file to this request').setInputFiles({
-      name: 'Scan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(11 * 1024 * 1024, 1),
+      name: 'Scan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(16 * 1024 * 1024, 1),
     });
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText(
-      'Scan.pdf is 11.0 MB. The limit is 10.0 MB — it was not uploaded and no request was raised.',
+      'Scan.pdf is 16.0 MB. The limit is 15.0 MB — it was not uploaded and no request was raised.',
     )).toBeVisible();
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(0);
     expect(world.calls('createRequest')).toHaveLength(0);
@@ -2602,14 +2606,14 @@ test.describe('Asking for work on a record', () => {
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText(
       'That file was stored but could not be filed against this record, so no request was raised.',
     )).toBeVisible();
     expect(world.calls('createRequest')).toHaveLength(0);
     // The file is still queued, so the owner can try again without re-picking.
-    await expect(card(page, 'Something else')).toContainText('Sale deed.pdf');
+    await expect(card(page, 'Other')).toContainText('Sale deed.pdf');
   });
 
   test('when the second file cannot be filed the first one stays filed, and only the failure is left queued', async ({ page, world }) => {
@@ -2621,7 +2625,7 @@ test.describe('Asking for work on a record', () => {
       { name: 'EC.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 ec') },
     ]);
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText(
       'That file was stored but could not be filed against this record, so no request was raised.',
@@ -2629,10 +2633,10 @@ test.describe('Asking for work on a record', () => {
     expect(world.calls('createRequest')).toHaveLength(0);
     // The deed is a paper on the record now, so it is ticked rather than
     // queued — a retry must not upload the same bytes a second time.
-    await expect(card(page, 'Something else')).toContainText('EC.pdf');
-    await expect(card(page, 'Something else')).not.toContainText('Sale deed.pdf');
-    await expect(cardCount(page, 'Something else')).toHaveText('1');
-    await expect(cardCount(page, 'Papers')).toHaveText('1');
+    await expect(card(page, 'Other')).toContainText('EC.pdf');
+    await expect(card(page, 'Other')).not.toContainText('Sale deed.pdf');
+    await expect(cardCount(page, 'Other')).toHaveText('1');
+    await expect(cardCount(page, 'Documents')).toHaveText('1');
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(2);
   });
 
@@ -2646,7 +2650,7 @@ test.describe('Asking for work on a record', () => {
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
 
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText('The upload service did not confirm that the file was saved.'))
       .toBeVisible();
@@ -2659,12 +2663,11 @@ test.describe('Asking for work on a record', () => {
     await page.goto(`/app/records/${ID.parcel}/request`);
 
     await expect(card(page, 'Photos').getByRole('checkbox')).toHaveCount(3);
-    await expect(card(page, 'Papers').getByRole('checkbox')).toHaveCount(5);
+    await expect(card(page, 'Documents').getByRole('checkbox')).toHaveCount(5);
     // A photo with no caption is named by its file, not left blank.
     await expect(card(page, 'Photos')).toContainText('ne-stone.jpg');
     await expect(card(page, 'Photos')).toContainText('Video');
-    await expect(page.getByText('A paper names people. Send one only when the person asking needs it.'))
-      .toBeVisible();
+    await expect(page.getByText('Papers name people.')).toBeVisible();
   });
 
   test('a record with nothing on it says so on both shelves', async ({ page }) => {
@@ -2674,34 +2677,11 @@ test.describe('Asking for work on a record', () => {
     await expect(page.getByText('Nothing is filed against this record.')).toBeVisible();
   });
 
-  test('the message card says what is added to what I typed, and what is not', async ({ page }) => {
-    // The promise the whole screen rests on: the request is the message, and
-    // nothing about the record rides along inside it unasked.
-    await page.goto(`/app/records/${ID.parcel}/request`);
-
-    await expect(card(page, 'Your message')).toContainText(
-      'Your name is added at the end. Nothing else about the record goes in unless you type it.',
-    );
-  });
-
-  test('the card that raises the job says where it lands and who does the sending', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
-
-    await expect(card(page, 'Raise the request')).toContainText(
-      'It goes on this record as Placed. Someone is put on it from the people this '
-      + 'account works with, or Pattadar writes to a new person on your behalf — either '
-      + 'way the system does the sending, so it can be taken back. You follow it under Services.',
-    );
-  });
-
   test('the file shelf states the limit before a byte is picked, not after one is refused', async ({ page }) => {
     await page.goto(`/app/records/${ID.parcel}/request`);
 
-    await expect(cardCount(page, 'Something else')).toHaveText('0');
-    await expect(card(page, 'Something else')).toContainText(
-      'Each one is filed against this record as a paper when you raise the request, '
-      + 'then named on it. Up to 10.0 MB each.',
-    );
+    await expect(cardCount(page, 'Other')).toHaveText('0');
+    await expect(card(page, 'Other')).toContainText('Up to 15.0 MB each.');
   });
 
   test('the way back from asking is the record’s own boundary, which is where the ask came from', async ({ page, world }) => {
@@ -2727,7 +2707,7 @@ test.describe('Asking for work on a record', () => {
     await page.goto(`/app/records/${ID.parcel}/request`);
 
     await expect(page.getByRole('status', { name: 'Loading this record' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Create request' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send request' })).toHaveCount(0);
   });
 
   // ── defects ──────────────────────────────────────────────────────────
@@ -2746,9 +2726,9 @@ test.describe('Asking for work on a record', () => {
     test.fail();
     world.set('papers', World.gqlError('the vault is down'));
     await page.goto(`/app/records/${ID.parcel}/request`);
-    await expect(card(page, 'Papers')).toBeVisible();
+    await expect(card(page, 'Documents')).toBeVisible();
 
-    await expect(card(page, 'Papers'))
+    await expect(card(page, 'Documents'))
       .toContainText(/did not load|could not be read/i, { timeout: 3000 });
   });
 
@@ -2787,7 +2767,7 @@ test.describe('Asking for work on a record', () => {
     test.fail();
     world.set('createRequest', World.gqlError('the gateway gave up'));
     await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText('look under Services before trying again'))
       .toBeVisible({ timeout: 3000 });
@@ -2808,7 +2788,7 @@ test.describe('Asking for work on a record', () => {
     await page.getByLabel('Add a file to this request').setInputFiles({
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect(page.getByText(/no request was raised/i)).toBeVisible({ timeout: 3000 });
   });
@@ -2826,7 +2806,7 @@ test.describe('Asking for work on a record', () => {
     test.fail();
     await page.goto(`/app/records/${ID.parcel}/request?kind=banana`);
     await expect(page.getByRole('heading', { name: 'Ask a surveyor' })).toBeVisible();
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     expect(world.lastVars('createRequest')).toMatchObject({ kind: 'survey' });

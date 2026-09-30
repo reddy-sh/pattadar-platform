@@ -1,14 +1,9 @@
 /**
- * Landing page copy — BYTE-FROZEN (design.md § Copy freeze).
+ * Landing page copy. Revised for product accuracy by user request on 28/09/2026.
  *
- * Every user-visible string on the landing page lives here, extracted
- * verbatim from the pre-Bloom page. Redesigns restyle the page around these
- * strings; they may not add, remove or alter them. Icons stay in the page
- * component, keyed by the `icon` names used here.
- *
- * Whitespace rules used during extraction: JSX text runs were collapsed to
- * single spaces exactly as React renders them; `&apos;` became a straight
- * apostrophe; `’` escapes were kept as written.
+ * User-visible strings live here. Keep claims tied to what the product can do,
+ * distinguish saved copies from official records, and mark future work clearly.
+ * Icons stay in the page component, keyed by the names used here.
  */
 
 export const NAV_LINKS: [string, string][] = [
@@ -16,7 +11,7 @@ export const NAV_LINKS: [string, string][] = [
   ['Features', 'features'],
   ['Pattadar AI', 'ai'],
   ['How it works', 'how'],
-  ['6 Pillars', 'pillars'],
+  ['Land records', 'pillars'],
   ['University', 'university'],
   ['Services', 'services'],
   ['FAQ', 'faq'],
@@ -27,63 +22,92 @@ export const WORDMARK = { name: 'Pattadar', dot: '.' };
 export const NAV_CTA = 'Sign in';
 
 export const HERO = {
-  badge: 'Land · Records · Family',
-  h1Line1: "Your family's land records,",
-  h1Line2: 'in one secure place',
-  leadPrefix: 'Pattadar helps Andhra Pradesh land-owners manage ',
-  flipWords: ['parcels', 'passbooks', 'registered deeds', 'documents', 'family'],
-  leadSuffix: ' — securely, and in plain language the whole family can understand.',
+  badge: 'India · Andhra Pradesh · Telangana',
+  h1Line1: 'One piece of land.',
+  h1Line2: 'Many places to look.',
+  lead: 'Revenue entries, survey maps and registered deeds tell different parts of the story. Pattadar helps your family keep its copies together; official records stay with the state.',
   ctaPrimary: 'Get started',
   ctaSecondary: 'Sign in',
 };
 
+export const LAND_STORY = {
+  note: 'Illustrative landscape and record trail',
+  chapters: [
+    { label: 'Revenue', title: 'The name is in one record.', detail: 'A passbook, 1-B or Adangal can describe a holding.' },
+    { label: 'Survey', title: 'The shape is in another.', detail: 'An FMB sketch or village map helps locate the parcel.' },
+    { label: 'Deed', title: 'The transaction has its own trail.', detail: 'A registered deed records a transaction; it is not the survey map.' },
+    { label: 'Pattadar', title: 'Keep the copies in one place.', detail: 'Organise the papers you have and share selected copies with family or advisers.' },
+  ],
+  records: [
+    { office: 'Revenue', paper: '1-B / Adangal' },
+    { office: 'Survey', paper: 'FMB / village map' },
+    { office: 'Registration', paper: 'Registered deed' },
+  ],
+} as const;
+
 export const TRUST_ITEMS = [
-  { icon: 'lock', text: 'Encrypted at rest, stored in India' },
-  { icon: 'visibilityOff', text: 'Aadhaar numbers always masked' },
-  { icon: 'manageAccounts', text: 'You control your data' },
+  { icon: 'lock', text: 'Encrypted storage' },
+  { icon: 'visibilityOff', text: 'Aadhaar field masked' },
+  { icon: 'manageAccounts', text: 'You choose access' },
 ] as const;
 
-export const PRODUCT_FRAME = {
-  overline: 'Land portfolio · sample',
-  costLabel: 'Acquisition cost',
-  costValue: '₹2,84,50,000',
-  costDelta: '↑ 10% since purchase · guideline basis',
-  countsLine: '12 parcels · 3 passbooks · 2 properties',
-  honesty:
-    'True market value is hard to know in India — Pattadar tracks what you paid and the official guideline value, honestly.',
-  parcels: [
-    ['Survey 123/2A · Guntur', '2.45 acres'],
-    ['Survey 87/1B · Krishna', '1.10 acres'],
-    ['Flat · Vijayawada', '1,250 sft'],
-    ['Survey 456/3 · Kurnool', '3.20 acres'],
-  ] as [string, string][],
-};
+export const HERO_SCENE = {
+  preview: 'Illustrative preview',
+  property: 'Sample property',
+  place: 'Andhra Pradesh',
+  stages: [
+    { label: 'Property', description: 'A sample property in the portfolio' },
+    { label: 'Record', description: 'The sample property record is open' },
+    { label: 'File a copy', description: 'A deed copy is ready to file with the property' },
+    { label: 'Share', description: 'Selected copies are ready to share by link' },
+  ],
+  documents: [
+    { title: 'Passbook.pdf', shelf: 'Revenue record' },
+    { title: 'FMB sketch.pdf', shelf: 'Map' },
+    { title: 'Deed copy.pdf', shelf: 'Title' },
+  ],
+} as const;
+
+export const JOURNEY_SCENE = {
+  upload: 'Sample passbook.pdf',
+  invite: 'anita@example.com',
+  note: 'Illustrative preview',
+} as const;
+
+/* PRODUCT_FRAME (the "Land portfolio · sample" card) was removed on
+ * 27/09/2026 by explicit request — a deliberate exception to the freeze,
+ * recorded in design.md § Copy freeze. Do not restore it incidentally. */
 
 export const STORY = {
-  eyebrow: 'Our story',
-  h2: 'How Pattadar evolved',
+  eyebrow: 'The context',
+  h2: 'Why one property has many records',
   intro:
-    'Pattadar evolved from the real pain of revenue issues — problems our own family faced with land records in Andhra Pradesh — into a platform built to deliver on that experience.',
+    'Across India, revenue records, survey maps and registered documents serve different purposes. For a family in Andhra Pradesh or Telangana, an older deed, a current entry and a sketch may need to be read together, especially after a sale or inheritance.',
+  sources: [
+    { label: 'India: DILRMP', href: 'https://dolr.gov.in/en/programmes-schemes/dilrmp-2/' },
+    { label: 'Andhra Pradesh: MeeBhoomi', href: 'https://meebhoomi.ap.gov.in/' },
+    { label: 'Telangana: Bhu Bharati', href: 'https://bhubharati.telangana.gov.in/' },
+  ],
   entries: [
     {
-      t: 'Born from real pain',
-      b: 'It started in Katragunta village, Prakasam district — inside the everyday revenue problems Andhra Pradesh families face when land is bought, sold or simply held.',
+      t: 'Revenue',
+      b: 'In Andhra Pradesh, 1-B and Adangal entries can be viewed through official land-record services. Telangana maintains its own record-of-rights and passbook services.',
     },
     {
-      t: 'Understanding the system',
-      b: 'We mapped the six pillars the revenue system stands on — 1B & Adangal, survey numbers, the RSR, the Field Measurement Book, village maps and legal rights — the records true ownership depends on.',
+      t: 'Survey',
+      b: 'Field measurement books and cadastral maps describe land spatially. They answer a different question from the name or transaction on a document.',
     },
     {
-      t: 'Every stage examined',
-      b: 'Before, during and after a transaction — each stage’s pain points were studied one by one, and each got a practical answer.',
+      t: 'Registration',
+      b: 'A registered deed belongs to the transaction trail. It is worth reading alongside current revenue and survey information, not as a substitute for either.',
     },
     {
-      t: 'The AI platform',
-      b: 'The ideas became software: passbooks and deeds read by AI, a living land portfolio, a documents drive, and family members verified with secure links.',
+      t: 'The family gap',
+      b: 'Copies end up in folders, phones and different hands. Our family faced that work in Katragunta village, Prakasam district. Missing copies make it harder to know what to check with the official source.',
     },
     {
-      t: 'Today — pattadar.com',
-      b: 'A secure home for your family’s land records — and a foundation growing towards the wallet, the AI watch dog and on-demand property services.',
+      t: 'Where Pattadar fits',
+      b: 'Pattadar helps organise and share the copies a family has. It does not issue official records, verify title, settle boundaries or change an entry in a government register.',
     },
   ],
 };
@@ -103,79 +127,84 @@ export interface FeatureContent {
 export const FEATURES: FeatureContent[] = [
   {
     icon: 'dashboard',
-    title: 'A living land portfolio',
-    body: 'Every parcel, passbook and property in one dashboard — extents, acquisition cost, guideline values and four health rings that show records, succession, tax and family verification at a glance.',
+    title: 'Properties in one view',
+    body: 'See the properties you have added, their recorded details and the documents attached to each one. Open a property to review what you have saved.',
     wide: true,
   },
   {
     icon: 'documentScanner',
-    title: 'AI reading, in two languages',
-    body: 'Photograph a passbook, deed or Aadhaar card — English or Telugu — and the khata, survey numbers, extents and parties are read and filled in. You approve every detail before it is saved.',
+    title: 'Optional document reading',
+    body: 'Choose AI reading for a passbook or deed when available. It suggests fields from the image; check names, survey numbers and extents against the paper before saving.',
   },
   {
     icon: 'folder',
-    title: 'A real documents drive',
-    body: 'Upload anything — the type is detected automatically and filed with the right land. Versions kept, trash recoverable, and every file opens in-portal — you never leave Pattadar.',
+    title: 'Documents beside the property',
+    body: 'Upload a document, give it a type and link it to the relevant property. View your saved copy alongside the details you entered.',
   },
   {
     icon: 'diversity',
-    title: 'Family, verified — not just listed',
-    body: 'Typed groups for families, partnerships and companies. Heirs carry shares, minors get guardians, Aadhaar stays masked, and every member confirms through a secure link on WhatsApp, SMS or email.',
+    title: 'Family access by invitation',
+    body: 'Add family members and send an invitation link. You can see when an invitation is accepted and choose which records to share.',
     wide: true,
   },
   {
     icon: 'healthSafety',
-    title: 'The inactivity safeguard',
-    body: 'If the head of the family goes quiet for months, Pattadar alerts your chosen people in priority order — so the records never die with a phone.',
+    title: 'An inactivity safeguard',
+    body: 'After six months without activity, Pattadar can email eligible family members who have verified their address and agreed to receive the notice.',
   },
   {
     icon: 'travelExplore',
-    title: 'Boundaries on a live map',
-    body: 'See each parcel on the satellite map, draw its boundary and measure area and side lengths — your land, exactly where it is.',
+    title: 'Location and boundary notes',
+    body: 'Pin a property on a map and draw a boundary for your own reference. A drawn outline is not an official survey or proof of extent.',
   },
   {
     icon: 'calculate',
-    title: 'AP-IGRS tools built in',
-    body: 'Stamp-duty calculator on real AP rates, the SRO office finder, guideline market values and land-unit conversion — acres, cents and guntas.',
+    title: 'Useful property tools',
+    body: 'Estimate stamp duty, look up an SRO and convert common land units. Confirm current rates and record details with the relevant office before a transaction.',
   },
   {
     icon: 'factCheck',
-    title: 'Auditable, exportable, yours',
-    body: 'Every action lands in an audit log. Any table exports to branded PDF, Excel or CSV — your records leave with you, never locked in.',
+    title: 'Export when you need a copy',
+    body: 'Download available records as PDF, Excel or CSV, and review account activity. Your own copies remain separate from official government entries.',
   },
 ];
 
 export const AI = {
   eyebrow: 'Pattadar AI',
-  h2: 'An assistant that knows your land',
-  lead: 'Ask in plain words — the Pattadar AI Assistant answers from your own records, and can even open the right page or record for you. No jargon, ever: it speaks the way your family does.',
+  h2: 'An assistant for your records',
+  lead: 'Ask about information you have saved in Pattadar. The assistant can help locate a property or document; check important details against the original record.',
   points: [
     [
       'Answers from your records',
-      'It reads your portfolio — parcels, passbooks, documents, family — and answers about YOUR land, not generic advice.',
+      'It uses information in your saved properties and documents to answer questions about what is on file.',
     ],
     [
-      'Acts, not just talks',
-      'Ask it to find a record and it opens the page, applies the filter and takes you there.',
+      'Find the right place',
+      'Ask it to find a record and it can point you to the relevant page or saved document.',
     ],
     [
-      'Plain language by rule',
-      'Technical talk is deliberately kept away from you — answers come in words a farming family uses.',
+      'Plain language',
+      'It explains what it found in everyday words and keeps the source record in view.',
     ],
   ] as [string, string][],
   convoOverline: 'Assistant · sample conversation',
   convo: [
-    { role: 'user', text: 'Which of my parcels is missing a registered deed?' },
+    { role: 'user', text: 'Which of my properties has no deed attached?' },
     {
       role: 'assistant',
-      text: 'Two parcels have no deed on file — Survey 87/1B (Krishna) and Survey 456/3 (Kurnool). Shall I open them so you can upload the deeds?',
+      text: 'I cannot find a deed copy in Pattadar for Survey 87/1B (Krishna) or Survey 456/3 (Kurnool). A deed may exist outside your saved files. Shall I open one?',
     },
-    { role: 'user', text: 'Yes, open the Krishna one.' },
+    { role: 'user', text: 'Open the Krishna property.' },
     {
       role: 'assistant',
-      text: 'Opening Survey 87/1B now — the Files section is ready for the deed upload. 📄',
+      text: 'Opening Survey 87/1B. You can attach a copy of the deed in Documents.',
     },
   ] as { role: 'user' | 'assistant'; text: string }[],
+  openedRecord: {
+    title: 'Survey 87/1B',
+    detail: 'Property · Documents',
+    state: 'Sample record opened',
+  },
 };
 
 export const HOW = {
@@ -184,57 +213,57 @@ export const HOW = {
   steps: [
     {
       n: '1',
-      title: 'Add your land in minutes',
-      body: 'Take a photo of your pattadar passbook or registered deed — the details are read for you and filled in automatically. No typing, no forms from scratch.',
+      title: 'Add a property',
+      body: 'Enter the property details you know and attach a passbook or deed. If you choose AI reading, check its suggested details before saving.',
     },
     {
       n: '2',
-      title: 'Bring in your family',
-      body: 'Add family members and heirs, send each one a secure verification link on WhatsApp or SMS, and see who has confirmed — all in one place.',
+      title: 'Invite family members',
+      body: 'Send an invitation link to someone you trust. You can track whether they accepted and decide which records they may access.',
     },
     {
       n: '3',
-      title: 'Everything stays organised',
-      body: 'Parcels, passbooks, property papers and values — safe, together, and explained in plain language. Your records are ready whenever you need them.',
+      title: 'Keep your copies together',
+      body: 'Return to the property to find its documents, location notes and family information. Update your copy when an official record changes.',
     },
   ],
 };
 
 export const PILLARS = {
-  eyebrow: 'Built on how AP land records actually work',
-  h2: 'The 6 pillars of your land record',
+  eyebrow: 'Know the papers',
+  h2: 'What to keep with a property',
   intro:
-    'Accurate ownership rests on six kinds of records. Pattadar understands each one — and keeps your copies organised, linked and explained.',
+    'Different documents answer different questions about a property. Keep your copies together so you can compare them when needed.',
   items: [
     {
       icon: 'article',
       title: '1B & Adangal',
-      body: 'The core ownership record — who holds the land and with what rights. Validating its history is how true ownership is established and protected from tampering.',
+      body: 'Revenue entries can show the recorded holder, use and extent. Compare the latest copy with the underlying deed and other official records.',
     },
     {
       icon: 'straighten',
       title: 'Survey number & boundaries',
-      body: 'The identity of your land on the ground. Captured precisely so your parcel can be identified at any point in time, without ambiguity.',
+      body: 'The survey number helps identify a parcel in government records. A map pin or hand-drawn outline is only a reference until surveyed.',
     },
     {
       icon: 'historyEdu',
       title: 'Register of Survey Records',
-      body: 'The historical archive. Old records go missing or fade — your copies are preserved digitally as lasting evidence.',
+      body: 'An older survey record can help trace how a parcel was described. Keep a legible copy with its date and source.',
     },
     {
       icon: 'squareFoot',
       title: 'Field Measurement Book',
-      body: 'The exact dimensions and extents used in surveys, disputes and transactions. Essential when the size of the land is questioned.',
+      body: 'An FMB sketch records survey measurements. Keep it with the parcel so its lines can be compared with the latest official survey.',
     },
     {
       icon: 'map',
       title: 'Village & registration maps',
-      body: 'Where your land sits and which registration office serves it — so the right office and the right map are always one tap away.',
+      body: 'Maps provide location context; registration records show where a deed was recorded. Both help when checking a property’s paperwork.',
     },
     {
       icon: 'gavel',
       title: 'Legal rights',
-      body: 'Court orders and legal developments can affect property interests. Keeping the legal picture beside the land record keeps decisions informed.',
+      body: 'Orders, notices and other legal papers may affect a property. Keep copies with the record and ask a qualified professional when rights are unclear.',
     },
   ],
 };
@@ -243,20 +272,20 @@ export const STAGES = {
   eyebrow: 'Solutions for common revenue issues',
   h2: 'With you at every stage',
   intro:
-    'Revenue problems appear before, during and after a property changes hands. Pattadar was born from those pain points — and organises your records so each stage goes smoothly.',
+    'The papers you need change over the course of a transaction. Pattadar helps you keep copies ready for review at each stage.',
   stageLabel: 'Stage',
   items: [
     {
       stage: 'Before buying or selling',
-      body: 'Have the 1B, Adangal and field measurement records validated and side-by-side, so surprises surface before money moves — not after.',
+      body: 'Gather the deed, current revenue entries and survey papers. Compare names and extents, and get discrepancies checked before you commit.',
     },
     {
       stage: 'During the transaction',
-      body: 'The right documents, the right extents and the right parties — everything the registration needs, organised and shareable in one place.',
+      body: 'Keep the documents you are using together and share selected copies with the people helping you. The registrar confirms the official requirements.',
     },
     {
       stage: 'After the transaction',
-      body: 'New ownership lands in your passbook automatically, with the deed, receipts and family records linked and preserved from day one.',
+      body: 'Add the registered deed and receipts to your file. Check the official mutation and passbook status separately, then update your saved details.',
     },
   ],
 };
@@ -264,7 +293,7 @@ export const STAGES = {
 export const WALLET = {
   title: 'Pattadar Wallet',
   chip: 'Coming soon',
-  body: 'Pay stamp duty, registration fees and family expenses from one secure balance — with every transaction recorded next to the land it belongs to.',
+  body: 'A planned way to keep property payments and their receipts beside the relevant property. Payments are not available in Pattadar yet.',
 };
 
 /** User-authorized addition to the otherwise frozen landing copy. */
@@ -300,19 +329,19 @@ export const ROADMAP = {
   items: [
     {
       title: 'AI Watch Dog',
-      body: 'Alerts you to suspicious activity around your records — like double registrations or unauthorised 1B/Adangal changes.',
+      body: 'Exploring alerts for changes in records where reliable source data is available. This would not replace checking official records.',
     },
     {
       title: 'On-demand property visits',
-      body: 'Living far away? Request a photo visit, maintenance check or paperwork errand, delivered on a promised timeline.',
+      body: 'A planned way to request a site visit or document errand and receive evidence of the work completed.',
     },
     {
       title: 'Legal connect',
-      body: 'When something goes wrong, reach a lawyer and share documents securely — everything stays inside the platform.',
+      body: 'A planned way to find a legal professional and share the documents relevant to your question.',
     },
     {
       title: 'Trusted document writers',
-      body: 'Ready to transact? Find rated document writers to prepare your papers at the right time.',
+      body: 'A planned directory of document writers for families preparing a transaction.',
     },
   ],
 };
@@ -323,23 +352,23 @@ export const FAQ = {
   items: [
     [
       'Is my Aadhaar number safe here?',
-      'Yes. Aadhaar numbers are always shown masked (XXXX XXXX 1234), stored encrypted in India, and never shared. Pattadar does not perform any Aadhaar authentication — your card photo is kept only for your own records.',
+      'Pattadar shows saved Aadhaar numbers masked and protects the stored number with encryption. Do not share a card image unless it is needed for the task. Pattadar does not perform Aadhaar authentication.',
     ],
     [
       'Who can see my land records?',
-      'Only you, and the family members you personally invite. Each member confirms through a secure link before they can see anything.',
+      'Your account controls access to your saved records. You can invite family members or share selected documents with a recipient; review access before sending a link.',
     ],
     [
       'Is Pattadar a government website?',
-      'No. Pattadar is a private service that helps you keep your own copies organised. Your official records always remain with the government registration offices.',
+      'No. Pattadar is a private service for organising your copies. Government offices remain the source of official records and ownership changes.',
     ],
     [
       'What if the AI reads my deed wrongly?',
-      'Every detail the AI fills in is shown to you for checking before it is saved — you always have the final word.',
+      'Treat AI reading as a draft. Compare each suggested name, number and extent with the document before saving; you can correct mistakes.',
     ],
     [
       'What does it cost?',
-      'The pilot is free for invited families. Pricing for later will be announced well in advance — nothing is charged silently.',
+      'The current pilot is free for invited families. Pricing is a preview; paid checkout is not available yet.',
     ],
   ] as [string, string][],
 };
@@ -349,8 +378,8 @@ export const FINAL_CTA = {
   // original frozen string "Your family's land deserves this care".
   h2Prefix: "Your family's land ",
   h2Em: 'deserves this care',
-  body: 'Start with one passbook photo — see everything fall into place.',
-  cta: 'Get started free',
+  body: 'Add one property and attach the papers you already have. Build the file at your own pace.',
+  cta: 'Create an account',
 };
 
 export const FOOTER = {

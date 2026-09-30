@@ -15,10 +15,8 @@ import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
-import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
 import GppGoodOutlined from '@mui/icons-material/GppGoodOutlined';
 import ImageOutlined from '@mui/icons-material/ImageOutlined';
-import MyLocationOutlined from '@mui/icons-material/MyLocationOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import PhotoCameraOutlined from '@mui/icons-material/PhotoCameraOutlined';
@@ -29,36 +27,296 @@ import FingerprintOutlined from '@mui/icons-material/FingerprintOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import LinkOffOutlined from '@mui/icons-material/LinkOffOutlined';
+import CompareArrowsOutlined from '@mui/icons-material/CompareArrowsOutlined';
+import SwapHorizOutlined from '@mui/icons-material/SwapHorizOutlined';
+
+import { checkPhotoOnRecord, formatDistance } from '@pattadar/core';
 
 import {
   useDeletePhoto, usePhotos, useSetCoverPhoto, useSetTag, useUpdateCaption,
 } from '../api';
-import type { Photo } from '../api';
-import { Card, Empty, Failed, Icon, KV, Loading, PhotoImg, Tag, ddmmyyyy, plural } from '../ui';
+import type { Photo, RecordDetail } from '../api';
+import { useExif } from '../photoExif';
+import type { ExifData } from '../exifGeo';
+import {
+  Card, Empty, Failed, Icon, KV, Loading, Menu, PhotoImg, VideoThumb, Tag, ddmmyyyy, plural,
+  useFullscreen, useNarrow,
+} from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
-import { MAX_UPLOAD_BYTES, mb, useFilePhotos } from '../filePhotos';
+import { ConfirmDialog } from './PropertyActions';
+import { MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, limitFor, mediaKindOf, mb, useFilePhotos } from '../filePhotos';
 import { downloadBlob, fetchFileBlob, isStorageRef } from '../../pages/documents/storage';
+import { uniqueNames, zipStore } from '../../lib/zip';
 
 /** '2026-08-12 07:41 IST' → '12/08/2026 07:41 IST'. A capture stamp is
  *  evidence and is read in the same order as every other date here. */
-const stamp = (s: string) => (s ? `${ddmmyyyy(s.slice(0, 10))}${s.slice(10)}` : '');
+const stamp = (s: string) => {
+  if (!s) return '';
+  const tail = s.slice(10).replace(/^T/, ' ').replace(/Z$/, ' UTC');
+  return `${ddmmyyyy(s.slice(0, 10))}${tail}`;
+};
+
+const MAX_MEDIA_ARCHIVE_BYTES = 1024 * 1024 * 1024;
+
+function mediaArchiveName(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `pattadar-media-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.zip`;
+}
+
+/** Is this row a video? By its stored media_kind OR its filename extension.
+ *  The extension fallback matters for clips filed before the upload learned to
+ *  tag them — a transferred .mp4 with an empty MIME landed as 'photo' and drew
+ *  as a frozen frame with no player. This makes those play too. */
+const isVideoRow = (p: { mediaKind: string; fileName: string }): boolean =>
+  p.mediaKind === 'video' || /\.(mp4|mov|webm|m4v|3gp)$/i.test(p.fileName || '');
+const isAudioRow = (p: { mediaKind: string; fileName: string }): boolean =>
+  p.mediaKind === 'audio' || /\.(mp3|m4a|aac|wav|ogg|oga|opus)$/i.test(p.fileName || '');
+const mediaKindOfRow = (p: { mediaKind: string; fileName: string }): 'photo' | 'video' | 'audio' =>
+  isVideoRow(p) ? 'video' : isAudioRow(p) ? 'audio' : 'photo';
+
+/** One word per kind, everywhere on this tab: photo, video, recording. Audio
+ *  had four (Recordings, Recording, Audio, Audio recording). */
+const kindWord = (p: { mediaKind: string; fileName: string }): string => (
+  { photo: 'photo', video: 'video', audio: 'recording' }[mediaKindOfRow(p)]);
+const KindWord = (p: { mediaKind: string; fileName: string }): string => {
+  const w = kindWord(p);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+};
+
+/** Where a photo says it was taken: the file's own GPS, or — when the file
+ *  carries none — the point saved with the row. The Location check and the
+ *  provenance drawing read the same point, so the two can never disagree. */
+function photoPoint(p: Photo, exif: ExifData | null): { latitude: number; longitude: number; from: 'file' | 'row' } | null {
+  if (exif?.gps) return { ...exif.gps, from: 'file' };
+  if (p.lat || p.lon) return { latitude: p.lat, longitude: p.lon, from: 'row' };
+  return null;
+}
+
+/** The record's own point for the check: its pin, when it has one. */
+const recordPoint = (rec: RecordDetail) => ((rec.lat || rec.lon)
+  ? { latitude: rec.lat, longitude: rec.lon } : null);
 
 /** `subject` arrives already defaulted, so nothing here re-implements the
  *  fallback. `named` says whether the feature actually carries a label: a
  *  headline reading "Why this is this feature" is worse than none, so an
  *  unlabelled feature gets the generic headline instead. */
-function Provenance({ p, subject, named }: { p: Photo; subject: string; named: boolean }) {
-  // Every line below is a fact about THIS photo; an unverified one asserts none.
-  const checks = [
-    [PhotoCameraOutlined, 'Shot inside Pattadar, not picked from a gallery', p.source === 'app'],
-    [AccessTimeOutlined, 'Device clock matched our server to the second', p.deviceClockOk],
-    [FingerprintOutlined, `Unedited since capture  sha256 ${p.sha256.slice(0, 4)}…${p.sha256.slice(-4)}`, !!p.sha256],
-    [PersonOutlined, `${p.capturedBy} · Pattadar caretaker, ID verified`, !!p.capturedBy],
-    [ReceiptLongOutlined, `Came in on order ${p.orderRef}, a paid site visit`, !!p.orderRef],
-  ] as const;
+/** The record's location as core's LatLng, from its pin or the average of its
+ *  ring. Null when the record has neither — then nothing can be checked. */
+function ringPairs(ring: number[]): { latitude: number; longitude: number }[] {
+  const out = [];
+  for (let i = 0; i + 1 < ring.length; i += 2) out.push({ latitude: ring[i], longitude: ring[i + 1] });
+  return out;
+}
+
+/** The LIVE location fact-check: parse the photo's own GPS from the file
+ *  (exif), compare it to the record's ring/pin, and state the verdict. Nothing
+ *  is stored — the check is computed here each time from the file and the
+ *  record's current location, so a corrected pin makes it right with no
+ *  backfill. `exif` is the parsed metadata (or null while loading / when the
+ *  file carries none). */
+/** The words for a check's verdict, shared by the Location check below and
+ *  the provenance drawing, so "inside" is decided in one place. With a saved
+ *  ring the photo is tested for containment; with only a pin, for distance
+ *  from it (core's checkPhotoOnRecord). */
+function verdictWord(status: string, hasRing: boolean): string {
+  if (status === 'unknown') return 'Not checked';
+  if (hasRing) {
+    return status === 'inside' ? 'Inside the boundary'
+      : status === 'near' ? 'Just outside the boundary'
+      : 'Outside the boundary';
+  }
+  return status === 'inside' ? 'Near the saved pin' : 'Far from the saved pin';
+}
+
+function PhotoGeoCheckBlock({ rec, p, exif, loading }: {
+  rec: RecordDetail; p: Photo; exif: ExifData | null; loading: boolean;
+}) {
+  const recPoint = recordPoint(rec);
+  const hasRing = rec.ring.length >= 6;
+  // The file's own GPS, or the row's saved point when the file has none — a
+  // photo whose coordinates are printed on its stamp used to read "Photo GPS
+  // N/A" here because only the file was asked.
+  const at = photoPoint(p, exif);
+  const check = checkPhotoOnRecord(at, recPoint, ringPairs(rec.ring));
+  const km = check.distanceM / 1000;
+
+  // "Not checked" for a check that could not run, "not set" for a value the
+  // record does not hold — never "N/A", which stood for both and for "does
+  // not apply" besides.
+  const status = loading && !at ? 'Checking…'
+    : check.status === 'unknown' ? 'Not checked'
+    : check.suspect ? 'Failed'
+    : 'Passed';
+  const content = (
+    <KV rows={[
+      { k: 'Status', v: status },
+      { k: 'Photo location', v: at
+          ? `${at.latitude.toFixed(5)}, ${at.longitude.toFixed(5)}`
+            + (at.from === 'file' ? ' · from the file' : ' · saved with the photo')
+          : 'not set' },
+      { k: 'Checked against', v: hasRing ? 'Saved boundary' : recPoint ? 'Saved pin' : 'not set' },
+      { k: 'Distance', v: check.status === 'unknown' ? 'Not checked'
+          : `${formatDistance(km)} from ${recPoint ? 'the saved pin' : 'the middle of the boundary'}` },
+      { k: 'Result', v: verdictWord(check.status, hasRing) },
+    ]} />
+  );
+  return (
+    <>
+      <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Location check</p>
+      {check.suspect ? <div className="card alert">{content}</div> : content}
+    </>
+  );
+}
+
+/** What the camera recorded, read live off the file. A curated set of the
+ *  fields worth reading on a land photo — the real shutter time, the camera,
+ *  altitude and which way it faced, and the software (an edit signal) — with
+ *  every other tag under an expandable "All metadata". Nothing here is stored;
+ *  it is the file's own claim, shown so a person can judge it. */
+function PhotoMetadata({ exif, loading, unsupported }: { exif: ExifData | null; loading: boolean; unsupported?: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (loading) {
+    return (
+      <>
+        <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Metadata</p>
+        <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-ink-3)' }}>
+          Reading the file…
+        </p>
+      </>
+    );
+  }
+  if (unsupported) {
+    return (
+      <>
+        <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Metadata</p>
+        <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-ink-3)' }}>
+          Metadata cannot be read for this format.
+        </p>
+      </>
+    );
+  }
+  if (!exif) return null;
+  const rawKeys = Object.keys(exif.raw);
+  const rows: { k: string; v: string }[] = [];
+  if (exif.capturedAt) rows.push({ k: 'Taken', v: exif.capturedAt });
+  if (exif.make || exif.model) rows.push({ k: 'Camera', v: [exif.make, exif.model].filter(Boolean).join(' ') });
+  if (exif.lens) rows.push({ k: 'Lens', v: exif.lens });
+  if (exif.gps) rows.push({ k: 'GPS', v: `${exif.gps.latitude.toFixed(5)}, ${exif.gps.longitude.toFixed(5)}` });
+  if (exif.altitudeM !== null) rows.push({ k: 'Altitude', v: `${Math.round(exif.altitudeM)} m` });
+  if (exif.imgDirection !== null) rows.push({ k: 'Facing', v: `${Math.round(exif.imgDirection)}°` });
+  if (exif.width && exif.height) rows.push({ k: 'Pixels', v: `${exif.width} × ${exif.height}` });
+  if (exif.software) rows.push({ k: 'Software', v: exif.software });
+
+  const edited = /photoshop|lightroom|gimp|snapseed|pixlr|affinity/i.test(exif.software);
+
+  return (
+    <>
+      <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Metadata</p>
+      {rows.length === 0 ? (
+        <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-ink-3)' }}>
+          No readable metadata.
+        </p>
+      ) : (
+        <>
+          {edited && (
+            <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-warn)' }}>
+              Edited with {exif.software}.
+            </p>
+          )}
+          <KV rows={rows} />
+          {rawKeys.length > rows.length && (
+            <>
+              <button type="button" className="linkbtn" style={{ marginTop: 'var(--space-xs)' }}
+                      onClick={() => setOpen((v) => !v)}>
+                {open ? 'Hide' : `All metadata (${rawKeys.length} fields)`}
+              </button>
+              {open && (
+                <div className="card" style={{ padding: 'var(--space-sm)', marginTop: 'var(--space-xs)' }}>
+                  {rawKeys.map((k) => (
+                    <div key={k} className="row" style={{ gap: 'var(--space-sm)', fontSize: '0.6875rem' }}>
+                      <span className="mono note" style={{ flex: '0 0 40%', minWidth: 0, wordBreak: 'break-word' }}>{k}</span>
+                      <span className="mono" style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{String(exif.raw[k])}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/** This parcel's saved ring, its pin and the photo's point, drawn to scale.
+ *
+ *  It used to be one fixed polygon and two fixed dots that were not this
+ *  parcel, captioned "inside the boundary" for every verified photo whatever
+ *  the distance. Now it draws only what the record and the photo actually say
+ *  (nothing is drawn when neither has a point), and the caption is the same
+ *  verdict the Location check gives. */
+function WhereDrawing({ rec, at, verdict, km }: {
+  rec: RecordDetail;
+  at: { latitude: number; longitude: number };
+  verdict: string;
+  km: number | null;
+}) {
+  const ring = ringPairs(rec.ring);
+  const pin = recordPoint(rec);
+  const pts = [...ring, at, ...(pin ? [pin] : [])];
+  // Equirectangular with the longitude squeezed by cos(latitude): at this
+  // scale (a parcel, a few hundred metres) that is the shape as walked.
+  const lat0 = pts.reduce((s, q) => s + q.latitude, 0) / pts.length;
+  const kx = Math.cos((lat0 * Math.PI) / 180);
+  const xs = pts.map((q) => q.longitude * kx);
+  const ys = pts.map((q) => q.latitude);
+  const minX = Math.min(...xs); const maxX = Math.max(...xs);
+  const minY = Math.min(...ys); const maxY = Math.max(...ys);
+  const span = Math.max(maxX - minX, maxY - minY) || 0.0005;
+  const W = 100; const H = 46; const pad = 6;
+  const scale = Math.min((W - 2 * pad) / span, (H - 2 * pad - 6) / span);
+  const cx = (minX + maxX) / 2; const cy = (minY + maxY) / 2;
+  const x = (q: { longitude: number }) => W / 2 + (q.longitude * kx - cx) * scale;
+  const y = (q: { latitude: number }) => (H - 6) / 2 - (q.latitude - cy) * scale;
+  const where = [verdict, km !== null ? `${formatDistance(km)} from ${pin ? 'the saved pin' : 'the middle of the boundary'}` : '']
+    .filter(Boolean).join(' · ');
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', width: '100%', background: 'var(--w-surface-2)' }}
+         role="img" aria-label={`Where the photo was taken: ${where}`}>
+      {ring.length >= 3 && (
+        <polygon points={ring.map((q) => `${x(q)},${y(q)}`).join(' ')}
+                 fill="none" stroke="var(--w-ink-3)" strokeWidth="0.5" />
+      )}
+      {pin && <circle cx={x(pin)} cy={y(pin)} r="1.7" fill="var(--w-info)" />}
+      <circle cx={x(at)} cy={y(at)} r="1.7" fill="var(--w-accent)" />
+      <text x={W / 2} y={H - 2} fontSize="2.4" textAnchor="middle" fill="var(--w-ink-2)">{where}</text>
+    </svg>
+  );
+}
+
+function Provenance({ p, rec, exif, subject, named }: {
+  p: Photo; rec: RecordDetail; exif: ExifData | null; subject: string; named: boolean;
+}) {
+  // Only the claims that hold are printed, each in words; a photo with no
+  // order no longer reads "Came in on order , a paid site visit". Two claims
+  // are gone because nothing behind them is recorded: an uploader's role and
+  // an "ID verified" (the row carries a name and nothing else), and "paid"
+  // (no payment moves while the provider is a stub — design.md § App
+  // vocabulary). A file hash proves the file is unchanged since it was
+  // filed, which is what it now says.
+  const claims = ([
+    [PhotoCameraOutlined, 'Shot in the Pattadar app, not picked from a gallery', p.source === 'app'],
+    [AccessTimeOutlined, "The device clock matched Pattadar's server", p.deviceClockOk],
+    [FingerprintOutlined, `Unchanged since it was filed · sha256 ${p.sha256.slice(0, 4)}…${p.sha256.slice(-4)}`, !!p.sha256],
+    [PersonOutlined, `Taken by ${p.capturedBy}`, !!p.capturedBy],
+    [ReceiptLongOutlined, `Came in on service order ${p.orderRef}`, !!p.orderRef],
+  ] as const).filter(([, , holds]) => holds);
+
+  const at = photoPoint(p, exif);
+  const check = at ? checkPhotoOnRecord(at, recordPoint(rec), ringPairs(rec.ring)) : null;
 
   return (
     <>
@@ -74,47 +332,42 @@ function Provenance({ p, subject, named }: { p: Photo; subject: string; named: b
              and the stage prints it. What is actually missing is the check —
              nothing compared those coordinates against the saved pin. */
           <p className="note" style={{ padding: 'var(--space-md)', color: 'var(--w-ink-2)' }}>
-            {p.source === 'forwarded'
-              ? 'This photo was forwarded in rather than shot here'
-              : 'This photo came in from outside the app'}, so nothing has checked it against
-            the saved pin. Any coordinates on it are the sender&rsquo;s word, not ours. That is
-            what makes it a picture rather than evidence.
+            {/* Where it came from only when the row says so: a photo shot in
+                the app can still be unchecked (no location, or a pin to
+                check it against), and "not shot in the app" would be false. */}
+            {p.source === 'forwarded' ? 'Forwarded, not shot here. '
+              : p.source === 'app' ? '' : 'Not shot in the app. '}
+            Not checked against the saved pin.
           </p>
+        ) : at && check && check.status !== 'unknown' ? (
+          <WhereDrawing rec={rec} at={at}
+                        verdict={verdictWord(check.status, rec.ring.length >= 6)}
+                        km={check.distanceM / 1000} />
         ) : (
-        <>
-        <svg viewBox="0 0 100 46" style={{ display: 'block', width: '100%', background: 'var(--w-surface-2)' }}
-             role="img" aria-label="Where the photo was taken against the saved pin">
-          <polygon points="8,38 10,10 88,7 92,36" fill="none" stroke="var(--w-ink-3)" strokeWidth="0.5" />
-          <circle cx="48" cy="22" r="9" fill="var(--w-ok)" fillOpacity="0.14" />
-          <circle cx="45" cy="22" r="1.7" fill="var(--w-info)" />
-          <circle cx="51" cy="21" r="1.7" fill="var(--w-accent)" />
-          <text x="24" y="26" fontSize="2.6" fill="var(--w-info)" fontFamily="var(--font-mono)">saved pin</text>
-          <text x="55" y="19" fontSize="2.6" fill="var(--w-accent)" fontFamily="var(--font-mono)">photo taken</text>
-          <text x="50" y="43" fontSize="2.2" textAnchor="middle" fill="var(--w-ink-3)"
-                fontFamily="var(--font-mono)">
-            {Math.round(p.pinDistanceM)} m apart · inside the boundary
-          </text>
-        </svg>
-        <p className="note" style={{ padding: 'var(--space-md)', color: 'var(--w-ink-2)' }}>
-          The photo&rsquo;s own coordinates land <strong>{Math.round(p.pinDistanceM)} m</strong> from
-          where {subject.toLowerCase()} is pinned, and both sit inside
-          the boundary. Anything beyond 50 m is flagged for you to look at.
-        </p>
-        </>
+          <p className="note" style={{ padding: 'var(--space-md)', color: 'var(--w-ink-2)' }}>
+            {at ? 'This property has no saved boundary or pin to check the photo against.'
+              : 'The photo carries no location to check.'}
+          </p>
         )}
       </div>
 
       <div className="card" style={{ padding: 0, marginBottom: 'var(--space-md)' }}>
-        <div className="checks">
-          {checks.map(([I, label, ok]) => (
-            <div key={label as string}>
-              <span style={{ display: 'flex', color: ok ? 'var(--w-ok)' : 'var(--w-ink-3)' }}>
-                <I sx={{ fontSize: 16 }} />
-              </span>
-              <span className="mono" style={{ fontSize: '0.75rem' }}>{label}</span>
-            </div>
-          ))}
-        </div>
+        {claims.length === 0 ? (
+          <p className="note" style={{ padding: 'var(--space-md)', color: 'var(--w-ink-2)' }}>
+            Nothing about how this was taken has been recorded.
+          </p>
+        ) : (
+          <div className="checks">
+            {claims.map(([I, label]) => (
+              <div key={label}>
+                <span style={{ display: 'flex', color: 'var(--w-ok)' }}>
+                  <I sx={{ fontSize: 16 }} aria-hidden />
+                </span>
+                <span className="mono" style={{ fontSize: '0.75rem' }}>{label}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );
@@ -158,9 +411,10 @@ function PhotoDrawer({
   const input = useRef<HTMLInputElement>(null);
   const sent = useRef(false);
 
-  const tooBig = picked.filter((f) => f.size > MAX_UPLOAD_BYTES);
+  const tooBig = picked.filter((f) => f.size > limitFor(f));
   const ready = picked.length > 0 && tooBig.length === 0 && !busy;
-  const videos = picked.filter((f) => f.type.startsWith('video/')).length;
+  const videos = picked.filter((f) => mediaKindOf(f) === 'video').length;
+  const recordings = picked.filter((f) => mediaKindOf(f) === 'audio').length;
 
   /** Added to what is already here, and de-duplicated on name and size: a
    *  second pick that silently replaced the first is how half a site visit goes
@@ -196,15 +450,14 @@ function PhotoDrawer({
   return (
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'Media')}
-      title={picked.length > 1 ? `Add ${picked.length} files` : 'Add photos or video'}
-      sub="Dated evidence of what is on this land — a bore that is running, a fence that is down, the crop this season."
+      title={picked.length > 1 ? `Add ${picked.length} files` : 'Add photos, video or audio'}
       onClose={onClose}
       onSubmit={() => void file()}
       busy={busy}
       dirty={picked.length > 0}
       discardCopy={{
         title: 'Discard this pick?',
-        body: 'Nothing has been uploaded yet. Closing this panel drops the files you picked — the files themselves are untouched.',
+        body: 'The files you picked will not be uploaded.',
       }}
       initialFocus=".scanbox button"
       returnFocus={returnFocus}
@@ -219,8 +472,8 @@ function PhotoDrawer({
     >
       <input
         ref={input}
-        type="file" hidden multiple accept="image/*,video/*"
-        aria-label="Upload a photo or video to this record"
+        type="file" hidden multiple accept="image/*,video/*,audio/*"
+        aria-label="Upload media"
         onChange={(e) => {
           // Copy before clearing: resetting value empties the live FileList this
           // would otherwise still point at, and the reset is what lets the same
@@ -243,10 +496,10 @@ function PhotoDrawer({
       >
         <p className="scanhead">
           <PhotoCameraOutlined sx={{ fontSize: 18 }} aria-hidden />
-          Drop the photographs here
+          Drop the media files here
         </p>
         <p className="dropline">
-          Photos or video, up to {mb(MAX_UPLOAD_BYTES)} each.
+          Photos up to {mb(MAX_UPLOAD_BYTES)}; videos and audio up to {mb(MAX_VIDEO_BYTES)}.
         </p>
         <div className="row tight">
           <button type="button" className="btn" onClick={() => input.current?.click()}>
@@ -260,11 +513,12 @@ function PhotoDrawer({
           <label>
             What you picked
             {videos > 0 && ` · ${videos} ${videos === 1 ? 'video' : 'videos'}`}
+            {recordings > 0 && ` · ${recordings} ${recordings === 1 ? 'recording' : 'recordings'}`}
           </label>
           <div className="card" style={{ padding: 0 }}>
             <div className="rows boxed">
               {picked.map((f) => {
-                const over = f.size > MAX_UPLOAD_BYTES;
+                const over = f.size > limitFor(f);
                 return (
                   <div key={`${f.name}-${f.size}`}>
                     <span style={{ display: 'flex', color: over ? 'var(--w-danger)' : 'var(--w-ink-3)' }}>
@@ -275,7 +529,7 @@ function PhotoDrawer({
                         {f.name}
                       </span>
                       <span className="note mono" style={{ display: 'block', fontSize: '0.6875rem' }}>
-                        {mb(f.size)}{over && ` · over the ${mb(MAX_UPLOAD_BYTES)} limit`}
+                        {mb(f.size)}{over && ` · over the ${mb(limitFor(f))} limit`}
                       </span>
                     </span>
                     <button type="button" className="iconbtn" aria-label={`Take ${f.name} out`}
@@ -294,8 +548,7 @@ function PhotoDrawer({
               them twice. */}
           {tooBig.length > 0 && (
             <span className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-              Take {tooBig.length > 1 ? 'those' : 'that one'} out to upload the rest — nothing is
-              sent while anything in the list is over the limit.
+              Remove {tooBig.length > 1 ? 'those' : 'that one'} to upload the rest.
             </span>
           )}
         </div>
@@ -306,27 +559,59 @@ function PhotoDrawer({
         <input id="ph-cap" type="text" value={caption}
                placeholder="North bund after the rain"
                onChange={(e) => setCaption(e.target.value)} />
-        <span className="note">
-          {picked.length > 1
-            ? 'Kept on every file in this pick. Each one can be corrected afterwards from the gallery.'
-            : 'Optional. It can be corrected afterwards from the gallery.'}
-        </span>
       </div>
 
-      {/* Said here, where the choosing happens. A file picked out of a folder
-          carries nobody's word but the owner's — which is exactly what the
-          gallery's provenance panel says about it once it is filed, and by then
-          it is too late to be useful. */}
       <p className="note" style={{ margin: 0 }}>
-        A photograph added from a folder is your own record of what you saw. Nothing checks it
-        against this land&rsquo;s pin, so it is not treated as evidence — that takes a site
-        visit, which is ordered from the Services tab.
+        Files added from a folder are not verified against the pin.
       </p>
 
       {err && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>
       )}
     </Drawer>
+  );
+}
+
+/** Two filed items side by side. The rail chooses the RIGHT side; Swap makes
+ * the comparison direction explicit. Photos, videos and audio all use their
+ * normal renderer, so Compare never invents a second playback path. */
+function CompareMedia({ items, left, right, onRight, onSwap }: {
+  items: Photo[]; left: Photo; right: Photo;
+  onRight: (item: Photo) => void; onSwap: () => void;
+}) {
+  const pane = (item: Photo, side: 'Left' | 'Right') => (
+    <section className="compare-pane">
+      <p className="eyebrow">{side} · {ddmmyyyy(item.capturedAt.slice(0, 10))}</p>
+      <h3>{item.caption || 'Untitled'}</h3>
+      <div className="compare-frame">
+        <PhotoImg fileRef={item.fileRef} kind={mediaKindOfRow(item)} alt={item.caption}
+          thumb={1024} fallback={<Icon name={mediaKindOfRow(item)} size={30} />} />
+      </div>
+    </section>
+  );
+  return (
+    <div className="media-compare">
+      <aside className="compare-rail" aria-label="Choose the right comparison item">
+        <p className="eyebrow">Choose right side</p>
+        {items.map((item) => (
+          <button key={item.id} type="button" className="compare-choice"
+                  aria-pressed={item.id === right.id} disabled={item.id === left.id}
+                  onClick={() => onRight(item)}>
+            <span>{item.caption || 'Untitled'}</span>
+            <small>{item.fileName || 'not set'} · {ddmmyyyy(item.capturedAt.slice(0, 10)) || 'not set'}</small>
+          </button>
+        ))}
+      </aside>
+      <div className="compare-main">
+        <div className="row tight compare-head">
+          <strong>Comparing two items</strong>
+          <button type="button" className="btn sm" onClick={onSwap}>
+            <SwapHorizOutlined sx={{ fontSize: 15 }} /> Swap sides
+          </button>
+        </div>
+        <div className="compare-grid">{pane(left, 'Left')}{pane(right, 'Right')}</div>
+      </div>
+    </div>
   );
 }
 
@@ -341,10 +626,25 @@ export function RecordPhotos() {
   const cover = useSetCoverPhoto();
   const setTag = useSetTag();
   const toast = useToast();
-  const [confirmDel, setConfirmDel] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  /** The single delete's own answer, printed inside its confirmation. */
+  const [delErr, setDelErr] = useState('');
+  /** On a phone the head keeps one filled action; Select, Compare and the
+   *  search move into its menu, and the search opens under the chips. */
+  const narrow = useNarrow(640);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDownload, setBulkDownload] = useState<{ done: number; total: number } | null>(null);
   const [i, setI] = useState(0);
+  const [comparing, setComparing] = useState(false);
+  const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
   const [caption, setCaption] = useState('');
   const [q, setQ] = useState('');
+  const [mediaFilter, setMediaFilter] = useState<'all' | 'photo' | 'video' | 'audio'>('all');
   // A download of a multi-megabyte original is a fetch that can refuse — an
   // expired token, a 404, a gateway that is down — and it used to refuse into
   // the console. Both halves of that are visible now.
@@ -370,15 +670,12 @@ export function RecordPhotos() {
   // Fullscreen API, so it is truly full-window (past the app chrome) and Esc
   // exits it the way people already expect a full-screen photo to. `theater`
   // tracks the browser's state rather than our intent, so pressing Esc or the
-  // OS control keeps the button's label honest.
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [theater, setTheater] = useState(false);
-  const toggleTheater = () => {
-    const el = stageRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    else void el.requestFullscreen?.().catch(() => {});
-  };
+  // OS control keeps the button's label honest. The shared hook (ui.tsx) also
+  // serves the combined map's stage; the stage carries a class while it is the
+  // fullscreen element so it can paint itself as a theater, not a padded panel.
+  const {
+    ref: stageRef, on: theater, toggle: toggleTheater, supported: canTheater,
+  } = useFullscreen<HTMLDivElement>();
   // Null while closed; an array — usually empty, or the files a drop arrived
   // with — while the drawer is open. The hidden input and the pick itself live
   // in PhotoDrawer now; what stays here is the hook, because it owns `lastAdded`
@@ -393,21 +690,46 @@ export function RecordPhotos() {
   const draft = useRef<{ id: string; caption: string } | null>(null);
 
   const photos = data?.photos ?? [];
+  const photoCount = photos.filter((item) => mediaKindOfRow(item) === 'photo').length;
+  const videoCount = photos.filter(isVideoRow).length;
+  const audioCount = photos.filter(isAudioRow).length;
+  const selectedItems = photos.filter((item) => selected.has(item.id));
   // Filter into a second list rather than in place: `i` indexes whatever the
-  // strip and the stage are showing, and if that were `photos` while the strip
-  // showed a subset, the frame would sit on a photo nobody can see.
+  // strip and stage show. Type and text filters compose; neither changes data.
+  //
+  // A kind with nothing in it has no chip (as on Site features), so a filter
+  // left on one — the last video deleted — stops filtering rather than
+  // emptying the stage with no chip on screen to release it.
+  const kindCount = { all: photos.length, photo: photoCount, video: videoCount, audio: audioCount };
+  const kindFilter = kindCount[mediaFilter] > 0 ? mediaFilter : 'all';
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return photos;
-    return photos.filter((x) => [
-      x.caption, x.category, x.fileName, x.tags.join(' '),
-      // Dates are read dd/mm/yyyy everywhere on this screen, so that is the
-      // form a search for one has to match; the ISO form is kept too because
-      // it is what a pasted value looks like.
-      ddmmyyyy(x.capturedAt.slice(0, 10)), x.capturedAt.slice(0, 10),
-    ].join(' ').toLowerCase().includes(needle));
-  }, [photos, q]);
+    return photos.filter((item) => {
+      if (kindFilter !== 'all' && mediaKindOfRow(item) !== kindFilter) return false;
+      if (!needle) return true;
+      return [
+        item.caption, item.category, item.fileName, item.tags.join(' '),
+        ddmmyyyy(item.capturedAt.slice(0, 10)), item.capturedAt.slice(0, 10),
+      ].join(' ').toLowerCase().includes(needle);
+    });
+  }, [photos, q, kindFilter]);
   const p = shown[Math.min(i, shown.length - 1)];
+  const compareLeft = shown.find((item) => item.id === compareIds?.[0]);
+  const compareRight = shown.find((item) => item.id === compareIds?.[1]);
+  useEffect(() => {
+    if (!comparing) return;
+    if (shown.length < 2) { setComparing(false); setCompareIds(null); return; }
+    if (!compareLeft || !compareRight || compareLeft.id === compareRight.id) {
+      setCompareIds([shown[0].id, shown[1].id]);
+    }
+  }, [comparing, shown, compareLeft?.id, compareRight?.id]);
+  // The metadata + location check are read LIVE off the open photo's bytes —
+  // only for a real image ref, and only the one on screen.
+  const exif = useExif(
+    p && mediaKindOfRow(p) !== 'photo' ? undefined : p?.fileRef,
+    true,
+    p?.fileName,
+  );
 
   useEffect(() => {
     // Save the draft against the photo it was typed on before adopting the
@@ -427,6 +749,7 @@ export function RecordPhotos() {
     // A download that failed on this photo must not keep accusing the next one.
     setDlErr('');
     setActionErr('');
+    setConfirmDeleteId(null);
     clearError();
     captionSent.current = '';
     setAddingTag(false);
@@ -439,8 +762,15 @@ export function RecordPhotos() {
     currentThumb.current?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [i]);
 
-  // A new query renumbers the strip, so the old position means nothing.
-  useEffect(() => { setI(0); }, [q]);
+  // A new query renumbers the strip, so the old position and any selection
+  // mean nothing. Clearing the selection also prevents a filtered-out item
+  // from remaining armed for bulk deletion.
+  useEffect(() => {
+    setI(0);
+    setComparing(false);
+    setSelected(new Set());
+    setBulkDeleteIds(null);
+  }, [q, mediaFilter]);
 
   // The invalidation refetches; jump to the new photo once it actually arrives.
   useEffect(() => {
@@ -451,15 +781,6 @@ export function RecordPhotos() {
     // upload that did nothing. Drop the query; the next pass finds it.
     if (photos.some((x) => x.id === lastAdded)) setQ('');
   }, [lastAdded, shown, photos]);
-
-  // The browser owns the fullscreen state; mirror it so Esc/OS exit updates
-  // the toggle. The stage carries a class while it is the fullscreen element
-  // so it can paint itself as a theater rather than a padded panel.
-  useEffect(() => {
-    const sync = () => setTheater(document.fullscreenElement === stageRef.current);
-    document.addEventListener('fullscreenchange', sync);
-    return () => document.removeEventListener('fullscreenchange', sync);
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -482,17 +803,26 @@ export function RecordPhotos() {
   // The server returns "" for a feature whose row is gone, and an unguarded
   // interpolation of that left a display heading trailing off into nothing.
   const subject = data.subject || 'this feature';
-  const unprovenPhotos = photos.filter((x) => !x.verified);
+  const unprovenPhotos = photos.filter((x) => mediaKindOfRow(x) === 'photo' && !x.verified);
   const unproven = unprovenPhotos.length;
   // What the alert card may honestly say about these rows, read off the rows
   // themselves rather than off the comp this screen was drawn from.
   const allForwarded = unproven > 0 && unprovenPhotos.every((x) => x.source === 'forwarded');
+  // A photo shot in the app can still be unchecked (no location, or nothing
+  // to check it against), so "from outside the app" is said only when none
+  // of them was — the same rule as the Provenance line (API default 'app').
+  const noneFromApp = unproven > 0 && unprovenPhotos.every((x) => x.source !== 'app');
   const unprovenDays = [...new Set(unprovenPhotos.map((x) => x.capturedAt.slice(0, 10)))].sort();
   const unprovenWhen = unprovenDays.length === 1
     ? ddmmyyyy(unprovenDays[0])
     : unprovenDays.length > 1
       ? `${ddmmyyyy(unprovenDays[0])} – ${ddmmyyyy(unprovenDays[unprovenDays.length - 1])}`
       : '';
+  const unprovenOrigin = allForwarded
+    ? `Forwarded, not shot here${unprovenWhen ? `, dated ${unprovenWhen}` : ''}.`
+    : noneFromApp
+      ? `Filed from outside the app${unprovenWhen ? `, dated ${unprovenWhen}` : ''}.`
+      : unprovenWhen ? `Dated ${unprovenWhen}.` : '';
 
   /** Files the typed tag against this photo. `entityType` must be the exact
    *  string the read path groups on ('photo'), or the row is written and never
@@ -523,11 +853,140 @@ export function RecordPhotos() {
     });
   };
 
-  // The footer used to report the NEWEST visit no matter which photo was open,
-  // so paging back to an older visit left it contradicting the date beside it.
-  const visit = p ? p.capturedAt.slice(0, 10) : '';
-  const visitCount = (q.trim() ? shown : photos)
-    .filter((x) => x.capturedAt.slice(0, 10) === visit).length;
+  const downloadSelection = async () => {
+    const targets = [...selectedItems];
+    if (bulkDownload || targets.length === 0) return;
+
+    setActionErr('');
+    setBulkDownload({ done: 0, total: targets.length });
+    const fetched: { name: string; bytes: Uint8Array }[] = [];
+    const failed: string[] = [];
+    let totalBytes = 0;
+    let tooLarge = false;
+
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const item = targets[index];
+        const name = item.fileName || `${mediaKindOfRow(item)}-${index + 1}`;
+        try {
+          if (!isStorageRef(item.fileRef)) throw new Error('original-unavailable');
+          const blob = await fetchFileBlob(item.fileRef);
+          totalBytes += blob.size;
+          if (totalBytes > MAX_MEDIA_ARCHIVE_BYTES) {
+            tooLarge = true;
+            break;
+          }
+          fetched.push({ name, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        } catch {
+          failed.push(name);
+        }
+        setBulkDownload({ done: index + 1, total: targets.length });
+      }
+    } finally {
+      setBulkDownload(null);
+    }
+
+    if (tooLarge) {
+      setActionErr('That selection is over 1 GB. Select fewer items and download again.');
+      return;
+    }
+    if (!fetched.length) {
+      setActionErr('None of the selected originals could be downloaded.');
+      return;
+    }
+
+    try {
+      const names = uniqueNames(fetched.map((item) => item.name));
+      downloadBlob(
+        zipStore(fetched.map((item, index) => ({ name: names[index], bytes: item.bytes }))),
+        mediaArchiveName(),
+      );
+    } catch (error) {
+      setActionErr(error instanceof Error ? error.message : 'The ZIP file could not be built.');
+      return;
+    }
+
+    if (failed.length === 0) {
+      toast.ok(`${fetched.length} ${fetched.length === 1 ? 'item' : 'items'} downloaded as a ZIP.`);
+    } else {
+      setActionErr(
+        `${fetched.length} ${fetched.length === 1 ? 'item was' : 'items were'} downloaded. `
+        + `${failed.length} ${failed.length === 1 ? 'original was' : 'originals were'} unavailable: `
+        + `${failed.slice(0, 3).join(', ')}${failed.length > 3 ? `, +${failed.length - 3} more` : ''}.`,
+      );
+    }
+  };
+
+  const deleteSelection = async () => {
+    const ids = bulkDeleteIds ?? [];
+    if (bulkDeleting || ids.length === 0) return;
+
+    setActionErr('');
+    setBulkDeleting(true);
+    let deleted = 0;
+    try {
+      for (const photoId of ids) {
+        try {
+          const response = await delPhoto.mutateAsync({ photoId });
+          if (!response.web.deletePhoto) throw new Error('rejected');
+          deleted += 1;
+          setSelected((current) => {
+            const next = new Set(current);
+            next.delete(photoId);
+            return next;
+          });
+        } catch {
+          const remaining = ids.length - deleted;
+          setActionErr(
+            deleted > 0
+              ? `${deleted} ${deleted === 1 ? 'item was' : 'items were'} deleted. ${remaining} could not be deleted and ${remaining === 1 ? 'remains' : 'remain'} selected.`
+              : 'The selected items could not be deleted. Reload the gallery and try again.',
+          );
+          setBulkDeleteIds(null);
+          return;
+        }
+      }
+      setSelected(new Set());
+      setBulkDeleteIds(null);
+      setSelecting(false);
+      setI(0);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleSelecting = () => {
+    setSelecting((value) => !value);
+    setComparing(false);
+    setConfirmDeleteId(null);
+    setSelected(new Set());
+    setBulkDeleteIds(null);
+    setActionErr('');
+  };
+  const toggleComparing = () => {
+    if (!comparing) setCompareIds([shown[Math.max(0, i - 1)]?.id || shown[0].id, p?.id === shown[0].id ? shown[1].id : p?.id || shown[1].id]);
+    setComparing((value) => !value);
+  };
+  const canSelect = !featureId && photos.length > 0;
+  const canCompare = !selecting && shown.length >= 2;
+
+  /** The search box. "Search by tag or date" fits its box at 1512, where
+   *  "Search photos by tag or date" was cut off; the label is unchanged. */
+  const searchBox = (
+    <span className={`search${narrow ? ' media-search' : ''}`}
+          style={narrow ? undefined : { flex: '1 1 10rem', maxWidth: '14rem', minWidth: 0 }}>
+      <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
+      <input ref={searchInput} placeholder="Search by tag or date" aria-label="Search photos"
+             value={q} onChange={(e) => setQ(e.target.value)} />
+      {q && (
+        <button type="button" className="iconbtn" aria-label="Clear the search"
+                onClick={() => setQ('')}
+                style={{ flex: 'none', width: '1.25rem', height: '1.25rem' }}>
+          <CloseOutlined sx={{ fontSize: 15 }} />
+        </button>
+      )}
+    </span>
+  );
 
   const mediaActions = (
     <>
@@ -536,19 +995,36 @@ export function RecordPhotos() {
               to={`/app/records/${rec.id}/order?service=site_visit&step=pick&a.check=General+condition&why=photos`}>
           <PhotoCameraOutlined sx={{ fontSize: 15 }} /> Ask for a fresh photo
         </Link>
-      ) : (
-        <span className="search" style={{ flex: '1 1 10rem', maxWidth: '14rem', minWidth: 0 }}>
-          <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
-          <input placeholder="Search photos by tag or date" aria-label="Search photos"
-                 value={q} onChange={(e) => setQ(e.target.value)} />
-          {q && (
-            <button type="button" className="iconbtn" aria-label="Clear the search"
-                    onClick={() => setQ('')}
-                    style={{ flex: 'none', width: '1.25rem', height: '1.25rem' }}>
-              <CloseOutlined sx={{ fontSize: 15 }} />
-            </button>
-          )}
-        </span>
+      ) : !narrow && searchBox}
+      {!narrow && canSelect && (
+        <button type="button" className={`btn${selecting ? ' soft' : ''}`}
+                aria-pressed={selecting}
+                onClick={toggleSelecting}>
+          {selecting ? 'Done' : 'Select'}
+        </button>
+      )}
+      {!narrow && canCompare && (
+        <button type="button" className={`btn${comparing ? ' soft' : ''}`}
+                aria-pressed={comparing}
+                onClick={toggleComparing}>
+          <CompareArrowsOutlined sx={{ fontSize: 16 }} /> {comparing ? 'Exit compare' : 'Compare'}
+        </button>
+      )}
+      {/* On a phone the head is the one filled action and this menu, so the
+          stage starts in the first viewport instead of under two rows of
+          controls. */}
+      {narrow && (!featureId || canCompare) && (
+        <Menu label="More for this media" items={[
+          ...(!featureId ? [{
+            label: 'Search',
+            onClick: () => {
+              setSearchOpen(true);
+              requestAnimationFrame(() => searchInput.current?.focus());
+            },
+          }] : []),
+          ...(canSelect ? [{ label: selecting ? 'Done selecting' : 'Select', onClick: toggleSelecting }] : []),
+          ...(canCompare ? [{ label: comparing ? 'Exit compare' : 'Compare', onClick: toggleComparing }] : []),
+        ]} />
       )}
       {/* Opens the drawer, like every other "add a thing" on this record. It
           used to click a hidden file input, so the pick was the whole
@@ -557,7 +1033,7 @@ export function RecordPhotos() {
               aria-haspopup="dialog" aria-expanded={!!adding} disabled={busy}
               onClick={() => setAdding([])}>
         <AddOutlined sx={{ fontSize: 16 }} aria-hidden />
-        Add photos or video
+        Add photos, video or audio
       </button>
     </>
   );
@@ -594,8 +1070,8 @@ export function RecordPhotos() {
       }}
     >
       <Icon name="photos" size={26} />
-      <span style={{ display: 'block', marginTop: '0.5rem', fontWeight: 600 }}>
-        Drop photos or video here
+      <span style={{ display: 'block', marginTop: '0.5rem', fontWeight: 700 }}>
+        Drop photos, video or audio here
       </span>
       <span className="note">or <u>browse files</u></span>
     </button>
@@ -606,21 +1082,36 @@ export function RecordPhotos() {
       {/* The record's name, its extent and the way back are the frame's now
           (RecordHead.tsx). What is left here is the hanger's own question, its
           counts, and the two controls that belong to it. */}
+      {/* The tab's own noun. */}
       <SectionHead
-        title={featureId ? `Photos of ${data.subject || 'this feature'}` : 'Photos and video'}
+        title={featureId ? `Media of ${data.subject || 'this feature'}` : 'Media'}
         sub={featureId
-          ? `${plural(photos.length, 'photo')} across ${plural(data.visitCount, 'visit')}`
-          : q.trim()
-            // A count that never moved while the strip filtered was the clearest
-            // sign the search box was not connected to anything.
-            ? `${shown.length} of ${plural(data.total, 'photo')}`
-            : [plural(data.total, 'photo'),
-               `${data.videoCount} ${data.videoCount === 1 ? 'video' : 'videos'}`,
-               data.visitCount > 0
-                 ? plural(data.visitCount, 'site visit')
-                 : 'nothing filmed here yet'].join(' · ')}
+          ? `${photos.length} ${photos.length === 1 ? 'item' : 'items'}`
+          : undefined}
         actions={mediaActions}
       />
+
+      {/* Washed when pressed: a filter is not an action, and the one amber
+          fill here is "Add photos, video or audio". A kind with nothing in it
+          has no chip — "Recordings 0" was a filter that led nowhere. */}
+      {!featureId && photos.length > 0 && (
+        <div className="media-filters" role="group" aria-label="Filter media type">
+          {([
+            ['all', 'All', photos.length],
+            ['photo', 'Photos', photoCount],
+            ['video', 'Videos', videoCount],
+            ['audio', 'Recordings', audioCount],
+          ] as const).filter(([key, , count]) => key === 'all' || count > 0).map(([key, label, count]) => (
+            <button key={key} type="button" className="chip wash"
+                    aria-pressed={kindFilter === key}
+                    onClick={() => setMediaFilter(key)}>
+              {label} <span className="num">{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {/* On a phone the search lives here, opened from the head's menu. */}
+      {narrow && !featureId && (searchOpen || q) && searchBox}
 
       {adding && (
         <PhotoDrawer
@@ -647,34 +1138,39 @@ export function RecordPhotos() {
 
       {/* The header carries Upload, so it renders on an empty record too —
           behind an early return there was no way to add the first photo. */}
-      {p ? (
+      {comparing && compareLeft && compareRight ? (
+        <CompareMedia
+          items={shown}
+          left={compareLeft}
+          right={compareRight}
+          onRight={(item) => setCompareIds([compareLeft.id, item.id])}
+          onSwap={() => setCompareIds([compareRight.id, compareLeft.id])}
+        />
+      ) : p ? (
         <div className="lightbox">
           <div ref={stageRef} className={theater ? 'stage theater' : 'stage'}
                style={{ display: 'grid', gridTemplateRows: 'auto minmax(0,1fr) auto',
                         placeItems: 'stretch', gap: 'var(--space-md)' }}>
             <div className="row tight" style={{ alignItems: 'center' }}>
-              {!featureId && (
-                <>
-                  <span className="chip static">
-                    <PlaceOutlined sx={{ fontSize: 13 }} /> geo-stamped
-                  </span>
-                  <span className="chip static">
-                    <GppGoodOutlined sx={{ fontSize: 13 }} /> from a Pattadar visit
-                  </span>
-                </>
-              )}
+              <span className="eyebrow" style={{ margin: 0 }}>
+                {KindWord(p)} {i + 1} of {shown.length}
+              </span>
               {/* Theater view: the stage fills the window so a photograph of a
                   boundary stone or a bore can be read closely, then Esc brings
                   the record back. Pushed to the right so it reads as "more
                   room for this", not another fact about the photo. */}
-              <button type="button" className="iconbtn" onClick={toggleTheater}
-                      style={{ marginLeft: 'auto', border: '1px solid var(--w-line)', flex: 'none' }}
-                      aria-pressed={theater}
-                      aria-label={theater ? 'Exit full screen' : 'View full screen'}>
-                {theater
-                  ? <FullscreenExitOutlined sx={{ fontSize: 18 }} />
-                  : <FullscreenOutlined sx={{ fontSize: 18 }} />}
-              </button>
+              {/* Not drawn where the page cannot ask for full screen (Safari on
+                  an iPhone allows it for video only): there it did nothing. */}
+              {canTheater && (
+                <button type="button" className="iconbtn" onClick={toggleTheater}
+                        style={{ marginLeft: 'auto', border: '1px solid var(--w-line)', flex: 'none' }}
+                        aria-pressed={theater}
+                        aria-label={theater ? 'Exit full screen' : 'View full screen'}>
+                  {theater
+                    ? <FullscreenExitOutlined sx={{ fontSize: 18 }} />
+                    : <FullscreenOutlined sx={{ fontSize: 18 }} />}
+                </button>
+              )}
             </div>
 
             {/* minWidth:0 + overflow:hidden is what actually clamps the frame: an
@@ -687,8 +1183,10 @@ export function RecordPhotos() {
                   first photo is a control that points at nothing. `visibility`
                   rather than removing it, so the frame does not shift a pixel
                   when the arrow comes and goes as you page. */}
+              {/* Named for what it leads to — "Previous video" — not always
+                  "photo". 44px on touch through the shared .iconbtn floor. */}
               <button type="button" className="iconbtn" onClick={() => setI(Math.max(0, i - 1))}
-                      aria-label="Previous photo"
+                      aria-label={`Previous ${kindWord(shown[Math.max(0, i - 1)] ?? p)}`}
                       style={{ border: '1px solid var(--w-line)', alignSelf: 'center', flex: 'none',
                                visibility: i === 0 ? 'hidden' : 'visible' }}>
                 <ChevronLeftOutlined sx={{ fontSize: 18 }} />
@@ -705,12 +1203,12 @@ export function RecordPhotos() {
                               : {}) }}>
                 <PhotoImg
                   fileRef={p.fileRef}
-                  kind={p.mediaKind === 'video' ? 'video' : 'photo'}
+                  kind={mediaKindOfRow(p)}
                   alt={p.caption}
                   thumb={1024}
                   fallback={
                     <span style={{ display: 'grid', justifyItems: 'center', gap: '0.5rem' }}>
-                      <Icon name={p.mediaKind === 'video' ? 'video' : p.category.toLowerCase()} size={40} />
+                      <Icon name={mediaKindOfRow(p) === 'photo' ? p.category.toLowerCase() : mediaKindOfRow(p)} size={40} />
                       <span className="mono note">
                         photo placeholder · {p.fileName}
                         {p.width > 0 && ` · ${p.width} × ${p.height}`}
@@ -718,12 +1216,12 @@ export function RecordPhotos() {
                     </span>
                   }
                 />
-                {p.verified && (
+                {mediaKindOfRow(p) === 'photo' && p.verified && (
                   <span style={{ position: 'absolute', top: 'var(--space-md)', right: 'var(--space-md)' }}>
                     <span className="pill owned"><GppGoodOutlined sx={{ fontSize: 13 }} /> Verified on site</span>
                   </span>
                 )}
-                {p.lat > 0 && (
+                {mediaKindOfRow(p) === 'photo' && p.lat > 0 && (
                   <span className="stamp">
                     {p.lat.toFixed(4)}° N {p.lon.toFixed(4)}° E ±{Math.round(p.accuracyM)} m<br />
                     {stamp(p.capturedAt)}
@@ -731,7 +1229,7 @@ export function RecordPhotos() {
                 )}
               </div>
               <button type="button" className="iconbtn" onClick={() => setI(Math.min(shown.length - 1, i + 1))}
-                      aria-label="Next photo"
+                      aria-label={`Next ${kindWord(shown[Math.min(shown.length - 1, i + 1)] ?? p)}`}
                       style={{ border: '1px solid var(--w-line)', alignSelf: 'center', flex: 'none',
                                visibility: i >= shown.length - 1 ? 'hidden' : 'visible' }}>
                 <ChevronRightOutlined sx={{ fontSize: 18 }} />
@@ -745,99 +1243,171 @@ export function RecordPhotos() {
                   summary beside it stays pinned. */}
               <span className="photostrip">
                 {shown.map((t, n) => (
-                  <button key={t.id} type="button" className="thumb" aria-current={n === i}
+                  <button key={t.id} type="button" className={`thumb${selected.has(t.id) ? ' selected' : ''}`}
+                          aria-current={!selecting && n === i}
+                          aria-pressed={selecting ? selected.has(t.id) : undefined}
                           ref={n === i ? currentThumb : undefined}
-                          onClick={() => setI(n)}
+                          onClick={() => {
+                            if (!selecting) { setI(n); return; }
+                            setBulkDeleteIds(null);
+                            setActionErr('');
+                            setSelected((current) => {
+                              const next = new Set(current);
+                              if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+                              return next;
+                            });
+                          }}
                           /* Every photo filed through the app carries an empty
                              caption, and an empty aria-label is no name at all
                              — a strip of unnamed buttons over an alt="" image.
                              The fallback is built from what the row always
                              carries, so the names differ from each other. */
-                          aria-label={t.caption.trim()
-                            || `${t.mediaKind === 'video' ? 'Video' : 'Photo'} ${n + 1}`
+                          /* …and the verified state is in the name too, in
+                             words: the dot below was colour and nothing else,
+                             and aria-hidden. */
+                          aria-label={(t.caption.trim()
+                            || `${KindWord(t)} ${n + 1}`
                                + (t.category ? ` — ${t.category}` : '')
-                               + (t.capturedAt ? `, ${ddmmyyyy(t.capturedAt.slice(0, 10))}` : '')}>
-                    <PhotoImg
-                      fileRef={t.mediaKind === 'video' ? '' : t.fileRef}
-                      alt=""
-                      thumb={128}
-                      fallback={<Icon name={t.mediaKind === 'video' ? 'video' : t.category.toLowerCase()} size={18} />}
-                    />
-                    <span className={t.verified ? 'src' : 'src no'} aria-hidden />
+                               + (t.capturedAt ? `, ${ddmmyyyy(t.capturedAt.slice(0, 10))}` : ''))
+                            + (t.verified ? ', verified on site' : ', not verified')}>
+                    {mediaKindOfRow(t) === 'video' ? (
+                      <VideoThumb fileRef={t.fileRef} fallback={<Icon name="video" size={18} />} />
+                    ) : mediaKindOfRow(t) === 'audio' ? (
+                      <Icon name="audio" size={18} />
+                    ) : (
+                      <PhotoImg fileRef={t.fileRef} alt="" thumb={128}
+                                fallback={<Icon name={t.category.toLowerCase()} size={18} />} />
+                    )}
+                    {selecting && <span className="thumb-select" aria-hidden>{selected.has(t.id) ? '✓' : ''}</span>}
+                    {/* A tick in a filled dot, or a hollow ring: a shape, not
+                        only a colour (the words are in the name above). */}
+                    <span className={t.verified ? 'src' : 'src no'} aria-hidden>{t.verified ? '✓' : ''}</span>
                   </button>
                 ))}
-              </span>
-              {/* Shrinkable, not pinned: at phone width this row is ~154px and the
-                  summary wants 253, so refusing to shrink pushed the page
-                  sideways. It wraps instead. */}
-              <span className="note" style={{ alignSelf: 'center', flex: '0 1 auto', minWidth: 0, marginLeft: 'auto' }}>
-                {featureId
-                  ? <>● taken here, in the app &nbsp; ● uploaded, location unproven</>
-                  : <>Grouped by visit · <span className="num">{ddmmyyyy(visit)}</span> · {plural(visitCount, 'photo')}</>}
               </span>
             </div>
           </div>
 
           <aside className="side">
-            {featureId ? (
+            {selecting ? (
+              <div className="selection-panel">
+                <p className="eyebrow">Selection</p>
+                <h2 style={{ fontSize: '1.375rem' }} aria-live="polite">
+                  {selectedItems.length ? `${selectedItems.length} ${selectedItems.length === 1 ? 'item' : 'items'} selected` : 'Nothing selected'}
+                </h2>
+                <KV rows={[
+                  { k: 'Photos', v: String(selectedItems.filter((item) => mediaKindOfRow(item) === 'photo').length) },
+                  { k: 'Videos', v: String(selectedItems.filter(isVideoRow).length) },
+                  { k: 'Recordings', v: String(selectedItems.filter(isAudioRow).length) },
+                ]} />
+                {selectedItems.length > 0 && (
+                  <div className="selection-previews" aria-label="Selected media">
+                    {selectedItems.map((item) => (
+                      <span key={item.id} className="selection-preview" role="img"
+                            aria-label={item.caption || item.fileName || 'Untitled'}>
+                        {mediaKindOfRow(item) === 'video' ? (
+                          <VideoThumb fileRef={item.fileRef} fallback={<Icon name="video" size={18} />} />
+                        ) : mediaKindOfRow(item) === 'audio' ? (
+                          <Icon name="audio" size={18} />
+                        ) : (
+                          <PhotoImg fileRef={item.fileRef} alt="" thumb={128}
+                                    fallback={<Icon name={item.category.toLowerCase()} size={18} />} />
+                        )}
+                        <span className="thumb-select" aria-hidden>✓</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {selectedItems.length > 0 && !bulkDeleteIds && (
+                  <div className="stack sm selection-actions">
+                    <button type="button" className="btn"
+                            disabled={!!bulkDownload || bulkDeleting}
+                            onClick={() => void downloadSelection()}>
+                      <FileDownloadOutlined sx={{ fontSize: 16 }} aria-hidden />
+                      {bulkDownload
+                        ? `Preparing ${bulkDownload.done} of ${bulkDownload.total}…`
+                        : 'Download as .zip'}
+                    </button>
+                  </div>
+                )}
+                {actionErr && <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{actionErr}</p>}
+                {/* The same confirmation as a single delete, and the same
+                    30-day sentence. A partial failure closes it and says, in
+                    the panel, which items were not deleted and stay selected. */}
+                {bulkDeleteIds && (
+                  <ConfirmDialog
+                    title={`Delete ${bulkDeleteIds.length} selected ${bulkDeleteIds.length === 1 ? 'item' : 'items'}?`}
+                    body={`${bulkDeleteIds.length === 1 ? 'It archives' : 'They archive'} for 30 days before permanent deletion.`}
+                    actionLabel="Delete"
+                    danger
+                    busy={bulkDeleting}
+                    onConfirm={() => void deleteSelection()}
+                    onClose={() => setBulkDeleteIds(null)}
+                  />
+                )}
+                <div className="row tight selection-footer">
+                  <button type="button" className="linkbtn"
+                          disabled={!selectedItems.length || bulkDeleting || !!bulkDownload}
+                          onClick={() => {
+                            setSelected(new Set());
+                            setBulkDeleteIds(null);
+                            setActionErr('');
+                          }}>Clear selection</button>
+                  <span className="grow" />
+                  {!bulkDeleteIds && (
+                    <button type="button" className="linkbtn danger"
+                            disabled={!selectedItems.length || bulkDeleting || !!bulkDownload}
+                            onClick={() => setBulkDeleteIds(selectedItems.map((item) => item.id))}>
+                      <DeleteOutlineOutlined sx={{ fontSize: 15 }} aria-hidden /> Delete selected
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : featureId ? (
               <>
-                <Provenance p={p} subject={subject} named={!!data.subject} />
-                {unproven > 0 && !dismissedUnproven && (
+                {mediaKindOfRow(p) === 'photo' ? (
+                  <>
+                    <Provenance p={p} rec={rec} exif={exif.data} subject={subject} named={!!data.subject} />
+                    <PhotoGeoCheckBlock rec={rec} p={p} exif={exif.data}
+                      loading={exif.status === 'loading'} />
+                    <PhotoMetadata exif={exif.data} loading={exif.status === 'loading'}
+                      unsupported={exif.status === 'unsupported'} />
+                  </>
+                ) : (
+                  <Card title={KindWord(p)}>
+                    <p className="note" style={{ color: 'var(--w-ink-2)' }}>
+                      Location and metadata checks do not apply.
+                    </p>
+                  </Card>
+                )}
+                {mediaKindOfRow(p) === 'photo' && unproven > 0 && !dismissedUnproven && (
                   <div className="card alert" style={{ marginBottom: 'var(--space-md)' }}>
                     <h3 className="down row tight">
                       <LinkOffOutlined sx={{ fontSize: 16 }} />
                       {' '}{plural(unproven, 'photo')} here {unproven === 1 ? 'proves' : 'prove'} nothing
                     </h3>
-                    {/* This card used to tell every owner their photos were a
-                        neighbour's WhatsApp forward from 2023, whoever had
-                        filed them and whenever. Everything below is read off
-                        the rows themselves: source, capture date, and the fact
-                        that nothing verified them against the pin. */}
                     <p className="note" style={{ margin: '0.5rem 0', color: 'var(--w-ink-2)' }}>
-                      {allForwarded
-                        ? `Forwarded in rather than shot here${unprovenWhen ? `, dated ${unprovenWhen}` : ''}`
-                        : `Filed from outside the app${unprovenWhen ? `, dated ${unprovenWhen}` : ''}`}
-                      , so nothing has checked {unproven === 1 ? 'it' : 'them'} against the saved
-                      pin. {unproven === 1 ? 'It is kept as a picture' : 'They are kept as pictures'}
-                      {' '}but never used as evidence — not in a dispute, not in a listing, not for
-                      a bank.
+                      {unprovenOrigin && `${unprovenOrigin} `}Not checked against the saved pin.
                     </p>
+                    {/* "Set their place by hand" stood here, disabled and with no
+                        reason: it is a control for something the app cannot do
+                        yet, so it is not drawn until it can. */}
                     <div className="row tight">
-                      {/* The pin editor this wants does not exist: it needs a
-                          map picker plus a mutation that writes lat/lon onto a
-                          photo row, and there is neither. The record-scoped
-                          half of this screen dropped its "Pin on map" button
-                          for the same reason; this one stays disabled because
-                          the note below it is the answer to "then what do I do
-                          about these", said in text a browser actually draws
-                          rather than in a title attribute. */}
-                      <button type="button" className="btn sm" disabled>
-                        <MyLocationOutlined sx={{ fontSize: 15 }} /> Set their place by hand
-                      </button>
                       <button type="button" className="btn sm" onClick={() => setDismissedUnproven(true)}>
                         Leave as is
                       </button>
                     </div>
-                    <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
-                      Placing a photo by hand is not built yet. Until it is, a photo&rsquo;s place
-                      comes from the app that took it.
-                    </p>
                   </div>
                 )}
-                <Card title="This photo is doing three jobs">
-                  <p className="note" style={{ color: 'var(--w-ink-2)' }}>
-                    It is {subject}&rsquo;s current condition on the Features
-                    tab{p.orderRef && <>, the evidence on order {p.orderRef}</>}, and one of this
-                    record&rsquo;s photos. One file, filed once, referenced from several places —
-                    deleting it from one does not remove it from the others.
-                  </p>
-                </Card>
               </>
             ) : (
               <>
-                <p className="eyebrow">Photo {i + 1} of {shown.length}</p>
+                <p className="eyebrow">
+                  {(p.category || KindWord(p)).replace(/_/g, ' ')}
+                </p>
                 <input
-                  aria-label="Caption"
+                  aria-label="Title"
+                  placeholder="Untitled"
                   value={caption}
                   onChange={(e) => {
                     // The id travels with the text: if the gallery moves while
@@ -853,47 +1423,64 @@ export function RecordPhotos() {
                   }}
                   onBlur={commitCaption}
                   style={{
-                    fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '1.375rem',
+                    fontWeight: 700, fontSize: '1.375rem',
                     border: 0, background: 'none', padding: 0, marginBottom: '0.5rem',
                     width: '100%',
                   }}
                 />
-                <p className="note" style={{ marginBottom: 'var(--space-md)' }}>
-                  Caption and tags are editable. Everything else here records what the camera
-                  captured or controls how this photo is filed.
-                </p>
 
+                <p className="eyebrow" style={{ marginTop: 'var(--space-md)' }}>Details</p>
+                {/* The app's words for what is missing: "not set" for a value
+                    the record does not hold, "Not checked" for a check that has
+                    not run. "N/A" stood for both, and for "does not apply". */}
                 <KV
                   rows={[
-                    { k: 'Taken', v: stamp(p.capturedAt) },
-                    ...(p.localTime ? [{ k: 'Your time', v: p.localTime }] : []),
-                    ...(p.capturedBy ? [{ k: 'By', v: p.capturedBy }] : []),
-                    ...(p.lat > 0
-                      ? [{ k: 'Where', v: `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` }]
-                      : []),
-                    // The chevron promised a destination the row did not have.
-                    // `orderRef` is the human reference on the job, not the
-                    // ticket's id, so the honest destination is the record's
-                    // own list of orders, where that reference is printed.
-                    ...(p.orderRef
-                      ? [{ k: 'Order',
-                           v: <Link className="accent" to={`/app/records/${id}/services`}>
-                                {p.orderRef} ›
-                              </Link> }]
-                      : []),
+                    { k: 'Taken', v: stamp(p.capturedAt) || 'not set' },
+                    { k: 'Visit', v: p.orderRef ? `Order ${p.orderRef}` : 'not set' },
+                    { k: 'Where', v: (p.lat || p.lon)
+                        ? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}${p.accuracyM > 0 ? ` ±${Math.round(p.accuracyM)} m` : ''}`
+                        : exif.data?.gps
+                          ? `${exif.data.gps.latitude.toFixed(4)}, ${exif.data.gps.longitude.toFixed(4)}`
+                          : 'not set' },
+                    { k: 'Uploaded by', v: p.capturedBy || 'not set' },
+                    { k: 'Device', v: exif.status === 'loading' ? 'Reading the file…'
+                        : [exif.data?.make, exif.data?.model].filter(Boolean).join(' ') || 'not set' },
+                    { k: 'File', v: [p.fileName || 'not set',
+                        p.width > 0 && p.height > 0 ? `${p.width} × ${p.height}` : '']
+                        .filter(Boolean).join(' · ') },
                   ]}
                 />
 
+                <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Audit</p>
+                <KV rows={[
+                  { k: 'Source', v: p.source || 'not set' },
+                  { k: 'On-site check', v: p.verified ? 'Verified on site' : 'Not checked' },
+                  { k: 'Device clock', v: p.deviceClockOk ? 'Matched server' : 'Not checked' },
+                  { k: 'File hash', v: p.sha256 || 'not set' },
+                  { k: 'Service order', v: p.orderRef
+                      ? <Link className="accent" to={`/app/records/${id}/services`}>{p.orderRef} ›</Link>
+                      : 'not set' },
+                ]} />
+
+                {/* Is this photo actually OF this land? The record-scoped panel
+                    is where most photos are looked at, so the location check
+                    lives here too, not only on the feature provenance panel. */}
+                {mediaKindOfRow(p) === 'photo' && (
+                  <PhotoGeoCheckBlock rec={rec} p={p} exif={exif.data}
+                    loading={exif.status === 'loading'} />
+                )}
+
                 <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Tags</p>
+                {/* Only the owner's own tags. Three automatic ones used to lead
+                    the row — the kind, the property's title and the visit date —
+                    each a fact already on screen (the eyebrow, the <h1>, the
+                    stamp). */}
                 <div className="row tight">
-                  <Tag>Photos</Tag>
-                  <Tag>{rec.title}</Tag>
-                  <Tag>visit {ddmmyyyy(p.capturedAt.slice(0, 10))}</Tag>
                   {p.tags.map((t) => <Tag key={t} alert={t === 'boundary dispute'}>{t}</Tag>)}
                   {/* This was a <span>: it looked like the way to add a tag, it
-                      did nothing, and Tab walked straight past it. A real
-                      button, not the Chip primitive — Chip announces
-                      aria-pressed, and adding a tag is not a toggle. */}
+                      did nothing, and Tab walked straight past it. A text
+                      button, not a chip: adding a tag is an action, and a
+                      dashed chip read as one more tag. */}
                   {addingTag ? (
                     <input
                       autoFocus
@@ -919,34 +1506,35 @@ export function RecordPhotos() {
                       }}
                     />
                   ) : (
-                    <button ref={tagTrigger} type="button" className="chip"
+                    <button ref={tagTrigger} type="button" className="linkbtn"
                             onClick={() => {
                               tagCancelled.current = false;
                               setTagText('');
                               setAddingTag(true);
-                            }}
-                            style={{ borderStyle: 'dashed', color: 'var(--w-accent)', borderColor: 'var(--w-accent)' }}>
-                      + tag
+                            }}>
+                      <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a tag
                     </button>
                   )}
                 </div>
 
                 <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Do</p>
                 <div className="grid4" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 'var(--space-xs)' }}>
-                  <button type="button" className="btn" style={{ justifyContent: 'center' }}
-                          disabled={p.isCover || cover.isPending}
-                          onClick={() => {
-                            setActionErr('');
-                            cover.mutate({ photoId: p.id }, {
-                              onSuccess: (res) => {
-                                if (!res.web.setCoverPhoto) {
-                                  setActionErr('That photo could not be made the cover. It may no longer be filed here.');
-                                }
-                              },
-                            });
-                          }}>
-                    <ImageOutlined sx={{ fontSize: 15 }} /> {p.isCover ? 'Cover' : 'Make cover'}
-                  </button>
+                  {mediaKindOfRow(p) === 'photo' && (
+                    <button type="button" className="btn" style={{ justifyContent: 'center' }}
+                            disabled={p.isCover || cover.isPending}
+                            onClick={() => {
+                              setActionErr('');
+                              cover.mutate({ photoId: p.id }, {
+                                onSuccess: (res) => {
+                                  if (!res.web.setCoverPhoto) {
+                                    setActionErr('That photo could not be made the cover. It may no longer be filed here.');
+                                  }
+                                },
+                              });
+                            }}>
+                      <ImageOutlined sx={{ fontSize: 15 }} /> {p.isCover ? 'Cover' : 'Make cover'}
+                    </button>
+                  )}
                   <button type="button" className="btn" style={{ justifyContent: 'center' }}
                           disabled={!isStorageRef(p.fileRef) || dling}
                           onClick={async () => {
@@ -957,9 +1545,9 @@ export function RecordPhotos() {
                             setDling(true);
                             try {
                               const blob = await fetchFileBlob(p.fileRef);
-                              downloadBlob(blob, p.fileName || 'photo.jpg');
+                              downloadBlob(blob, p.fileName || (mediaKindOfRow(p) === 'audio' ? 'recording' : mediaKindOfRow(p) === 'video' ? 'video' : 'photo.jpg'));
                             } catch {
-                              setDlErr('That photo could not be downloaded — the file storage could not be reached. The photo itself is untouched.');
+                              setDlErr('That file could not be downloaded. Storage could not be reached.');
                             } finally {
                               setDling(false);
                             }
@@ -980,76 +1568,40 @@ export function RecordPhotos() {
                   </p>
                 )}
 
-                {/* "Pin on map" and "Share" stood in the grid above as disabled
-                    buttons whose only explanation was a title attribute, which
-                    no browser shows on a disabled control — two actions that
-                    looked real and answered nothing. Neither has anything
-                    behind it: no mutation writes a lat/lon onto a photo row,
-                    and createShareLink takes a recordId, never a file. So the
-                    grid holds the two that work and this says where the other
-                    two live. The feature-scoped half of this screen states the
-                    pin half of it again in its unproven-photos card, because
-                    the two branches never render together. */}
-                <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
-                  Where a photo was taken comes from the app that took it — placing one by
-                  hand is not built yet. Sharing is by record rather than by photo: Share
-                  securely on this record&rsquo;s{' '}
-                  <Link className="accent" to={`/app/records/${id}`}>Papers tab</Link> makes a
-                  link to its papers for one named person.
-                </p>
-
-                <div className="card alert" style={{ marginTop: 'var(--space-lg)' }}>
-                  <h3 className="down row tight">
-                    <DeleteOutlineOutlined sx={{ fontSize: 16 }} /> Delete this photo
-                  </h3>
-                  <p className="note" style={{ marginTop: '0.5rem', color: 'var(--w-ink-2)' }}>
-                    {p.tags.includes('boundary dispute')
-                      ? <>It is evidence in a live boundary dispute and is attached to order {p.orderRef}, so it archives for 30 days first. Nothing about the order changes.</>
-                      : <>It archives for 30 days before it is destroyed. Anything referencing it keeps working until then.</>}
-                  </p>
-                  <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-                    {confirmDel ? (
-                      <>
-                        <button type="button" className="btn sm danger"
-                                disabled={delPhoto.isPending}
-                                onClick={() => {
-                                  setActionErr('');
-                                  delPhoto.mutate({ photoId: p.id }, {
-                                    onSuccess: (res) => {
-                                      if (!res.web.deletePhoto) {
-                                        setActionErr('That photo could not be deleted. It may already be gone — reload the gallery.');
-                                        return;
-                                      }
-                                      setConfirmDel(false);
-                                      setI((v) => Math.max(0, v - 1));
-                                    },
-                                  });
-                                }}>
-                          {delPhoto.isPending ? 'Deleting…' : 'Yes, delete it'}
-                        </button>
-                        <button type="button" className="btn sm" onClick={() => setConfirmDel(false)}>
-                          Keep it
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" className="btn sm danger"
-                              aria-label={`Delete ${p.caption || 'this photo'}`}
-                              onClick={() => setConfirmDel(true)}>
-                        <DeleteOutlineOutlined sx={{ fontSize: 15 }} /> Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* This used to advertise bulk select, next to a Select button
-                    that did nothing; both are gone. Tagging, download and
-                    delete are per-photo, and there is no server call that
-                    takes a set of photo ids, so nothing here can do a visit at
-                    once until one exists. */}
-                <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-                  Tags, download and delete apply to the photo you are looking at. Use the search
-                  above to bring one visit&rsquo;s photos into the strip.
-                </p>
+                {/* The shared confirmation, not an inline card at the foot of
+                    a scrolling panel (it opened below the fold at 1512). It
+                    holds open until the server answers, with the answer in it. */}
+                {confirmDeleteId === p.id && (
+                  <ConfirmDialog
+                    title={`Delete this ${kindWord(p)}?`}
+                    body="It archives for 30 days before permanent deletion."
+                    actionLabel="Delete"
+                    danger
+                    busy={delPhoto.isPending}
+                    error={delErr}
+                    onConfirm={() => {
+                      const photoId = confirmDeleteId;
+                      setDelErr('');
+                      delPhoto.mutate({ photoId }, {
+                        onSuccess: (res) => {
+                          if (!res.web.deletePhoto) {
+                            setDelErr('This item could not be deleted. Reload the gallery and try again.');
+                            return;
+                          }
+                          setConfirmDeleteId(null);
+                          setI((v) => Math.max(0, v - 1));
+                        },
+                        onError: () => setDelErr('This item could not be deleted. It is still here.'),
+                      });
+                    }}
+                    onClose={() => { setDelErr(''); setConfirmDeleteId(null); }}
+                  />
+                )}
+                <button type="button" className="btn danger media-delete" aria-haspopup="dialog"
+                        aria-label={`Delete ${p.caption || `this ${kindWord(p)}`}`}
+                        onClick={() => { setDelErr(''); setConfirmDeleteId(p.id); }}>
+                  <DeleteOutlineOutlined sx={{ fontSize: 18 }} aria-hidden /> Delete
+                </button>
               </>
             )}
           </aside>
@@ -1064,9 +1616,7 @@ export function RecordPhotos() {
                    <button type="button" className="btn sm" onClick={() => setQ('')}>
                      <CloseOutlined sx={{ fontSize: 15 }} /> Clear the search
                    </button>
-                 }>
-            The search reads captions, tags, file names and capture dates.
-          </Empty>
+                 } />
         </div>
       ) : featureId ? (
         /* One branch used to cover both scopes and it was written for the
@@ -1077,40 +1627,20 @@ export function RecordPhotos() {
                  title={`No photos of ${subject} yet`}
                  action={
                    <Link to={`/app/records/${id}/photos`} className="btn sm">
-                     <ImageOutlined sx={{ fontSize: 15 }} /> All photos on this record
+                     <ImageOutlined sx={{ fontSize: 15 }} /> All photos on this property
                    </Link>
-                 }>
-            The record&rsquo;s other photos are filed against the record itself or another
-            feature. Ask for a fresh photo above to put one on this feature.
-          </Empty>
+                 } />
         </div>
       ) : (
         <div className="split">
           <div>
             <DropZone />
-            <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-              Drag files straight onto the box, or browse for them. A photo taken on the land
-              carries its date and its coordinates — that is what makes the condition on the{' '}
-              <Link className="accent" to={`/app/records/${id}/features`}>Features</Link>
-              {' '}hanger checkable by somebody who was not there.
-            </p>
           </div>
 
           <aside className="stack">
-            <Card title="What to photograph" className="railcard">
-              <ul className="railnotes">
-                <li>Each boundary stone</li>
-                <li>The bore head and the pump</li>
-                <li>The approach road and the gate</li>
-                <li>One wide shot from each corner</li>
-              </ul>
-            </Card>
-
             <Card title="Limits" className="railcard">
               <p className="note" style={{ margin: 0 }}>
-                Photo or video, up to {mb(MAX_UPLOAD_BYTES)} each.
-                Stored against this record only.
-                Visible to you until you share.
+                Photos up to {mb(MAX_UPLOAD_BYTES)}; videos and audio up to {mb(MAX_VIDEO_BYTES)}.
               </p>
             </Card>
           </aside>

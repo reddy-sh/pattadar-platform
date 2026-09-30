@@ -9,7 +9,7 @@ import WorkspacePremiumOutlined from '@mui/icons-material/WorkspacePremiumOutlin
 import { Link } from 'react-router';
 
 import type { AssignedResourceTrust } from './api';
-import { plural } from './ui';
+import { ddmmyyyy, plural } from './ui';
 
 const stateWord = (state: string) => ({
   valid: 'Live', verified: 'Verified', expiring: 'Expiring soon',
@@ -37,7 +37,9 @@ export function AssignedResourceProof({ resource }: { resource: AssignedResource
 
       <div className="resource-proof-metrics">
         <span><StarRounded sx={{ fontSize: 16 }} aria-hidden /> {rating}</span>
-        <span>{plural(resource.jobsOpen, 'active Pattadar job')}</span>
+        {/* "order": the owner's word for the work, as on the rest of this
+            screen and on the order page. */}
+        <span>{plural(resource.jobsOpen, 'active Pattadar order')}</span>
       </div>
 
       {resource.professionalCredentials.length > 0 && (
@@ -49,7 +51,7 @@ export function AssignedResourceProof({ resource }: { resource: AssignedResource
                 <strong>{credential.kind}</strong>
                 <span className="note">
                   {[credential.authority, credential.numberMasked].filter(Boolean).join(' · ')}
-                  {credential.expiresOn ? ` · valid until ${credential.expiresOn}` : ''}
+                  {credential.expiresOn ? ` · valid until ${ddmmyyyy(credential.expiresOn)}` : ''}
                 </span>
               </span>
               <span className={`state ${credential.state === 'verified' ? 'good' : credential.state === 'expiring' ? 'warn' : 'bad'}`}>
@@ -69,7 +71,7 @@ export function AssignedResourceProof({ resource }: { resource: AssignedResource
                 <strong>{certificate.courseTitle}</strong>
                 <span className="note">
                   {certificate.certificateNo}
-                  {certificate.validUntil ? ` · valid until ${certificate.validUntil}` : ''}
+                  {certificate.validUntil ? ` · valid until ${ddmmyyyy(certificate.validUntil)}` : ''}
                 </span>
               </span>
               <Link
@@ -84,11 +86,6 @@ export function AssignedResourceProof({ resource }: { resource: AssignedResource
           ))}
         </div>
       )}
-
-      <p className="resource-proof-privacy">
-        You are seeing work identity and live credential status for this assignment.
-        Personal evidence and private documents remain protected.
-      </p>
     </section>
   );
 }

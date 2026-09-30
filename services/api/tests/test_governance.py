@@ -37,16 +37,28 @@ def test_workforce_rules_include_certification_and_rating_retraining():
     assert "100" in threshold and "below 3.0" in threshold
 
 
-def test_scope_normalisation_enforces_the_country_state_district_hierarchy():
-    assert governance.normalize_scope("in", "ap", "Prakasam") == (
-        "IN", "AP", "PRAKASAM", "IN/AP/PRAKASAM")
-    assert governance.normalize_scope("IN", "*", "*")[-1] == "IN/*/*"
-    try:
-        governance.normalize_scope("IN", "*", "PRAKASAM")
-    except ValueError as exc:
-        assert "requires a state" in str(exc)
-    else:
-        raise AssertionError("district without state was accepted")
+def test_scope_normalisation_enforces_the_hierarchy_down_to_village():
+    assert governance.normalize_scope("in", "ap", "Prakasam", "Ongole Rural", "Kottapalem") == (
+        "IN", "AP", "PRAKASAM", "ONGOLE_RURAL", "KOTTAPALEM",
+        "IN/AP/PRAKASAM/ONGOLE_RURAL/KOTTAPALEM")
+    assert governance.normalize_scope("IN", "*", "*")[-1] == "IN/*/*/*/*"
+    for args, needle in (
+        (("IN", "*", "PRAKASAM"), "requires a state"),
+        (("IN", "AP", "*", "ONGOLE"), "requires a district"),
+        (("IN", "AP", "PRAKASAM", "*", "KOTTAPALEM"), "requires a mandal"),
+    ):
+        try:
+            governance.normalize_scope(*args)
+        except ValueError as exc:
+            assert needle in str(exc)
+        else:
+            raise AssertionError(f"invalid scope {args} was accepted")
+
+
+def test_cascade_pattern_matches_every_descendant_but_not_siblings():
+    assert governance.cascade_pattern("IN/AP/*/*/*") == "IN/AP/%"
+    assert governance.cascade_pattern("IN/AP/PRAKASAM/*/*") == "IN/AP/PRAKASAM/%"
+    assert governance.cascade_pattern("IN/AP/PRAKASAM/ONGOLE/KOTTAPALEM") is None
 
 
 def test_property_matching_uses_government_property_classification():

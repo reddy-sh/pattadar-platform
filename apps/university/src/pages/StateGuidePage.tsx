@@ -13,7 +13,7 @@ import { stateLearningGuideByCode } from '../data/stateGuideContent';
 import {
   indiaLandRecordSources,
   landRecordAvailabilityLabels,
-  stateLandRecordBySlug,
+  publishedStateLandRecordBySlug,
 } from '../data/stateLandRecords';
 import type {
   StateGuideSourceKind,
@@ -70,7 +70,7 @@ function SourceLinks({ profile, kinds }: SourceLinksProps) {
 
 export function StateGuidePage() {
   const { slug } = useParams();
-  const profile = stateLandRecordBySlug(slug);
+  const profile = publishedStateLandRecordBySlug(slug);
   if (!profile) return <Navigate to="/states" replace />;
 
   const guide = stateLearningGuideByCode(profile.code);

@@ -27,18 +27,23 @@
  * controls, the wording and the mutation the world saw — a pixel is not an
  * assertion anybody can read in six months.
  *
- * Four scenarios are `test.fail()`. Each is named at the line that causes it;
+ * Three scenarios are `test.fail()`. Each is named at the line that causes it;
  * each goes green the day it is fixed:
  *
  *   1. accepting a moved mark always reports failure — api.ts:855 asks for
  *      `acceptMarkPosition`; RecordBoundary.tsx:164 reads `acceptMark`.
- *   2. "Remove saved boundary" wipes a surveyed ring on one click, with no
- *      second confirmation — RecordBoundary.tsx:913-919.
- *   3. a refused "add a mark at each corner" says nothing at all —
+ *   2. a refused "add a mark at each corner" says nothing at all —
  *      RecordBoundary.tsx:1329-1332 wires onError and never reads the count.
- *   4. a side pinned from the keyboard drops focus on the floor — the tip's
+ *   3. a side pinned from the keyboard drops focus on the floor — the tip's
  *      whole DOM is rebuilt on every render (MapCanvas.tsx:1486), including
  *      the one the hand-off itself causes.
+ *
+ * A fourth — "Remove saved boundary" wiping the saved ring on one click —
+ * was fixed on 28/09/2026: it asks in the shared confirmation first.
+ *
+ * Moving the pin places a DRAFT and "Save pin" writes it (RecordBoundary.tsx
+ * pinDraft), the way drawing a boundary does; every pin test below presses
+ * Save pin, and one proves a cancelled draft writes nothing.
  */
 import { test, expect, World, TILE_HOSTS } from '../fixtures/harness';
 import type { Page } from '../fixtures/harness';
@@ -135,6 +140,12 @@ async function openMap(page: Page, id: string): Promise<void> {
 }
 
 const marksCard = (page: Page) => page.locator('.card', { hasText: 'Boundary marks' });
+
+/** One of the map's own tools, in the panel headed "Changes the record".
+ *  Scoped because the FMB sheet card in the rail now offers "Draw boundary"
+ *  under the same name (it said "Draw it instead"), and it arms this tool. */
+const mapTool = (page: Page, name: string) =>
+  page.locator('#w360-maptools').getByRole('button', { name, exact: true });
 /** The screen's own error line — `pinErr`, which every write on this page
  *  reports through (RecordBoundary.tsx:827). */
 const mapError = (page: Page) => page.locator('.mapsays p[role="alert"]');
@@ -203,8 +214,9 @@ test('with nothing armed, the map says what its tools are for and which of them 
   // The idle sentence. It is the only instruction anyone gets before arming
   // something, and it is the one piece of copy on this panel that is always on
   // screen (RecordBoundary.tsx:841).
-  await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Add a named boundary mark, or choose “Move this mark” from its menu to correct its position.');
+  // The idle hint was removed with the copy rename: the hint only appears
+  // while a tool is armed (RecordBoundary.tsx `mode !== 'idle'`).
+  await expect(page.locator('.mapsays .hint')).toHaveCount(0);
   // And the panel says out loud which of its three tools touch the record —
   // the header used to be seven buttons of three different kinds in one row.
   await expect(page.locator('.maptools .tools .eyebrow')).toHaveText('Changes the record');
@@ -284,7 +296,7 @@ test('a sheet whose corners were never placed says why nothing is drawn', async 
   await openMap(page, ID.parcel);
 
   await expect(page.locator('.card', { hasText: 'FMB sketch' })).toContainText(
-    'The sheet is filed but its corners have never been placed on the ground, which is why there is no boundary drawn.');
+    'No boundary drawn from this sheet yet.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
 });
 
@@ -533,7 +545,13 @@ test('hiding the measurements takes the lengths off the map with them', async ({
   await openMap(page, ID.parcel);
   await expect(page.locator('.w-side')).toHaveCount(4);
 
-  await page.getByRole('button', { name: 'Hide measurements' }).click();
+  // One control shows and hides them, the map's own Measure chip: the card
+  // no longer carries a × of its own that did the same thing a second way.
+  const measure = page.getByRole('button', { name: 'Measure', exact: true });
+  await expect(measure).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.card', { hasText: 'Measurements' }).getByRole('button', { name: 'Hide measurements' }))
+    .toHaveCount(0);
+  await measure.click();
 
   await expect(page.locator('.card', { hasText: 'Measurements' })).toHaveCount(0);
   await expect(page.locator('.w-side')).toHaveCount(0);
@@ -547,7 +565,7 @@ test('a traced outline within a few percent of the record is called close, not w
   await openMap(page, ID.parcel);
 
   await expect(page.locator('.card', { hasText: 'Measurements' }))
-    .toContainText(/Within \d+\.\d% of the extent on record — as close as a traced boundary gets\./);
+    .toContainText(/Within \d+\.\d% of the extent on record\./);
 });
 
 test('an outline a fifth off the record is worth a look rather than an alarm', async ({ page, world }) => {
@@ -595,11 +613,10 @@ test.describe('with no basemap at all', () => {
     await openMap(page, ID.parcel);
 
     const notice = page.locator('.plot p.nogeo.low');
-    await expect(notice).toContainText('Satellite imagery is unavailable here. Try Street view or zoom out.');
-    await expect(notice).toContainText('Your saved boundary and any drawing remain visible.');
+    await expect(notice).toContainText('Satellite imagery is unavailable here.');
 
     await page.getByRole('button', { name: 'Satellite' }).click();
-    await expect(notice).toContainText('Street map tiles are unavailable. Try Satellite or check your connection.');
+    await expect(notice).toContainText('Street map tiles are unavailable.');
 
     // Whatever the tiles did, the record's own ring is the record's own ring.
     await expect(page.locator('path.w-ring')).toHaveCount(1);
@@ -617,9 +634,9 @@ test('a mark that has been moved is flagged, and offers the position to accept',
   const card = marksCard(page);
 
   await expect(card.getByRole('button', { name: 'Accept new position' })).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Delete mark' })).toBeVisible();
-  await expect(card).toContainText(
-    'Deleting a mark keeps the old position in History — the FMB sheet it came from is never edited.');
+  await expect(card.getByRole('button', { name: 'Delete this mark' })).toBeVisible();
+  // Said in a word, not only in red.
+  await expect(card.getByText('Moved', { exact: true })).toHaveCount(1);
   // And the map agrees with the list: the moved stone is drawn in the alarm
   // hue, and only that one. (Leaflet class names again — see above.)
   await expect(page.locator('path.w-mark.moved')).toHaveCount(1);
@@ -697,24 +714,50 @@ test('deleting a mark deletes that stone and takes it off the list', async ({ pa
 
   await card.getByRole('button', { name: 'Actions for South-east stone' }).click();
   await page.getByRole('menuitem', { name: 'Delete this mark' }).click();
+  // Asked first, in the shared confirmation, naming the stone (it used to go
+  // on the menu press alone).
+  const question = page.getByRole('dialog', { name: 'Delete South-east stone?' });
+  await expect(question).toContainText('The mark and its position come off this property. There is no undo.');
+  expect(world.calls('deleteMark')).toHaveLength(0);
+  await question.getByRole('button', { name: 'Delete', exact: true }).click();
 
+  await expect.poll(() => world.calls('deleteMark').length).toBe(1);
   expect(world.lastVars('deleteMark')).toMatchObject({ markId: MARK.se });
+  await expect(question).toHaveCount(0);
   await expect(card.getByRole('button', { name: /^Actions for / })).toHaveCount(2);
   await expect(card).not.toContainText('South-east stone');
   await expect(mapError(page)).toHaveCount(0);
 });
 
+test('Cancel on the question deletes nothing', async ({ page, world }) => {
+  await openMap(page, ID.parcel);
+
+  await marksCard(page).getByRole('button', { name: 'Actions for North-east stone' }).click();
+  await page.getByRole('menuitem', { name: 'Delete this mark' }).click();
+  const question = page.getByRole('dialog', { name: 'Delete North-east stone?' });
+  await question.getByRole('button', { name: 'Cancel' }).click();
+
+  await expect(question).toHaveCount(0);
+  expect(world.calls('deleteMark')).toHaveLength(0);
+  await expect(marksCard(page)).toContainText('North-east stone');
+});
+
 test('a deletion the server refuses says so, instead of pretending the stone is gone', async ({ page, world }) => {
   // The resolver answers true whatever happens, so a refusal reaches the
   // screen as `false` in the payload and nothing else. Silence here is an
-  // owner who believes a stone is deleted and finds it there next time.
+  // owner who believes a stone is deleted and finds it there next time. The
+  // answer is said in the confirmation that asked, which holds open.
   world.set('deleteMark', false);
   await openMap(page, ID.parcel);
 
   await marksCard(page).getByRole('button', { name: 'Actions for North-east stone' }).click();
   await page.getByRole('menuitem', { name: 'Delete this mark' }).click();
+  const question = page.getByRole('dialog', { name: 'Delete North-east stone?' });
+  await question.getByRole('button', { name: 'Delete', exact: true }).click();
 
-  await expect(mapError(page)).toHaveText('That mark could not be deleted.');
+  await expect(question.getByRole('alert'))
+    .toHaveText('That mark could not be deleted. It is still on this property.');
+  await expect(question.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   await expect(marksCard(page)).toContainText('North-east stone');
 });
 
@@ -725,22 +768,23 @@ test('a deletion that is already in flight cannot be fired a second time', async
 
   await card.getByRole('button', { name: 'Actions for North-east stone' }).click();
   await page.getByRole('menuitem', { name: 'Delete this mark' }).click();
+  const question = page.getByRole('dialog', { name: 'Delete North-east stone?' });
+  await question.getByRole('button', { name: 'Delete', exact: true }).click();
 
-  // MenuItem has no disabled state to set, so the label is the only warning
-  // and the handler is the only guard. Both have to hold.
-  await card.getByRole('button', { name: 'Actions for North-east stone' }).click();
-  const again = page.getByRole('menuitem', { name: 'Deleting…' });
-  await expect(again).toBeVisible();
-  await again.click();
+  // The confirmation holds while the write is out, and its one button that
+  // would send it again is disabled under the shared busy word.
+  const working = question.getByRole('button', { name: 'Working…' });
+  await expect(working).toBeDisabled();
+  await expect(question).toHaveAttribute('aria-busy', 'true');
 
+  await expect(question).toHaveCount(0);
   expect(world.calls('deleteMark')).toHaveLength(1);
-  await expect.poll(() => world.calls('deleteMark').length, { timeout: 5_000 }).toBe(1);
 });
 
 test('one stone being deleted does not make every other stone say it is being deleted', async ({ page, world }) => {
   // react-query keeps `variables` after a mutation settles, so the pending
   // label was once read off `isPending` alone and every mark's menu reported
-  // itself as being deleted (RecordBoundary.tsx:140-146). One owner, three
+  // itself as being deleted (RecordBoundary.tsx `removing`). One owner, three
   // stones, and no way to tell which one is actually going.
   // Long enough that the whole comparison happens while the write is in
   // flight; the test is over before it lands, which is the point.
@@ -750,6 +794,12 @@ test('one stone being deleted does not make every other stone say it is being de
 
   await card.getByRole('button', { name: 'Actions for North-east stone' }).click();
   await page.getByRole('menuitem', { name: 'Delete this mark' }).click();
+  const question = page.getByRole('dialog', { name: 'Delete North-east stone?' });
+  await question.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(question.getByRole('button', { name: 'Working…' })).toBeVisible();
+  // Put the question away (Cancel is not held by the write) to look at the
+  // other stones while this one is still going.
+  await question.getByRole('button', { name: 'Cancel' }).click();
 
   await card.getByRole('button', { name: 'Actions for South-east stone' }).click();
   await expect(page.getByRole('menuitem', { name: 'Delete this mark' })).toBeVisible();
@@ -767,7 +817,7 @@ test('a mark is never filed without a name', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click where the stone is. It is numbered in the order marks were added, and nothing is overwritten.');
+    'Click where the stone is.');
   await clickMapAt(page, 0.45, 0.45);
 
   const form = marksCard(page).locator('.marknote');
@@ -934,7 +984,7 @@ test('a surveyed record with no stones offers one mark per corner', async ({ pag
   const card = marksCard(page);
 
   await expect(card).toContainText(
-    'No marks recorded. A mark is a numbered corner with its own photos and its own history — add one, or order a survey and the surveyor sets them.');
+    'No marks recorded.');
 
   await card.getByRole('button', { name: 'Add a mark at each of the 4 corners' }).click();
   await expect.poll(() => world.calls('marksFromBoundary').length).toBe(1);
@@ -980,8 +1030,7 @@ test('stones nowhere near the boundary are called out, with the distance', async
   await openMap(page, ID.parcel);
 
   const card = marksCard(page);
-  await expect(card).toContainText('None of these 3 stones is near the boundary on this record');
-  await expect(card).toContainText('so they are off the map you are looking at');
+  await expect(card).toContainText('None of these 3 stones is near the boundary. Nearest:');
   await expect(card).toContainText(/\d[\d,.]* km away/);
 });
 
@@ -1012,33 +1061,60 @@ test('an unarmed click on the map moves nothing', async ({ page, world }) => {
 
   // Idle, a click on the map pans and saves nothing…
   await clickMapAt(page, 0.4, 0.4);
-  // …and the proof is that the NEXT click, armed, produces exactly one write.
-  // Asserting "nothing happened" straight after the first click would pass
-  // just as well against an app that had not got round to it yet.
+  // …and the proof is that the NEXT click, armed and then saved, produces
+  // exactly one write. Asserting "nothing happened" straight after the first
+  // click would pass just as well against an app that had not got round to
+  // it yet.
   await arm.click();
   await clickMapAt(page, 0.5, 0.45);
+  await page.getByRole('button', { name: 'Save pin' }).click();
 
   await expect.poll(() => world.calls('setPin').length).toBe(1);
   expect(world.calls('addMark')).toHaveLength(0);
   expect(world.calls('setBoundary')).toHaveLength(0);
 });
 
-test('Move the pin arms the map, and the next click becomes the pin', async ({ page, world }) => {
+test('Move the pin arms the map, a click places a draft, and Save pin writes it', async ({ page, world }) => {
+  // One click on the map used to move the record's pin at once, with nothing
+  // to confirm and nothing to undo. It places a draft now, the way drawing a
+  // boundary does, and "Save pin" in the edit bar is the write
+  // (RecordBoundary.tsx pinDraft).
   await openMap(page, ID.parcel);
   const arm = page.getByRole('button', { name: 'Move the pin' });
 
   await arm.click();
-  await expect(page.getByRole('button', { name: 'Click the map — or cancel' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Placing the pin — or cancel' })).toBeVisible();
   await expect(page.locator('.plot .map.picking')).toBeVisible();
-  await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click where the land actually is — or use your current location if you are standing on it.');
+  const hint = page.locator('.mapsays .hint');
+  await expect(hint).toHaveText('Click where the land is.');
+  const save = page.getByRole('button', { name: 'Save pin' });
+  await expect(save).toBeDisabled();
 
   await clickMapAt(page, 0.5, 0.45);
 
+  // A draft, not a write: nothing has gone to the server yet.
+  await expect(hint).toHaveText('Pin placed. Save it, or click again to move it.');
+  await expect(save).toBeEnabled();
+  expect(world.calls('setPin')).toHaveLength(0);
+
+  await save.click();
   await expect.poll(() => world.calls('setPin').length).toBe(1);
   expect(world.lastVars('setPin')).toMatchObject({ recordId: ID.parcel });
   // Disarmed once it lands, or the next click moves it by accident.
   await expect(page.locator('.plot .map.picking')).toHaveCount(0);
+});
+
+test('a placed pin that is cancelled writes nothing', async ({ page, world }) => {
+  await openMap(page, ID.parcel);
+  await page.getByRole('button', { name: 'Move the pin' }).click();
+  await clickMapAt(page, 0.5, 0.45);
+  await expect(page.locator('.mapsays .hint')).toHaveText('Pin placed. Save it, or click again to move it.');
+
+  await page.getByRole('button', { name: 'Placing the pin — or cancel' }).click();
+
+  await expect(page.locator('.plot .map.picking')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save pin' })).toHaveCount(0);
+  expect(world.calls('setPin')).toHaveLength(0);
 });
 
 test('a pin the server refuses to save says so', async ({ page, world }) => {
@@ -1047,8 +1123,9 @@ test('a pin the server refuses to save says so', async ({ page, world }) => {
 
   await page.getByRole('button', { name: 'Move the pin' }).click();
   await clickMapAt(page, 0.5, 0.45);
+  await page.getByRole('button', { name: 'Save pin' }).click();
 
-  await expect(mapError(page)).toHaveText('That pin could not be saved to this record.');
+  await expect(mapError(page)).toHaveText('That pin could not be saved to this property.');
 });
 
 test('a pin that disagrees with the boundary is named, and can be moved onto it', async ({ page, world }) => {
@@ -1056,8 +1133,7 @@ test('a pin that disagrees with the boundary is named, and can be moved onto it'
   await openMap(page, ID.parcel);
   const card = page.locator('.card', { hasText: 'LOCATION' });
 
-  await expect(card).toContainText(/The pin is [\d,]+ km from the boundary drawn on this record\./);
-  await expect(card).toContainText('One of the two is wrong.');
+  await expect(card).toContainText(/The pin is [\d,]+ km from the boundary\./);
 
   await card.getByRole('button', { name: 'Move the pin onto the boundary' }).click();
 
@@ -1105,6 +1181,12 @@ test('the phone standing on the land can set the pin itself', async ({ page, wor
   await page.getByRole('button', { name: 'Move the pin' }).click();
   await page.getByRole('button', { name: 'Use my current location' }).click();
 
+  // Where the phone says it is becomes the draft, like a click on the map —
+  // the owner sees where it lands before it is written.
+  await expect(page.locator('.mapsays .hint')).toHaveText('Pin placed. Save it, or click again to move it.');
+  expect(world.calls('setPin')).toHaveLength(0);
+  await page.getByRole('button', { name: 'Save pin' }).click();
+
   await expect.poll(() => world.calls('setPin').length).toBe(1);
   expect(world.lastVars('setPin')).toMatchObject({
     recordId: ID.parcel, lat: 15.74055, lon: 79.26975,
@@ -1123,7 +1205,7 @@ test('Redraw opens on the corners already saved, and Clear empties the draft', a
   // — 2.36 ac to two decimals, 2 acres 14 guntas rounded to whole guntas.
   await expect(bar.locator('.num')).toHaveText('4 corners · 2.36 ac · 392 m around');
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click each corner in order. Drag a corner to adjust it, then save the outline.');
+    'Click each corner in order.');
 
   await bar.getByRole('button', { name: 'Undo corner' }).click();
   await expect(bar).toContainText('3 corners');
@@ -1137,7 +1219,7 @@ test('Redraw opens on the corners already saved, and Clear empties the draft', a
 test('a drawn boundary is refused until three corners enclose something', async ({ page }) => {
   await openMap(page, ID.plot);
 
-  await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+  await mapTool(page, 'Draw boundary').click();
   const bar = page.locator('.editbar');
   await expect(bar.getByRole('button', { name: 'Save boundary' })).toBeDisabled();
   // Nothing on file, so there is nothing to remove — the destructive button is
@@ -1158,7 +1240,7 @@ test('a drawn boundary is refused until three corners enclose something', async 
 test('a boundary that crosses itself is named and refused', async ({ page, world }) => {
   await openMap(page, ID.plot);
 
-  await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+  await mapTool(page, 'Draw boundary').click();
   // A bowtie: the sides cross, which is not a shape any land has.
   for (const [fx, fy] of [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]] as const) {
     await clickMapAt(page, fx, fy);
@@ -1173,7 +1255,7 @@ test('a boundary that crosses itself is named and refused', async ({ page, world
 test('a boundary drawn on the map is saved against this record, corner for corner', async ({ page, world }) => {
   await openMap(page, ID.plot);
 
-  await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+  await mapTool(page, 'Draw boundary').click();
   for (const [fx, fy] of [[0.35, 0.35], [0.6, 0.35], [0.6, 0.6], [0.35, 0.6]] as const) {
     await clickMapAt(page, fx, fy);
   }
@@ -1224,7 +1306,7 @@ test('a save in flight says so, and cannot be sent a second time', async ({ page
   world.set('setBoundary', World.slow(4_000, true));
   await openMap(page, ID.plot);
 
-  await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+  await mapTool(page, 'Draw boundary').click();
   for (const [fx, fy] of [[0.35, 0.35], [0.6, 0.35], [0.6, 0.6]] as const) {
     await clickMapAt(page, fx, fy);
   }
@@ -1246,7 +1328,7 @@ test('a boundary the server refuses says so and keeps the draft on screen', asyn
   world.set('setBoundary', false);
   await openMap(page, ID.plot);
 
-  await page.getByRole('button', { name: 'Draw boundary', exact: true }).click();
+  await mapTool(page, 'Draw boundary').click();
   for (const [fx, fy] of [[0.35, 0.35], [0.6, 0.35], [0.6, 0.6]] as const) {
     await clickMapAt(page, fx, fy);
   }
@@ -1270,27 +1352,40 @@ test('Escape gets out of drawing without saving anything', async ({ page, world 
 });
 
 test('removing a saved boundary asks a second time before it wipes it', async ({ page, world }) => {
-  // DEFECT. RecordBoundary.tsx:913-919 puts "Remove saved boundary" in the
-  // draw bar and wires it straight to saveDraft([], …) — one click and the
-  // surveyed ring is gone. The server does not soften it either: web360.py
-  // set_boundary clears the column outright, and nothing keeps the old ring
-  // the way a deleted MARK keeps its position in History (which is the
-  // screen's own stated reason a destructive action may sit on the page at
-  // all, RecordBoundary.tsx:1-6).
-  // Owed: a second deliberate confirmation — the Dialog this module already
-  // has — naming what is about to be lost, before setBoundary is sent.
-  test.fail();
+  // Was a DEFECT marker: "Remove saved boundary" in the draw bar went
+  // straight to saveDraft([], …) — one click and the saved ring was gone,
+  // and web360.py set_boundary clears the column outright with nothing kept
+  // to bring it back. Fixed 28/09/2026: the shared confirmation names what
+  // goes and what stays before setBoundary is sent (RecordBoundary.tsx,
+  // `asking`).
   await openMap(page, ID.parcel);
 
   await page.getByRole('button', { name: 'Redraw boundary' }).click();
   await page.locator('.editbar').getByRole('button', { name: 'Remove saved boundary' }).click();
 
-  // Short timeout on purpose: a `test.fail()` that fails by timing out is
-  // reported as a plain failure rather than as an expected one.
-  await expect(page.getByRole('dialog'),
-    'wiping a surveyed ring must be confirmed, not done on one click')
-    .toBeVisible({ timeout: 3_000 });
+  const question = page.getByRole('dialog', { name: 'Remove the saved boundary?' });
+  await expect(question, 'wiping a saved ring must be confirmed, not done on one click').toBeVisible();
+  await expect(question).toContainText(
+    'The outline comes off this parcel. Its boundary marks, pin and documents stay. There is no undo.');
   expect(world.calls('setBoundary')).toHaveLength(0);
+
+  // Cancel keeps the ring on file.
+  await question.getByRole('button', { name: 'Cancel' }).click();
+  await expect(question).toHaveCount(0);
+  expect(world.calls('setBoundary')).toHaveLength(0);
+});
+
+test('confirming the removal sends an empty ring for this record, once', async ({ page, world }) => {
+  await openMap(page, ID.parcel);
+
+  await page.getByRole('button', { name: 'Redraw boundary' }).click();
+  await page.locator('.editbar').getByRole('button', { name: 'Remove saved boundary' }).click();
+  await page.getByRole('dialog', { name: 'Remove the saved boundary?' })
+    .getByRole('button', { name: 'Remove', exact: true }).click();
+
+  await expect.poll(() => world.calls('setBoundary').length).toBe(1);
+  expect(world.lastVars('setBoundary')).toMatchObject({ recordId: ID.parcel });
+  expect(world.lastVars('setBoundary').ring, 'removing a boundary is an empty ring').toEqual([]);
 });
 
 // ── the hand-off from an order ─────────────────────────────────────────
@@ -1325,7 +1420,7 @@ test('an order that needs corners arms the drawing tool on the corners already o
   // a blank draft and asked to trace it again from scratch.
   await expect(page.locator('.editbar .num')).toHaveText('4 corners · 2.36 ac · 392 m around');
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click each corner in order. Drag a corner to adjust it, then save the outline.');
+    'Click each corner in order.');
   // Arriving armed is not the same as arriving and writing.
   expect(world.calls('setBoundary')).toHaveLength(0);
 });
@@ -1417,14 +1512,16 @@ test('withdrawing a boundary keeps the owner on the map, not back in an order wi
   // half-composed survey order exactly as though they had just drawn one — and
   // that order then goes out against a record with no boundary left to send.
   //
-  // One click is all it takes today; if the second confirmation owed above
-  // ("removing a saved boundary asks a second time") ships, this test gains
-  // that step and keeps the same guarantee.
+  // The second confirmation ("removing a saved boundary asks a second time")
+  // shipped on 28/09/2026, so this test gained that step and keeps the same
+  // guarantee.
   await openMapWith(page, ID.parcel, handOff(ID.parcel));
   const bar = page.locator('.editbar');
   await expect(bar).toContainText('4 corners');
 
   await bar.getByRole('button', { name: 'Remove saved boundary' }).click();
+  await page.getByRole('dialog', { name: 'Remove the saved boundary?' })
+    .getByRole('button', { name: 'Remove', exact: true }).click();
 
   await expect.poll(() => world.calls('setBoundary').length).toBe(1);
   expect(world.lastVars('setBoundary')).toMatchObject({ recordId: ID.parcel });
@@ -1435,7 +1532,7 @@ test('withdrawing a boundary keeps the owner on the map, not back in an order wi
   await expect(bar).toHaveCount(0);
 
   await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/map\\?draw=1&back=`));
-  await expect(page.getByRole('heading', { name: 'Map & boundary' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary', exact: true })).toBeVisible();
 });
 
 test('a back= pointing off this app is ignored rather than followed', async ({ page, world }) => {
@@ -1623,22 +1720,25 @@ test('an unsurveyed record offers to have its corners established', async ({ pag
     'href', `/app/records/${ID.plot}/order?service=survey&step=pick&why=boundary`);
 
   const sheet = page.locator('.card', { hasText: 'FMB sheet' });
-  await expect(sheet).toContainText(
-    'No FMB or survey sheet is filed against this record, so there is nothing to open.');
-  await expect(sheet).toContainText("filed on this record’s Papers tab, and nothing here reads one.");
+  await expect(sheet).toContainText('No FMB or survey sheet filed yet.');
   await expect(sheet.getByRole('button', { name: 'Import KML / GeoJSON' })).toBeVisible();
-  await expect(sheet.getByRole('button', { name: 'Draw it instead' })).toBeVisible();
+  // The map tool's own name, so one action has one name on the screen (it
+  // said "Draw it instead").
+  await expect(sheet.getByRole('button', { name: 'Draw boundary', exact: true })).toBeVisible();
 
   await expect(marksCard(page)).toContainText(
-    'No marks recorded. A mark is a numbered corner with its own photos and its own history — add one, or order a survey and the surveyor sets them.');
-  await expect(page.locator('.card', { hasText: 'LOCATION' })).toContainText('not set');
+    'No marks recorded.');
+  // The pin is told once, in the line under the heading; with neither a
+  // boundary nor a pin the Location card has nothing to say and is not drawn.
+  await expect(page.locator('header.sechead p.note')).toContainText('No boundary · Pin not set');
+  await expect(page.locator('.card', { hasText: 'LOCATION' })).toHaveCount(0);
 });
 
-test('"Draw it instead" on the sheet card arms the same tool the map does', async ({ page }) => {
+test('"Draw boundary" on the sheet card arms the same tool the map does', async ({ page }) => {
   await openMap(page, ID.plot);
 
   await page.locator('.card', { hasText: 'FMB sheet' })
-    .getByRole('button', { name: 'Draw it instead' }).click();
+    .getByRole('button', { name: 'Draw boundary', exact: true }).click();
 
   await expect(page.getByRole('button', { name: 'Drawing — or cancel' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.editbar')).toContainText('0 corners');
@@ -1648,7 +1748,7 @@ test('with no pin and no survey the screen names the place the map settled on', 
   await openMap(page, ID.plot);
 
   await expect(page.locator('.plot p.nogeo')).toHaveText(
-    'The map is showing Markapur, Markapuram — not this parcel. Nothing on this record says where within it the land sits.');
+    'Showing Markapur, Markapuram, not this parcel.');
 });
 
 test('a record with a pin and no survey says the pin is all it has', async ({ page }) => {
@@ -1656,8 +1756,7 @@ test('a record with a pin and no survey says the pin is all it has', async ({ pa
   // record that carries neither, and the two used to be the same one.
   await openMap(page, ID.shop);
 
-  await expect(page.locator('.plot p.nogeo')).toHaveText(
-    'No surveyed boundary on this record — the pin is where it was filed from. Order a survey and the corners are set on the ground.');
+  await expect(page.locator('.plot p.nogeo')).toHaveText('No surveyed boundary on this record.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   // And the pin it is talking about is actually drawn, named for the record it
   // belongs to. Saying "the pin is where it was filed from" over an empty map
@@ -1696,7 +1795,7 @@ test('a record nowhere on the map says it has no location at all', async ({ page
   await openMap(page, ID.plot);
 
   await expect(page.locator('.plot p.nogeo')).toHaveText(
-    'This record has no location yet. Move the pin, or order a survey.');
+    'This record has no location yet.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   await expect(page.locator('path.w-mark')).toHaveCount(0);
   // The two ways out of that state are still on the screen.
@@ -1719,8 +1818,7 @@ test('a record whose only location is its stones draws them and joins nothing', 
   }));
   await openMap(page, ID.plot);
 
-  await expect(page.locator('.plot p.nogeo')).toHaveText(
-    'No surveyed boundary on this record. The numbered stones are where they were recorded — nothing joins them, because a handful of readings is not a boundary. Order a survey and the corners are set with a GPS.');
+  await expect(page.locator('.plot p.nogeo')).toHaveText('No surveyed boundary on this record.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   await expect(marksCard(page)).toContainText('North-east stone');
   // Drawn, and numbered to match the list — the sentence above is about stones
@@ -1826,7 +1924,7 @@ test('a boundary the server refused says so, with the reason, and offers to try 
 
   const failed = page.getByRole('alert');
   await expect(failed).toContainText('This boundary did not load');
-  await expect(failed).toContainText('Your records are untouched.');
+  await expect(failed).toContainText('Check your connection and try again.');
   await expect(failed).toContainText('the boundary store is down');
   await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
@@ -1855,7 +1953,7 @@ test('a record with no boundary row at all is a failure, not a blank map', async
 test('a record that is not in the portfolio never reaches the map at all', async ({ page, world }) => {
   await page.goto(`/app/records/${ID.missing}/map`);
 
-  await expect(page.getByRole('heading', { name: 'That record is not in your portfolio' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
   expect(world.asked('boundary'), 'no record, no boundary read').toBe(false);
 });
 
@@ -1864,7 +1962,7 @@ test('a record read that failed never pretends the boundary is missing', async (
   await page.goto(`/app/records/${ID.parcel}/map`);
 
   const failed = page.getByRole('alert');
-  await expect(failed).toContainText('This record did not load');
+  await expect(failed).toContainText('This property did not load');
   await expect(failed).toContainText('the record store is down');
   await expect(page.getByText('not in your portfolio')).toHaveCount(0);
 });
@@ -1876,6 +1974,16 @@ test('@phone the map, its tools and the mark list all fit a phone', async ({ pag
 
   await expect(page.locator('path.w-ring')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Satellite' })).toBeVisible();
+  // On a phone the tools that change the record fold behind one button, so
+  // three rows of them do not take the top of a 390px map; above 640px that
+  // button is not drawn and the tools stand open (`.tools-toggle`).
+  const toggle = page.getByRole('button', { name: 'Changes the record' });
+  if (await toggle.isVisible()) {
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('button', { name: 'Add boundary mark', exact: true })).toBeHidden();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  }
   await expect(page.getByRole('button', { name: 'Add boundary mark', exact: true })).toBeVisible();
   await expect(marksCard(page)).toContainText('North-east stone');
 

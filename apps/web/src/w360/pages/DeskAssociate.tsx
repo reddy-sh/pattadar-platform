@@ -171,7 +171,6 @@ function CertificationDialog({ id, discipline, label, credential, verified, onCl
             <label className="field">
               Valid until
               <input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} />
-              <span className="note">Leave blank only when the authority gives no expiry.</span>
             </label>
           </div>
           <div className="two">
@@ -248,7 +247,7 @@ function StateDialog({ id, name, to, jobsOpen, onClose }: {
       initialFocus="textarea"
       footer={(
         <div className="row" style={{ justifyContent: 'flex-end' }}>
-          {!ready && <Why>Type why first — this is what the trail will say, and it is what they are told.</Why>}
+          {!ready && <Why>A reason is required.</Why>}
           <button type="button" className="btn" onClick={onClose} disabled={setState.isPending}>
             Leave it
           </button>
@@ -266,17 +265,16 @@ function StateDialog({ id, name, to, jobsOpen, onClose }: {
       <div className="stack sm">
         <p className="note">
           {to === 'paused'
-            ? 'They stop being offered work. Nothing else changes, and you can turn it back on from this page.'
+            ? 'They stop being offered work.'
             : to === 'blocked'
-              ? 'They stop being offered work and stay stopped until somebody here decides otherwise.'
-              : 'They start being offered work again from now on.'}
+              ? 'They stop being offered work until reinstated.'
+              : 'They are offered work again.'}
         </p>
         {/* The sentence that stops the operator assuming a pause clears their
             desk. It does not: the machine never takes a job off anybody. */}
         {needsReason && jobsOpen > 0 && (
           <p className="note">
-            They have {plural(jobsOpen, 'job')} in hand. Those stay with them — take each
-            one off by hand from the desk if you need to.
+            Their {plural(jobsOpen, 'job')} in hand stay with them.
           </p>
         )}
         <label className="field">
@@ -348,18 +346,10 @@ function DeleteDialog({ id, name, kinds, places, papers, onClose, onGone }: {
       <div className="stack sm">
         <p>
           This deletes their name, their number, {plural(kinds, 'kind')} of work,
-          {' '}{plural(places, 'place')} they cover, {plural(papers, 'paper')} on file and
+          {' '}{plural(places, 'place')} they cover, {plural(papers, 'document')} on file and
           every line of their trail.
         </p>
-        <p className="note">
-          Nothing is kept and nothing can bring it back.
-        </p>
-        <p className="note">
-          This is only possible because they never signed in and have never been on a
-          job. Once somebody claims their record it is their own personal data and it
-          leaves through their account&rsquo;s erasure; once they have worked, their name
-          is written into an owner&rsquo;s job trail and it stays there.
-        </p>
+        <p className="note">This cannot be undone.</p>
         {err && <Refused>{err}</Refused>}
       </div>
     </Dialog>
@@ -416,10 +406,6 @@ function DisciplinesEditor({ id, current, onClose }: {
 
   return (
     <div className="stack sm" style={{ marginTop: 'var(--space-sm)' }}>
-      <p className="note">
-        Taking a kind of work off this list stops them being offered it. Jobs they
-        are already holding are not affected.
-      </p>
       {catalogue.isLoading ? <Loading h="8rem" what="the kinds of work" />
         : !catalogue.data ? <Failed what="The kinds of work" error={catalogue.error} boxed h="8rem" />
           : (
@@ -475,7 +461,7 @@ function DisciplinesEditor({ id, current, onClose }: {
           Leave it
         </button>
         {keys.length === 0
-          ? <Why>Keep at least one — somebody with no kind of work is never offered anything.</Why>
+          ? <Why>Keep at least one.</Why>
           : !dirty ? <Why>Nothing has changed yet.</Why> : null}
       </div>
       {err && <Refused>{err}</Refused>}
@@ -577,8 +563,7 @@ function AreasEditor({ id, current, onClose }: {
         </label>
         {wholeState ? (
           <p className="note" style={{ paddingBottom: '0.5625rem' }}>
-            Everywhere — no local presence needed. An advocate opines on Nizamabad
-            land from Hyderabad.
+            Everywhere.
           </p>
         ) : (
           <label className="field grow">
@@ -607,7 +592,7 @@ function AreasEditor({ id, current, onClose }: {
           Leave it
         </button>
         {draft.length === 0
-          ? <Why>Keep at least one place — somebody who covers nowhere is never offered anything.</Why>
+          ? <Why>Keep at least one place.</Why>
           : !dirty ? <Why>Nothing has changed yet.</Why> : null}
       </div>
       {err && <Refused>{err}</Refused>}
@@ -698,8 +683,8 @@ function AddressEditor({ a, onClose }: { a: Associate; onClose: () => void }) {
  *  server actually sent a number to reveal — a Show button over nothing is the
  *  definition of a dead control.
  */
-function Reach({ id, masked, contact, visible, name }: {
-  id: string; masked: string; contact: string; visible: boolean; name: string;
+function Reach({ id, masked, contact, visible }: {
+  id: string; masked: string; contact: string; visible: boolean;
 }) {
   const update = useUpdateAssociate();
   const [shown, setShown] = useState(false);
@@ -738,8 +723,7 @@ function Reach({ id, masked, contact, visible, name }: {
       </div>
       {!contact && masked && (
         <p className="note">
-          The full number is not sent to this screen. Whoever enrolled them has it,
-          and Pattadar writes to them without anybody reading it out.
+          Full number not available here.
         </p>
       )}
 
@@ -750,11 +734,6 @@ function Reach({ id, masked, contact, visible, name }: {
         />
         <span>An owner may see this number while they are on that owner&rsquo;s job</span>
       </label>
-      <p className="note">
-        {visible
-          ? `They agreed that an owner can see this number while ${name} is on that owner's job. Nowhere else — every offer stays masked.`
-          : 'They asked that owners not be given this number. Pattadar does the writing instead.'}
-      </p>
       {err && <Refused>{err}</Refused>}
     </div>
   );
@@ -776,8 +755,8 @@ function IssueTrainingCertificate({ member, onClose }: {
   const [validUntil, setValidUntil] = useState('');
   const [hours, setHours] = useState('8');
   const [skills, setSkills] = useState('Owner privacy, Field safety, Evidence handling');
-  const [evidenceRef, setEvidenceRef] = useState(`attendance:${member.id}:${today}`);
-  const [note, setNote] = useState('Identity and attendance verified by the trainer.');
+  const [evidenceRef, setEvidenceRef] = useState('');
+  const [note, setNote] = useState('');
   const [err, setErr] = useState('');
   const ready = !!courseCode.trim() && !!courseTitle.trim() && !!version.trim()
     && !!trainerName.trim() && !!completedOn && Number(hours) > 0 && !!evidenceRef.trim();
@@ -813,8 +792,7 @@ function IssueTrainingCertificate({ member, onClose }: {
             )}>
       <div className="stack sm">
         <p className="note">
-          This is a Pattadar University internal training credential. It does not replace a
-          government licence or professional registration.
+          Internal training credential, not a government licence.
         </p>
         <div className="two">
           <label className="field">Course code
@@ -848,8 +826,8 @@ function IssueTrainingCertificate({ member, onClose }: {
             <input type="number" min="0.5" max="1000" step="0.5" value={hours}
                    onChange={(e) => setHours(e.target.value)} />
           </label>
-          <label className="field">Completion evidence reference
-            <input value={evidenceRef} onChange={(e) => setEvidenceRef(e.target.value)} />
+        <label className="field">Completion evidence reference
+          <input value={evidenceRef} onChange={(e) => setEvidenceRef(e.target.value)} placeholder="Enter the reviewed attendance or assessment record ID" />
           </label>
         </div>
         <label className="field">Skills, separated by commas
@@ -999,7 +977,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
       <div className="split" style={{ marginTop: 'var(--space-md)' }}>
         <div className="stack">
           <Card
-            title="What they do"
+            title="Services they provide"
             aside={editing !== 'what' ? (
               <button type="button" className="btn sm" onClick={() => setEditing('what')}>
                 Change
@@ -1008,8 +986,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           >
             {a.disciplines.length === 0 ? (
               <p className="note">
-                Nothing yet. Until a kind of work is on this list they cannot be put on
-                anything.
+                Nothing yet.
               </p>
             ) : (
               <div className="rows">
@@ -1048,7 +1025,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           </Card>
 
           <Card
-            title="Full postal address"
+            title="Postal address"
             aside={editing !== 'address' ? (
               <button type="button" className="btn sm" onClick={() => setEditing('address')}>
                 Change
@@ -1060,21 +1037,20 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                 <p>{a.addressLabel}</p>
                 {!a.addressComplete && (
                   <p className="note" style={{ color: 'var(--w-danger)' }}>
-                    Address incomplete. Add the village/locality, mandal/city, district,
-                    state and 6-digit PIN before relying on this location.
+                    Address incomplete.
                   </p>
                 )}
               </div>
             ) : (
               <p className="note" style={{ color: 'var(--w-danger)' }}>
-                Full address not recorded. A work coverage area is not a postal address.
+                Full address not recorded.
               </p>
             )}
             {editing === 'address' && <AddressEditor a={a} onClose={() => setEditing('')} />}
           </Card>
 
           <Card
-            title="Where they take work"
+            title="Service areas"
             aside={editing !== 'where' ? (
               <button type="button" className="btn sm" onClick={() => setEditing('where')}>
                 Change
@@ -1083,7 +1059,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           >
             {a.areas.length === 0 ? (
               <p className="note">
-                Nowhere yet. Somebody who covers nowhere is never offered anything.
+                Nowhere yet.
               </p>
             ) : (
               <div className="row tight">
@@ -1095,11 +1071,10 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
             )}
           </Card>
 
-          <Card title="Papers" aside={<span className="num muted">{a.credentials.length}</span>}>
+          <Card title="Documents" aside={<span className="num muted">{a.credentials.length}</span>}>
             {a.credentials.length === 0 ? (
               <p className="note">
-                Nothing is certified. This member cannot receive work until each active
-                discipline has verified evidence or a company verification.
+                Nothing is certified. They cannot receive work yet.
               </p>
             ) : (
               <div className="rows">
@@ -1145,24 +1120,16 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                 })}
               </div>
             )}
-            <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-              Certification is enforced by the server on owner assignment, desk assignment
-              and automatic candidate selection.
-            </p>
           </Card>
 
           <Card
-            title="Pattadar University"
+            title="Training"
             aside={(
               <button type="button" className="btn sm" onClick={() => setIssuingTraining(true)}>
                 Issue certificate
               </button>
             )}
           >
-            <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-              Internal training credentials only. Government licences and professional
-              registrations remain under Papers and are still required for regulated work.
-            </p>
             {certificates.isLoading ? <Loading h="7rem" what="training certificates" />
               : !certificates.data ? (
                 <Failed what="Training certificates" error={certificates.error} boxed h="7rem" />
@@ -1212,8 +1179,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
               : !jobs.data ? <Failed what="Their jobs" error={jobs.error} boxed h="7rem" />
                 : jobs.data.length === 0 ? (
                   <p className="note">
-                    No service has been assigned to them yet. Put them on a job from the
-                    job&rsquo;s own page.
+                    No service has been assigned to them yet.
                   </p>
                 ) : (
                   <div className="rows">
@@ -1235,20 +1201,14 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
         </div>
 
         <aside className="stack">
-          <Card title="How to reach them">
+          <Card title="Contact">
             <Reach
-              id={a.id} name={a.name} masked={a.contactMasked} contact={a.contact}
+              id={a.id} masked={a.contactMasked} contact={a.contact}
               visible={a.contactVisible}
             />
-            {a.claimed ? (
+            {a.claimed && (
               <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                They have signed in and this record is theirs. It leaves Pattadar through
-                their own account, not from this page.
-              </p>
-            ) : (a.jobsOpen > 0 || a.jobsDone > 0) && (
-              <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                They have been on jobs, so their record stays — their name is written into
-                an owner&rsquo;s job trail and nothing here can take it back out.
+                They have signed in.
               </p>
             )}
             {a.note && (
@@ -1256,7 +1216,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
             )}
           </Card>
 
-          <Card title="How it has gone">
+          <Card title="Performance">
             {a.ratingCount > 0 && (
               <p style={{ marginBottom: 'var(--space-sm)' }}>
                 <strong>{a.ratingAverage.toFixed(1)} / 5</strong>{' '}
@@ -1265,9 +1225,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
             )}
             {a.offersSent === 0 ? (
               <p className="note">
-                Nothing has been offered to anybody yet. Pattadar does not send offers —
-                the desk puts people on jobs by hand, and that is what the trail below
-                records.
+                No offers yet.
               </p>
             ) : (
               <div className="stack sm">
@@ -1275,11 +1233,6 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                   {plural(a.offersSent, 'offer')} sent · {a.offersTaken} taken
                   {' '}· {a.offersDeclined} turned down
                 </p>
-                {/* Below five offers there is no rate worth printing. Four out
-                    of four is 100% and means nothing whatever. */}
-                {a.offersSent >= 5 && (
-                  <p className="note">They have taken {a.offersTaken} of {a.offersSent}.</p>
-                )}
                 {a.lastOfferedAt && (
                   <p className="note">Last offered {ddmmyyyy(a.lastOfferedAt)}.</p>
                 )}
@@ -1300,16 +1253,15 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
                       onClick={() => void setTraining('cleared')}>Clear for work</button>
             </div>
             <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-              Current training status: {humanise(a.trainingState)}. At 100 ratings, an
-              average below 3 automatically requires retraining and stops new allocation.
+              Training status: {humanise(a.trainingState)}.
             </p>
           </Card>
 
-          <Card title="Message from the company">
+          <Card title="Message from Pattadar">
             <div className="field">
               <label htmlFor="company-message">Message</label>
               <textarea id="company-message" rows={3} value={companyMessage}
-                        placeholder="This is sent on their preferred channel and kept in the trail."
+                        placeholder="Sent on their preferred channel"
                         onChange={(e) => setCompanyMessage(e.target.value)} />
             </div>
             <button type="button" className="btn primary"
@@ -1321,20 +1273,19 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
 
           {memberError && <Refused>{memberError}</Refused>}
 
-          <Card title="Everything that happened">
+          <Card title="Activity">
             {events.isLoading ? <Loading h="8rem" what="their trail" />
               : !events.data ? <Failed what="Their trail" error={events.error} boxed h="8rem" />
                 : events.data.length === 0 ? (
                   <p className="note">
-                    Nothing yet beyond being written down. Every decision anybody makes
-                    about them lands here and stays.
+                    Nothing yet.
                   </p>
                 ) : (
                   <div className="rows">
                     {events.data.map((e) => (
                       <div key={e.id}>
                         <span className="grow">
-                          <span style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500 }}>
+                          <span style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 400 }}>
                             {e.headline}
                           </span>
                           {e.detail && (
@@ -1409,13 +1360,11 @@ export function DeskAssociate() {
                       ...(data && !gone ? [{ label: data.name }] : [])]} />
       {gone ? (
         <Empty
-          boxed h="18rem" icon="person" title="They have been removed."
+          boxed h="18rem" icon="person" title="This member has been removed"
           action={<Link className="btn" to="/app/admin/members">Back to the roster</Link>}
-        >
-          Nothing of theirs is kept. Nobody will be offered a job in their name again.
-        </Empty>
-      ) : isLoading ? <Loading h="20rem" what="this associate" />
-        : !data ? <Failed what="This associate" error={error} boxed h="20rem" />
+        />
+      ) : isLoading ? <Loading h="20rem" what="this member" />
+        : !data ? <Failed what="This member" error={error} boxed h="20rem" />
           : <Person a={data} onGone={() => setGone(true)} />}
     </main>
   );

@@ -1,5 +1,5 @@
 /**
- * The scenario gate for the app the founder actually has open — :5173.
+ * The scenario gate for the app the founder actually has open — :5180.
  *
  * This suite is deliberately a different instrument from e2e-web360:
  *
@@ -12,7 +12,7 @@
  *     chose. Nothing is read from the founder's records and nothing is written
  *     to them, on any code path, including the ones that fail.
  *
- * That seal is what makes "run it against :5173" a safe sentence. It is also
+ * That seal is what makes "run it against :5180" a safe sentence. It is also
  * what makes the suite able to assert things the other two cannot reach: a
  * portfolio with nothing in it, a server that answers in 30 seconds, a paper
  * whose bytes are refused, a ticket in each of its eight states — none of which

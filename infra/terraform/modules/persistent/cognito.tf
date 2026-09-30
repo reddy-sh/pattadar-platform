@@ -363,10 +363,16 @@ resource "aws_cognito_identity_provider" "google" {
     authorize_scopes = "openid email profile"
   }
 
+  # `picture` is Google's profile-photo URL. Cognito re-copies mapped
+  # attributes on every federated sign-in, so the web avatar (w360/Face.tsx)
+  # shows the current photo after the next sign-in. Only the URL is stored in
+  # the pool; the image stays on Google's servers. The SPA/local/mobile clients
+  # set no read_attributes, so every standard attribute reaches the ID token.
   attribute_mapping = {
     email          = "email"
     email_verified = "email_verified"
     name           = "name"
+    picture        = "picture"
     username       = "sub"
   }
 }

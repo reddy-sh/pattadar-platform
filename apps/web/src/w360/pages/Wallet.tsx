@@ -30,9 +30,7 @@ export function Wallet() {
 
   return (
     <main>
-      <PageHead eyebrow="Money" title="What is set aside, and what has gone">
-        <p className="lede">The surveyor, the advocate and the caretaker are paid from here.</p>
-      </PageHead>
+      <PageHead eyebrow="Money" title="Wallet" />
 
       {/* Three states, not two. A wallet that cannot be read is the one screen
           where a skeleton held forever is actively frightening — it reads as
@@ -57,28 +55,26 @@ export function Wallet() {
               reconciles, not a magnitude. */}
           <div className="strip">
             <Cell k="Available" v={inrFullish(data.available)} note="in your wallet" />
-            <Cell k="Set aside on jobs" v={inrFullish(data.setAside)}
-                  note={plural(data.jobs.length, 'job', 'jobs')} />
-            <Cell k="Gone out" v={inrFullish(data.paidOut)} note="to people and to Pattadar" />
-            <Cell k="Put in" v={inrFullish(data.putIn)}
-                  note={data.autoTopUp ? 'auto top-up on' : 'auto top-up off'} />
+            <Cell k="Held for orders" v={inrFullish(data.setAside)}
+                  note={plural(data.jobs.length, 'order', 'orders')} />
+            <Cell k="Released" v={inrFullish(data.paidOut)} note="to providers and Pattadar" />
+            <Cell k="Added" v={inrFullish(data.putIn)}
+                  note={data.autoTopUp ? 'Auto top-up on' : 'Auto top-up off'} />
           </div>
 
           <div style={{ margin: 'var(--space-md) 0 var(--space-lg)' }}>
             <button type="button" className="btn soft" disabled
-                    title="Adding money to the wallet is not switched on yet"
                     style={{ width: '100%', justifyContent: 'center' }}>
               Add money
             </button>
           </div>
 
           <div className="stack">
-            <Card title="Jobs holding money"
+            <Card title="Money held for orders"
                   aside={<span className="num muted">{data.jobs.length}</span>}>
               {data.jobs.length === 0 ? (
                 <p className="note">
-                  No money is set aside on any job. When you order a survey or a title opinion,
-                  what it costs appears here until you accept the work.
+                  No money is held for any order.
                 </p>
               ) : (
                 <div className="rows boxed">
@@ -110,12 +106,11 @@ export function Wallet() {
                 existed. While the whole ledger fits in one page the count is
                 the total and the old title is true; once it does not, the card
                 claims only what it is actually showing. */}
-            <Card title={capped ? 'The latest movements' : 'Every movement'}
+            <Card title={capped ? 'Latest transactions' : 'Transactions'}
                   aside={capped ? undefined : <span className="num muted">{rowCount}</span>}>
               {data.rows.length === 0 ? (
                 <p className="note">
-                  Nothing has moved yet. When money is set aside on a job, released to the person
-                  who did it, or given back, every movement is listed here with the date.
+                  No transactions yet.
                 </p>
               ) : (
                 <div className="rows boxed">
@@ -136,7 +131,7 @@ export function Wallet() {
                         <span className="pill sim">Not charged</span>
                       ) : (
                         <State state={r.status === 'failed' ? 'bad' : 'good'}>
-                          {r.status === 'failed' ? 'It did not go' : 'Settled'}
+                          {r.status === 'failed' ? 'Failed' : 'Settled'}
                         </State>
                       )}
                       <span style={{ textAlign: 'right', flex: 'none' }}>
@@ -149,9 +144,7 @@ export function Wallet() {
               )}
               {capped && (
                 <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-                  Showing the latest {plural(LEDGER_PAGE, 'movement')}. Older ones are not on this
-                  screen yet; every movement made against a job is listed in full on that job's
-                  own page.
+                  Showing the latest {plural(LEDGER_PAGE, 'transaction')}.
                 </p>
               )}
             </Card>

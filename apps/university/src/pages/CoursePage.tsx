@@ -10,6 +10,7 @@ import { Link, useParams } from 'react-router';
 import { useAuth } from '../auth/AuthProvider';
 import { CourseVisual } from '../components/CourseVisual';
 import { courseBySlug, roleLabels, universityStates } from '../data/catalog';
+import { pathwaysForCourse } from '../data/pathways';
 import { stateLandRecordByCode } from '../data/stateLandRecords';
 import { progressFor } from '../domain/learning';
 import type { Course } from '../domain/types';
@@ -50,7 +51,7 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
               {enrollment ? (
                 <span className="enrolled-label"><CheckCircleRounded /> Enrolled · {progress}% complete</span>
               ) : (
-                <button className="button button--primary" type="button" onClick={() => void joinCourse(course.id)}>Join course</button>
+                <button className="button button--primary" type="button" onClick={() => void joinCourse(course.id)}>Join preview course</button>
               )}
               <button className="button button--quiet" type="button" onClick={() => onTutor(course)}><SmartToyOutlined /> Ask tutor</button>
             </div>
@@ -90,7 +91,8 @@ export function CoursePage({ onTutor }: { onTutor: (course: Course) => void }) {
                 return profile ? <Link className="course-fact-link" key={code} to={`/states/${profile.slug}`}>Open {profile.name} guide <ArrowForwardRounded /></Link> : null;
               }) : null}
             </div>
-            <div><span>Credential</span><strong>{course.credential}</strong></div>
+            <div><span>Credential pathway</span><strong>{course.credential}</strong><span>Completion preview only until review and issuance are available.</span><Link className="course-fact-link" to="/credentials">How certificates work <ArrowForwardRounded /></Link></div>
+            <div><span>Suggested learning paths</span>{pathwaysForCourse(course.id).map((pathway) => <Link className="course-fact-link" key={pathway.id} to={`/pathways#${pathway.id}`}>{pathway.audience} <ArrowForwardRounded /></Link>)}</div>
             <div><span>Content version</span><strong>{course.contentVersion}</strong></div>
             <div className="course-resources">
               <span>Resources</span>

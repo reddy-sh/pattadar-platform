@@ -188,7 +188,7 @@ export function PaperTrailDialog({
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
                     {label(l)}
                   </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 400 }}>
                     {l.otherName || 'Document'}
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.disabled' }}>
@@ -209,7 +209,7 @@ export function PaperTrailDialog({
         )}
 
         <Divider sx={{ my: 1.5 }} />
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, letterSpacing: 0.6 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, letterSpacing: 0.6 }}>
           LINK ANOTHER DOCUMENT
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>

@@ -51,7 +51,7 @@ import { gql } from '../../api/client';
 import { escapeHtml } from '../../components/escapeHtml';
 import { GeoMap } from '../../components/GeoMapLazy';
 import { fmtLocal } from '../../lib/format';
-import { useLiveOrSample } from '../../data/useLiveOrSample';
+import { UNREACHABLE_LABEL, UNREACHABLE_NOTE, useLiveOrSample } from '../../data/useLiveOrSample';
 import {
   AuditTrailPanel,
   Field,
@@ -495,7 +495,7 @@ function GeoSection({ parcel, notify, refresh }: { parcel: ParcelDetail; notify:
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder='{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}'
-            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 13 } } }}
+            slotProps={{ input: { sx: { fontSize: 13 } } }}
           />
         </Collapse>
       </Box>
@@ -788,7 +788,7 @@ export function ParcelDetailPage() {
 
   const glance = (count: number, label: string, tabKey: string) => (
     <Box onClick={() => setTab(tabKey)} sx={{ cursor: 'pointer', minWidth: 84 }}>
-      <Typography sx={{ fontSize: 22, fontWeight: 600, lineHeight: 1.2 }}>{count}</Typography>
+      <Typography sx={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{count}</Typography>
       <Link component="span" variant="caption">
         {label} ›
       </Link>
@@ -951,7 +951,7 @@ export function ParcelDetailPage() {
             />
             <Box>
               {/* component="div": the status Chip renders a <div> — never inside a <p>. */}
-              <Typography variant="body2" component="div" sx={{ fontWeight: 600 }}>
+              <Typography variant="body2" component="div" sx={{ fontWeight: 700 }}>
                 {o.ownerName || '—'}{' '}
                 {o.isCurrent && <Chip size="small" color="success" label="current" sx={{ ml: 0.5 }} />}
               </Typography>
@@ -974,7 +974,7 @@ export function ParcelDetailPage() {
       />
       {data.deeds.length > 0 && (
         <Box sx={{ mt: 2 }}>
-          <Typography sx={{ fontWeight: 600, fontSize: 13, mb: 0.5 }}>Registered documents</Typography>
+          <Typography sx={{ fontWeight: 700, fontSize: 13, mb: 0.5 }}>Registered documents</Typography>
           {data.deeds.map((d) => (
             <Typography key={d.id} variant="body2" sx={{ py: 0.4 }}>
               📜 {String(d.docType || 'deed').replace(/_/g, ' ')} · Doc {d.documentNo}
@@ -1008,8 +1008,8 @@ export function ParcelDetailPage() {
             · {addressLine}
           </Typography>
           {isSample && (
-            <Tooltip title="The live service is not reachable — showing bundled sample data.">
-              <Chip size="small" variant="outlined" color="secondary" label="Sample data" />
+            <Tooltip title={UNREACHABLE_NOTE}>
+              <Chip size="small" variant="outlined" color="error" label={UNREACHABLE_LABEL} />
             </Tooltip>
           )}
         </Box>

@@ -1,20 +1,20 @@
 /**
  * Public landing page for pattadar.com — Pattadar Bloom, guided by Material 3
- * accessibility, adaptive-layout, and expressive-design principles in design.md. Dark warm paper, amber accent ≤5%, Inter Tight display
- * with an Instrument Serif italic accent phrase, mono data strips, hairline
- * rules, ambient blooms, and the original Living Land Record illustration
- * system. Styling lives in src/styles/site.css + tokens.css.
+ * accessibility, adaptive-layout, and expressive-design principles in design.md.
+ * Dark warm paper, amber accent, trust assist chips, hairline rules,
+ * and product-shaped previews of properties, documents, and sharing.
+ * Styling lives in src/styles/site.css + tokens.css.
  *
- * COPY IS BYTE-FROZEN — every visible string comes from landingContent.ts
- * (design.md § Copy freeze). User-authorized additions join that content module;
- * this file may compose and restyle them, never reword them.
+ * Visible marketing copy comes from landingContent.ts so product claims can be
+ * reviewed in one place.
  *
  * Founder rules kept: plain-language copy only (no fabricated testimonials,
  * stats or logos), self-hosted everything, links never open new tabs, and
- * sign-in always goes to OUR native /login page.
+ * sign-in and sign-up always go to OUR native /login and /signup pages.
  */
-import { useEffect, useState } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
+import { LazyMotion, m, useReducedMotion } from 'motion/react';
 import { Link as RouterLink, Navigate } from 'react-router';
 import { useNavigate } from 'react-router';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
@@ -58,7 +58,6 @@ import {
   HOW,
   NAV_LINKS,
   PILLARS,
-  PRODUCT_FRAME,
   ROADMAP,
   STAGES,
   STORY,
@@ -66,6 +65,10 @@ import {
   UNIVERSITY,
   WALLET,
 } from './landingContent';
+import { UNIVERSITY_URL } from '../../lib/links';
+
+const loadDomAnimation = () => import('motion/react').then((mod) => mod.domAnimation);
+const EASE_OUT: [number, number, number, number] = [0.2, 0.8, 0.2, 1];
 
 /* Icons stay page-side, keyed by the content module's names — the content
  * module is pure data (design.md § Copy freeze). */
@@ -104,32 +107,6 @@ const UNIVERSITY_ICONS: ReactElement[] = [
   <VerifiedUserOutlinedIcon key="trust" />,
 ];
 
-const UNIVERSITY_URL = import.meta.env.VITE_UNIVERSITY_URL?.trim()
-  || (import.meta.env.DEV ? 'http://localhost:5181' : 'https://university.pattadar.com');
-
-/** Rotating word — amber emphasis, cycles with a rise-in animation.
- * Pauses while hovered/focused (WCAG 2.2.2) and never rotates under
- * prefers-reduced-motion. */
-function FlipWord({ words }: { words: string[] }) {
-  const [i, setI] = useState(0);
-  const [paused, setPaused] = useState(false);
-  useEffect(() => {
-    if (paused) return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const t = setInterval(() => setI((v) => (v + 1) % words.length), 2400);
-    return () => clearInterval(t);
-  }, [words.length, paused]);
-  return (
-    <em
-      key={words[i]}
-      className="hero__flip"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-    >
-      {words[i]}
-    </em>
-  );
-}
 
 /** Content wrapper. CSS adds progressive view-timeline motion where supported,
  * while the readable layout remains the default without JavaScript. */
@@ -137,16 +114,97 @@ function Reveal({ children }: { children: ReactNode }) {
   return <div className="reveal">{children}</div>;
 }
 
+/** The three stages as tabs: Before, During and After are one question asked
+ * three times, so one answer shows at a time (WAI-ARIA tabs pattern — arrow
+ * keys move between tabs, Home/End jump, only the selected tab is in the Tab
+ * order). The stage names are the tab labels; the frozen "Stage N" label and
+ * body sit in the panel. */
+function StageTabs() {
+  const [active, setActive] = useState(0);
+  const reducedMotion = useReducedMotion();
+  const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  const count = STAGES.items.length;
+  const select = (i: number) => {
+    setActive(i);
+    tabs.current[i]?.focus();
+  };
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const next = {
+      ArrowRight: (active + 1) % count,
+      ArrowLeft: (active - 1 + count) % count,
+      Home: 0,
+      End: count - 1,
+    }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    select(next);
+  };
+  const item = STAGES.items[active];
+  return (
+    <div className="stages">
+      <div className="stages__tabs" role="tablist" aria-labelledby="stages-h" onKeyDown={onKey}>
+        {STAGES.items.map((c, i) => (
+          <button
+            key={c.stage}
+            ref={(el) => { tabs.current[i] = el; }}
+            type="button"
+            role="tab"
+            id={`stage-tab-${i}`}
+            aria-selected={i === active}
+            aria-controls="stage-panel"
+            tabIndex={i === active ? 0 : -1}
+            className="stages__tab"
+            onClick={() => setActive(i)}
+          >
+            {c.stage}
+          </button>
+        ))}
+      </div>
+      <div
+        className="stages__panel"
+        role="tabpanel"
+        id="stage-panel"
+        aria-labelledby={`stage-tab-${active}`}
+        tabIndex={0}
+      >
+        <LazyMotion features={loadDomAnimation} strict>
+          <m.div
+            key={active}
+            className="stages__panel-content"
+            initial={reducedMotion ? false : { opacity: 0.72, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.22, ease: EASE_OUT }}
+          >
+            <span className="card__type">
+              {STAGES.stageLabel} {active + 1}
+            </span>
+            <p className="card__sub">{item.body}</p>
+          </m.div>
+        </LazyMotion>
+      </div>
+    </div>
+  );
+}
+
 const scrollToId = (id: string) =>
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById(id)?.scrollIntoView({
+    behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'start',
+  });
 
 export function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  // In mock mode (or when already signed in) the button goes straight to
-  // /app; otherwise to OUR native /login page — never an external URL.
+  const reducedMotion = useReducedMotion();
+  // In mock mode (or when already signed in) both go straight to /app;
+  // otherwise to OUR native /login or /signup page — never an external URL.
+  // "Get started" is for somebody without an account, so it opens /signup,
+  // the same page Pricing's "Create an account" opens.
   const startSignIn = () => {
     navigate(isAuthMocked || isAuthenticated ? '/app' : '/login');
+  };
+  const startSignUp = () => {
+    navigate(isAuthMocked || isAuthenticated ? '/app' : '/signup');
   };
 
 
@@ -177,13 +235,6 @@ export function LandingPage() {
 
   return (
     <div className="dark site">
-      {/* ambient atmospheric backdrop */}
-      <div className="ambient" aria-hidden>
-        <div className="bloom bloom--1" />
-        <div className="bloom bloom--2" />
-        <div className="grain" />
-      </div>
-
       {/* ── nav · N10 scroll-morph ─────────────────────────────────── */}
       <MarketingNav
         sectionLinks={NAV_LINKS}
@@ -195,6 +246,15 @@ export function LandingPage() {
       <main>
         {/* ── hero · Marquee ─────────────────────────────────────────── */}
         <section className="hero" aria-labelledby="hero-h">
+          <LazyMotion features={loadDomAnimation} strict>
+            <m.div
+              className="hero__landscape"
+              aria-hidden="true"
+              initial={reducedMotion ? false : { scale: 1.045 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: reducedMotion ? 0 : 10, ease: EASE_OUT }}
+            />
+          </LazyMotion>
           <div className="hero__stage">
             <div className="hero__copy">
               <p className="hero__rail">
@@ -207,51 +267,17 @@ export function LandingPage() {
                   <em>{HERO.h1Line2}</em>
                 </span>
               </h1>
-              <p className="hero__lead">
-                {HERO.leadPrefix}
-                <FlipWord words={HERO.flipWords} />
-                {HERO.leadSuffix}
-              </p>
+              <p className="hero__lead">{HERO.lead}</p>
               <div className="hero__ctas">
-                <button type="button" className="cta cta--primary cta--lg" onClick={startSignIn}>
+                <button type="button" className="cta cta--primary cta--lg" onClick={startSignUp}>
                   {HERO.ctaPrimary}
                 </button>
-                <button type="button" className="cta cta--ghost cta--lg" onClick={startSignIn}>
+                <button type="button" className="cta cta--text cta--lg" onClick={startSignIn}>
                   {HERO.ctaSecondary}
                 </button>
               </div>
             </div>
             <HeroStory />
-          </div>
-          <ul className="hero__meta">
-            {TRUST_ITEMS.map((item) => (
-              <li key={item.text} className="hero__meta-cell">
-                {ICONS[item.icon]}
-                <span>{item.text}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {/* spec card — the portfolio sample, calmed */}
-        <section className="section" aria-label={PRODUCT_FRAME.overline}>
-          <div className="spec">
-            <p className="overline">{PRODUCT_FRAME.overline}</p>
-            <p className="spec__label">{PRODUCT_FRAME.costLabel}</p>
-            <div className="spec__figure-row">
-              <p className="spec__figure">{PRODUCT_FRAME.costValue}</p>
-              <p className="spec__delta">{PRODUCT_FRAME.costDelta}</p>
-            </div>
-            <p className="spec__counts">{PRODUCT_FRAME.countsLine}</p>
-            <p className="spec__honesty">{PRODUCT_FRAME.honesty}</p>
-            <ul className="spec__rows">
-              {PRODUCT_FRAME.parcels.map(([k, v]) => (
-                <li key={k} className="spec__row">
-                  <span className="spec__row-k">{k}</span>
-                  <span className="spec__row-v">{v}</span>
-                </li>
-              ))}
-            </ul>
           </div>
         </section>
 
@@ -274,6 +300,14 @@ export function LandingPage() {
                   </li>
                 ))}
               </ul>
+              <p className="story-sources">
+                <span>Check official sources</span>
+                {STORY.sources.map((source) => (
+                  <a key={source.href} href={source.href} target="_blank" rel="noopener noreferrer">
+                    {source.label}
+                  </a>
+                ))}
+              </p>
             </div>
           </Reveal>
         </section>
@@ -287,9 +321,11 @@ export function LandingPage() {
                 {FEATURES_HEAD.h2}
               </h2>
             </header>
-            <ul className="grid grid--bento">
+            {/* One even grid: every feature gets the same weight. FeatureContent
+                still carries `wide`; the layout deliberately ignores it. */}
+            <ul className="grid grid--four grid--features">
               {FEATURES.map((f) => (
-                <li key={f.title} className={f.wide ? 'card card--wide' : 'card'}>
+                <li key={f.title} className="card card--feature">
                   <div className="card__meta">{ICONS[f.icon]}</div>
                   <h3 className="card__h">{f.title}</h3>
                   <p className="card__sub">{f.body}</p>
@@ -354,12 +390,11 @@ export function LandingPage() {
               <p className="section-lead">{PILLARS.intro}</p>
             </header>
             <ul className="grid grid--three">
-              {PILLARS.items.map((p, i) => (
+              {/* No 01–06 numerals: the pillars are six kinds of record, not
+                  six steps, so numbering them implied an order they lack. */}
+              {PILLARS.items.map((p) => (
                 <li key={p.title} className="card">
-                  <div className="card__meta">
-                    {ICONS[p.icon]}
-                    <span className="card__num">{'0' + (i + 1)}</span>
-                  </div>
+                  <div className="card__meta">{ICONS[p.icon]}</div>
                   <h3 className="card__h">{p.title}</h3>
                   <p className="card__sub">{p.body}</p>
                 </li>
@@ -378,17 +413,7 @@ export function LandingPage() {
               </h2>
               <p className="section-lead">{STAGES.intro}</p>
             </header>
-            <ul className="cols">
-              {STAGES.items.map((c, i) => (
-                <li key={c.stage} className="cols__col">
-                  <span className="card__type">
-                    {STAGES.stageLabel} {i + 1}
-                  </span>
-                  <h3 className="card__h">{c.stage}</h3>
-                  <p className="card__sub">{c.body}</p>
-                </li>
-              ))}
-            </ul>
+            <StageTabs />
           </div>
         </section>
 
@@ -406,7 +431,10 @@ export function LandingPage() {
                   <h2 className="section-h" id="university-h">{UNIVERSITY.h2}</h2>
                   <p className="section-lead">{UNIVERSITY.intro}</p>
                 </header>
-                <a className="cta cta--primary university__cta" href={UNIVERSITY_URL}>
+                {/* Outlined, not filled: the hero and the closing statement own
+                    the amber (design.md § CTA voice), and this was a third
+                    filled button on the page. */}
+                <a className="cta cta--ghost university__cta" href={UNIVERSITY_URL}>
                   {UNIVERSITY.cta}
                   <ArrowForwardRoundedIcon aria-hidden />
                 </a>
@@ -416,7 +444,9 @@ export function LandingPage() {
                 <ol className="university__steps">
                   {UNIVERSITY.points.map((point, i) => (
                     <li key={point.title}>
-                      <span className="university__index">0{i + 1}</span>
+                      {/* 1 2 3, the page's one numbering style (How it works
+                          counts its steps the same way). It used to be 01 02 03. */}
+                      <span className="university__index">{i + 1}</span>
                       <span className="university__icon" aria-hidden>{UNIVERSITY_ICONS[i]}</span>
                       <span className="university__point-copy">
                         <strong>{point.title}</strong>
@@ -454,9 +484,9 @@ export function LandingPage() {
                 {ROADMAP.h2}
               </h2>
             </header>
-            <ul className="grid grid--four">
+            <ul className="grid roadmap__list">
               {ROADMAP.items.map((sv) => (
-                <li key={sv.title} className="card card--tba">
+                <li key={sv.title} className="card card--tba roadmap__item">
                   <span className="badge">{ROADMAP.chip}</span>
                   <h3 className="card__h">{sv.title}</h3>
                   <p className="card__sub">{sv.body}</p>
@@ -498,9 +528,17 @@ export function LandingPage() {
             <em>{FINAL_CTA.h2Em}</em>
           </h2>
           <p className="close__lead">{FINAL_CTA.body}</p>
-          <button type="button" className="cta cta--primary cta--lg" onClick={startSignIn}>
+          <button type="button" className="cta cta--primary cta--lg" onClick={startSignUp}>
             {FINAL_CTA.cta}
           </button>
+          <ul className="close__chips">
+            {TRUST_ITEMS.map((item) => (
+              <li key={item.text} className="hero__chip">
+                {ICONS[item.icon]}
+                <span>{item.text}</span>
+              </li>
+            ))}
+          </ul>
           <div className="footer__meta">
             <p className="footer__line">
               © {new Date().getFullYear()}

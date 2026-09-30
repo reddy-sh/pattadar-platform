@@ -103,14 +103,7 @@ const PersonDialog = lazy(() =>
 );
 
 const HEAD = {
-  eyebrow: 'People',
-  title: 'Families & Groups',
-  // Not "which passbooks the group holds": a passbook is a container, and a
-  // group can hold a flat that has no passbook at all. What a group holds is
-  // land and property.
-  lede:
-    'Land and property held by more than one person: who is in the group, what each '
-    + 'is owed, and which holdings the group keeps together.',
+  title: 'Families & groups',
 };
 
 /** A glyph per group type. The type defs carry an emoji, which is the previous
@@ -135,7 +128,7 @@ const TYPE_BLURB: Record<string, string> = {
   company: 'A company or LLP named on the title.',
   huf: 'A Karta and coparceners.',
   trust: 'Trustees and beneficiaries.',
-  portfolio: 'No succession machinery — just holdings kept together.',
+  portfolio: 'Properties kept together.',
 };
 
 function TypeGlyph({ type, size = 20 }: { type: string; size?: number }) {
@@ -171,7 +164,7 @@ const KIND_WORD: Record<string, string> = {
  */
 function holdingWord(g: GroupRow): string {
   const n = holdingCount(g);
-  if (n === 0) return 'No holdings';
+  if (n === 0) return 'No properties';
   if (g.parcelCount && g.propertyCount) {
     return `${plural(g.parcelCount, 'parcel')} · ${plural(g.propertyCount, 'property', 'properties')}`;
   }
@@ -234,7 +227,6 @@ export function Groups() {
   return (
     <main>
       <PageHead
-        eyebrow={HEAD.eyebrow}
         title={HEAD.title}
         actions={
           list.length > 0 ? (
@@ -243,9 +235,7 @@ export function Groups() {
             </button>
           ) : undefined
         }
-      >
-        <p className="lede" style={{ marginTop: '0.375rem', maxWidth: '46rem' }}>{HEAD.lede}</p>
-      </PageHead>
+      />
 
       {groups.isPending && <Loading h="60vh" what="your families and groups" />}
 
@@ -254,7 +244,7 @@ export function Groups() {
           empty sample set with a chip on it. */}
       {groups.isError && !groups.data && (
         <Failed
-          what="Families & Groups"
+          what="Families & groups"
           error={groups.error}
           onRetry={() => groups.refetch()}
           boxed
@@ -267,17 +257,13 @@ export function Groups() {
           boxed
           h="24rem"
           icon="person"
-          title="You have no groups yet"
+          title="No groups yet"
           action={
             <button type="button" className="btn primary" onClick={() => setCreating(true)}>
               <AddOutlined sx={{ fontSize: 16 }} /> Create your first group
             </button>
           }
-        >
-          A group is how land is held by more than one person — a family, a partnership, a
-          company, an HUF, a trust, or a plain portfolio to keep holdings together. Members,
-          what each is owed, and the passbooks the group holds all live inside it.
-        </Empty>
+        />
       )}
 
       {list.length > 0 && (
@@ -290,11 +276,12 @@ export function Groups() {
               role="status"
               style={{ color: 'var(--w-danger)', marginBottom: 'var(--space-md)' }}
             >
-              The list could not refresh just now. What is shown was correct as of the last
-              successful read.
+              The list could not refresh just now.
             </p>
           )}
 
+          {/* A picker with one thing in it is the detail below said twice. */}
+          {list.length > 1 && (
           <div className="cards" style={{ marginBottom: 'var(--space-lg)' }}>
             {list.map((g) => {
               const def = groupTypeDef(g.type);
@@ -339,6 +326,7 @@ export function Groups() {
               );
             })}
           </div>
+          )}
 
           {/* `key` resets the tab, the open dialog and every draft inside the
               panel when the selected group changes. Without it, switching from
@@ -387,7 +375,7 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
     { id: 'members', label: 'Members', n: rowCount(group.memberCount) },
     // Holdings, not passbooks — the badge has to match the number of rows in
     // the panel, and the panel lists parcels and properties.
-    { id: 'holdings', label: 'Holdings', n: holdingCount(group) },
+    { id: 'holdings', label: 'Properties', n: holdingCount(group) },
     { id: 'activity', label: 'Activity' },
   ];
 
@@ -417,10 +405,12 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
           <div style={{ minWidth: 0 }}>
             <h2 style={{ margin: 0 }}>{group.name}</h2>
             <p className="note" style={{ margin: '0.125rem 0 0' }}>
-              {def.label} · Head: {group.headName || 'You'} · Your role: {group.myRole || def.primaryRole} ·{' '}
+              {/* Facts only, once each. Head is dropped: v1 groups are
+                  owner-scoped, so the head is always you and "Your role" says
+                  it. Last active belongs to the safeguard it drives. */}
+              {def.label} · Your role: {group.myRole || def.primaryRole} ·{' '}
               {peopleWord(group.memberCount)} · {holdingWord(group)}
               {group.totalExtent > 0 ? ` · ${formatArea(group.totalExtent)}` : ''}
-              {def.hasTree && group.lastActiveAt ? ` · Last active ${ddmmyyyy(group.lastActiveAt)}` : ''}
             </p>
             {group.description && (
               <p className="note" style={{ margin: '0.375rem 0 0', maxWidth: '44rem' }}>
@@ -430,13 +420,9 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
           </div>
         </div>
         <div className="row tight" style={{ flexWrap: 'nowrap' }}>
-          {/* The high-level way out of this screen and into the real one. The
-              group facet means this is a filter on /app/properties, not a
-              reduced copy of it — so filtering, sorting, search, the map, tags
-              and bulk ordering are all still there. */}
           {holdingCount(group) > 0 && (
             <Link className="btn" to={`/app/properties?group=${group.id}`}>
-              See its {plural(holdingCount(group), 'holding')}
+              See its {plural(holdingCount(group), 'property', 'properties')}
             </Link>
           )}
           <Menu label={`Actions for ${group.name}`} header={group.name} items={actions} />
@@ -458,20 +444,20 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
             </Chip>
           </div>
           <p className="note" style={{ margin: 0, maxWidth: '46rem' }}>
-            After six months without activity, the head is reminded on days 1, 7 and 15.
-            If the final reminder is unanswered, verified family emails are contacted together,
-            or one at a time when you set an order. Alerts never transfer account or property control.
+            After 6 months of inactivity: a reminder to the head, then verified family emails.
           </p>
-          {group.inactivityNextAt && (
+          {(group.lastActiveAt || group.inactivityNextAt) && (
             <p className="note" style={{ margin: 0 }}>
-              Next check: {ddmmyyyy(group.inactivityNextAt)}
+              {[
+                group.lastActiveAt ? `You were last active ${ddmmyyyy(group.lastActiveAt)}` : '',
+                group.inactivityNextAt ? `Next check ${ddmmyyyy(group.inactivityNextAt)}` : '',
+              ].filter(Boolean).join(' · ')}
               {group.inactivityLastOutcome ? ` · Last outcome: ${group.inactivityLastOutcome.replaceAll('_', ' ')}` : ''}
             </p>
           )}
           {group.inactivityStage === 'delivery_attention' && (
             <p className="note accent" style={{ margin: 0 }}>
-              A provider outcome could not be confirmed. Pattadar will not resend automatically;
-              contact support before any new attempt.
+              Delivery not confirmed. Contact support before retrying.
             </p>
           )}
           {group.inactiveContactGaps > 0 && (
@@ -699,6 +685,16 @@ function MembersTab({ group }: { group: GroupRow }) {
     return acts;
   };
 
+  // Material data table: a column that is empty for every row is not drawn.
+  // Nine columns of dashes for a group of one said nothing nine times.
+  const cols = {
+    contact: members.some((m) => m.phone || m.email),
+    born: members.some((m) => m.dob || m.gender),
+    share: heirs.length > 0,
+    aadhaar: members.some((m) => m.aadhaarMasked),
+    status: members.some((m) => memberStatusChip(m).label !== '—'),
+  };
+
   if (q.isPending) return <Loading h="16rem" what="the people in this group" />;
   if (q.isError && !q.data) {
     return (
@@ -714,7 +710,7 @@ function MembersTab({ group }: { group: GroupRow }) {
       >
         <p className="note" style={{ margin: 0 }}>
           {others === 0
-            ? 'Only you so far. Add the people who hold this land with you.'
+            ? 'Only you so far.'
             : heirs.length === 0
               ? `${peopleWord(others)} · nobody is down for a share yet.`
               : <>
@@ -726,7 +722,7 @@ function MembersTab({ group }: { group: GroupRow }) {
                     does not refuse it — so at least say so where the shares
                     are being typed. */}
                 {allocated > 100 && ' — that is more than the whole'}
-                {pending > 0 && ` · ${num(pending)} still to verify`}
+                {pending > 0 && ` · ${num(pending)} not verified`}
               </>}
         </p>
         <button
@@ -744,23 +740,23 @@ function MembersTab({ group }: { group: GroupRow }) {
           and shows the role you hold. */}
       {members.length === 0 ? (
         <Empty icon="person" title="No one is listed for this group">
-          Nothing came back for this group. Reload the page; if it stays empty, the group may
-          no longer be yours.
+          Reload the page to try again.
         </Empty>
       ) : (
+        <div className="datatable-wrap">
         <div className="scroll-x">
-          <table style={{ minWidth: '54rem' }}>
+          <table className="datatable static" style={{ minWidth: 0 }}>
             <thead>
               <tr>
                 <th>Name</th>
                 <th>{hasTree ? 'Relationship' : 'Role'}</th>
-                <th>Contact</th>
-                <th>Born</th>
-                <th className="right" style={{ textAlign: 'right' }}>Share</th>
-                <th>Held as</th>
-                <th>Aadhaar</th>
-                <th>Status</th>
-                <th aria-label="Actions" />
+                {cols.contact && <th>Contact</th>}
+                {cols.born && <th>Born</th>}
+                {cols.share && <th className="right" style={{ textAlign: 'right' }}>Share</th>}
+                {cols.share && <th>Held as</th>}
+                {cols.aadhaar && <th>Aadhaar</th>}
+                {cols.status && <th>Status</th>}
+                <th className="menucol" aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
@@ -789,7 +785,8 @@ function MembersTab({ group }: { group: GroupRow }) {
                         </span>
                       </span>
                     </td>
-                    <td>{hasTree ? relMeta(m.relation).label : m.role || '—'}</td>
+                    <td>{m.isSelf && m.role ? cap(m.role) : hasTree ? relMeta(m.relation).label : m.role || '—'}</td>
+                    {cols.contact && (
                     <td>
                       {m.phone || m.email ? (
                         <>
@@ -806,12 +803,16 @@ function MembersTab({ group }: { group: GroupRow }) {
                         </>
                       ) : '—'}
                     </td>
+                    )}
+                    {cols.born && (
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {m.dob ? fmtLocal(m.dob, { dateOnly: true }) : '—'}
                       {m.gender && (
                         <span className="note" style={{ display: 'block' }}>{cap(m.gender)}</span>
                       )}
                     </td>
+                    )}
+                    {cols.share && (
                     <td className="num" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {m.isBeneficiary ? (
                         <>
@@ -822,16 +823,30 @@ function MembersTab({ group }: { group: GroupRow }) {
                         </>
                       ) : '—'}
                     </td>
+                    )}
+                    {cols.share && (
                     <td>
                       {m.isBeneficiary ? (KIND_WORD[m.kind] ?? (cap(m.kind) || '—')) : '—'}
                     </td>
-                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.aadhaarMasked || '—'}</td>
+                    )}
+                    {cols.aadhaar && <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.aadhaarMasked || '—'}</td>}
+                    {cols.status && (
                     <td>
                       {st.label === '—'
                         ? '—'
                         : <State state={STATE_OF[st.color] ?? 'unknown'}>{st.label}</State>}
+                      {m.heirConfirmed === 'agreed' && (
+                        <span className="note" style={{ display: 'block' }}>Confirmed by them</span>
+                      )}
+                      {m.heirConfirmed === 'disputed' && (
+                        <span className="note" style={{ display: 'block', color: 'var(--w-warn, inherit)' }}
+                              title={m.heirNote || undefined}>
+                          Asked for a correction{m.heirNote ? `: “${m.heirNote}”` : ''}
+                        </span>
+                      )}
                     </td>
-                    <td style={{ textAlign: 'right' }}>
+                    )}
+                    <td className="menucol">
                       <Menu
                         label={`Actions for ${m.name || 'this person'}`}
                         header={m.name || undefined}
@@ -843,6 +858,7 @@ function MembersTab({ group }: { group: GroupRow }) {
               })}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
@@ -889,8 +905,7 @@ function MembersTab({ group }: { group: GroupRow }) {
           }
         >
           <p className="note" style={{ marginTop: 0 }}>
-            This takes {removing.name || 'this person'} out of {group.name} — their
-            relationship, share and verification status go with them. No land is deleted.
+            Their relationship, share and verification status are removed.
           </p>
         </Dialog>
       )}
@@ -944,11 +959,11 @@ function HoldingsTab({ group }: { group: GroupRow }) {
     }
   };
 
-  if (mine.isPending && !mine.data) return <Loading h="16rem" what="what this group holds" />;
+  if (mine.isPending && !mine.data) return <Loading h="16rem" what="this group's properties" />;
   if (mine.isError && !mine.data) {
     return (
       <Failed
-        what="This group's holdings"
+        what="This group's properties"
         error={mine.error}
         onRetry={() => mine.refetch()}
         h="16rem"
@@ -966,14 +981,14 @@ function HoldingsTab({ group }: { group: GroupRow }) {
           {held.length === 0
             ? `${group.name} holds nothing yet.`
             : [
-              `${group.name} holds ${plural(held.length, 'holding')}`,
+              `${group.name} holds ${plural(held.length, 'property', 'properties')}`,
               parcels > 0 && built > 0 ? `${plural(parcels, 'land parcel')} and ${plural(built, 'property', 'properties')}` : '',
               acres > 0 ? formatArea(acres) : '',
             ].filter(Boolean).join(' · ')}
         </p>
         {held.length > 0 && (
           <button type="button" className="btn" onClick={() => setAdding(true)}>
-            <AddOutlined sx={{ fontSize: 16 }} /> Add a holding
+            <AddOutlined sx={{ fontSize: 16 }} /> Add a property
           </button>
         )}
       </div>
@@ -981,16 +996,13 @@ function HoldingsTab({ group }: { group: GroupRow }) {
       {held.length === 0 ? (
         <Empty
           icon="agri"
-          title="Nothing is held by this group yet"
+          title="No properties in this group yet"
           action={
             <button type="button" className="btn primary" onClick={() => setAdding(true)}>
-              <AddOutlined sx={{ fontSize: 16 }} /> Add a holding
+              <AddOutlined sx={{ fontSize: 16 }} /> Add a property
             </button>
           }
-        >
-          Land and property you own can be held by {group.name} instead of in your own name.
-          Moving it here changes who holds it, never what it is — and it can be moved back.
-        </Empty>
+        />
       ) : (
         <div className="rows boxed">
           {held.map((c) => (
@@ -1001,7 +1013,7 @@ function HoldingsTab({ group }: { group: GroupRow }) {
               <span className="grow" style={{ minWidth: 0 }}>
                 <Link
                   to={`/app/records/${c.id}`}
-                  style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', color: 'inherit' }}
+                  style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem', color: 'inherit' }}
                 >
                   {c.title}
                 </Link>
@@ -1034,13 +1046,6 @@ function HoldingsTab({ group }: { group: GroupRow }) {
             </div>
           ))}
         </div>
-      )}
-
-      {held.length > 0 && (
-        <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-          A holding in a group still belongs to you. Taking it out puts it back in your own
-          name and never deletes anything.
-        </p>
       )}
 
       {adding && (
@@ -1089,7 +1094,7 @@ function AddHoldingDialog({
 
   return (
     <Dialog
-      title={`Add a holding to ${group.name}`}
+      title={`Add a property to ${group.name}`}
       onClose={onClose}
       busy={busy}
       wide
@@ -1097,20 +1102,16 @@ function AddHoldingDialog({
     >
       {free.isPending && !free.data && <Loading h="10rem" what="what you hold in your own name" />}
       {free.isError && !free.data && (
-        <Failed what="Your holdings" error={free.error} onRetry={() => free.refetch()} h="10rem" />
+        <Failed what="Your properties" error={free.error} onRetry={() => free.refetch()} h="10rem" />
       )}
       {free.data && cards.length === 0 && (
         <Empty icon="agri" title="Nothing is in your own name">
-          Everything you own is already held by a group. Take something out of its group first,
-          or add a new record from Properties.
+          Everything you own is already held by a group.
         </Empty>
       )}
       {cards.length > 0 && (
         <>
-          <p className="note" style={{ marginTop: 0, maxWidth: '38rem' }}>
-            These are held in your own name. Choose one to move it into {group.name}.
-          </p>
-          <div className="rows boxed" style={{ marginTop: 'var(--space-sm)' }}>
+          <div className="rows boxed" style={{ marginTop: 0 }}>
             {cards.map((c) => {
               const along = alsoOnKhata(c);
               return (
@@ -1119,7 +1120,7 @@ function AddHoldingDialog({
                     <Icon name={c.kind === 'parcel' ? 'agri' : c.classification} size={18} />
                   </span>
                   <span className="grow" style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>
+                    <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>
                       {c.title}
                     </span>
                     <span className="note" style={{ display: 'block' }}>
@@ -1164,9 +1165,7 @@ function ActivityTab({ group }: { group: GroupRow }) {
   }
   if (events.length === 0) {
     return (
-      <Empty icon="clock" title="Nothing has happened yet">
-        Changes to this group, its members and its passbooks are listed here as they happen.
-      </Empty>
+      <Empty icon="clock" title="No activity yet" />
     );
   }
 
@@ -1278,9 +1277,7 @@ function GroupFormDialog({
           <div className="field">
             <label>Type</label>
             <p className="note" style={{ margin: 0 }}>
-              {groupTypeDef(group.type).label} — fixed once the group exists, because the
-              members inside it are described in its terms. Create a new group to hold this
-              land differently.
+              {groupTypeDef(group.type).label} · cannot be changed
             </p>
           </div>
         ) : (
@@ -1327,7 +1324,7 @@ function GroupFormDialog({
             maxLength={2000}
             onChange={(e) => setDesc(e.target.value)}
           />
-          <span className="note">Optional — what this group is for.</span>
+          <span className="note">Optional</span>
         </div>
       </form>
     </Dialog>
@@ -1377,15 +1374,7 @@ function DeleteGroupDialog({
       }
     >
       <p className="note" style={{ marginTop: 0, maxWidth: '32rem' }}>
-        This removes the group and everyone listed in it —{' '}
-        {peopleWord(group.memberCount).toLowerCase()} — along with their relationships, shares
-        and verification status. It cannot be undone.
-      </p>
-      <p className="note" style={{ maxWidth: '32rem' }}>
-        <strong>Nothing you own is deleted.</strong> The{' '}
-        {plural(holdingCount(group), 'holding')} this group holds{' '}
-        {holdingCount(group) === 1 ? 'goes' : 'go'} back into your own name and{' '}
-        {holdingCount(group) === 1 ? 'stays' : 'stay'} in your portfolio.
+        This removes the group and everyone listed in it. It cannot be undone.
       </p>
     </Dialog>
   );
@@ -1441,7 +1430,7 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
 
   return (
     <Dialog
-      title="Family notification settings"
+      title="Inactivity notifications"
       onClose={onClose}
       busy={save.isPending}
       wide
@@ -1462,8 +1451,7 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
       }
     >
       <p className="note" style={{ marginTop: 0, maxWidth: '40rem' }}>
-        These contacts are used only after the head misses the first, second and final activity reminders.
-        A family acknowledgement stops later contacts but never transfers account or property control.
+        Contacted only after the head misses every activity reminder.
       </p>
 
       {q.isPending && <Loading h="8rem" what="the current notification settings" />}
@@ -1521,7 +1509,7 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
                         {i + 1}
                       </span>
                       <span className="grow">
-                        <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>{m.name}</span>
+                        <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>{m.name}</span>
                         <span className="note" style={{ display: 'block' }}>
                           {[m.relation ? relMeta(m.relation).label : '', m.email].filter(Boolean).join(' · ')}
                         </span>
@@ -1608,8 +1596,7 @@ function InviteDialog({ invite, onClose }: { invite: InviteInfo; onClose: () => 
     >
       <p className="note" style={{ marginTop: 0, maxWidth: '34rem' }}>
         Send this to <strong>{invite.name}</strong>
-        {invite.to ? ` (${invite.to})` : ''} so they can confirm who they are. It works without
-        an account.
+        {invite.to ? ` (${invite.to})` : ''}.
       </p>
       <div className="row tight" style={{ flexWrap: 'nowrap', marginBottom: 'var(--space-sm)' }}>
         <input className="grow mono" type="text" readOnly value={invite.link} />

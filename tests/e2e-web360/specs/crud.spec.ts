@@ -48,7 +48,7 @@ test.describe.serial('W02 · the list acts', () => {
 
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     const drawer = page.locator('.drawer');
-    await expect(drawer.getByRole('heading', { name: 'Add a record' })).toBeVisible();
+    await expect(drawer.getByRole('heading', { name: 'Add a property' })).toBeVisible();
 
     // The drawer opens on the document, not on the form: the deed is in the
     // person's hand and the reader can do the typing. Hand entry is the
@@ -64,7 +64,7 @@ test.describe.serial('W02 · the list acts', () => {
     await drawer.locator('#rd-district').fill('E2E District');
     await drawer.locator('#rd-extent').fill('1.5');
     await drawer.locator('#rd-market').fill('1200000');
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect(drawer).toHaveCount(0);
     await expect(page.getByText('10 of 10 shown')).toBeVisible();
@@ -141,7 +141,7 @@ test.describe.serial('W02 · the list acts', () => {
     await card.locator('.sel input').check();
 
     const bar = page.locator('.bulkbar');
-    await expect(bar).toContainText('1 record selected');
+    await expect(bar).toContainText('1 property selected');
     await bar.getByRole('button', { name: 'Order EC ×1' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Order EC ×1' }).click();
 
@@ -174,7 +174,7 @@ test.describe.serial('W02 · the list acts', () => {
     await page.getByRole('menuitem', { name: 'Delete…' }).click();
 
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText('Delete this record?');
+    await expect(dialog).toContainText('Delete this property?');
     await expect(dialog).toContainText('There is no undo');
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
 
@@ -227,14 +227,14 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
   test('a selection survives being looked at another way', async ({ page }) => {
     await page.goto('/app/properties');
     await page.locator('.rec .sel input').first().check();
-    await expect(page.locator('.bulkbar')).toContainText('1 record selected');
+    await expect(page.locator('.bulkbar')).toContainText('1 property selected');
 
     // The view is in the URL alongside the filter, and the reset used to key on
     // the whole query string — so Grid → List threw the selection away. The
     // three views draw the same records; there is nothing to protect against.
     await page.getByRole('button', { name: 'List' }).click();
     await expect(page.locator('.rectable')).toBeVisible();
-    await expect(page.locator('.bulkbar')).toContainText('1 record selected');
+    await expect(page.locator('.bulkbar')).toContainText('1 property selected');
 
     // A filter change is the case it is actually there for: those records may
     // not be on screen any more, and Archive must not reach them.

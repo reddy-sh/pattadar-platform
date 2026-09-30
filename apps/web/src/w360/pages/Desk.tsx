@@ -20,8 +20,7 @@
  *     narrow row in full.
  *  3. **Money says set aside and owed.** Nothing on this desk has been charged
  *     to anybody: the provider is a stub and what is held is owed to whoever
- *     finishes the job. The lede says so once, at the top, rather than hanging a
- *     grey pill off twenty rows.
+ *     finishes the job. Rows say "set aside", never "charged".
  *
  *  Phase 1 has no dispatcher, so the Dispatch kill-switch menu the design calls
  *  for is deliberately absent — `setDispatchMode` does not exist yet, and a menu
@@ -119,18 +118,13 @@ export function Contact({ contact, masked }: { contact: string; masked?: string 
 export function NotTheDesk() {
   return (
     <main>
-      <PageHead eyebrow="Pattadar desk" title="This is not your screen">
-        <p className="lede">
-          The desk is where Pattadar puts people on jobs. This account is not on the
-          platform admin list, so there is nothing on it to show you.
-        </p>
+      <PageHead eyebrow="Pattadar desk" title="This screen is for Pattadar staff">
+        <p className="lede">This account is not on the platform admin list.</p>
       </PageHead>
       <Empty
         boxed h="14rem" icon="lock" title="Nothing here belongs to this account."
         action={<Link className="btn primary" to="/app/services">Work you have ordered</Link>}
-      >
-        Your own orders, and who is on each of them, are under Services.
-      </Empty>
+      />
     </main>
   );
 }
@@ -191,7 +185,7 @@ export function TakeOff({ ticketId, jobRef, name }: {
                 Leave it with them
               </button>
               {!said && (
-                <span className="note">Say why first — it is the only record of this.</span>
+                <span className="note">A reason is required.</span>
               )}
               <button type="button" className="btn danger"
                       disabled={!said || unassign.isPending}
@@ -202,9 +196,7 @@ export function TakeOff({ ticketId, jobRef, name }: {
           )}
         >
           <p className="note" style={{ margin: 0 }}>
-            The job goes back to nobody and returns to the top of this desk. {name} is
-            not told automatically — ring them; this writes it down. The owner is not
-            charged anything extra, and what is set aside stays set aside.
+            The job returns to the desk. {name} is not told automatically.
           </p>
           <div className="field">
             <label htmlFor={`off-${ticketId}`}>Why are they coming off</label>
@@ -257,14 +249,14 @@ function JobRow({ j }: { j: DeskJobRow }) {
           <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
             With <strong>{j.assignee}</strong>
             {j.assigneeContact && <> · <Contact contact={j.assigneeContact} /></>}
-            {!j.assigneeRef && <> · a name typed on the job, not an associate</>}
+            {!j.assigneeRef && <> · a name typed on the job, not a member</>}
           </span>
         )}
       </span>
       <span style={{ textAlign: 'right', flex: 'none' }}>
         <span className="num" style={{ display: 'block' }}>{inrFullish(j.quoted)}</span>
         <span className="note" style={{ display: 'block' }}>
-          {j.held > 0 ? `${inr(j.held)} set aside` : 'nothing set aside'}
+          {j.held > 0 ? `${inr(j.held)} held` : 'nothing held'}
         </span>
       </span>
       {j.assignee ? (
@@ -312,7 +304,7 @@ function Strip({ d }: { d: DeskData }) {
       k: 'Nobody can take it', v: d.stuck, s: 'See coverage',
       tone: 'down', to: '/app/desk/coverage',
     },
-    { k: 'Taking work', v: d.associatesActive, s: 'associates' },
+    { k: 'Taking work', v: d.associatesActive, s: 'members' },
   ].filter((c) => c.v > 0);
   if (cells.length === 0) return null;
   return (
@@ -328,7 +320,7 @@ function Strip({ d }: { d: DeskData }) {
 }
 
 const SCOPES: [string, string][] = [
-  ['open', 'Open'], ['silent', 'Silent'], ['stuck', 'Stuck'], ['all', 'All'],
+  ['open', 'Open'], ['silent', 'No update'], ['stuck', 'Stuck'], ['all', 'All'],
 ];
 
 type DeskFilterKey = 'service' | 'location' | 'status' | 'assignment' | 'attention';
@@ -359,20 +351,20 @@ const attentionKeys = (job: DeskJobRow): string[] => [
  *  "every job has somebody on it" is the wrong answer to "what has gone quiet". */
 const NOTHING: Record<string, { title: string; body: string }> = {
   open: {
-    title: 'Every job has somebody on it.',
-    body: 'Nothing is waiting. New orders land here the moment they are placed.',
+    title: 'Every job is assigned',
+    body: 'Nothing is waiting.',
   },
   silent: {
     title: 'Nothing has gone quiet.',
-    body: 'Every job with somebody on it has moved in the last few days.',
+    body: 'Every assigned job has moved in the last few days.',
   },
   stuck: {
     title: 'Nothing is stuck.',
     body: 'Every job waiting has at least one person who could be put on it.',
   },
   all: {
-    title: 'Every job has somebody on it.',
-    body: 'Nothing is waiting. New orders land here the moment they are placed.',
+    title: 'Every job is assigned',
+    body: 'Nothing is waiting.',
   },
 };
 
@@ -461,13 +453,7 @@ export function Desk() {
 
   return (
     <main>
-      <PageHead eyebrow="Pattadar desk" title="Jobs waiting for somebody">
-        <p className="lede">
-          Every job, across every owner, with nobody on it — and every job that has
-          somebody and has stopped moving. Nothing here has been charged to anybody:
-          what is set aside is owed to whoever finishes the job.
-        </p>
-      </PageHead>
+      <PageHead eyebrow="Pattadar desk" title="Unassigned and stalled jobs" />
 
       {/* Chrome outside the three states stays mounted while modes and facets
           reshape the single desk-wide answer. */}
@@ -495,8 +481,8 @@ export function Desk() {
       {isLoading ? <Loading h="18rem" what="the desk" />
         : !data ? <Failed what="The desk" error={error} boxed h="18rem" />
         : bare ? (
-          <Empty boxed h="16rem" icon="ok" title="Every job has somebody on it.">
-            Nothing is waiting. New orders land here the moment they are placed.
+          <Empty boxed h="16rem" icon="ok" title="Every job is assigned">
+            Nothing is waiting.
           </Empty>
         ) : (
           <>
@@ -506,13 +492,11 @@ export function Desk() {
               <Empty
                 boxed h="16rem" icon="search" title="No jobs match those filters"
                 action={<button type="button" className="btn sm" onClick={clearFilters}>Clear filters</button>}
-              >
-                Try another service, location, status, assignment or attention flag.
-              </Empty>
+              />
             ) : (
               <>
-                <JobList title="Nobody on it" jobs={filteredJobs} />
-                <JobList title="On someone, nothing happening" jobs={filteredSilent} />
+                <JobList title="Unassigned" jobs={filteredJobs} />
+                <JobList title="Assigned · No recent update" jobs={filteredSilent} />
               </>
             )}
           </>

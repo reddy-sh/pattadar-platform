@@ -104,6 +104,52 @@ export async function renameNode(nodeId: string, name: string): Promise<string> 
   }
 }
 
+/** Fetch a bounded slice of stored bytes with the platform Bearer token.
+ * Used for client-side metadata (EXIF/container headers), so inspecting a
+ * 50 MB file does not download it whole. A legacy gateway may answer 200; the
+ * caller still receives bytes, preserving rollout compatibility. */
+export async function fetchFileRange(fileRef: string, range = 'bytes=0-262143'): Promise<Blob> {
+  if (!isStorageRef(fileRef)) throw new Error('legacy-ref');
+  const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+  if (!match) throw new Error('invalid-range');
+  const maximum = Number(match[2]) - Number(match[1]) + 1;
+  const res = await apiFetch(`/api/gateway/storage/files/${fileRef}/content`, {
+    headers: { Range: range },
+  });
+  if (!res.ok) throw new Error(`storage ${res.status}`);
+  const length = Number(res.headers.get('content-length') || 0);
+  if (res.status === 206) {
+    if (!res.headers.get('content-range')?.startsWith(`bytes ${match[1]}-`)
+      || !length || length > maximum) {
+      await res.body?.cancel();
+      throw new Error('invalid-range-response');
+    }
+    return res.blob();
+  }
+  // Compatibility with an older/Range-stripping intermediary: never call
+  // blob() on an unbounded 200, which could buffer the full 100 MB object.
+  if (!res.body || (length && length > maximum)) {
+    await res.body?.cancel();
+    throw new Error('range-not-supported');
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    while (received < maximum) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const take = value.subarray(0, maximum - received);
+      chunks.push(take);
+      received += take.byteLength;
+      if (take.byteLength < value.byteLength) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return new Blob(chunks as BlobPart[], { type: res.headers.get('content-type') || '' });
+}
+
 /** Fetch a stored file's bytes (preview/download). Throws when unavailable. */
 export async function fetchFileBlob(fileRef: string): Promise<Blob> {
   if (!isStorageRef(fileRef)) throw new Error('legacy-ref');

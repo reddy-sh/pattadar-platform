@@ -26,9 +26,10 @@
   --color-scrim: oklch(16% 0.012 45 / 0.58);
   --color-shadow: oklch(20% 0.014 45 / 0.12);
 
-  --font-display: "Inter Tight", ui-sans-serif, sans-serif;
-  --font-body: "Atkinson Hyperlegible", ui-sans-serif, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* One face (root design.md § Typography), the same stack as
+     apps/web/src/styles/tokens.css — scripts/typography-tests.ts fails when
+     the copies differ. */
+  --font-sans: "Atkinson Hyperlegible", system-ui, sans-serif;
 
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;

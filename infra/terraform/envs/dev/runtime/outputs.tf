@@ -35,3 +35,6 @@ output "ecs_cluster_name" {
 output "ecs_service_names" {
   value = module.runtime.ecs_service_names
 }
+output "village_maps_origin_enabled" {
+  value = module.runtime.village_maps_origin_enabled
+}

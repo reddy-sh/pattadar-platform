@@ -112,7 +112,7 @@ function firstRun(base: Portfolio, over: Partial<Portfolio> = {}): Portfolio {
 const waitingPanel = (page: Page) =>
   page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Waiting on you', exact: true }) });
 const valuePanel = (page: Page) =>
-  page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Where the value sits' }) });
+  page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Value by village' }) });
 const waitingRows = (page: Page) => waitingPanel(page).locator('.rows > div');
 
 // ── the head: who you are and what you hold ────────────────────────────
@@ -131,8 +131,8 @@ test('the dashboard greets me by name and says what my whole portfolio is', asyn
   await expect(head).not.toContainText('open plot');
 
   // What is owned is what the figures above count; the rest is named and
-  // linked into Holdings rather than silently folded in.
-  await expect(head).toContainText('Owned only · 4 managed and 1 watched sit in Holdings');
+  // linked into Properties rather than silently folded in.
+  await expect(head).toContainText('Owned only · 4 managed and 1 watched are in Properties');
   await expect(head.getByRole('link', { name: '4 managed' })).toHaveAttribute('href', '/app/properties?stake=managed');
   await expect(head.getByRole('link', { name: '1 watched' })).toHaveAttribute('href', '/app/properties?stake=watch');
 
@@ -255,7 +255,7 @@ test('a portfolio that is all mine says nothing about managed or watched', async
   // The positive assertion first: an absence asserted against a screen that
   // has not drawn yet is an absence that proves nothing.
   await expect(page.locator('.pagehead')).toContainText('Land — 3 farm parcels');
-  await expect(page.locator('.pagehead')).not.toContainText('sit in Holdings');
+  await expect(page.locator('.pagehead')).not.toContainText('are in Properties');
   await expect(page.locator('.pagehead')).not.toContainText('Owned only');
 });
 
@@ -277,13 +277,13 @@ test('an account that only watches somebody else’s land still gets a dashboard
   // Exactly one lede, and it is the stake line — one clause, so no stray
   // "and" left over from the two-clause case.
   await expect(head.locator('p.lede')).toHaveCount(1);
-  await expect(head.locator('p.lede')).toHaveText('Owned only · 2 watched sit in Holdings');
+  await expect(head.locator('p.lede')).toHaveText('Owned only · 2 watched are in Properties');
   await expect(head.getByRole('link', { name: '2 watched' }))
     .toHaveAttribute('href', '/app/properties?stake=watch');
 
   // And not the first-run screen, which would tell someone with two records on
   // their dashboard that they have none.
-  await expect(page.getByText('Nothing in your portfolio yet')).toHaveCount(0);
+  await expect(page.getByText('No properties yet')).toHaveCount(0);
   await expect(page.locator('.strip > *')).toHaveCount(base.tiles.length);
 });
 
@@ -374,7 +374,7 @@ test('where the value sits draws one bar per village, in proportion', async ({ p
   await page.goto('/app');
 
   const panel = valuePanel(page);
-  await expect(panel).toContainText('worth today');
+  await expect(panel).toContainText('Estimated value today');
 
   const bars = panel.locator('.bar');
   await expect(bars).toHaveCount(3);
@@ -392,12 +392,10 @@ test('where the value sits draws one bar per village, in proportion', async ({ p
   expect(await width(0)).toBeGreaterThan(await width(1));
   expect(await width(1)).toBeGreaterThan(await width(2));
 
-  await expect(panel).toContainText('Worth today, one bar per village.');
-  await expect(panel).toContainText('Against ₹94.0 L paid in total');
+  await expect(panel).toContainText('Paid ₹94.0 L in total.');
   await expect(panel).toContainText('Running costs this year');
   await expect(panel).toContainText('₹86,400');
-  await expect(panel).toContainText('27 papers filed against your records.');
-  await expect(panel.getByRole('link', { name: 'Papers' })).toHaveAttribute('href', '/app/papers');
+  await expect(panel).toContainText('27 documents filed against your properties.');
 });
 
 test('the smallest village still gets a bar I can see', async ({ page, world }) => {
@@ -429,10 +427,9 @@ test('a portfolio nobody has valued says why, instead of drawing an empty chart'
 
   const panel = valuePanel(page);
   await expect(panel).toContainText('No village holds any value yet');
-  await expect(panel).toContainText('needs a market value on its Money tab');
   await expect(panel.locator('.bar')).toHaveCount(0);
-  // And the caption that explains bars is not printed over nothing.
-  await expect(panel).not.toContainText('one bar per village');
+  // And the paid-in-total caption under the bars is not printed over nothing.
+  await expect(panel).not.toContainText('in total.');
   // The rest of the panel is still true and still there.
   await expect(panel).toContainText('Running costs this year');
   // The head's second clock is named after the village holding most of the
@@ -494,8 +491,8 @@ test('a portfolio nobody has priced is not told it was free', async ({ page, wor
   // The panel is drawn first, so what is asserted absent below is asserted
   // against a sentence that is actually on the screen.
   await expect(panel.locator('.bar')).toHaveCount(3);
-  await expect(panel).toContainText('Worth today, one bar per village.');
-  await expect(panel).not.toContainText('Against ₹0 paid in total');
+  await expect(panel).toContainText('Running costs this year');
+  await expect(panel).not.toContainText('Paid ₹0 in total');
 });
 
 test('no papers filed says so rather than printing a zero', async ({ page, world }) => {
@@ -504,10 +501,8 @@ test('no papers filed says so rather than printing a zero', async ({ page, world
   await page.goto('/app');
 
   const panel = valuePanel(page);
-  await expect(panel).toContainText('No papers filed against your records yet.');
-  await expect(panel).not.toContainText('0 papers filed');
-  // The way to the vault stays, because that is where the first one is filed.
-  await expect(panel.getByRole('link', { name: 'Papers' })).toHaveAttribute('href', '/app/papers');
+  await expect(panel).toContainText('No documents filed against your properties yet.');
+  await expect(panel).not.toContainText('0 documents filed');
 });
 
 // ── recently opened ────────────────────────────────────────────────────
@@ -517,7 +512,7 @@ test('the recently opened strip shows what I last opened, and each card opens it
   await page.goto('/app');
 
   await expect(page.getByText('Recently opened')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'All holdings ›' })).toHaveAttribute('href', '/app/properties');
+  await expect(page.getByRole('link', { name: 'All properties ›' })).toHaveAttribute('href', '/app/properties');
 
   const cards = page.locator('.cards .rec');
   await expect(cards).toHaveCount(seeded.recent.length);
@@ -609,10 +604,10 @@ test('nothing opened yet is not worth a section', async ({ page, world }) => {
   // every one of these counts is also 0 for the half-second the screen is
   // still loading, and an absence asserted then proves nothing.
   await expect(page.locator('.strip > *')).toHaveCount(base.tiles.length);
-  // A heading and an "All holdings ›" link over an empty grid reads as a
+  // A heading and an "All properties ›" link over an empty grid reads as a
   // section that failed to load.
   await expect(page.getByText('Recently opened')).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'All holdings ›' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'All properties ›' })).toHaveCount(0);
   await expect(page.locator('.cards .rec')).toHaveCount(0);
 });
 
@@ -656,7 +651,7 @@ test('a waiting row opens the record it is about', async ({ page, world }) => {
   await expect(page).toHaveURL(new RegExp(`/app/records/${ID.plot}$`));
 });
 
-test('a reminder about something I shared out opens Papers', async ({ page, world }) => {
+test('a reminder about something I shared out opens Documents', async ({ page, world }) => {
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', {
     ...base,
@@ -670,8 +665,8 @@ test('a reminder about something I shared out opens Papers', async ({ page, worl
   await page.goto('/app');
 
   const row = waitingRows(page).first();
-  // Every live link — its terms, its days left, its revoke — is on Papers.
-  await expect(row.getByRole('link', { name: 'Open Papers' })).toHaveAttribute('href', '/app/papers');
+  // Every live link — its terms, its days left, its revoke — is on Documents.
+  await expect(row.getByRole('link', { name: 'Open Documents' })).toHaveAttribute('href', '/app/papers');
   // And "Extend" is not offered, because nothing here can extend anything.
   await expect(row).not.toContainText('Extend');
 });
@@ -724,12 +719,7 @@ test('dismissing a reminder is asked for, not done on one click', async ({ page,
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'Dismiss this reminder?' })).toBeVisible();
   await expect(dialog).toContainText(first.title);
-  await expect(dialog).toContainText('leaves this screen for good');
-  await expect(dialog).toContainText('it cannot be brought back');
-  // What is NOT thrown away has to be said, or the owner reads this as
-  // "the tax stops being due".
-  await expect(dialog).toContainText('Only the reminder goes');
-  await expect(dialog).toContainText('with the same deadline on it');
+  await expect(dialog).toContainText('cannot be brought back');
 
   await dialog.getByRole('button', { name: 'Keep it' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -985,9 +975,8 @@ test('a brand-new account is told the one thing to do, and nothing else', async 
   await expect(page.locator('.pagehead p.note')).toHaveText(/^Nothing waiting on you · .+ \d{2}:\d{2}, India \d{2}:\d{2} IST$/);
 
   // One statement of what is absent, and one thing to do about it.
-  await expect(page.getByText('Nothing in your portfolio yet')).toBeVisible();
-  await expect(page.getByText('A record is one parcel or one built property.')).toBeVisible();
-  const add = page.getByRole('link', { name: 'Add your first record' });
+  await expect(page.getByText('No properties yet')).toBeVisible();
+  const add = page.getByRole('link', { name: 'Add a property' });
   await expect(add).toHaveAttribute('href', '/app/properties?new=1');
 
   // And NOT a screen's worth of chrome over rows that do not exist: no tiles
@@ -995,7 +984,7 @@ test('a brand-new account is told the one thing to do, and nothing else', async 
   // over an empty grid, no waiting panel with nothing in it.
   await expect(page.locator('.strip')).toHaveCount(0);
   await expect(page.locator('.bars')).toHaveCount(0);
-  await expect(page.getByText('Where the value sits')).toHaveCount(0);
+  await expect(page.getByText('Value by village')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Waiting on you', exact: true })).toHaveCount(0);
   await expect(page.getByText('Recently opened')).toHaveCount(0);
   await expect(page.getByText('Running costs this year')).toHaveCount(0);
@@ -1019,7 +1008,7 @@ test('a brand-new account refuses the four zero-rupee tiles the server still sen
   }));
   await page.goto('/app');
 
-  await expect(page.getByText('Nothing in your portfolio yet')).toBeVisible();
+  await expect(page.getByText('No properties yet')).toBeVisible();
   await expect(page.locator('.strip')).toHaveCount(0);
   await expect(page.getByText('₹0')).toHaveCount(0);
 });
@@ -1037,14 +1026,14 @@ test('an invitation can arrive before my first record does', async ({ page, worl
   await page.goto('/app');
 
   // The empty state is still the main thing said…
-  await expect(page.getByText('Nothing in your portfolio yet')).toBeVisible();
+  await expect(page.getByText('No properties yet')).toBeVisible();
   // …and the one panel worth drawing beside it is drawn.
   await expect(waitingPanel(page)).toContainText('Ramana Reddy invited you to the family group');
   await expect(waitingRows(page)).toHaveCount(1);
   await expect(page.locator('.pagehead p.note')).toContainText('1 thing waiting on you');
   // Still no chart, no tiles, no recent grid.
   await expect(page.locator('.strip')).toHaveCount(0);
-  await expect(page.getByText('Where the value sits')).toHaveCount(0);
+  await expect(page.getByText('Value by village')).toHaveCount(0);
 });
 
 // ── still coming, and not coming ───────────────────────────────────────
@@ -1059,7 +1048,7 @@ test('while my portfolio is still coming the dashboard says so and claims nothin
   await expect(busy).toContainText('Loading your dashboard…');
 
   // It must not claim there is nothing there, and must not claim it failed.
-  await expect(page.getByText('Nothing in your portfolio yet')).toHaveCount(0);
+  await expect(page.getByText('No properties yet')).toHaveCount(0);
   await expect(page.getByText('Your dashboard did not load')).toHaveCount(0);
   await expect(page.locator('.strip')).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(0);
@@ -1078,14 +1067,13 @@ test('a portfolio that does not come back says so, and says what the server said
 
   const failed = page.getByRole('alert');
   await expect(failed).toContainText('Your dashboard did not load');
-  await expect(failed).toContainText('Nothing has been lost');
-  await expect(failed).toContainText('Your records are untouched.');
+  await expect(failed).toContainText('Check your connection and try again.');
   // The reason, verbatim, for whoever is being asked "what does it say?".
   await expect(failed).toContainText('the portfolio store is not answering');
   await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
 
   // A failure is not an empty portfolio and must never be drawn as one.
-  await expect(page.getByText('Nothing in your portfolio yet')).toHaveCount(0);
+  await expect(page.getByText('No properties yet')).toHaveCount(0);
   await expect(page.locator('.strip')).toHaveCount(0);
 });
 

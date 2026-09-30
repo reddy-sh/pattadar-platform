@@ -2,9 +2,12 @@
 
 Ported from the predecessor's api/gateway/storage_service.py. Metadata lives in
 PostgreSQL (``storage_nodes`` / ``storage_versions``); file bytes live in
-AWS S3 keyed ``{owner_id}/{node_id}/{version_id}`` (identical key scheme to
-the predecessor's MinIO layout so migrated objects need zero metadata changes). Every
-method takes ``owner`` and filters every query by it.
+AWS S3. New objects are keyed ``{node_id}/{version_id}`` with no owner segment
+(see ``_key``). Reads use the ``object_key`` stored on each version row, so objects
+migrated under the predecessor's ``{owner_id}/{node_id}/{version_id}`` MinIO
+layout keep that key verbatim and need zero metadata changes. Every method takes
+``owner`` and filters every query by it; authorization is decided in SQL, never
+by key prefix.
 
 Deltas vs the predecessor:
 - MinIO client → boto3 S3 client (task-role IAM creds, no static keys).
@@ -37,6 +40,15 @@ _ROOT_UUID = None  # parent_id for root-level items
 ORG_ID = "pattadar"
 WORKSPACE_ID = "pattadar"
 
+# Direct-to-S3 uploads land here until the gateway confirms them. Nothing
+# outside this prefix is ever reaped on a timer, and nothing inside it is ever
+# served to a reader.
+PENDING_PREFIX = "pending/"
+
+# How long a presigned upload form stays valid. Minutes, not hours: the form is
+# a bearer capability to write one object, and the client uses it immediately.
+PRESIGN_TTL_SECONDS = int(os.getenv("STORAGE_PRESIGN_TTL_SECONDS", "900"))
+
 
 class StorageExpired(RuntimeError):
     """A share link has expired."""
@@ -56,6 +68,14 @@ class StorageError(RuntimeError):
 
 class StorageNotFound(StorageError):
     """Node/version not found (or not owned by the caller)."""
+
+
+class StorageTooLarge(StorageError):
+    """An upload exceeded the size ceiling.
+
+    Its own class so the direct-upload path can answer 413 like the proxied
+    one does, rather than folding into the 409 a name collision means.
+    """
 
 
 class StorageConflict(StorageError):
@@ -97,6 +117,24 @@ _VERSION_CAMEL = {
     "created_at": "createdAt",
     "created_by": "createdBy",
 }
+
+
+def _is_missing_object(exc: Exception) -> bool:
+    """Is this S3 error 'the object is not there', as opposed to a real fault?
+
+    Reads botocore's error shape without importing it, so the storage service
+    stays testable against a plain fake client. Anything unrecognised is NOT
+    treated as missing — the caller re-raises, and a 500 is the honest answer
+    for an error we could not classify.
+    """
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return False
+    error = response.get("Error") or {}
+    if str(error.get("Code")) in {"404", "NoSuchKey", "NotFound"}:
+        return True
+    status = (response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+    return status == 404
 
 
 def _camel(row: dict, mapping: dict) -> dict:
@@ -179,7 +217,30 @@ class StorageService:
 
     @staticmethod
     def _key(owner: str, node_id: str, version_id: str) -> str:
-        return f"{owner}/{node_id}/{version_id}"
+        """The object key for a version's bytes.
+
+        The owner is deliberately NOT in the key. Authorization is decided in
+        SQL by ``_access``, never by key prefix, so an owner segment bought
+        nothing — and it cost: the identity the gateway derives for a caller
+        has changed shape before now, which stranded bytes under a key no
+        later request could rebuild. Reads never re-derive this; they use the
+        ``object_key`` stored on the version row, so existing objects keep
+        their old keys and keep working.
+
+        ``owner`` stays in the signature because callers pass it positionally
+        and the argument documents who the write is for.
+        """
+        return f"{node_id}/{version_id}"
+
+    @staticmethod
+    def _pending_key(upload_id: str) -> str:
+        """Where a direct-to-S3 upload lands before the gateway confirms it.
+
+        Its own prefix so a lifecycle rule can reap uploads that were started
+        and never completed, without that rule ever being able to see a live
+        object.
+        """
+        return f"{PENDING_PREFIX}{upload_id}"
 
     # -- reads --------------------------------------------------------------
 
@@ -317,9 +378,25 @@ class StorageService:
         mime = vrows[0].get("mime_type") or "application/octet-stream"
         return str(vid), vrows[0]["object_key"], mime, node["name"], node_owner
 
+    def open_object(self, object_key: str, byte_range: Optional[str] = None) -> dict:
+        """Open an S3 body without buffering it.
+
+        The caller already authorized ``object_key`` through content_identity.
+        ``byte_range`` is validated by the HTTP route before it reaches boto3.
+        The returned StreamingBody is owned by the route and must be closed.
+        """
+        args: dict[str, Any] = {"Bucket": self._bucket, "Key": object_key}
+        if byte_range:
+            args["Range"] = byte_range
+        return self._s3.get_object(**args)
+
+    def stat_object(self, object_key: str) -> dict:
+        """S3 metadata for HEAD/range validation, after content authorization."""
+        return self._s3.head_object(Bucket=self._bucket, Key=object_key)
+
     def read_object(self, object_key: str) -> bytes:
         """The bytes behind a key that ``content_identity`` has authorized."""
-        resp = self._s3.get_object(Bucket=self._bucket, Key=object_key)
+        resp = self.open_object(object_key)
         body = resp["Body"]
         try:
             return body.read()
@@ -432,20 +509,7 @@ class StorageService:
             vid = str(uuid.uuid4())
             key = self._key(owner, nid, vid)
             self._s3.put_object(**self._put_args(key=key, data=data, mime=mime))
-            with db._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO storage_versions "
-                        "(id, node_id, owner_id, object_key, size_bytes, mime_type, created_by) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                        [vid, nid, owner, key, size, mime, by],
-                    )
-                    cur.execute(
-                        "UPDATE storage_nodes SET current_version_id = %s, size_bytes = %s, "
-                        "mime_type = %s, updated_at = now(), updated_by = %s "
-                        "WHERE id = %s AND owner_id = %s",
-                        [vid, size, mime, by, nid, owner],
-                    )
+            self._commit_new_version(owner, nid, vid, key, size, mime, by)
             return self._fetch_one(owner, nid, cols)
 
         # New file node + its first version.
@@ -454,6 +518,61 @@ class StorageService:
         key = self._key(owner, nid, vid)
         # Upload bytes first; if the DB insert conflicts we best-effort remove them.
         self._s3.put_object(**self._put_args(key=key, data=data, mime=mime))
+        self._commit_new_node(
+            owner, nid, vid, key, size, mime, by,
+            parent_id=parent_id,
+            name=name,
+            org_id=org_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+        )
+        return self._fetch_one(owner, nid, cols)
+
+    # -- shared commit paths ------------------------------------------------
+    # Both the proxied upload (create_file) and the direct-to-S3 upload
+    # (create_file_from_pending) land here, so the row-writing rules are
+    # stated once.
+
+    def _commit_new_version(
+        self, owner: str, nid: str, vid: str, key: str, size: int, mime: str, by: str
+    ) -> None:
+        """Add a version to an existing node and make it current."""
+        with db._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO storage_versions "
+                    "(id, node_id, owner_id, object_key, size_bytes, mime_type, created_by) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    [vid, nid, owner, key, size, mime, by],
+                )
+                cur.execute(
+                    "UPDATE storage_nodes SET current_version_id = %s, size_bytes = %s, "
+                    "mime_type = %s, updated_at = now(), updated_by = %s "
+                    "WHERE id = %s AND owner_id = %s",
+                    [vid, size, mime, by, nid, owner],
+                )
+
+    def _commit_new_node(
+        self,
+        owner: str,
+        nid: str,
+        vid: str,
+        key: str,
+        size: int,
+        mime: str,
+        by: str,
+        *,
+        parent_id: Optional[str],
+        name: str,
+        org_id: str,
+        workspace_id: str,
+        app_id: Optional[str],
+    ) -> None:
+        """Create the file node and its first version.
+
+        On a name collision the bytes are best-effort removed, because nothing
+        will ever point at them again.
+        """
         try:
             with db._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -476,6 +595,171 @@ class StorageService:
         except psycopg.errors.UniqueViolation:
             self._safe_remove(key)
             raise StorageConflict(f"'{name}' already exists here")
+
+    # -- direct-to-S3 upload ------------------------------------------------
+
+    def _copy_args(self, *, src_key: str, key: str, mime: str) -> dict[str, Any]:
+        """CopyObject arguments, pinned to the app CMK like ``_put_args``.
+
+        ``MetadataDirective``/``ContentType`` are set explicitly because a copy
+        otherwise carries the source object's content type, and the source is
+        whatever the client declared at upload time.
+        """
+        args: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "CopySource": {"Bucket": self._bucket, "Key": src_key},
+            "ContentType": mime,
+            "MetadataDirective": "REPLACE",
+        }
+        if not self._allow_unencrypted_local:
+            args.update({
+                "ServerSideEncryption": "aws:kms",
+                "SSEKMSKeyId": self._kms_key_arn,
+                "BucketKeyEnabled": True,
+            })
+        return args
+
+    def presign_upload(self, owner: str, *, mime: str, max_bytes: int) -> dict:
+        """A form the browser POSTs straight to S3, and the id to confirm it with.
+
+        Presigned POST, not PUT, for one reason that matters: only a POST
+        policy carries ``content-length-range``. A presigned PUT cannot bound
+        the object's size, so a caller who holds one can upload until the
+        account's bill says stop.
+
+        The key is chosen here and pinned into the policy. It is never taken
+        from the caller — a caller-supplied key is a write into someone else's
+        object.
+
+        The SSE fields are signed into the policy too. The bucket already
+        applies the app CMK by default, so this changes nothing about how the
+        object is encrypted; it means the upload still succeeds if the bucket
+        policy is ever tightened to reject writers that do not say so (see
+        ``enforce_documents_sse_kms_headers`` in the persistent module).
+        """
+        upload_id = str(uuid.uuid4())
+        key = self._pending_key(upload_id)
+        mime = mime or "application/octet-stream"
+
+        fields: dict[str, Any] = {"Content-Type": mime}
+        conditions: list[Any] = [
+            {"Content-Type": mime},
+            ["content-length-range", 1, int(max_bytes)],
+        ]
+        if not self._allow_unencrypted_local:
+            fields["x-amz-server-side-encryption"] = "aws:kms"
+            fields["x-amz-server-side-encryption-aws-kms-key-id"] = self._kms_key_arn
+            conditions.append({"x-amz-server-side-encryption": "aws:kms"})
+            conditions.append(
+                {"x-amz-server-side-encryption-aws-kms-key-id": self._kms_key_arn}
+            )
+
+        post = self._s3.generate_presigned_post(
+            Bucket=self._bucket,
+            Key=key,
+            Fields=fields,
+            Conditions=conditions,
+            ExpiresIn=PRESIGN_TTL_SECONDS,
+        )
+        return {
+            "uploadId": upload_id,
+            "url": post["url"],
+            "fields": post["fields"],
+            "maxBytes": int(max_bytes),
+            "expiresIn": PRESIGN_TTL_SECONDS,
+        }
+
+    def create_file_from_pending(
+        self,
+        owner: str,
+        upload_id: str,
+        parent_id: Optional[str],
+        name: str,
+        by: str,
+        *,
+        max_bytes: int,
+        org_id: str = ORG_ID,
+        workspace_id: str = WORKSPACE_ID,
+        app_id: Optional[str] = None,
+        on_conflict: str = "version",
+    ) -> dict:
+        """Turn a completed direct upload into a file node.
+
+        The gateway never saw these bytes, so every fact about them is read
+        back from S3 rather than believed from the client: the size written to
+        the row is the ``ContentLength`` S3 reports, not a number the caller
+        sent. A client that lies about its size gets the truth recorded, and a
+        client that beat the policy's range check (it cannot) would still be
+        rejected here.
+        """
+        if not upload_id or "/" in upload_id or ".." in upload_id:
+            raise StorageConflict("invalid uploadId")
+        src_key = self._pending_key(upload_id)
+        try:
+            head = self._s3.head_object(Bucket=self._bucket, Key=src_key)
+        except Exception as exc:  # noqa: BLE001 - narrowed below
+            # Only a genuine miss is "no such upload". A permissions error or
+            # a transient S3 failure must NOT be reported as 404: that would
+            # tell the client to give up on bytes it successfully uploaded.
+            if not _is_missing_object(exc):
+                raise
+            raise StorageNotFound(f"upload {upload_id}") from exc
+
+        size = int(head.get("ContentLength") or 0)
+        if size <= 0:
+            self._safe_remove(src_key)
+            raise StorageConflict("uploaded object is empty")
+        if size > int(max_bytes):
+            # Belt and braces: the policy already bounded this.
+            self._safe_remove(src_key)
+            raise StorageTooLarge("File too large")
+        mime = head.get("ContentType") or "application/octet-stream"
+
+        name = (name or "document").strip()
+        self._assert_folder(owner, parent_id)
+        cols = ", ".join(_NODE_CAMEL.keys())
+
+        def _live_same_name(candidate: str) -> list:
+            return db.query_native(
+                "storage_nodes",
+                "SELECT id FROM storage_nodes WHERE owner_id = %s "
+                "AND parent_id IS NOT DISTINCT FROM %s AND lower(name) = lower(%s) "
+                "AND kind = 'file' AND trashed_at IS NULL",
+                [owner, parent_id, candidate],
+                camel_case=False,
+            )
+
+        existing = _live_same_name(name)
+        if existing and on_conflict == "duplicate":
+            name = next_free_name(name, lambda c: bool(_live_same_name(c)))
+            existing = []
+
+        nid = str(existing[0]["id"]) if existing else str(uuid.uuid4())
+        vid = str(uuid.uuid4())
+        key = self._key(owner, nid, vid)
+        self._s3.copy_object(**self._copy_args(src_key=src_key, key=key, mime=mime))
+
+        try:
+            if existing:
+                self._commit_new_version(owner, nid, vid, key, size, mime, by)
+            else:
+                self._commit_new_node(
+                    owner, nid, vid, key, size, mime, by,
+                    parent_id=parent_id,
+                    name=name,
+                    org_id=org_id,
+                    workspace_id=workspace_id,
+                    app_id=app_id,
+                )
+        except Exception:
+            # The live copy is unreachable now; the pending object is still
+            # reapable by lifecycle either way.
+            self._safe_remove(key)
+            raise
+        # Only once the row exists — until then the pending object is the only
+        # copy, and losing it would lose the upload.
+        self._safe_remove(src_key)
         return self._fetch_one(owner, nid, cols)
 
     def rename(self, owner: str, node_id: str, name: str, by: str) -> None:

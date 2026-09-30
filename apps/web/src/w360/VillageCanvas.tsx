@@ -18,6 +18,7 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { cornerLabel } from '@pattadar/core';
 
+import { acresText } from './villageGeom';
 import type { PlotFacts } from './villageGeom';
 import { measureVillageTape } from './villageMeasure';
 
@@ -54,6 +55,14 @@ export interface VillageMark {
   acres?: number;
   centre?: [number, number];
   outline?: Array<Array<[number, number]>>;
+}
+
+interface OverviewDrawing {
+  mark: VillageMark;
+  edge: L.Polyline | null;
+  hit: L.Polygon | null;
+  color: string;
+  active: boolean;
 }
 
 export interface VillageCanvasProps {
@@ -201,6 +210,8 @@ export default function VillageCanvas({
   const failedTiles = useRef(new Map<L.TileLayer, Set<HTMLElement>>());
   const labelBox = useRef<HTMLDivElement | null>(null);
   const shapes = useRef<Map<string, L.Polygon>>(new Map());
+  const overviewDrawings = useRef<Map<string, OverviewDrawing>>(new Map());
+  const overviewBounds = useRef<WeakMap<VillageMark, L.LatLngBounds>>(new WeakMap());
   /** A plot's extent, by its number. Restyling one polygon has to be a lookup
    *  and not a scan of the village: Munagapadu is 2,729 plots and the pointer
    *  crossing one fires this twice. */
@@ -210,6 +221,7 @@ export default function VillageCanvas({
   const lit = useRef<{ selected: string | null; hovered: string | null }>(
     { selected: null, hovered: null });
   const fittedFor = useRef<string>('');
+  const fittedOverview = useRef<VillageMark[] | null>(null);
   const tape = useRef<Array<[number, number]>>([]);
   const watcher = useRef<ResizeObserver | null>(null);
   /** A teardown waiting for the next frame — see the init effect. */
@@ -322,22 +334,40 @@ export default function VillageCanvas({
       mapRef.current?.remove();
       mapRef.current = null;
       shapes.current.clear();
+      overviewDrawings.current.clear();
+      overviewBounds.current = new WeakMap();
       fittedFor.current = '';
+      fittedOverview.current = null;
     });
   };
 
   const fitNow = () => {
     const map = mapRef.current;
     const marks = live.current.overview;
-    const pts: L.LatLngTuple[] = marks?.length
-      ? marks.flatMap((m) => (m.outline ?? []).flat() as L.LatLngTuple[])
-      : live.current.plots.flatMap((p) => p.ring as L.LatLngTuple[]);
-    if (!map || !pts.length) return;
-    const b = L.latLngBounds(pts);
+    if (!map) return;
+    const b = L.latLngBounds([]);
+    if (marks?.length) {
+      for (const mark of marks) {
+        let bounds = overviewBounds.current.get(mark);
+        if (!bounds) {
+          bounds = L.latLngBounds([]);
+          for (const segment of mark.outline ?? []) {
+            for (const point of segment) bounds.extend(point);
+          }
+          overviewBounds.current.set(mark, bounds);
+        }
+        if (bounds.isValid()) b.extend(bounds);
+      }
+    } else {
+      for (const plot of live.current.plots) {
+        for (const point of plot.ring) b.extend(point);
+      }
+    }
     if (!b.isValid()) return;
     const host = hostRef.current;
     if (!host?.clientWidth || !host.clientHeight) return;
     fittedFor.current = marks?.length ? 'mandal' : village;
+    fittedOverview.current = marks ?? null;
     map.fitBounds(b, { padding: [26, 26] });
   };
 
@@ -393,50 +423,75 @@ export default function VillageCanvas({
     const group = plotLayer.current;
     const edges = edgeLayer.current;
     if (!map || !group || !edges) return;
-    group.clearLayers();
-    edges.clearLayers();
-    shapes.current.clear();
-    acresOf.current = new Map(plots.map((p) => [p.lp, p.acres]));
-    lit.current = { selected: null, hovered: null };
 
     // ── The mandal: every village on record, none of them opened ──────
     if (overview?.length) {
+      if (shapes.current.size) {
+        group.clearLayers();
+        edges.clearLayers();
+        shapes.current.clear();
+      }
+      const wanted = new Map(overview.map((mark) => [mark.key, mark]));
+      for (const [key, drawing] of overviewDrawings.current) {
+        if (!drawing.active || wanted.get(key) === drawing.mark) continue;
+        if (drawing.edge) edges.removeLayer(drawing.edge);
+        if (drawing.hit) group.removeLayer(drawing.hit);
+        drawing.active = false;
+      }
       for (const m of overview) {
-        const segs = m.outline ?? [];
-        for (const seg of segs) {
-          L.polyline(seg as L.LatLngTuple[], {
+        let drawing = overviewDrawings.current.get(m.key);
+        if (!drawing || drawing.mark !== m) {
+          const segs = m.outline ?? [];
+          const edge = segs.length ? L.polyline(segs as L.LatLngTuple[][], {
             renderer: renderer.current ?? undefined,
             color: mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY, weight: 1.3, opacity: 0.8, dashArray: '7 6',
             interactive: false,
-          }).addTo(edges);
-        }
-        // A village needs a shape to be hovered and clicked, and its outline
-        // is a heap of loose segments. The hull of those segments is a hit
-        // target and nothing else — it is never drawn as the boundary, which
-        // it is not: it fills every bay the real edge cuts into.
-        const hull = convexHull(segs.flat());
-        if (hull.length >= 3) {
-          const area = L.polygon(hull as L.LatLngTuple[], {
+          }) : null;
+          const hull = convexHull(segs.flat());
+          const area = hull.length >= 3 ? L.polygon(hull as L.LatLngTuple[], {
             renderer: renderer.current ?? undefined,
             color: 'transparent', weight: 0,
             fill: true, fillColor: ACCENT, fillOpacity: 0.001,
             interactive: true,
-          });
-          area.on('mouseover', () => { area.setStyle({ fillOpacity: 0.16 }); });
-          area.on('mouseout', () => { area.setStyle({ fillOpacity: 0.001 }); });
-          area.on('click', (e) => {
-            L.DomEvent.stop(e);
-            live.current.onPickVillage?.(m.village);
-          });
-          area.addTo(group);
+          }) : null;
+          if (area) {
+            area.on('mouseover', () => { area.setStyle({ fillOpacity: 0.16 }); });
+            area.on('mouseout', () => { area.setStyle({ fillOpacity: 0.001 }); });
+            area.on('click', (e) => {
+              L.DomEvent.stop(e);
+              live.current.onPickVillage?.(m.village);
+            });
+          }
+          drawing = {
+            mark: m, edge, hit: area,
+            color: mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY,
+            active: false,
+          };
+          overviewDrawings.current.set(m.key, drawing);
+        }
+        const color = mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY;
+        if (drawing.color !== color) {
+          drawing.edge?.setStyle({ color });
+          drawing.color = color;
+        }
+        if (!drawing.active) {
+          drawing.edge?.addTo(edges);
+          drawing.hit?.addTo(group);
+          drawing.active = true;
         }
       }
-      if (fittedFor.current !== 'mandal') {
+      if (fittedOverview.current !== overview) {
         fitNow();
       }
-      paintLabels();
       return;
     }
+
+    group.clearLayers();
+    edges.clearLayers();
+    overviewDrawings.current.clear();
+    shapes.current.clear();
+    acresOf.current = new Map(plots.map((p) => [p.lp, p.acres]));
+    lit.current = { selected: null, hovered: null };
 
     for (const seg of outline) {
       L.polyline(seg as L.LatLngTuple[], {
@@ -469,7 +524,6 @@ export default function VillageCanvas({
     if (fittedFor.current !== village) {
       fitNow();
     }
-    paintLabels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plots, outline, mode, village, overview]);
 
@@ -527,8 +581,14 @@ export default function VillageCanvas({
       for (const m of [...overview].sort((a, b) => (b.plots ?? 0) - (a.plots ?? 0))) {
         if (!m.centre) continue;
         const at = map.latLngToContainerPoint(m.centre as L.LatLngTuple);
-        const sub = `${(m.plots ?? 0).toLocaleString('en-IN')} plots`
-          + (m.acres ? ` · ${Math.round(m.acres).toLocaleString('en-IN')} ac` : '');
+        // One figure for a village wherever it is printed: the head and the
+        // village switch give its extent to one decimal, and so does its name
+        // here. Rounded to the acre, this read 27 over a head that said 26.8.
+        const n = m.plots ?? 0;
+        const sub = `${n.toLocaleString('en-IN')} plot${n === 1 ? '' : 's'}`
+          + (m.acres
+            ? ` · ${m.acres.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac`
+            : '');
         for (const withSub of [true, false]) {
           // Mono at 11px with 0.08em of tracking is nearer 7.6px a character
           // than 6.4, and the box is what keeps two village names apart — an
@@ -569,7 +629,9 @@ export default function VillageCanvas({
       const h = se.y - nw.y;
       if (!force && (w < 26 || h < 14)) return;
       const at = map.latLngToContainerPoint(p.centre as L.LatLngTuple);
-      const acres = p.acres.toFixed(p.acres >= 10 ? 1 : 2);
+      // The figure the inspector and the finder print, so a plot never wears
+      // one extent on the map and another in the panel beside it.
+      const acres = acresText(p);
       // Stacked, not side by side: "839 · 4.89 ac" on one line needs about
       // twice the width, so the acres only ever appeared once you were on top
       // of a single plot. Then a ladder, each rung narrower than the last.
@@ -619,14 +681,24 @@ export default function VillageCanvas({
     const map = mapRef.current;
     const box = labelBox.current;
     if (!map || !box) return;
-    const hide = () => { box.style.opacity = '0'; };
-    const show = () => { box.style.opacity = '1'; paintLabels(); };
+    let frame = 0;
+    const hide = () => {
+      box.style.opacity = '0';
+      cancelAnimationFrame(frame);
+      frame = 0;
+    };
+    const show = () => {
+      box.style.opacity = '1';
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => { frame = 0; paintLabels(); });
+    };
     map.on('movestart', hide);
     map.on('zoomstart', hide);
     map.on('moveend', show);
     map.on('zoomend', show);
-    paintLabels();
+    show();
     return () => {
+      cancelAnimationFrame(frame);
       map.off('movestart', hide);
       map.off('zoomstart', hide);
       map.off('moveend', show);

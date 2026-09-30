@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Pattadar app icon</title>
+  <desc id="desc">The Pattadar parcel P on a deep graphite field for iOS and web app icons.</desc>
+  <rect width="1024" height="1024" fill="#202521"/>
+  <g transform="translate(0 0) scale(2)">
+    <path fill="#FAFAF4" fill-rule="evenodd" d="M139 396V116h146l88 55v100l-88 55h-65v70h-81Zm81-207v64h60l18-12v-39l-18-13h-60Z"/>
+    <path d="m226 253 72-51" fill="none" stroke="#D9BF72" stroke-width="13"/>
+    <circle cx="298" cy="202" r="10" fill="#D9BF72"/>
+  </g>
+</svg>

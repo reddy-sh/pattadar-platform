@@ -1,9 +1,13 @@
 /**
  * Pattadar Bloom · Material 3-guided application surface
  *
- * Wallet — design-forward coming-soon view. Hairline balance card with a mono
- * figure and disabled Add money / Send actions, a sample transaction history
- * (DD/MM/YYYY), and a plain-language explainer of what the wallet will do.
+ * Wallet — coming-soon view. Hairline balance card with a mono figure and
+ * disabled Add money / Send actions, an empty payment history (DD/MM/YYYY),
+ * and a plain-language explainer of what the wallet will do.
+ *
+ * There is no wallet service on this surface, so every figure here is zero and
+ * the history is empty. It is not a preview filled with invented movements —
+ * see data/hooks.ts useWallet.
  */
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -129,6 +133,19 @@ export function WalletPage() {
               </TableRow>
             </TableHead>
             <TableBody>
+              {/* This table used to be filled from the bundled sample wallet —
+                  five payments nobody made, under a heading that called them
+                  recent. An empty history is the only true answer while the
+                  wallet is not live. */}
+              {wallet.transactions.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4}>
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                      No payments yet — the wallet is not live.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
               {wallet.transactions.map((t) => (
                 <TableRow key={t.id} hover>
                   <TableCell sx={{ whiteSpace: 'nowrap' }}>{parseISOToDisplay(t.date)}</TableCell>
@@ -139,7 +156,7 @@ export function WalletPage() {
                   <TableCell
                     align="right"
                     sx={{
-                      fontWeight: 600,
+                      fontWeight: 700,
                       fontVariantNumeric: 'tabular-nums',
                       whiteSpace: 'nowrap',
                       color: t.direction === 'credit' ? statusColors.good : 'text.primary',

@@ -81,6 +81,19 @@ export async function downloadCourseGuide(course: Course): Promise<void> {
     for (const section of lesson.sections) {
       write(section.heading, { size: 11, bold: true, after: 5 });
       write(section.body, { after: 12 });
+      for (const layer of section.evidenceLayers ?? []) {
+        write(layer.name, { size: 10, bold: true, indent: 10, after: 4 });
+        write(`Ask: ${layer.question}`, { indent: 10, after: 4 });
+        write(`Limit: ${layer.limit}`, { indent: 10, after: 4 });
+        const sourceNames = officialReferencesById(layer.referenceIds).map((reference) => reference.title);
+        write(`Official sources: ${sourceNames.join('; ')}`, { size: 8, indent: 10, after: 10 });
+      }
+    }
+    if (lesson.practiceCase) {
+      write(`Fictional training case: ${lesson.practiceCase.title}`, { size: 11, bold: true, after: 5 });
+      write('These are invented exercise facts, not government records or a real property.', { size: 8, after: 5 });
+      for (const fact of lesson.practiceCase.facts) write(`- ${fact}`, { indent: 10, after: 4 });
+      y += 5;
     }
     write(`Practice: ${lesson.practice.title}`, { size: 11, bold: true, after: 5 });
     for (const [stepIndex, step] of lesson.practice.steps.entries()) write(`${stepIndex + 1}. ${step}`, { indent: 10, after: 4 });
@@ -89,15 +102,15 @@ export async function downloadCourseGuide(course: Course): Promise<void> {
     write(lesson.knowledgeCheck.prompt, { bold: true, after: 6 });
     for (const [optionIndex, option] of lesson.knowledgeCheck.options.entries()) write(`${String.fromCharCode(65 + optionIndex)}. ${option}`, { indent: 10, after: 4 });
     const answer = lesson.knowledgeCheck.options[lesson.knowledgeCheck.correctOption];
-    write(`Answer: ${answer}. ${lesson.knowledgeCheck.explanation}`, { after: 18 });
+    write(`Answer: ${answer}${/[.!?]$/.test(answer) ? '' : '.'} ${lesson.knowledgeCheck.explanation}`, { after: 18 });
     const references = officialReferencesById(lesson.referenceIds);
     if (references.length > 0) {
       write('Official government references', { size: 11, bold: true, after: 5 });
       for (const reference of references) {
-        write(`${reference.title} | ${reference.authority}`, { bold: true, after: 3 });
+        write(`${reference.title} | ${reference.authority} | reviewed ${reference.reviewedOn}`, { bold: true, after: 3 });
         write(reference.url, { size: 8, indent: 10, after: 6 });
       }
-      write('Sources reviewed 20 September 2026. Verify the current government page and effective law before relying on a workflow.', { size: 8, after: 18 });
+      write('Verify the current government page and effective law before relying on a workflow.', { size: 8, after: 18 });
     }
   }
   savePdf(doc, `${safeFilename(course.title)}-guide.pdf`);

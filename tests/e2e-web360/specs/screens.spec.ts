@@ -86,7 +86,7 @@ test.describe('W01 · dashboard', () => {
     await expect(page.getByText("Advocate's link to 4 papers expires tomorrow")).toBeVisible();
     await expect(page.getByText('214/2 and 214/3 share a boundary')).toHaveCount(0);
 
-    // Where the value sits: every bar has a visible fill, not an empty track.
+    // Value by village: every bar has a visible fill, not an empty track.
     const fills = page.locator('.bar .fill');
     await expect(fills.first()).toBeVisible();
     const width = await fills.first().evaluate((el) => el.getBoundingClientRect().width);
@@ -511,7 +511,7 @@ test.describe('W03 · the record 360', () => {
     // deed says. The map thumbnail and the photo and note cards that used to sit
     // here are the Location, Media and Notes hangers — the same ground and the
     // same gallery twice on one screen was the duplication this redesign is for.
-    await expect(page.getByRole('heading', { name: 'The deed says' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'From the deed' })).toBeVisible();
     await expect(page.locator('.mapthumb')).toHaveCount(0);
 
     // The note moved to its own hanger, and the guarantee it carried travelled
@@ -537,7 +537,7 @@ test.describe('W07 · features', () => {
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
     await expect(page.getByRole('heading', { level: 2 }).first())
-      .toHaveText('What is on this land');
+      .toHaveText('Site features');
     // "N not checked" is only said when there are any — an all-checked record
     // must not carry a count of nought in its own summary line.
     await expect(page.getByText(
@@ -567,7 +567,7 @@ test.describe('W08 · people', () => {
     await page.goto(`/app/records/${PARCEL}/people`);
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
-    await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Who looks after it');
+    await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Caretakers & staff');
     await expect(page.getByText(/5 people · ₹1,200 a month going out · ₹42,000 a season coming in/))
       .toBeVisible();
 
@@ -590,8 +590,10 @@ test.describe('W10 · money', () => {
     const errors = await watchConsole(page);
     await page.goto(`/app/records/${BIG}/money`);
 
+    // The tab's own word (design.md § App vocabulary, "Property tabs"; it
+    // read "Costs & value" until 28/09/2026).
     await expect(page.getByRole('heading', { level: 2 }).first())
-      .toHaveText('What it cost and what it is worth');
+      .toHaveText('Money');
     await expect(page.getByText('What you actually paid')).toBeVisible();
     await expect(page.getByText('Government value today')).toBeVisible();
     await expect(page.locator('.card .eyebrow', { hasText: 'Market estimate' })).toBeVisible();
@@ -606,17 +608,16 @@ test.describe('W10 · money', () => {
     await expect(total).toContainText('₹1.68 Cr');
 
     // Capital work is listed apart from the purchase price.
-    await expect(page.getByText('Everything else you put in')).toBeVisible();
+    await expect(page.getByText('Other costs')).toBeVisible();
     await expect(page.getByText('Stamp & registration')).toBeVisible();
-    await expect(page.getByText('An assumption you chose, not a valuation.')).toBeVisible();
     expect(errors).toEqual([]);
   });
 
-  test('changing the appreciation rate changes the estimate, and says it is an assumption', async ({ page }) => {
+  test('changing the appreciation rate changes the estimate', async ({ page }) => {
     await page.goto(`/app/records/${BIG}/money`);
-    await expect(page.locator('.card', { hasText: 'Appreciation used' })).toContainText('10%');
+    await expect(page.locator('.card', { hasText: 'Appreciation rate' })).toContainText('10%');
     await page.getByRole('button', { name: '14%', exact: true }).click();
-    await expect(page.locator('.card', { hasText: 'Appreciation used' })).toContainText('14%');
+    await expect(page.locator('.card', { hasText: 'Appreciation rate' })).toContainText('14%');
   });
 });
 
@@ -625,11 +626,15 @@ test.describe('W11 + W12 · the ledger', () => {
     const errors = await watchConsole(page);
     await page.goto(`/app/records/${BIG}/expenses`);
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Expenses');
+    // Inside the property's frame since 28/09/2026 (Money › Expenses): the
+    // record is the h1 and the ledger its h2.
+    await expect(page.getByRole('heading', { level: 2, name: 'Expenses', exact: true })).toBeVisible();
     const strip = page.locator('.strip').first();
     await expect(strip).toContainText('Capital · adds to cost');
     await expect(strip).toContainText('Running');
-    await expect(strip).toContainText('Owed back by tenant');
+    // Named for who owes it in the row's own note, not "by tenant".
+    await expect(strip).toContainText('Owed back');
+    await expect(strip).not.toContainText('Owed back by tenant');
 
     // A receipt figure is never shortened to lakhs.
     const boreRow = page.locator('tbody tr', { hasText: 'Bore flushing and new starter panel' });
@@ -659,8 +664,6 @@ test.describe('W11 + W12 · the ledger', () => {
 
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await expect(page.getByRole('dialog', { name: 'Add an expense' })).toBeVisible();
-    await expect(page.getByText('Photograph the receipt first')).toBeVisible();
-    await expect(page.getByText('New work that lasts. Lifts your cost base.')).toBeVisible();
 
     await page.getByLabel('Amount').fill('1250');
     await page.getByLabel('What it was').fill('Playwright test row');
@@ -792,7 +795,7 @@ test.describe('W04 · map and boundary', () => {
     await page.goto(`/app/records/${PARCEL}/map`);
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
-    await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Where this land is');
+    await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Location & boundary');
     await expect(page.getByText('Drag any numbered mark to correct it. Marks are versioned — nothing is overwritten.'))
       .toBeVisible();
     await expect(page.getByText('South-west stone')).toBeVisible();
@@ -1462,24 +1465,24 @@ test.describe('W04 · map and boundary', () => {
     await expect(page.locator('path.w-ring.drawing')).toHaveCount(0);
   });
 
-  test('the ambient light greets every landing, and never stays', async ({ page }) => {
+  test('a landing on the map is not decorated: no stars and no glow on the ring', async ({ page }) => {
+    // Rewritten 28/09/2026. The ring used to be greeted on every landing by
+    // two decorative layers (`path.w-ring-stars`, `path.w-ring-glow`) that
+    // took themselves away after a few seconds. They were removed on the
+    // founder's decision (design.md § App vocabulary, "Property tabs"; the
+    // ambient-light passage in docs/specs/2026-08-15-web-360-design.md is
+    // marked superseded). The first-visit draw-on reveal above is kept: it
+    // explains the line; the light only decorated it.
     await stubTiles(page);
     const lit = () => page.locator('path.w-ring-stars, path.w-ring-glow');
 
     await page.goto(`/app/records/${PARCEL}/map`);
-    await expect(lit()).toHaveCount(2, { timeout: 20_000 });
-    // It is decoration on a screen people keep open all afternoon, so it takes
-    // itself away again. Decoration that stays is furniture.
-    await expect(lit()).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
+    await expect(lit()).toHaveCount(0);
 
-    // Unlike the draw-on reveal above, this one is NOT once-ever. The reveal
-    // explains the line the first time; the light is a greeting, and a greeting
-    // you only get once is a greeting you stop noticing.
     await page.reload();
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
-    await expect(lit()).toHaveCount(2);
-    await expect(page.locator('path.w-ring.drawing')).toHaveCount(0);
-    await expect(lit()).toHaveCount(0, { timeout: 10_000 });
+    await expect(lit()).toHaveCount(0);
   });
 
   test('the tip is bolted to one corner, whichever side and wherever panned',
@@ -2195,9 +2198,9 @@ test.describe('W15 · the vault', () => {
       expect(Number(n.trim()), `${shelf} shelf count`).toBeGreaterThan(0);
     }
 
-    await expect(page.getByText(/Out on a link right now · \d+/)).toBeVisible();
+    await expect(page.getByText(/Active share links · \d+/)).toBeVisible();
     await expect(page.getByText('K. Prasad, advocate — 4 papers')).toBeVisible();
-    await expect(page.getByText(/Revoking kills a link in seconds rather than at expiry/)).toBeVisible();
+    await expect(page.getByText('New links are view-only for 30 days.')).toBeVisible();
     expect(errors).toEqual([]);
   });
 
@@ -2261,21 +2264,18 @@ test.describe('W09 · shared with me', () => {
     const errors = await watchConsole(page);
     await page.goto('/app/shared');
 
-    await expect(page.getByText('Kept out of your portfolio. Nothing here counts toward your acres.'))
-      .toBeVisible();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
-    await expect(page.getByText('Read-only · not your record')).toBeVisible();
+    await expect(page.getByText('Read-only · Not your property')).toBeVisible();
     await expect(page.getByText(/Sent by B. Venkat, agent/)).toBeVisible();
 
-    // What they gave you, with the two things that fall short flagged.
+    // Shared documents, with the two things that fall short flagged.
     await expect(page.getByText('Sale Deed 2214/2016')).toBeVisible();
     await expect(page.getByText('stops 3 years short')).toBeVisible();
     await expect(page.getByText('no date or location stamp')).toBeVisible();
 
     // The four unconfirmed things, priced, ordered in your name.
-    await expect(page.getByText('What nobody has confirmed')).toBeVisible();
+    await expect(page.getByText('Not independently checked')).toBeVisible();
     await expect(page.getByRole('button', { name: /Order all four · ₹13,500/ })).toBeVisible();
-    await expect(page.getByText('Ordered in your name. The seller is not told.')).toBeVisible();
     expect(errors).toEqual([]);
   });
 
@@ -2446,7 +2446,7 @@ test.describe('the shell', () => {
 
   test('a record that is not yours is refused, not crashed', async ({ page }) => {
     await page.goto('/app/records/does-not-exist');
-    await expect(page.getByText('That record is not in your portfolio')).toBeVisible();
+    await expect(page.getByText("This property isn't in your account")).toBeVisible();
   });
 });
 
@@ -2467,7 +2467,7 @@ test.describe('no record renders as an empty shell', () => {
       await expect(page.locator('.pagehead .chip.num').first(), `${href} extent`)
         .toBeVisible();
       await expect(page.getByText('0.0000° N, 0.0000° E'), `${href} pin`).toHaveCount(0);
-      await expect(page.getByText('No paper here matches that.'), `${href} papers`).toHaveCount(0);
+      await expect(page.getByText('No document here matches that.'), `${href} papers`).toHaveCount(0);
 
       const tabs = page.locator('.tabs').first();
       for (const hanger of ['Papers', 'Features', 'People']) {
@@ -2485,10 +2485,160 @@ test.describe('no record renders as an empty shell', () => {
 
     await page.goto(`${href}/money`);
     await expect(page.locator('tbody tr').first()).toBeVisible();
-    await expect(page.getByText('Everything else you put in')).toBeVisible();
+    await expect(page.getByText('Other costs')).toBeVisible();
 
     await page.goto(`${href}/expenses`);
     await expect(page.locator('tbody tr').first()).toBeVisible();
+  });
+});
+
+test.describe('the record tab layout contract', () => {
+  const tabs = [
+    ['', 'document'],
+    ['features', 'document'],
+    ['people', 'viewport'],
+    ['map', 'split-instrument'],
+    ['photos', 'viewport'],
+    ['notes', 'document'],
+    ['services', 'document'],
+    ['money', 'document'],
+    ['history', 'document'],
+  ] as const;
+
+  test('all nine tabs declare one layout owner and never nest a second main', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await stubTiles(page);
+    for (const [path, layout] of tabs) {
+      const route = `/app/records/${PARCEL}${path ? `/${path}` : ''}`;
+      await page.goto(route);
+      const main = page.locator('.w360 main');
+      await expect(main).toHaveAttribute('data-tab-layout', layout);
+      await expect(main.locator('main')).toHaveCount(0);
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${route} at 390px`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test('Papers puts its heading above both content columns', async ({ page }) => {
+    await page.setViewportSize({ width: 1512, height: 900 });
+    await page.goto(`/app/records/${PARCEL}`);
+    const heading = page.getByRole('heading', { name: 'Property documents' });
+    const split = page.locator('.w360 main > .split');
+    const rail = split.locator(':scope > aside');
+    const [headingBox, splitBox, railBox] = await Promise.all([
+      heading.boundingBox(), split.boundingBox(), rail.boundingBox(),
+    ]);
+    expect(headingBox!.y + headingBox!.height).toBeLessThanOrEqual(splitBox!.y + 1);
+    expect(Math.abs(railBox!.y - splitBox!.y)).toBeLessThanOrEqual(1);
+  });
+
+  test('People chain fills the viewport and keeps mobile content reachable',
+    async ({ page, request }) => {
+      const made: string[] = [];
+      const add = async (name: string, current: boolean) => {
+        const response = await request.post('/api/gateway/pattadar/graphql', { data: {
+          query: 'mutation O($r:String!,$n:String!,$c:Boolean!){ web { addOwner(recordId:$r,name:$n,parentage:"",address:"",role:"",isCurrent:$c,acquiredVia:"",photoRef:"") } }',
+          variables: { r: PARCEL, n: name, c: current },
+        } });
+        made.push((await response.json()).data.web.addOwner as string);
+      };
+      await add('Layout owner one', false);
+      await add('Layout owner two', false);
+      await add('Layout owner three', true);
+      try {
+        await page.setViewportSize({ width: 1512, height: 1400 });
+        await page.goto(`/app/records/${PARCEL}/people`);
+        const canvas = page.locator('.ownerchain-canvas');
+        const panel = page.locator('.ownerchain');
+        const disclaimer = page.getByText('This is the chain of title as it was read or entered');
+        await expect(canvas).toBeVisible();
+        await expect(page.locator('.ownerchain-deeds')).toHaveCount(0);
+        const rem = await page.evaluate(() =>
+          Number.parseFloat(getComputedStyle(document.documentElement).fontSize));
+        const [canvasBox, panelBox, disclaimerBox] = await Promise.all([
+          canvas.boundingBox(), panel.boundingBox(), disclaimer.boundingBox(),
+        ]);
+        expect(canvasBox!.height).toBeGreaterThan(20 * rem);
+        expect(canvasBox!.y).toBeGreaterThan(panelBox!.y);
+        expect(canvasBox!.y + canvasBox!.height).toBeLessThan(panelBox!.y + panelBox!.height);
+        const desktopGap = 1400 - (disclaimerBox!.y + disclaimerBox!.height);
+        expect(desktopGap).toBeGreaterThanOrEqual(0);
+        expect(desktopGap).toBeLessThan(120);
+
+        // A short desktop keeps the usable graph floor and makes the document,
+        // not a clipped canvas, responsible for reaching the lower edge.
+        await page.setViewportSize({ width: 1512, height: 640 });
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await expect(disclaimer).toBeInViewport();
+        const shortPanel = await panel.boundingBox();
+        expect(shortPanel!.y + shortPanel!.height).toBeLessThanOrEqual(641);
+        const canvasScroll = await canvas.evaluate((element) => ({
+          client: element.clientHeight,
+          scroll: element.scrollHeight,
+        }));
+        expect(canvasScroll.scroll).toBeLessThanOrEqual(canvasScroll.client + 1);
+
+        // At the phone breakpoint the graph returns to its content-derived
+        // vertical height and the same document scroll keeps its bottom reachable.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.reload();
+        await expect(canvas).toBeVisible();
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await expect(disclaimer).toBeInViewport();
+        const mobileCanvas = await canvas.boundingBox();
+        expect(mobileCanvas!.height).toBeGreaterThanOrEqual(20 * rem);
+      } finally {
+        for (const id of made) {
+          await request.post('/api/gateway/pattadar/graphql', { data: {
+            query: 'mutation D($id:String!){ web { deleteOwner(ownerId:$id) } }',
+            variables: { id },
+          } });
+        }
+      }
+    });
+
+  test('desktop instruments fill the record frame rather than guessing its header height',
+    async ({ page }) => {
+      await page.setViewportSize({ width: 1512, height: 1400 });
+      await stubTiles(page);
+      for (const [path, selector, railSelector] of [
+        ['map', '.split > .plot.live', '.split > aside'],
+        ['photos', '.lightbox', '.lightbox > .side'],
+      ] as const) {
+        await page.goto(`/app/records/${PARCEL}/${path}`);
+        const stage = page.locator(selector).first();
+        const rail = page.locator(railSelector).first();
+        await expect(stage).toBeVisible();
+        const [stageBox, railBox] = await Promise.all([
+          stage.boundingBox(), rail.boundingBox(),
+        ]);
+        const viewportGap = 1400 - (stageBox!.y + stageBox!.height);
+        expect(viewportGap, path).toBeGreaterThanOrEqual(0);
+        expect(viewportGap, path).toBeLessThan(120);
+        expect(Math.abs(
+          stageBox!.y + stageBox!.height - (railBox!.y + railBox!.height),
+        ), path).toBeLessThanOrEqual(1);
+      }
+    });
+
+  test('Media comparison stacks without clipping either pane on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    const compare = page.locator('.media-compare');
+    const panes = compare.locator('.compare-pane');
+    await expect(compare).toBeVisible();
+    await expect(panes).toHaveCount(2);
+    const geometry = await compare.evaluate((element) => ({
+      client: element.clientHeight,
+      scroll: element.scrollHeight,
+      overflow: getComputedStyle(element).overflowY,
+    }));
+    expect(geometry.overflow).toBe('visible');
+    expect(geometry.scroll).toBeLessThanOrEqual(geometry.client + 1);
+    await panes.nth(1).scrollIntoViewIfNeeded();
+    await expect(panes.nth(1)).toBeInViewport();
   });
 });
 

@@ -10,11 +10,39 @@ import { useState } from 'react';
 import { useAddPhoto, useRefreshW360 } from './api';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../pages/documents/storage';
 
-/** Ten megabytes, in bytes. The gateway itself accepts a hundred, but a photo
- *  or a clip filed against a record is evidence, not a film: the cap is here
- *  so a caretaker on a village connection is told before the upload, not after
- *  it has spent four minutes failing. */
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Fifteen megabytes, in bytes — the cap for a PHOTO or a document (a scan of a
+ *  paper). Raised from ten because multi-page deed PDFs of 11–14 MB were being
+ *  refused. The gateway itself accepts a hundred and the AI reading job
+ *  twenty-five, but a still filed against a record is evidence, not a film, and
+ *  the cap is here so a caretaker on a village connection is told before the
+ *  upload, not after it has spent four minutes failing. Video gets its own,
+ *  larger cap below. */
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+/** Fifty megabytes for a VIDEO. A land clip — a bund after rain, a bore
+ *  running — is legitimately bigger than a photo, and 10 MB refused ordinary
+ *  phone clips outright (a 40-second 1080p video is ~15–30 MB). 50 MB fits a
+ *  one-to-two-minute clip and stays well under the gateway's 100 MB ceiling.
+ *  Not larger, so a full film is still refused before it wastes an upload. */
+export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+
+export type MediaKind = 'photo' | 'video' | 'audio';
+
+export const mediaKindOf = (file: { type: string; name: string }): MediaKind => {
+  const mime = (file.type || '').toLowerCase();
+  const name = file.name || '';
+  if (mime.startsWith('video/') || /\.(mp4|mov|webm|m4v|3gp)$/i.test(name)) return 'video';
+  if (mime.startsWith('audio/') || /\.(mp3|m4a|aac|wav|ogg|oga|opus)$/i.test(name)) return 'audio';
+  return 'photo';
+};
+
+/** True when a file is a video, by MIME or extension. */
+export const isVideoFile = (file: File): boolean => mediaKindOf(file) === 'video';
+
+/** The size cap that applies to THIS file: audio/video get the larger
+ * allowance, photos and documents the standard one. */
+export const limitFor = (file: File): number =>
+  mediaKindOf(file) === 'photo' ? MAX_UPLOAD_BYTES : MAX_VIDEO_BYTES;
 
 /** '12.4 MB' — the size a person can compare against the limit they were told. */
 export const mb = (bytes: number) => `${(bytes / 1_048_576).toFixed(1)} MB`;
@@ -70,11 +98,14 @@ export function useFilePhotos(recordId: string | undefined) {
     // to the owner's own files, which they answered by picking all five again
     // and filing two of them twice. Refusing the pick up front makes the
     // sentence true and leaves no half-filed batch to reconcile.
-    const tooBig = files.filter((f) => f.size > MAX_UPLOAD_BYTES);
+    // Each file is sized against ITS OWN cap — a video may be up to
+    // MAX_VIDEO_BYTES, a photo only MAX_UPLOAD_BYTES — so the message names the
+    // limit each oversize file actually broke rather than one blanket number.
+    const tooBig = files.filter((f) => f.size > limitFor(f));
     if (tooBig.length) {
-      const names = tooBig.map((f) => `${f.name} (${mb(f.size)})`).join(', ');
+      const names = tooBig.map((f) => `${f.name} (${mb(f.size)}, limit ${mb(limitFor(f))})`).join(', ');
       setErr(
-        `${names} ${tooBig.length > 1 ? 'are' : 'is'} over the ${mb(MAX_UPLOAD_BYTES)} limit`
+        `${names} ${tooBig.length > 1 ? 'are' : 'is'} over the size limit`
         + ` — nothing was uploaded. Shrink or drop ${tooBig.length > 1 ? 'them' : 'it'}`
         + ' and pick again.');
       return;
@@ -107,7 +138,11 @@ export function useFilePhotos(recordId: string | undefined) {
         try {
           const res = await add.mutateAsync({
             recordId, fileRef: node.id, fileName: node.name, caption, category: '',
-            mediaKind: f.type.startsWith('video/') ? 'video' : 'photo',
+            // By MIME OR extension: a transferred clip often arrives with an
+            // empty or generic `type`, and a MIME-only test then filed it as a
+            // photo — which the gallery drew as a frozen frame with no player.
+            // mediaKindOf catches both video and audio extensions too.
+            mediaKind: mediaKindOf(f),
             width: w, height: h, sha256: '', capturedAt: stampOf(f.lastModified),
           });
           if (!res.web.addPhoto) {

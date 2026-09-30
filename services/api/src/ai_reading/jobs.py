@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from psycopg.types.json import Jsonb
 from starlette.datastructures import Headers
 
-from .. import aadhaar
+from .. import aadhaar, inbox
 from .providers.anthropic import watch_dispatch
 
 log = logging.getLogger("pattadar.import_jobs")
@@ -40,7 +40,8 @@ DDL = """CREATE TABLE IF NOT EXISTS document_read_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(owner_user_id, request_key)
 );
-ALTER TABLE document_read_jobs ADD COLUMN IF NOT EXISTS content_hash TEXT"""
+ALTER TABLE document_read_jobs ADD COLUMN IF NOT EXISTS content_hash TEXT;
+ALTER TABLE document_read_jobs ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT ''"""
 
 
 def owner(request: Request) -> str:
@@ -71,6 +72,11 @@ async def submit(request: Request, file: UploadFile, operation: str):
     if len(key) > 160:
         raise HTTPException(400, "Invalid reading request identifier")
     digest = hashlib.sha256(content).hexdigest()
+    # What the reading is for, so the worker knows whether the owner may walk
+    # away from it (inbox.PURPOSES). Anything else is simply not announced.
+    purpose = (request.headers.get("x-reading-purpose") or "").strip()
+    if purpose not in inbox.PURPOSES or operation in DEDUPE_EXCLUDED:
+        purpose = ""
     async with pool.connection() as conn, conn.transaction():
         # Serialize submissions for one owner so the queue cap is effective
         # when several uploads arrive at the same time.
@@ -105,8 +111,8 @@ async def submit(request: Request, file: UploadFile, operation: str):
             raise HTTPException(429, "Three documents are already being read. Wait for one to finish.")
         job = uuid.uuid4().hex
         await conn.execute(
-            "INSERT INTO document_read_jobs (id,owner_user_id,operation,filename,mime,source,request_key,content_hash) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (job, uid, operation, _stored_filename(file, operation), file.content_type or "application/octet-stream", content, key, digest))
+            "INSERT INTO document_read_jobs (id,owner_user_id,operation,filename,mime,source,request_key,content_hash,purpose) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (job, uid, operation, _stored_filename(file, operation), file.content_type or "application/octet-stream", content, key, digest, purpose))
     return {"job": job}
 
 
@@ -183,6 +189,8 @@ async def run_one() -> bool:
         await conn.execute(
             "UPDATE document_read_jobs SET state=%s,status=%s,result=%s,source=NULL,updated_at=now() WHERE id=%s",
             ("done" if code == 200 else "failed", code, Jsonb(result), row["id"]))
+        # After the result is stored, never before: the notice points at it.
+        await inbox.reading_finished(conn, row, code == 200)
     return True
 
 
@@ -201,7 +209,11 @@ async def worker():
 async def sweep(conn) -> None:
     # A crashed in-flight provider call may have been charged. Mark
     # it interrupted rather than repeat it on a different task.
-    await conn.execute("UPDATE document_read_jobs SET state='failed',status=503,source=NULL,result=%s,updated_at=now() WHERE state='running' AND updated_at < now()-interval '15 minutes'", (Jsonb({"error": "The server stopped during this reading. It was not retried automatically. You may send it again."}),))
+    stopped = await (await conn.execute("UPDATE document_read_jobs SET state='failed',status=503,source=NULL,result=%s,updated_at=now() WHERE state='running' AND updated_at < now()-interval '15 minutes' RETURNING id,owner_user_id,filename,purpose", (Jsonb({"error": "The server stopped during this reading. It was not retried automatically. You may send it again."}),))).fetchall()
+    # The owner may have walked away from it; say it stopped rather than let
+    # the bell wait forever.
+    for job in stopped:
+        await inbox.reading_finished(conn, job, False)
     # A completed reading is kept past the poll window only while dedupe can
     # still answer an identical upload from it; anything else — failures,
     # Aadhaar — goes at a day as it always has.
@@ -211,6 +223,7 @@ async def sweep(conn) -> None:
         " ELSE now()-interval '1 day' END",
         (list(DEDUPE_EXCLUDED), DEDUPE_DAYS))
     await aadhaar.cleanup_expired(conn)
+    await inbox.sweep(conn)
 
 
 async def maintenance():
@@ -233,6 +246,8 @@ async def lifecycle(db_pool, operations: dict):
         await conn.execute(DDL)
         await conn.execute("CREATE INDEX IF NOT EXISTS document_read_jobs_queue ON document_read_jobs(state,created_at)")
         await conn.execute("CREATE INDEX IF NOT EXISTS document_read_jobs_content ON document_read_jobs(owner_user_id,operation,content_hash)")
+        await inbox.ensure_schema(conn)
+    inbox.bind(pool)
     tasks = [asyncio.create_task(worker()) for _ in range(2)] + [asyncio.create_task(maintenance())]
     try:
         yield

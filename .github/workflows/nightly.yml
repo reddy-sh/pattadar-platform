@@ -5,7 +5,12 @@ name: Nightly
 on:
   schedule:
     - cron: '0 20 * * *' # 20:00 UTC ≈ 01:30 IST
-  workflow_dispatch: {} # allow manual runs from the Actions tab
+  workflow_dispatch: # allow manual runs from the Actions tab
+    inputs:
+      app_shard:
+        description: 'tests/e2e-app shard to run, as "N/8". Empty runs the shard the calendar picks for today.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -23,7 +28,9 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test packages/core apps/web/src/api apps/web/src/lib apps/web/src/w360 apps/mobile/tests
+      # One root per workspace package, matching ci.yml. Subdirectory lists are
+      # how apps/web/src/components and apps/web/src/data came to run nowhere.
+      - run: bun test packages/core apps/web/src apps/mobile/tests apps/university/src
       - name: Offline rule and guard assertions
         run: |
           set -euo pipefail
@@ -33,3 +40,172 @@ jobs:
           done
           bun run scripts/icon-guard.ts
           bun run scripts/ux-guards.ts
+
+  # ── tests/e2e-app: the sealed scenario suite ────────────────────────────
+  #
+  # This suite ran in NO workflow at all until this job existed. It is the
+  # largest instrument in the repository — 2551 cases across 29 specs,
+  # measured 26/09/2026 — and it was gating nothing.
+  #
+  # Why it can run on a bare runner, with no API, no gateway, no database and
+  # no Cognito pool:
+  #   · every request under /api is answered inside the browser from
+  #     tests/e2e-app/fixtures/world.ts, and an unanswered one is refused with
+  #     a 501 and named at teardown;
+  #   · map tiles and the geocoder are answered from fixtures/harness.ts, so no
+  #     third party is contacted;
+  #   · the one faked thing is the sign-in — fixtures/session.ts writes a
+  #     synthetic, locally minted JWT into the localStorage keys
+  #     amazon-cognito-identity-js reads. It is never sent anywhere.
+  # The suite starts no server of its own, so this job builds the web bundle and
+  # serves it with `vite preview`, then points APP_WEB_URL at that.
+  #
+  # The `live` project is deliberately NOT run here. That one is unsealed: it
+  # mints a real token from a local gateway and talks to a real server. It has
+  # no place on a runner. `bun run test` in tests/e2e-app/package.json selects
+  # only the two sealed projects (app, phone), and the config additionally
+  # grepInverts @live out of both.
+  #
+  # HOW TO READ A RUN — this matters more here than in any other job:
+  #
+  #   · 118 `test.fail()` markers across 23 specs (138 expected-failure cases
+  #     once loops and @phone expand) pin defects the suite has already
+  #     found; docs/qa/test-fail-register.md lists every one. A pinned test that fails is reported as "expected" and
+  #     is NOT a problem. A pinned test that PASSES is reported as "Expected to
+  #     fail, but passed" and counts as a failure — that means somebody fixed
+  #     the defect and the marker now has to come off. Read those first; they
+  #     are good news wearing a red hat.
+  #   · most other failures are the suite's own two guards, not assertion
+  #     mismatches: "The screen logged errors" (a console.error or an uncaught
+  #     exception) and "the sealed world has no answer" (a screen started
+  #     making a call, or a query gained a field, and fixtures/seed.ts has not
+  #     caught up). Both are real signals. Neither is fixed by loosening the
+  #     seal.
+  #   · MEASURED, 26/09/2026, full run: this suite does not currently pass.
+  #     442 of 2551 cases fail after the fixture repairs made that day (883
+  #     before them), and 5 markers now pass. docs/qa/testing-plan.md Phase 4
+  #     has the breakdown. So the scheduled runs of this job WILL be red, and
+  #     that red is the accurate report of the repository, not a fault in this
+  #     workflow.
+  #     Nothing here is marked continue-on-error, because a nightly is not a
+  #     merge gate and muting it would put the suite back to gating nothing.
+  #     The failure list is uploaded below so two nights can be diffed while
+  #     the backlog is worked down.
+  #
+  # COST, modelled from a full measured run on 26/09/2026 at the config's 2 CI
+  # workers with its 1 retry (failures run twice, which is most of the cost
+  # while 442 cases fail): the whole suite is ~107 runner-minutes, which is a
+  # budget decision and not one a workflow should make quietly. So a night runs
+  # ONE EIGHTH, ~320 cases: ~13 minutes on average and ~27 on the heaviest
+  # shard at the measuring machine's speed, ~20 and ~41 on a runner 1.5x
+  # slower. Add ~5 for install and build. The eighth is chosen by the day of
+  # the year, so all eight come round every eight nights. Shards are uneven
+  # because the record specs, which fail most, sit together; as the backlog
+  # falls, so do they. A failure is reproducible exactly: the shard is printed
+  # below, and can be re-run through the app_shard input or locally with the
+  # same --shard flag. More of the suite per night is one line, and the
+  # owner's call.
+  app-scenarios:
+    name: Sealed app scenarios (tests/e2e-app, one shard of 8)
+    runs-on: ubuntu-latest
+    # Modelled from a full measured run (see COST above): the heaviest of the
+    # eight shards is ~27 min on a fast machine, ~41 on a slow runner. The
+    # default job limit is six HOURS, so a wedged browser would otherwise burn
+    # budget unseen. GLOBAL_TIMEOUT_MS stops Playwright ten minutes earlier,
+    # so the evidence upload still runs on a long night.
+    timeout-minutes: 55
+    env:
+      APP_WEB_URL: http://localhost:5175
+      # Synthetic, CI-only, and not secret: a Cognito app-client id ships inside
+      # every built bundle by design. The BUILD needs both of these set because
+      # AuthProvider treats a missing VITE_COGNITO_AUTHORITY as mock mode, which
+      # signs a dev user in unconditionally and would quietly invalidate every
+      # spec that asserts a signed-out door. No pool is ever contacted: the
+      # sealed session is minted in-process, and specs/20-public-auth.spec.ts
+      # aborts every request to cognito-idp.*.amazonaws.com and auth.pattadar.com
+      # at file level.
+      VITE_COGNITO_AUTHORITY: https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_sealedci
+      VITE_COGNITO_CLIENT_ID: ci0000000000000000000000ci
+      # fixtures/session.ts spells the localStorage session keys with the client
+      # id, and discovers it from the served module — which only works against
+      # `vite dev`. Against a built bundle it falls back to a constant, so the
+      # value is pinned here instead. It MUST equal VITE_COGNITO_CLIENT_ID above
+      # or every test lands on /login.
+      APP_COGNITO_CLIENT_ID: ci0000000000000000000000ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      # Both engines: the `app` project is Desktop Chrome, but `phone` spreads
+      # devices['iPhone 14'], whose defaultBrowserType is webkit. Chromium alone
+      # would fail every phone case at browser launch, which reads as ~500
+      # product failures and is none.
+      - run: bunx playwright install --with-deps chromium webkit
+        working-directory: tests/e2e-app
+      - name: Build the bundle under test
+        run: bun run --filter @pattadar/web build
+      - name: Serve it on 5175
+        run: |
+          set -euo pipefail
+          nohup bunx vite preview --port 5175 --strictPort > /tmp/e2e-app-preview.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$APP_WEB_URL/app"; then
+              echo "portal answering on $APP_WEB_URL"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::nothing came up on $APP_WEB_URL after 60s"
+          cat /tmp/e2e-app-preview.log
+          exit 1
+        working-directory: apps/web
+      - name: Sealed scenarios
+        working-directory: tests/e2e-app
+        env:
+          # Taken through the environment, never interpolated into the script.
+          APP_SHARD: ${{ inputs.app_shard }}
+          TOTAL_SHARDS: '8'
+          GLOBAL_TIMEOUT_MS: '2700000'
+        run: |
+          set -euo pipefail
+          shard="${APP_SHARD:-}"
+          if [ -z "$shard" ]; then
+            # 10# so 008 is day eight and not an invalid octal literal.
+            shard="$(( (10#$(date -u +%j) % TOTAL_SHARDS) + 1 ))/$TOTAL_SHARDS"
+          fi
+          case "$shard" in
+            [1-8]/8) ;;
+            *) echo "::error::app_shard must be N/8 with N in 1..8, got '$shard'"; exit 1 ;;
+          esac
+          echo "Running shard $shard of the sealed suite. Reproduce locally with:"
+          echo "  cd tests/e2e-app && APP_WEB_URL=… bun run test --shard=$shard"
+          # bun run test, not a project list written out again: package.json is
+          # where "the sealed projects" is defined, so a fourth one lands
+          # covered here without an edit.
+          #
+          # --trace=off: a trace measured ~1 MB, and with CI's one retry every
+          # failing case keeps two. A heavy night would upload the better part
+          # of a gigabyte for evidence nobody opens case by case. The HTML
+          # report still holds the error, a screenshot and the page's
+          # accessibility snapshot for each failure. For a trace, re-run the
+          # shard locally, where the config keeps them.
+          #
+          # --global-timeout: Playwright stops itself and writes its reports
+          # before timeout-minutes cancels the job. A cancelled job runs no
+          # further steps, so without this the upload below would be skipped
+          # on exactly the nights that ran long.
+          bun run test --shard="$shard" --trace=off --global-timeout="$GLOBAL_TIMEOUT_MS"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: e2e-app-failure-evidence
+          # results.json is the diffable one: the same shard runs again a cycle
+          # later, so two files answer "is this new?". test-results/ is left
+          # out because the HTML report already carries copies of every
+          # attachment in it, and uploading both doubles the artifact.
+          path: |
+            tests/e2e-app/results.json
+            tests/e2e-app/playwright-report
+          retention-days: 7

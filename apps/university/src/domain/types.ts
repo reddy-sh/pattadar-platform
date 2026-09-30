@@ -125,6 +125,12 @@ export interface CourseModule {
 export interface LessonSection {
   heading: string;
   body: string;
+  evidenceLayers?: Array<{
+    name: string;
+    question: string;
+    limit: string;
+    referenceIds: string[];
+  }>;
 }
 
 export interface LessonPractice {
@@ -145,10 +151,19 @@ export interface LessonContent {
   overview: string;
   objectives: string[];
   sections: LessonSection[];
+  practiceCase?: {
+    title: string;
+    facts: string[];
+  };
   practice: LessonPractice;
   knowledgeCheck: KnowledgeCheck;
   referenceIds?: string[];
-  videoStatus: 'planned';
+  media?: Array<{
+    kind: 'video';
+    title: string;
+    url: string;
+    transcriptUrl?: string;
+  }>;
 }
 
 export interface Course {
@@ -165,6 +180,7 @@ export interface Course {
   credential: string;
   tone: CourseTone;
   imageAlt: string;
+  imageSlug?: string;
   jurisdictionScope: CourseJurisdictionScope;
   stateCodes: UniversityStateCode[];
   locationSlugs: string[];
@@ -182,6 +198,15 @@ export interface Campus {
   mode: string;
   address: string;
   courseSlugs: string[];
+  contextNote?: string;
+  focusAreas?: Array<{
+    title: string;
+    description: string;
+    courseSlug: string;
+    lessonId: string;
+    sourceLabel: string;
+    sourceUrl: string;
+  }>;
 }
 
 export interface Mentor {

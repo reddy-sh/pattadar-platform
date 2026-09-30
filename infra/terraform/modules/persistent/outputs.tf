@@ -124,3 +124,18 @@ output "github_governance_role_arn" {
   description = "Read-only role for the Cloud Custodian governance workflow (null when manage_github_oidc = false)."
   value       = one(aws_iam_role.github_governance[*].arn)
 }
+
+# --- Village maps (read by the runtime CloudFront origin + bucket policy, and
+# by scripts/vm-publish.py) ---
+output "village_maps_bucket_name" {
+  description = "Private bucket holding the published /vm/* village maps."
+  value       = aws_s3_bucket.village_maps.id
+}
+output "village_maps_bucket_arn" {
+  description = "ARN of the village-maps bucket (runtime grants CloudFront OAC read on it)."
+  value       = aws_s3_bucket.village_maps.arn
+}
+output "village_maps_bucket_regional_domain_name" {
+  description = "Regional S3 domain the CloudFront /vm/* origin points at."
+  value       = aws_s3_bucket.village_maps.bucket_regional_domain_name
+}

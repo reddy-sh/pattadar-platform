@@ -131,7 +131,8 @@ web diff:
 
 > The repository root's `design.md` is the **web** system. Its macrostructures are
 > web routes (`/`, `/app/*`, `/privacy`), its components are MUI, and its type is
-> three Google faces served by `@fontsource`. None of that crosses to a phone.
+> one face, Atkinson Hyperlegible, served by `@fontsource`. None of that crosses
+> to a phone.
 >
 > What crosses is the **brand**, and it is exactly three things:
 >

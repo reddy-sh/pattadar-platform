@@ -483,7 +483,7 @@ export function PassbookCreateDialog({ open, onClose, onCreated, notify }: Props
       ) : (
         <>
           <UploadFileOutlinedIcon color="primary" sx={{ fontSize: 30 }} />
-          <Typography sx={{ fontWeight: 600, mt: 1 }}>Drop one or more passbooks, or click to upload</Typography>
+          <Typography sx={{ fontWeight: 700, mt: 1 }}>Drop one or more passbooks, or click to upload</Typography>
           <Typography variant="caption" color="text.secondary">
             Passbook, Meebhoomi or 1-B PDF, screenshot or photo (English or Telugu). I&apos;ll read each — khata,
             owner and parcels — and fill the form. PDF / JPG / PNG · one per passbook · up to 5 at a time.
@@ -606,7 +606,7 @@ export function PassbookCreateDialog({ open, onClose, onCreated, notify }: Props
                     }}
                   >
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
+                      <Typography variant="body2" noWrap sx={{ fontWeight: 400 }}>
                         {d.fileName}
                       </Typography>
                       <Box sx={{ mt: 0.25 }}>

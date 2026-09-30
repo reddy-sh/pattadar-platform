@@ -38,7 +38,7 @@ import { formatArea, sampleParcels, samplePassbooks, toAcres, unitKey } from '@p
 import type { UnitKey } from '@pattadar/core';
 import { gql } from '../../api/client';
 import { avaColor, fmtLocal } from '../../lib/format';
-import { useLiveOrSample } from '../../data/useLiveOrSample';
+import { UNREACHABLE_LABEL, UNREACHABLE_NOTE, useLiveOrSample } from '../../data/useLiveOrSample';
 import { CREATE_PARCEL_MANUAL_MUT } from '../../data/pattadarActions';
 import { StatCard } from '../../components/holdingCards';
 import { ExportMenu } from '../../export/ExportMenu';
@@ -434,8 +434,8 @@ export function PassbookDetailPage() {
               </Typography>
               <Chip size="small" color="info" label={`Khata ${pb.pattadarNo}`} />
               {isSample && (
-                <Tooltip title="The live service is not reachable — showing bundled sample data.">
-                  <Chip size="small" variant="outlined" color="secondary" label="Sample data" />
+                <Tooltip title={UNREACHABLE_NOTE}>
+                  <Chip size="small" variant="outlined" color="error" label={UNREACHABLE_LABEL} />
                 </Tooltip>
               )}
             </Box>
@@ -471,7 +471,7 @@ export function PassbookDetailPage() {
       {/* Linked parcels table with totals + export. */}
       <Card sx={{ p: 1.75 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-          <Typography sx={{ fontWeight: 600, fontSize: 14 }}>Land parcels ({parcels.length})</Typography>
+          <Typography sx={{ fontWeight: 700, fontSize: 14 }}>Land parcels ({parcels.length})</Typography>
           <ExportMenu filename={`pattadar-passbook-${pb.pattadarNo}`} brand={exportBrand} cols={exportCols} rows={parcels} />
         </Box>
         {parcels.length === 0 ? (
@@ -498,7 +498,7 @@ export function PassbookDetailPage() {
                   return (
                     <TableRow key={r.id} hover>
                       <TableCell>
-                        <Link component={RouterLink} to={`/app/parcels/${r.id}`} underline="hover" sx={{ fontWeight: 600 }}>
+                        <Link component={RouterLink} to={`/app/parcels/${r.id}`} underline="hover" sx={{ fontWeight: 700 }}>
                           {r.surveyNo}
                           {r.subdivision ? '/' + r.subdivision : ''}
                         </Link>

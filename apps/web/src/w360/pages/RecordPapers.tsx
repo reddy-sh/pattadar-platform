@@ -7,7 +7,7 @@
  *  strip that used to head it is gone: the extent is a chip in the header, and
  *  the worth, the rate and the year are the Money hanger's subject, which is
  *  the point of Money being a hanger. */
-import { useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link } from 'react-router';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
@@ -25,19 +25,20 @@ import {
   usePapers, useServicesOffered, useUpdatePaper,
 } from '../api';
 import type { Order, ServiceBatchReceipt } from '../api';
-import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
+import { MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, limitFor, mediaKindOf, mb } from '../filePhotos';
 import { describeReading, unreadRow } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
+import { UNREACHABLE_NOTE } from '../../data/useLiveOrSample';
 import {
-  Card, Chip, Failed, Icon, KV, State, Tag,
+  Card, Chip, FacetFilter, Failed, Icon, KV, State, Tag,
   SHELF_WORD, ddmmyyyy, inr, nounFor, plural,
 } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
-import { useToast } from '../Toast';
 import { SkRowItems } from '../skeletons';
 import { readDocument } from '../../pages/documents/upload';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { ConfirmDialog } from './PropertyActions';
 import { PaperPreview } from '../paper/PaperPreview';
 import { ServiceVisual } from '../ServiceVisual';
 
@@ -58,7 +59,7 @@ const EXPECTED_SHELVES: Record<'parcel' | 'built', { shelf: string; say: string 
   built: [
     { shelf: 'title', say: 'No sale deed or title document on file' },
     { shelf: 'search', say: 'No encumbrance certificate or tax receipt' },
-    { shelf: 'identity', say: 'No approval or occupancy paper on file' },
+    { shelf: 'identity', say: 'No approval or occupancy document on file' },
   ],
 };
 
@@ -89,14 +90,16 @@ const READ_IT = '';
  * filed under its own name in Unsorted, which is exactly where it can be found
  * and sorted by hand.
  */
-function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
+export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folderId = '' }: {
   recordId: string;
   recordTitle: string;
   onClose: () => void;
   returnFocus: React.RefObject<HTMLButtonElement | null>;
+  /** Documents' open folder, so an upload lands where the owner is looking. */
+  folderId?: string;
 }) {
   const addPaper = useAddPaper(false);
-  const toast = useToast();
+  const whyId = useId();
   const [picked, setPicked] = useState<File[]>([]);
   const [shelf, setShelf] = useState(READ_IT);
   const [filing, setFiling] = useState(false);
@@ -108,12 +111,23 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
    *  Kept apart from `err` because it is not a failure and must not close the
    *  panel by itself: setting the message and then closing on the same tick,
    *  which is what this did, made the sentence unreachable. The owner got a
-   *  green toast and nothing saying a paper needed sorting. */
+   *  green toast and nothing saying a paper needed sorting. There is no toast
+   *  now at all: the filed rows appearing in the list is the answer, and
+   *  design.md keeps success silent. */
   const [notice, setNotice] = useState('');
   const input = useRef<HTMLInputElement>(null);
 
-  const tooBig = picked.filter((f) => f.size > MAX_UPLOAD_BYTES);
-  const ready = picked.length > 0 && tooBig.length === 0 && !filing;
+  const tooBig = picked.filter((f) => f.size > limitFor(f));
+  const invalidPhotos = shelf === 'photos'
+    ? picked.filter((f) => mediaKindOf(f) !== 'photo' && mediaKindOf(f) !== 'video') : [];
+  const ready = picked.length > 0 && tooBig.length === 0 && invalidPhotos.length === 0 && !filing;
+  // Why the primary is greyed, beside it, rather than a dead button to work
+  // out. Nothing while it is filing: the label already says "Filing…".
+  const why = filing || notice ? ''
+    : picked.length === 0 ? 'Choose a scan or photograph to file.'
+      : invalidPhotos.length > 0 ? 'Choose image or video files when filing these under Photos & video.'
+        : tooBig.length > 0 ? `Take out ${tooBig.length > 1 ? 'the files' : 'the file'} over its size limit first.`
+        : '';
 
   /** Added to what is already here, not swapped for it. Somebody filing a deed
    *  and its two annexures picks them from three different folders, and a second
@@ -162,23 +176,31 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
         // Read it before filing it. A reader that is down, or a file it cannot
         // make sense of, must still leave the paper filed — under its own name,
         // in Unsorted, which is exactly where it can be found and sorted by hand.
-        let row = unreadRow(node.name, f.type);
+        const isVideo = mediaKindOf(f) === 'video';
+        let row = shelf === 'photos' || isVideo
+          ? { name: node.name, subtitle: '', shelf: 'photos', pageCount: 0 }
+          : unreadRow(node.name, f.type);
         let couldNotRead = false;
-        try {
-          row = describeReading(await readDocument(f, f.name), f);
-        } catch {
-          couldNotRead = true;
+        if (shelf !== 'photos' && !isVideo) {
+          try {
+            row = describeReading(await readDocument(f, f.name), f);
+          } catch {
+            couldNotRead = true;
+          }
         }
         // The owner's answer beats the reader's. It is only ever an override —
         // left on "Let Pattadar decide", the shelf the document was read into
         // is the one it lands on.
-        if (shelf) row = { ...row, shelf };
+        if (shelf && !isVideo) row = { ...row, shelf };
 
         try {
           const res = await addPaper.mutateAsync({
             recordId, fileRef: node.id, name: row.name, subtitle: row.subtitle,
             shelf: row.shelf, pageCount: row.pageCount,
             mimeType: node.mimeType, sizeBytes: node.sizeBytes,
+            // Only from inside a Documents folder; a record's own upload
+            // sends exactly what it always did.
+            ...(folderId ? { folderId } : {}),
           });
           if (!res.web.addPaper) {
             setErr(`${f.name} was uploaded but could not be filed.`
@@ -203,7 +225,6 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
       if (done) {
         setPicked((have) => have.slice(done));
         if (done === picked.length) {
-          toast.ok(done === 1 ? 'The paper is filed.' : `${done} papers are filed.`);
           // A paper nothing could be read from is filed under its own filename
           // in Unsorted, and needs shelving by hand. That is worth a sentence
           // the owner can actually read, so the panel HOLDS rather than closing
@@ -211,10 +232,8 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
           // can be filed twice.
           if (unread.length) {
             setNotice(unread.length === 1
-              ? `${unread[0]} is filed, but nothing could be read from it — it is in Unsorted,`
-                + ' under its own file name, until you put it on a shelf.'
-              : `${unread.length} of these are filed but could not be read — they are in`
-                + ` Unsorted, under their own file names: ${unread.join(', ')}.`);
+              ? `${unread[0]} could not be read. Filed in Unsorted.`
+              : `${unread.length} could not be read. Filed in Unsorted: ${unread.join(', ')}.`);
           } else {
             onClose();
           }
@@ -225,41 +244,43 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
 
   return (
     <Drawer
-      eyebrow={drawerEyebrow(recordTitle, 'Papers')}
-      title={picked.length > 1 ? `File ${picked.length} papers` : 'File a paper'}
-      sub={`A deed, a patta, a tax receipt. Pattadar reads what it can off each one and shelves it — anything it cannot read is filed under its own name in Unsorted.`}
+      eyebrow={recordId ? drawerEyebrow(recordTitle, 'Documents') : 'Your documents'}
+      title={picked.length > 1 ? `${recordId ? 'File' : 'Add'} ${picked.length} documents` : recordId ? 'File a document' : 'Add a document'}
       onClose={onClose}
       onSubmit={() => (notice ? onClose() : void file())}
       busy={filing}
       dirty={picked.length > 0}
       discardCopy={{
         title: 'Discard this pick?',
-        body: 'Nothing has been uploaded yet. Closing this panel drops the files you picked — the files themselves are untouched.',
+        body: 'The files you picked will not be uploaded.',
       }}
       initialFocus=".scanbox button"
       returnFocus={returnFocus}
       // Once everything is filed the panel is only holding a notice, so the
-      // primary is the way out of it rather than a second filing.
-      cancelLabel={notice ? 'Go to Papers' : 'Cancel'}
+      // primary is the way out of it rather than a second filing. The
+      // secondary keeps its one word: it used to become "Go to Documents",
+      // which closed a drawer that was already on Documents.
+      primaryWhy={why ? { id: whyId, text: why } : undefined}
       primary={notice ? (
         <DrawerAction label="Done" working="Done" />
       ) : (
         <DrawerAction
-          label={picked.length > 1 ? `File ${picked.length} papers` : 'File the paper'}
+          label={picked.length > 1 ? `File ${picked.length} documents` : 'File the document'}
           working="Filing…"
           pending={filing}
           disabled={!ready}
+          describedBy={why ? whyId : undefined}
         />
       )}
     >
       <input
         ref={input}
         type="file" hidden multiple
-        accept="image/*,application/pdf"
+        accept="image/*,video/*,application/pdf"
         // Unchanged wording on purpose: it is how every suite that files a paper
         // reaches the picker, and the picker moving into the drawer is not a
         // reason for its name to move with it.
-        aria-label="Add a paper to this record"
+        aria-label={recordId ? 'Add a document to this property' : 'Add a document to your vault'}
         onChange={(e) => {
           // Copy before clearing: resetting value empties the live FileList this
           // would otherwise still point at, and the reset is what lets the same
@@ -285,11 +306,10 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
       >
         <p className="scanhead">
           <DocumentScannerOutlined sx={{ fontSize: 18 }} aria-hidden />
-          Drop the scan or photograph here
+          Drop a scan, photograph or video here
         </p>
         <p className="dropline">
-          A photograph of the paper is enough — it does not have to be a clean scan.
-          Up to {mb(MAX_UPLOAD_BYTES)} each.
+          Up to {mb(MAX_UPLOAD_BYTES)} for scans and photos; {mb(MAX_VIDEO_BYTES)} for videos.
         </p>
         <div className="row tight">
           <button type="button" className="btn" onClick={() => input.current?.click()}>
@@ -304,7 +324,8 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
           <div className="card" style={{ padding: 0 }}>
             <div className="rows boxed">
               {picked.map((f) => {
-                const over = f.size > MAX_UPLOAD_BYTES;
+                const cap = limitFor(f);
+                const over = f.size > cap;
                 return (
                   <div key={`${f.name}-${f.size}`}>
                     <span style={{ display: 'flex', color: over ? 'var(--w-danger)' : 'var(--w-ink-3)' }}>
@@ -315,7 +336,7 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
                         {f.name}
                       </span>
                       <span className="note mono" style={{ display: 'block', fontSize: '0.6875rem' }}>
-                        {mb(f.size)}{over && ` · over the ${mb(MAX_UPLOAD_BYTES)} limit`}
+                        {mb(f.size)}{over && ` · over the ${mb(cap)} limit`}
                       </span>
                     </span>
                     <button type="button" className="iconbtn" aria-label={`Take ${f.name} out`}
@@ -335,8 +356,12 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
               them twice. */}
           {tooBig.length > 0 && (
             <span className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-              Take {tooBig.length > 1 ? 'those' : 'that one'} out to file the rest — nothing is
-              uploaded while anything in the list is over the limit.
+              Remove {tooBig.length > 1 ? 'those' : 'that one'} to file the rest.
+            </span>
+          )}
+          {invalidPhotos.length > 0 && (
+            <span className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
+              Remove files other than images or videos to file this selection under Photos & video.
             </span>
           )}
         </div>
@@ -344,21 +369,18 @@ function PaperDrawer({ recordId, recordTitle, onClose, returnFocus }: {
 
       <div className="field">
         <label>Which shelf</label>
+        {/* Washed when chosen: a choice is not an action, and the drawer's
+            one amber fill is the button that files. */}
         <div className="row tight">
-          <Chip active={shelf === READ_IT} onClick={() => setShelf(READ_IT)}>
+          <Chip wash active={shelf === READ_IT} onClick={() => setShelf(READ_IT)}>
             Let Pattadar decide
           </Chip>
           {SHELVES.map((s) => (
-            <Chip key={s} active={shelf === s} onClick={() => setShelf(s)}>
+            <Chip key={s} wash active={shelf === s} onClick={() => setShelf(s)}>
               {SHELF_WORD[s] ?? s}
             </Chip>
           ))}
         </div>
-        <span className="note">
-          {shelf
-            ? `Every paper in this pick is filed under ${SHELF_WORD[shelf] ?? shelf}, whatever the reader makes of it.`
-            : 'Read off the document itself. You can move a paper afterwards from its own row.'}
-        </span>
       </div>
 
       {/* `status`, not `alert`: the papers ARE filed, and a red warning about a
@@ -422,7 +444,7 @@ export function RecordPapers() {
 
   const noun = nounFor(rec.kind, rec.classification);
   const { data: papers, isLoading, error: papersErr, refetch: refetchPapers } = usePapers(rec.id);
-  const [shelf, setShelf] = useState<string | null>(null);
+  const [shelfSel, setShelfSel] = useState<string[]>([]);
   const [q, setQ] = useState('');
 
   const shelves = useMemo(() => {
@@ -430,20 +452,66 @@ export function RecordPapers() {
     (papers ?? []).forEach((p) => counts.set(p.shelf, (counts.get(p.shelf) ?? 0) + 1));
     return [...counts.entries()];
   }, [papers]);
+  // The shelves as the one filter surface list pages share (FacetFilter), not
+  // a page-local chip row whose pressed chip filled amber beside the header's
+  // two buttons. Counted from the papers themselves, so an option can never
+  // promise a shelf that holds nothing.
+  const shelfGroup = useMemo(() => [{
+    key: 'shelf', label: 'Shelf',
+    options: shelves.map(([k, n]) => ({ key: k, label: SHELF_WORD[k] ?? k, count: n })),
+  }], [shelves]);
+  // A shelf the papers no longer fill is not a filter. Unfile the last paper
+  // on the shelf being filtered on and the option goes, so the selection goes
+  // with it — the Site features tab's rule — rather than hiding every paper
+  // left behind a filter on a shelf that is not there.
+  const activeShelves = shelfSel.filter((k) => shelves.some(([s]) => s === k));
+  // Toggled from what is actually on, so a shelf dropped above cannot come
+  // back on by itself the next time a paper lands on it.
+  const toggleShelf = (_group: string, key: string) =>
+    setShelfSel(activeShelves.includes(key)
+      ? activeShelves.filter((k) => k !== key)
+      : [...activeShelves, key]);
 
   const shown = (papers ?? []).filter((p) =>
-    (!shelf || p.shelf === shelf)
+    (activeShelves.length === 0 || activeShelves.includes(p.shelf))
     && (!q.trim() || `${p.title} ${p.detail}`.toLowerCase().includes(q.trim().toLowerCase())));
 
-  // "1 paper · 1 title · showing 1" — the count, the shelves those papers fall
-  // in, and what the filter is doing to them. Nothing about expiry: no paper in
-  // this system carries an expiry date, so "nothing expiring" would be an
-  // assertion rather than a reading.
+  // "5 documents · showing 1" — the count, and what the filter is doing to
+  // it. The shelf breakdown is the filter's own business (each option carries
+  // its count), so it is not printed a second time here. Nothing about expiry:
+  // no paper in this system carries an expiry date, so "nothing expiring"
+  // would be an assertion rather than a reading.
   const papersSub = [
-    plural(papers?.length ?? rec.paperCount, 'paper'),
-    ...shelves.map(([k, n]) => `${n} ${(SHELF_WORD[k] ?? k).toLowerCase()}`),
-    (shelf || q.trim()) && `showing ${shown.length}`,
+    plural(papers?.length ?? rec.paperCount, 'document'),
+    (activeShelves.length > 0 || q.trim()) && `showing ${shown.length}`,
   ].filter(Boolean).join(' · ');
+
+  // Removing a paper unfiles evidence, so it asks in the shared dialog, naming
+  // the document, rather than in a two-button pair squeezed into the row.
+  const confirmPaper = (papers ?? []).find((p) => p.id === confirmId);
+  const [removeErr, setRemoveErr] = useState('');
+  const closeRemove = () => {
+    const id = confirmId;
+    setRemoveErr('');
+    setConfirmId('');
+    restoreRowFocus(removeTriggers, id);
+  };
+  const removePaper = () => {
+    if (!confirmPaper) return;
+    const { id, title } = confirmPaper;
+    setRemoveErr('');
+    delPaper.mutate({ paperId: id, recordId: rec.id }, {
+      onSuccess: (res) => {
+        if (res.web.deletePaper) {
+          setConfirmId('');
+          requestAnimationFrame(() => paperList.current?.focus());
+        } else {
+          setRemoveErr(`${title} could not be removed. Reload the page.`);
+        }
+      },
+      onError: () => setRemoveErr(`${title} was not removed. It is still filed here.`),
+    });
+  };
 
   // The shelves a record of this kind is asked for, against the ones it can
   // actually produce. This is the question a buyer or a bank opens with, and
@@ -513,11 +581,11 @@ export function RecordPapers() {
       const result = await placeBatch.mutateAsync({
         recordId: rec.id,
         items: JSON.stringify(items),
-        note: 'Requested from the missing papers list',
+        note: 'From missing documents',
         idempotencyKey: batchIntent.current.key,
       });
       if (!result.web.orderServiceBatch) {
-        setBatchError('That batch was not placed. Check the selection and try again.');
+        setBatchError('Those service orders were not placed. Check the selection and try again.');
         return;
       }
       setBatchReceipt(result.web.orderServiceBatch);
@@ -525,7 +593,7 @@ export function RecordPapers() {
       setReviewingBatch(false);
       setBatchConfirmed(false);
     } catch {
-      setBatchError('The request did not reach Pattadar. Nothing was placed — try again.');
+      setBatchError('That did not reach Pattadar. No service order was placed. Try again.');
     }
   };
 
@@ -541,35 +609,34 @@ export function RecordPapers() {
 
   return (
     <>
+      {/* The tab's own noun. The placeholder only ever says what the box is
+          for: the empty state below is the one place that says there is
+          nothing filed yet. */}
+      <SectionHead
+        title="Documents"
+        sub={papersSub}
+        actions={(
+          <>
+            <span className="search" style={{ width: '16rem' }}>
+              <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search documents"
+                aria-label="Search this property's documents"
+              />
+            </span>
+            <button ref={addTrigger} type="button" className="btn primary"
+                    aria-haspopup="dialog" aria-expanded={adding}
+                    onClick={() => setAdding(true)}>
+              <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a document
+            </button>
+          </>
+        )}
+      />
+
       <div className={`split${hasRailContent ? '' : ' no-rail'}`}>
         <div>
-          <SectionHead
-            title="What is on paper"
-            sub={papersSub}
-            actions={(
-              <>
-                <span className="search" style={{ width: '16rem' }}>
-                  <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
-                  <input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder={rec.paperCount > 0 ? 'Search papers' : `No papers on this ${noun} yet`}
-                    aria-label="Search this record's papers"
-                  />
-                </span>
-                {/* Opens the drawer, like every other "add a thing" on this
-                    record. It used to click a hidden file input, so the pick
-                    itself was the whole interaction — there was no point at
-                    which the owner could see what they had chosen. */}
-                <button ref={addTrigger} type="button" className="btn primary"
-                        aria-haspopup="dialog" aria-expanded={adding}
-                        onClick={() => setAdding(true)}>
-                  <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a paper
-                </button>
-              </>
-            )}
-          />
-
           {adding && (
             <PaperDrawer
               recordId={rec.id}
@@ -593,22 +660,36 @@ export function RecordPapers() {
               to the drawer that does the filing: the limit is printed against
               each picked file, beside the file it is about. */}
           {shelves.length > 0 && (
-            <div className="row" style={{ gap: 'var(--space-sm)', margin: '0 0 var(--space-md)' }}>
-              {shelves.map(([k, n]) => (
-                <Chip key={k} active={shelf === k} count={n}
-                      onClick={() => setShelf(shelf === k ? null : k)}>
-                  {SHELF_WORD[k] ?? k}
-                </Chip>
-              ))}
-            </div>
+            <FacetFilter
+              groups={shelfGroup}
+              selected={{ shelf: activeShelves }}
+              onToggle={toggleShelf}
+              onClear={() => setShelfSel([])}
+              ariaLabel="Filter documents"
+            />
           )}
 
-          {/* One line, shared by filing, renaming and removing — so each of
-              them clears it before it starts. `alert` because it is the only
-              notice that a paper did not move, and it appears well away from
-              the row that asked. */}
+          {/* The rename's own line. Filing reports inside its drawer and
+              removing inside its dialog, so this is only ever about a rename —
+              which clears it before it starts. `alert` because it is the only
+              notice that a paper kept its old name. */}
           {paperErr && (
             <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{paperErr}</p>
+          )}
+
+          {confirmPaper && (
+            <ConfirmDialog
+              title={`Remove ${confirmPaper.title}?`}
+              // What delete_paper actually does (web360.py): the paper is
+              // unfiled and its share links are deleted; the stored bytes stay.
+              body={`It comes off this ${noun}'s documents and any share link to it stops working. The stored file itself is kept.`}
+              actionLabel="Remove"
+              danger
+              busy={delPaper.isPending}
+              error={removeErr}
+              onConfirm={removePaper}
+              onClose={closeRemove}
+            />
           )}
 
           {requestedPaperOrders.length > 0 && (
@@ -616,7 +697,7 @@ export function RecordPapers() {
               <div className="paper-requests-head">
                 <div>
                   <p className="eyebrow">Being requested</p>
-                  <h2 id="paper-requests-title">Papers on the way</h2>
+                  <h2 id="paper-requests-title">Requested documents</h2>
                 </div>
                 <span className="mono note">{plural(requestedPaperOrders.length, 'request')}</span>
               </div>
@@ -635,13 +716,16 @@ export function RecordPapers() {
                         </span>
                         <span className="note paper-request-purpose">
                           {offer?.shelves.map((shelfKey) => SHELF_WORD[shelfKey] ?? shelfKey).join(' · ')}
-                          {order.dueDate && ` · due ${order.dueDate}`}
+                          {order.dueDate && ` · due ${ddmmyyyy(order.dueDate)}`}
                         </span>
                       </span>
                       <span className="num">{inr(order.cost)}</span>
+                      {/* "Cancel request", not "Cancel": this opens the order's
+                          own cancel step, and on this tab a bare Cancel already
+                          means closing a drawer or stopping a rename. */}
                       <span className="row tight paper-request-actions">
                         <Link className="btn sm" to={`/app/services/${order.id}`}>Open request</Link>
-                        <Link className="btn sm" to={`/app/services/${order.id}?action=cancel`}>Cancel</Link>
+                        <Link className="btn sm" to={`/app/services/${order.id}?action=cancel`}>Cancel request</Link>
                       </span>
                     </article>
                   );
@@ -672,23 +756,27 @@ export function RecordPapers() {
                   <span className="grow">
                     <Link to={`/app/papers/${p.id}`}
                           onClick={(e) => openPreview(e, p.id)}
-                          style={{ color: 'inherit', textDecoration: 'none', fontWeight: 600, fontSize: '0.9375rem' }}>
+                          style={{ color: 'inherit', textDecoration: 'none', fontWeight: 700, fontSize: '0.9375rem' }}>
                       {p.title}
                     </Link>
                     <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>{p.detail}</span>
                   </span>
-                  <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                    <Chip>● {SHELF_WORD[p.shelf] ?? p.shelf}</Chip>
+                  {/* Wraps below 640px (`.paper-row-actions`, w360.css): on a
+                      phone the chip, the tags and the two icons were one
+                      non-wrapping line wider than the screen. */}
+                  <span className="row tight paper-row-actions">
+                    <Chip>{SHELF_WORD[p.shelf] ?? p.shelf}</Chip>
                     {p.tags.map((t) => <Tag key={t} alert={t === 'boundary dispute'}>{t}</Tag>)}
                     {p.shared && (
                       <span className="note row tight" style={{ color: 'var(--w-info)' }}>
-                        <LinkOutlined sx={{ fontSize: 13 }} /> shared
+                        <LinkOutlined sx={{ fontSize: 13 }} aria-hidden /> shared
                       </span>
                     )}
-                    {/* Two taps, no modal: a paper is evidence, and one
-                        stray click on a row should not unfile it. */}
+                    {/* Removing asks in the shared dialog, naming the paper: a
+                        paper is evidence, and one stray click on a row should
+                        not unfile it. */}
                     {editId === p.id ? (
-                      <form className="row tight" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => {
+                      <form className="row tight paper-rename" onSubmit={(e) => {
                         e.preventDefault();
                         // The row used to close on the press and fire the
                         // rename into the void, so a refusal left the old title
@@ -698,7 +786,7 @@ export function RecordPapers() {
                         // is the server declining to touch that row.
                         const name = draft.trim();
                         if (!name) {
-                          setPaperErr('A paper needs a name — type one, or Cancel to keep the old one.');
+                          setPaperErr('A document needs a name.');
                           return;
                         }
                         setPaperErr('');
@@ -727,53 +815,22 @@ export function RecordPapers() {
                                   restoreRowFocus(renameTriggers, p.id);
                                 }}>Cancel</button>
                       </form>
-                    ) : confirmId === p.id ? (
-                      <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                        {/* The pair used to collapse before the delete had
-                            been answered, so a paper that was refused — or an
-                            offline browser — read as a Remove that worked. The
-                            row holds until the server says the paper is gone,
-                            which is also what makes `disabled` mean anything. */}
-                        <button type="button" className="btn sm danger"
-                                disabled={delPaper.isPending}
-                                onClick={() => {
-                                  setPaperErr('');
-                                  delPaper.mutate({ paperId: p.id }, {
-                                    onSuccess: (res) => {
-                                      if (res.web.deletePaper) {
-                                        setConfirmId('');
-                                        requestAnimationFrame(() => paperList.current?.focus());
-                                      }
-                                      else setPaperErr(`${p.title} could not be removed — it may already be gone. Reload the page.`);
-                                    },
-                                    onError: () => setPaperErr(`${p.title} was not removed. It is still filed here.`),
-                                  });
-                                }}>
-                          {delPaper.isPending ? 'Removing…' : 'Remove'}
-                        </button>
-                        <button type="button" className="btn sm"
-                                onClick={() => {
-                                  setPaperErr('');
-                                  setConfirmId('');
-                                  restoreRowFocus(removeTriggers, p.id);
-                                }}>
-                          Keep
-                        </button>
-                      </span>
                     ) : (
                       <>
                         <button ref={(node) => {
                                   if (node) renameTriggers.current.set(p.id, node);
                                 }} type="button" className="iconbtn" aria-label={`Rename ${p.title}`}
-                                onClick={() => { setEditId(p.id); setDraft(p.title); }}
-                                style={{ border: 0, background: 'none' }}>
+                                onClick={() => { setPaperErr(''); setEditId(p.id); setDraft(p.title); }}>
                           <EditOutlined sx={{ fontSize: 16 }} />
                         </button>
+                        {/* The dialog holds until the server says the paper is
+                            gone, so a refusal — or an offline browser — never
+                            reads as a Remove that worked. */}
                         <button ref={(node) => {
                                   if (node) removeTriggers.current.set(p.id, node);
                                 }} type="button" className="iconbtn" aria-label={`Remove ${p.title}`}
-                                onClick={() => setConfirmId(p.id)}
-                                style={{ border: 0, background: 'none' }}>
+                                aria-haspopup="dialog"
+                                onClick={() => { setRemoveErr(''); setConfirmId(p.id); }}>
                           <DeleteOutlineOutlined sx={{ fontSize: 17 }} />
                         </button>
                       </>
@@ -790,14 +847,13 @@ export function RecordPapers() {
                   slab there would hide papers the owner can still read. */}
               {!isLoading && !papers && papersErr && (
                 <div>
-                  <Failed what="These papers" error={papersErr} onRetry={() => void refetchPapers()} />
+                  <Failed what="These documents" error={papersErr} onRetry={() => void refetchPapers()} />
                 </div>
               )}
               {!isLoading && !papers && !papersErr && (
                 <div>
-                  <p className="note" role="status">
-                    These papers have not loaded — you appear to be offline.
-                  </p>
+                  {/* The app's one unreachable sentence, not a private one. */}
+                  <p className="note" role="status">{UNREACHABLE_NOTE}</p>
                 </div>
               )}
               {/* Two different emptinesses: nothing filed at all, versus a
@@ -807,20 +863,11 @@ export function RecordPapers() {
                 <div>
                   <p className="note">
                     {papers.length === 0
-                      ? `Nothing is filed against this ${noun} yet. A deed, a passbook or a receipt added here becomes searchable by its text.`
-                      : 'No paper here matches that.'}
+                      ? `No documents on this ${noun} yet.`
+                      : 'No document here matches that.'}
                   </p>
-                  {/* The empty state opens the same drawer as the header, which
-                      is what every other hanger's does. Only when the record is
-                      genuinely bare: under a filter that missed, the thing to do
-                      is clear the filter, not file a paper. */}
-                  {papers.length === 0 && (
-                    <button type="button" className="btn primary" aria-haspopup="dialog"
-                            style={{ marginTop: 'var(--space-sm)' }}
-                            onClick={() => setAdding(true)}>
-                      <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a paper
-                    </button>
-                  )}
+                  {/* No second "Add a document" here: the header already opens
+                      the same drawer, and one flow belongs on the screen once. */}
                 </div>
               )}
             </div>
@@ -828,20 +875,13 @@ export function RecordPapers() {
         </div>
 
         <aside className="stack">
-          {/* Only while it has something to say. A record that can produce all
-              four shelves should not carry an empty box headed "what is
-              missing" — the absence IS the answer, and the papers list beside
-              it already shows what is there. */}
+          {/* Only while it has something to say. A record that can produce
+              every shelf it is asked for (EXPECTED_SHELVES: four for land,
+              three for a building) should not carry an empty box headed "what
+              is missing" — the absence IS the answer, and the papers list
+              beside it already shows what is there. */}
           {missingGroups.length > 0 && (
-            <Card title="What is missing" className="railcard">
-              <p className="note" style={{ marginTop: 0 }}>
-                {missingGroups.length > 1
-                  ? 'A buyer or bank usually asks for these.'
-                  : 'A buyer or bank usually asks for this.'}
-                {' '}
-                Choose only what you need; each request is tracked separately.
-              </p>
-
+            <Card title="Missing documents" className="railcard">
               {offers.isLoading && <p className="note" role="status">Checking available services…</p>}
               {!offers.isLoading && offers.error && (
                 <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
@@ -893,11 +933,16 @@ export function RecordPapers() {
                 </button>
               )}
 
+              {/* Outlined: reviewing commits nothing, and the page's one fill
+                  is the header's "Add a document". The fill belongs to the
+                  step that places the orders, and only once it is shown. One
+                  noun throughout — a service order — where this used to say
+                  request, batch request, service and "the papers I want". */}
               {selectedServices.length > 0 && !reviewingBatch && (
-                <button type="button" className="btn primary batch-review"
+                <button type="button" className="btn batch-review"
                         onClick={() => setReviewingBatch(true)}>
                   <ShoppingCartCheckoutOutlined sx={{ fontSize: 16 }} aria-hidden />
-                  Review {selectedServices.length === 1 ? 'request' : `${selectedServices.length} requests`}
+                  Review {plural(selectedServices.length, 'service order')}
                   <span className="num">{inr(selectedTotal)}</span>
                 </button>
               )}
@@ -905,17 +950,20 @@ export function RecordPapers() {
               {reviewingBatch && (
                 <div className="batch-review-panel">
                   <div className="row between">
-                    <strong>{selectedServices.length} selected</strong>
+                    <strong>{plural(selectedServices.length, 'service order')}</strong>
                     <strong className="num">{inr(selectedTotal)}</strong>
                   </div>
                   <p className="note">
-                    This is the combined quoted price. Nothing is charged now; money is
-                    handled on each service and released only after you accept its work.
+                    Combined quote · Not charged now
                   </p>
                   <label className="check">
                     <input type="checkbox" checked={batchConfirmed}
                            onChange={(e) => setBatchConfirmed(e.target.checked)} />
-                    <span>{`I confirm these are the papers I want for ${rec.title}.`}</span>
+                    <span>
+                      {selectedServices.length === 1
+                        ? `I confirm this is the service order I want for ${rec.title}.`
+                        : `I confirm these are the service orders I want for ${rec.title}.`}
+                    </span>
                   </label>
                   <div className="row tight">
                     <button type="button" className="btn" disabled={placeBatch.isPending}
@@ -925,7 +973,8 @@ export function RecordPapers() {
                     <button type="button" className="btn primary"
                             disabled={!batchConfirmed || placeBatch.isPending}
                             onClick={() => void submitBatch()}>
-                      {placeBatch.isPending ? 'Placing requests…' : 'Create batch request'}
+                      {placeBatch.isPending ? 'Placing…'
+                        : selectedServices.length === 1 ? 'Place the service order' : 'Place the service orders'}
                     </button>
                   </div>
                 </div>
@@ -935,10 +984,10 @@ export function RecordPapers() {
                 <div className="batch-success" role="status">
                   <strong>{batchReceipt.ref} is placed</strong>
                   <span className="note">
-                    {plural(batchReceipt.orderCount, 'service')} · {inr(batchReceipt.total)} quoted
+                    {plural(batchReceipt.orderCount, 'service order')} · {inr(batchReceipt.total)} quoted
                   </span>
                   <Link className="link accent" to={`/app/records/${rec.id}/services`}>
-                    Track the batch and each service ›
+                    Track these service orders ›
                   </Link>
                 </div>
               )}
@@ -958,7 +1007,7 @@ export function RecordPapers() {
               record's own figure under a heading that says "the deed says"
               would put a claim in the deed's mouth. */}
           {deed && (deed.registeredOn || deed.office || deed.consideration > 0) && (
-            <Card title="The deed says" className="railcard">
+            <Card title="From the deed" className="railcard">
               <KV rows={[
                 ...(deed.registeredOn
                   ? [{ k: 'Registered', v: ddmmyyyy(deed.registeredOn) }] : []),
@@ -968,14 +1017,6 @@ export function RecordPapers() {
                 ...(deed.consideration > 0
                   ? [{ k: 'Consideration', v: inr(deed.consideration) }] : []),
               ]} />
-              {/* The deed is named in the row beside this card, so naming it
-                  again here was the same string twice on one screen — and it
-                  made "Sale Deed 4417/2019" ambiguous to anything looking for
-                  the paper itself. */}
-              <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                Read from the title deed filed here. Where the paper and the record
-                disagree, the paper is the evidence and the record is the one to correct.
-              </p>
             </Card>
           )}
 

@@ -40,6 +40,10 @@ export function setUnauthorizedHandler(handler: () => void): void {
 export interface ApiRequestInit extends RequestInit {
   /** A per-operation deadline; caller cancellation is always honored. */
   timeoutMs?: number;
+  /** For a durable reading: told the job id as soon as the server has
+   *  accepted it, so the caller can find the reading again after it stops
+   *  waiting (the inbox, w360/inbox.ts). */
+  onReceipt?: (job: string) => void;
 }
 
 const ASYNC_READS = new Set([
@@ -69,10 +73,12 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 async function readAsync(path: string, init: ApiRequestInit): Promise<Response> {
   const deadline = AbortSignal.timeout(init.timeoutMs ?? 900_000);
   const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
-  const started = await apiFetch(`${path}-async`, { ...init, signal });
+  const { onReceipt, ...rest } = init;
+  const started = await apiFetch(`${path}-async`, { ...rest, signal });
   if (!started.ok) return started;
   const receipt = await started.json() as { job?: string };
   if (!receipt.job) throw new Error('The document reader did not return a reading receipt.');
+  onReceipt?.(receipt.job);
   const statusPath = `/api/gateway/pattadar/import-status/${encodeURIComponent(receipt.job)}`;
   while (true) {
     signal.throwIfAborted();
@@ -89,7 +95,7 @@ async function readAsync(path: string, init: ApiRequestInit): Promise<Response> 
 /** fetch wrapper that attaches the Bearer token when one is available. */
 export async function apiFetch(path: string, init: ApiRequestInit = {}): Promise<Response> {
   if (ASYNC_READS.has(path) && (init.method || 'GET').toUpperCase() === 'POST') return readAsync(path, init);
-  const { timeoutMs: _timeoutMs, ...requestInit } = init;
+  const { timeoutMs: _timeoutMs, onReceipt: _onReceipt, ...requestInit } = init;
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);

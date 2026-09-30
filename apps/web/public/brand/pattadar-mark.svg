@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Pattadar mark</title>
+  <desc id="desc">An angular P with a survey boundary drawn through its parcel-shaped counter.</desc>
+  <rect width="512" height="512" rx="90" fill="#202521"/>
+  <path fill="#FAFAF4" fill-rule="evenodd" d="M139 396V116h146l88 55v100l-88 55h-65v70h-81Zm81-207v64h60l18-12v-39l-18-13h-60Z"/>
+  <path d="m226 253 72-51" fill="none" stroke="#D9BF72" stroke-width="13"/>
+  <circle cx="298" cy="202" r="10" fill="#D9BF72"/>
+</svg>

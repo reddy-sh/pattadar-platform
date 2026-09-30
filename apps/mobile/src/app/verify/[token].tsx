@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Text } from 'react-native-paper';
+import { useState } from 'react';
+import { ActivityIndicator, Button, Checkbox, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { hasApi } from '@/api/client';
@@ -19,6 +20,7 @@ export default function VerifyScreen() {
   const theme = useAppTheme();
   const { token } = useLocalSearchParams<{ token: string }>();
   const verify = useVerifyBeneficiary();
+  const [consent, setConsent] = useState(false);
 
   const succeeded = verify.isSuccess && !!verify.data?.verifyBeneficiary;
   // A rejected token comes back as a GraphQL-level error ("Invalid or expired
@@ -49,7 +51,14 @@ export default function VerifyScreen() {
               You were invited to confirm your place in a Pattadar family group.
               Tap below to complete verification.
             </Text>
-            <Button mode="contained" disabled={!token} onPress={() => token && verify.mutate(token)}>
+            <Checkbox.Item
+              label="I agree to receive household inactivity safeguard emails at my verified address. I can withdraw later."
+              status={consent ? 'checked' : 'unchecked'}
+              onPress={() => setConsent((v) => !v)}
+              position="leading"
+              labelVariant="bodySmall"
+            />
+            <Button mode="contained" disabled={!token} onPress={() => token && verify.mutate({ token, consent })}>
               Confirm verification
             </Button>
           </>
@@ -102,7 +111,7 @@ export default function VerifyScreen() {
               Check your connection and try again.
             </Text>
             {token ? (
-              <Button mode="contained" onPress={() => verify.mutate(token)}>
+              <Button mode="contained" onPress={() => verify.mutate({ token, consent })}>
                 Try again
               </Button>
             ) : null}

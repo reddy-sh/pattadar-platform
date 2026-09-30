@@ -68,6 +68,11 @@ def audited(monkeypatch):
 def client(monkeypatch, storage):
     monkeypatch.setattr(r, "get_storage", lambda: storage)
     monkeypatch.setattr(r, "extract_user_id", lambda request: "reader-b")
+
+    async def allow_content(_request, _node_id, _version):
+        return "reader-b", None
+
+    monkeypatch.setattr(r, "_content_auth", allow_content)
     app = FastAPI()
     app.include_router(r.router)
     app.dependency_overrides[require_auth] = lambda: {}

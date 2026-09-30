@@ -34,14 +34,19 @@
  *     good and the screen draws that order, so the fixtures in this file sort
  *     the same way the server does (`land()` below) rather than hand-listing a
  *     order that would drift from it.
- *   · The chip row is the server's too, including the `all` chip and the two
- *     derived ones, `needs_repair` and `unchecked` (web360.py:2923-2935). The
- *     shared seed in fixtures/seed.ts carries only the four plain categories,
- *     so tests about filtering build their own list; tests about DRAWING use
- *     the shared seed, which is the world as it ships.
- *   · `conditionState` is one of good/warn/bad/unknown (ticketing.py:347).
- *     The shared seed spells the good one `ok`, which is why the state-word
- *     scenarios below seed their own rows.
+ *   · The filter is the shared FacetFilter (ui.tsx), not a chip row: "+ Filter"
+ *     opens a panel with two groups, Category and Condition, that combine.
+ *     Both are counted off the features on screen, so the server's `all`,
+ *     `needs_repair` and `unchecked` facets (web360.py `features`) are never
+ *     drawn as options — Condition is its own group in the four state words.
+ *     Tests about filtering build their own list; tests about DRAWING use the
+ *     shared seed, which is the world as it ships.
+ *   · `conditionState` is one of good/warn/bad/unknown (web360.py _STATES),
+ *     and the card, the filter and the rail all say it in one word each —
+ *     Working · Watch it · Broken · Not checked (design.md § App vocabulary,
+ *     "Property tabs"). What was typed about it is the card's detail line,
+ *     not its state. The shared seed spelled the good one `ok` until
+ *     28/09/2026; the state-word scenarios below still seed their own rows.
  *   · A write that succeeds invalidates the whole `w360` key, so the list is
  *     re-read before `mutateAsync` resolves. The mutation answers in these
  *     tests therefore MUTATE a local array that the `features` answer is read
@@ -50,7 +55,8 @@
  *     have no card to open in.
  *
  *   · The one thing on this page that costs money no longer happens on it.
- *     "Ask for a check" is a `<Link>` into the order flow at
+ *     "Ask for a site visit" (it was "Ask for a check" until 28/09/2026) is a
+ *     `<Link>` into the order flow at
  *     `/app/records/:id/order` (RecordFeatures.tsx:243-244), so there is no
  *     dialog, no `orderService` call and no refusal sentence to assert here
  *     any more — `world.calls('orderService')` is empty on every path through
@@ -75,6 +81,7 @@
 import { test, expect, World } from '../fixtures/harness';
 import type { Page } from '../fixtures/harness';
 import { ID, FEATURE } from '../fixtures/ids';
+import { FEATURE_TYPES } from '../fixtures/featureTypes';
 
 // ── the land, shaped the way the server shapes it ──────────────────────
 
@@ -82,13 +89,20 @@ interface Feat {
   id: string; label: string; spec: string; icon: string; category: string;
   condition: string; conditionState: string; note: string;
   lat: number; lon: number; pinLabel: string; photoCount: number; actions: string[];
+  // Selected since 37ae2ca (w360/api.ts Q_FEATURES). `typeKey` is what the
+  // edit panel opens its schema on; a feature without one opens with no name
+  // box and a Save that refuses until a type is chosen.
+  typeKey: string; schemaVersion: number; attributes: string; geometry: string;
+  version: number; costTotal: number; costCount: number; receiptCount: number;
 }
 
 /** One feature, with every field the query selects filled in. Anything left
  *  out draws as `undefined` on a card, which is the bug, not the fixture. */
 const feat = (over: Partial<Feat> & Pick<Feat, 'id' | 'label'>): Feat => ({
   spec: '', icon: 'feature', category: 'other', condition: '', conditionState: 'good',
-  note: '', lat: 0, lon: 0, pinLabel: '', photoCount: 0, actions: [], ...over,
+  note: '', lat: 0, lon: 0, pinLabel: '', photoCount: 0, actions: [],
+  typeKey: 'custom', schemaVersion: 1, attributes: '{}', geometry: '{}',
+  version: 1, costTotal: 0, costCount: 0, receiptCount: 0, ...over,
 });
 
 /** web360.py:2921 — worst first, stable within a condition. */
@@ -124,6 +138,9 @@ function land(rows: Feat[], over: Record<string, unknown> = {}) {
       { key: 'unchecked', label: 'Not checked', count: count((f) => f.conditionState === 'unknown'), active: false },
     ],
     features,
+    // The catalogue the Add-a-feature panel draws its type chips from; the
+    // API sends it with every features answer (fixtures/featureTypes.ts).
+    types: FEATURE_TYPES,
     ...over,
   };
 }
@@ -141,17 +158,23 @@ function liveLand(world: World, rows: Feat[]): Feat[] {
   world.set('features', () => land(rows));
   world.set('addFeature', (vars) => {
     const id = `w-feat-filed-${++filed}`;
-    // The API reads the category and the icon off the label; the test world
-    // only has to be consistent, not clever.
-    rows.push(feat({ id, label: String(vars.label), conditionState: 'unknown' }));
+    // One write carries the whole feature since 37ae2ca: type, attributes,
+    // condition and note all arrive with the add. The API also derives the
+    // spec line and the icon; the test world only has to be consistent.
+    rows.push(feat({
+      id, label: String(vars.label), typeKey: String(vars.typeKey),
+      attributes: String(vars.attributes), condition: String(vars.condition),
+      conditionState: String(vars.conditionState), note: String(vars.note),
+    }));
     return id;
   });
   world.set('updateFeature', (vars) => {
     const row = rows.find((r) => r.id === vars.featureId);
     if (!row) return false;
     Object.assign(row, {
-      label: String(vars.label), spec: String(vars.spec), condition: String(vars.condition),
-      conditionState: String(vars.conditionState), note: String(vars.note),
+      label: String(vars.label), typeKey: String(vars.typeKey), attributes: String(vars.attributes),
+      condition: String(vars.condition), conditionState: String(vars.conditionState),
+      note: String(vars.note), version: row.version + 1,
     });
     return true;
   });
@@ -166,50 +189,78 @@ function liveLand(world: World, rows: Feat[]): Feat[] {
 
 // ── locators ───────────────────────────────────────────────────────────
 
-/** Every FEATURE card in the grid. The invitation at the end of it is a
- *  `<button class="card dashed addcard">` rather than an `<article>` now, so it
- *  is no longer in this count — a grid of two features is two, not "2 + the add
- *  card". */
+/** Every FEATURE card in the grid. The dashed "Add a feature" invitation that
+ *  used to end the grid is gone (the section head's button opens the same
+ *  drawer), so a grid of two features is two. */
 const cards = (page: Page) => page.getByRole('article');
-/** The invitation at the end of the grid. Addressed by its class because its
- *  accessible name is its whole contents — heading and sentence together — so
- *  no name filter tells it apart from the header button cleanly, and `hasText`
- *  on a role would catch both. */
+/** The dashed invitation card that used to end the grid. It was removed —
+ *  the header button is the one way in — and is kept only so tests can assert
+ *  it stays gone. */
 const addCard = (page: Page) => page.locator('button.addcard');
-/** The header's own "Add a feature". `exact` because the card above shares the
- *  first three words of its accessible name. */
+/** The header's own "Add a feature". Scoped to the section head, not told
+ *  apart by name: the card above used to carry a description in its
+ *  accessible name, and once that copy was trimmed both read exactly "Add a
+ *  feature", so `exact` alone matched two. */
 const addButton = (page: Page) =>
-  page.getByRole('button', { name: 'Add a feature', exact: true });
+  page.locator('header.sechead').getByRole('button', { name: 'Add a feature', exact: true });
 /** The panel both of those open. Named by its own <h2>, the way the shared
  *  Drawer names every one of them. */
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Add a feature' });
-/** The drawer's primary. It reads "Filing…" while the write is in flight, and
- *  "Save the detail" once the feature exists but its detail does not. */
+/** The drawer's primary. It reads "Saving…" while the write is in flight
+ *  (Drawer.DrawerAction). */
 const fileIt = (page: Page) => page.getByRole('button', { name: 'Add the feature' });
 const cardFor = (page: Page, label: string) => page.getByRole('article')
   .filter({ has: page.getByRole('heading', { name: label, exact: true }) });
-/** The one card whose editor is open — a card being edited has no heading to
- *  be found by, because the form replaces the whole card. */
-const openEditor = (page: Page) => page.getByRole('article')
-  .filter({ has: page.getByLabel('Name', { exact: true }) });
-/** The summary line under the headline. It is prose with no role or label of
- *  its own, and `.lede` is the only handle on it. */
-const summary = (page: Page) => page.locator('p.lede');
+/** The panel a card's pencil opens. Rewritten 27/09/2026: editing used to
+ *  replace the card with an inline form; since 07944a0 the pencil opens the
+ *  same drawer as filing, named "Edit <label>", over the page. */
+const editPanel = (page: Page, label: string) => page.getByRole('dialog', { name: `Edit ${label}` });
+/** The shared confirmation (PropertyActions.tsx ConfirmDialog) a removal asks
+ *  in, titled with the feature it would delete. */
+const removeDialog = (page: Page, label: string) => page.getByRole('dialog', { name: `Remove ${label}?` });
+const saveIt = (page: Page) => page.getByRole('button', { name: 'Save changes' });
+/** The drawer's name box. It appears once a type has been chosen. Labelled
+ *  "Name on this property" since the record → property wording (was "Name on
+ *  this record", which found nothing). */
+const nameBox = (scope: ReturnType<Page['locator']>) => scope.getByLabel('Name on this property');
+/** The summary line under the tab's own heading. Since 07944a0 it is the
+ *  `p.note` of the section head; `p.lede` belongs to the record header and
+ *  holds the place line on every tab. */
+const summary = (page: Page) => page.locator('header.sechead p.note');
 
-/** One of the filter chips above the grid, addressed by the count it carries.
- *  The count is the only thing that tells it apart from the type chips in the
- *  drawer: "Crop 5" narrows the grid, "Crop" is what the new one will be. The
- *  two can now be on screen at once — the drawer does not replace the page — so
- *  the count still matters. */
-const filterChip = (page: Page, label: string, count: number) =>
-  page.getByRole('button', { name: `${label} ${count}`, exact: true });
+/** The filter above the grid is the shared FacetFilter (ui.tsx): "+ Filter"
+ *  opens a panel named "Filter site features" holding two groups, Category
+ *  and Condition. Every option is a toggle named for its word and the count
+ *  of cards it would leave — the count is also what tells it apart from the
+ *  type chips in the drawer ("Crop 1" narrows the grid, "Crop" is what a new
+ *  one will be). */
+const filterPanel = (page: Page) => page.getByRole('group', { name: 'Filter site features' });
+const openFilter = async (page: Page) => {
+  const trigger = page.getByRole('button', { name: '+ Filter' });
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+  await expect(filterPanel(page)).toBeVisible();
+  return filterPanel(page);
+};
+const reEscape = (s: string) => s.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
+/** One option in the open panel, by its whole name — "Water 1" is not also
+ *  "Water 12". */
+const filterOption = (page: Page, label: string, count: number) =>
+  filterPanel(page).getByRole('button', { name: new RegExp('^' + reEscape(label) + '\\s*' + count + '$') });
+/** One group of the open panel, by the eyebrow over it. */
+const filterGroup = (page: Page, label: 'Category' | 'Condition') =>
+  filterPanel(page).locator('.fgrp').filter({ has: page.locator('.eyebrow', { hasText: label }) });
+/** The chip a pressed option leaves in the bar, with the × that lets it go. */
+const activeFilter = (page: Page, group: 'Category' | 'Condition', label: string) =>
+  page.getByRole('button', { name: `Remove filter ${group} ${label}` });
 
-/** The whole filter row, in the order the server sent it. A count badge is the
- *  one thing every filter chip has and nothing else on this screen does — the
- *  type chips carry no number and the tab strip's counts are links, not
- *  buttons — so it is also what lets a test say "and no other chip". */
-const filterChips = (page: Page) =>
-  page.getByRole('button').filter({ has: page.locator('span.n') });
+/** A card in the rail, by its own heading (ui.tsx Card is a section.card
+ *  headed by an h2). */
+const railCard = (page: Page, title: string) => page.getByRole('complementary')
+  .locator('section.card').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+/** The count the rail's Condition card gives one of the four state words. */
+const conditionCount = (page: Page, word: string) => railCard(page, 'Condition')
+  .locator('.kv > div').filter({ has: page.locator('.k', { hasText: new RegExp('^' + reEscape(word) + '$') }) })
+  .locator('.v');
 
 const featuresUrl = (id: string) => `/app/records/${id}/features`;
 
@@ -219,13 +270,15 @@ test.describe('W07 · what is on this land', () => {
   test('every feature on the parcel is drawn with its name, what it is and the condition it is in', async ({ page, world }) => {
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('On this land');
+    // The record is the page's <h1> on every tab since 07944a0; the tab's own
+    // question is the section head's <h2>.
+    await expect(page.locator('header.sechead h2')).toHaveText('Site features');
     expect(world.lastVars('features')).toMatchObject({ id: ID.parcel });
 
-    // Four seeded features. The invitation that files the fifth stands beside
-    // them but is a <button>, not an <article>, so it is not one of these.
+    // Four seeded features, and the one way to file a fifth is the header's.
     await expect(cards(page)).toHaveCount(4);
-    await expect(addCard(page)).toBeVisible();
+    await expect(addButton(page)).toBeVisible();
+    await expect(addCard(page)).toHaveCount(0);
 
     const well = cardFor(page, 'Open well');
     await expect(well).toContainText('30 ft · 6 in pipe');
@@ -241,29 +294,42 @@ test.describe('W07 · what is on this land', () => {
     await expect(cardFor(page, 'Mango trees')).toContainText('46 trees · 12 years');
   });
 
-  test('the line above the headline says which record you are standing in', async ({ page }) => {
+  test('the headline says which record you are standing in', async ({ page }) => {
     await page.goto(featuresUrl(ID.parcel));
-    // "On this land" is true of every record, so the record has to be named
-    // somewhere on a tab that never repeats its title in the headline. It is
-    // the title and the village — the place line cut at its first comma.
-    await expect(page.locator('p.eyebrow')).toHaveText('Sy 214/2 · Katragunta');
+    // Rewritten 27/09/2026. The tab's own heading is true of every record, so
+    // the record has to be named somewhere. Since 07944a0 that is the record
+    // header's <h1>, with the place line beside it, on every tab.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
+    await expect(page.locator('p.lede')).toContainText('Katragunta, Markapur, Prakasam');
   });
 
-  test('the summary line counts the features, the repairs and the day somebody walked it', async ({ page }) => {
+  test('the summary line counts the features, and the rail says what state they are in and since when', async ({ page }) => {
+    // Each fact once (RecordFeatures.tsx featuresSub): the line under the
+    // heading is the total, and the conditions and the day somebody was last
+    // on the ground are the rail's Condition card. It used to say all three
+    // there and again in the chips.
     await page.goto(featuresUrl(ID.parcel));
-    await expect(summary(page))
-      .toHaveText('14 features · 2 need repair · walked 12 Aug 2026 by Shankar Reddy');
-  });
+    await expect(summary(page)).toHaveText('4 site features');
 
-  test('the categories on the record become the chips above the grid', async ({ page }) => {
-    await page.goto(featuresUrl(ID.parcel));
-    for (const [label, n] of [['Water', 4], ['Power', 2], ['Boundary', 3], ['Crop', 5]] as const) {
-      await expect(filterChip(page, label, n)).toBeVisible();
+    const condition = railCard(page, 'Condition');
+    await expect(condition).toContainText('Last checked on the ground 12/08/2026 by Shankar Reddy.');
+    for (const [word, n] of [['Working', 2], ['Watch it', 1], ['Broken', 0], ['Not checked', 1]] as const) {
+      await expect(conditionCount(page, word)).toHaveText(String(n));
     }
-    // In the server's order, and nothing else: a chip row that quietly grew a
-    // fifth entry, or reordered itself, is a different screen from this one.
-    await expect(filterChips(page))
-      .toHaveText([/^Water\s*4$/, /^Power\s*2$/, /^Boundary\s*3$/, /^Crop\s*5$/]);
+  });
+
+  test('the categories on the record become the Category options, counted off the cards', async ({ page }) => {
+    await page.goto(featuresUrl(ID.parcel));
+    await openFilter(page);
+    // In the order the cards first name them, and nothing else: an option
+    // that quietly counted the server's facet instead of the cards is a filter
+    // that promises cards it does not have.
+    await expect(filterGroup(page, 'Category').getByRole('button'))
+      .toHaveText([/^Water\s*2$/, /^Boundary\s*1$/, /^Crop\s*1$/]);
+    // The conditions are their own group, in the four words and in their
+    // order, and a word nothing is in is not offered.
+    await expect(filterGroup(page, 'Condition').getByRole('button'))
+      .toHaveText([/^Working\s*2$/, /^Watch it\s*1$/, /^Not checked\s*1$/]);
   });
 
   test('the grid says how it is ordered and that each feature carries its own pin and photos', async ({ page }) => {
@@ -276,32 +342,38 @@ test.describe('W07 · what is on this land', () => {
     world.set('features', land([feat({ id: FEATURE.well, label: 'Open well' })],
       { walkedOn: '2026-08-12', walkedBy: 'Ramana Rao' }));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(summary(page)).toHaveText('1 feature · walked 12/08/2026 by Ramana Rao');
+    await expect(summary(page)).toHaveText('1 site feature');
+    // The one place the date is said: the rail's Condition card, DD/MM/YYYY.
+    await expect(railCard(page, 'Condition'))
+      .toContainText('Last checked on the ground 12/08/2026 by Ramana Rao.');
   });
 
-  test('a record nobody has walked says nothing at all about walking it', async ({ page, world }) => {
+  test('a record nobody has walked says so, and puts no date or name to it', async ({ page, world }) => {
     world.set('features', land([feat({ id: FEATURE.well, label: 'Open well', conditionState: 'bad', condition: 'Dry' })],
       { walkedOn: '', walkedBy: '' }));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(summary(page)).toHaveText('1 feature · 1 needs repair');
+    await expect(summary(page)).toHaveText('1 site feature');
+    const condition = railCard(page, 'Condition');
+    await expect(condition).toContainText('Not checked on the ground yet.');
+    await expect(condition).not.toContainText('Last checked');
   });
 
   test('a name with no date behind it is not hung off the repair count', async ({ page, world }) => {
-    // DEFECT. RecordFeatures.tsx:291-292 gates the date on `walkedOn` and the
-    // name on `walkedBy` separately, so a photo filed with a photographer and
-    // no timestamp — which the server will happily send, web360.py:2944-2946
-    // reads the two out of one row independently — prints
-    // "2 features · 1 needs repair by Ramana Rao". The owner is owed either
-    // "walked by Ramana Rao" or no mention of him at all; a name welded to the
-    // repair count says he is the one who needs repairing.
-    test.fail();
+    // Was a test.fail() marker for "2 features · 1 needs repair by Ramana
+    // Rao". Fixed in committed code: the name now sits inside the walked term
+    // (RecordFeatures.tsx featuresSub), so with no date it is dropped. The
+    // marker was removed with the fix, 27/09/2026.
     world.set('features', land([
       feat({ id: FEATURE.well, label: 'Open well', conditionState: 'bad', condition: 'Dry' }),
       feat({ id: FEATURE.fence, label: 'Barbed fence' }),
     ], { walkedOn: '', walkedBy: 'Ramana Rao' }));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(summary(page)).toContainText('2 features');
+    await expect(summary(page)).toContainText('2 site features');
     await expect(summary(page)).not.toContainText('repair by Ramana Rao');
+    // Nor in the rail, where the date now lives: a name with no day is not a
+    // visit (RecordFeatures.tsx, the Condition card's note).
+    await expect(railCard(page, 'Condition')).toContainText('Not checked on the ground yet.');
+    await expect(railCard(page, 'Condition')).not.toContainText('Ramana Rao');
   });
 });
 
@@ -346,11 +418,28 @@ test.describe('W07 · the condition of each thing', () => {
     await expect(shed.locator('.state.unknown')).toBeVisible();
   });
 
-  test('a feature whose condition is in its own words keeps those words', async ({ page, world }) => {
+  test('a feature whose condition is in its own words keeps those words, under the state word', async ({ page, world }) => {
+    // One word per state on every surface of this tab — the card, the filter
+    // and the rail count the same thing — and what somebody typed about it is
+    // the card's detail line (design.md § App vocabulary, "Property tabs").
     world.set('features', land(mixed()));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(cardFor(page, 'Barbed fence').locator('.state.bad')).toHaveText('Cut on the east');
-    await expect(cardFor(page, 'Submersible pump').locator('.state.warn')).toHaveText('Yield dropped');
+    const fence = cardFor(page, 'Barbed fence');
+    await expect(fence.locator('.state.bad')).toHaveText('Broken');
+    await expect(fence.locator('p.note').filter({ hasText: 'Cut on the east' })).toBeVisible();
+    const pump = cardFor(page, 'Submersible pump');
+    await expect(pump.locator('.state.warn')).toHaveText('Watch it');
+    await expect(pump.locator('p.note').filter({ hasText: 'Yield dropped' })).toBeVisible();
+  });
+
+  test('typed words that are only the state word again are not said twice', async ({ page, world }) => {
+    world.set('features', land([
+      feat({ id: 'w-feat-bare', label: 'Open well', category: 'water', condition: 'Working', conditionState: 'good' }),
+    ]));
+    await page.goto(featuresUrl(ID.parcel));
+    const well = cardFor(page, 'Open well');
+    await expect(well.locator('.state.good')).toHaveText('Working');
+    await expect(well.getByText('Working', { exact: true })).toHaveCount(1);
   });
 
   test('a feature with a state but nothing written about it falls back to the state word', async ({ page, world }) => {
@@ -381,17 +470,22 @@ test.describe('W07 · the condition of each thing', () => {
     ]));
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(summary(page)).toHaveText('3 features · 2 need repair · walked 12/08/2026 by Ramana Rao');
+    // The repair count is said where the conditions are counted — the rail
+    // and the filter — and both agree with the cards drawn as an alarm.
+    await expect(summary(page)).toHaveText('3 site features');
     await expect(page.locator('article.alert')).toHaveCount(2);
-    await expect(filterChip(page, 'Needs repair', 2)).toBeVisible();
+    await expect(conditionCount(page, 'Broken')).toHaveText('2');
+    await openFilter(page);
+    await expect(filterOption(page, 'Broken', 2)).toBeVisible();
   });
 
-  test('one broken thing is said in the singular', async ({ page, world }) => {
+  test('one feature is said in the singular', async ({ page, world }) => {
     world.set('features', land([
       feat({ id: 'w-feat-1', label: 'Barbed fence', condition: 'Cut on the east', conditionState: 'bad' }),
     ]));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(summary(page)).toContainText('1 feature · 1 needs repair');
+    await expect(summary(page)).toHaveText('1 site feature');
+    await expect(conditionCount(page, 'Broken')).toHaveText('1');
   });
 });
 
@@ -539,17 +633,6 @@ test.describe('W07 · the labels a feature carries, and where they go', () => {
     // "Update count" is the pencil on the card, said twice.
     await expect(page.getByRole('link', { name: 'Update count' })).toHaveCount(0);
   });
-
-  test('the footnote under the grid says where the dropped labels actually happen', async ({ page, world }) => {
-    world.set('features', withActions());
-    await page.goto(featuresUrl(ID.parcel));
-
-    const foot = page.getByText('Changing what a feature is, or the condition it is in, is the pencil');
-    await expect(foot).toBeVisible();
-    await expect(foot).toContainText('does not arrange a repair, a fencing crew or a silt clearing yet');
-    await expect(page.getByRole('link', { name: 'ledger' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/expenses`);
-  });
 });
 
 // ── the chips ──────────────────────────────────────────────────────────
@@ -562,99 +645,138 @@ test.describe('W07 · narrowing the grid', () => {
     feat({ id: 'w-feat-shed', label: 'Old shed', category: 'structure', conditionState: 'unknown' }),
   ];
 
-  test('the whole list is the one you land on, and All is the chip that is pressed', async ({ page, world }) => {
+  test('the whole list is the one you land on, with no filter on and no tally', async ({ page, world }) => {
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(filterChip(page, 'All', 4)).toHaveAttribute('aria-pressed', 'true');
     await expect(cards(page)).toHaveCount(4);
+    await expect(page.getByRole('button', { name: '+ Filter' })).toHaveAttribute('aria-expanded', 'false');
+    // The bar carries a chip only for a filter that is on, and says "n of m
+    // shown" only while something is narrowing.
+    await expect(page.locator('.filterbar .fchip')).toHaveCount(0);
+    await expect(page.locator('.filterbar .tally')).toHaveCount(0);
   });
 
-  test('a category chip narrows the grid to what it names', async ({ page, world }) => {
+  test('a category narrows the grid to what it names, and the bar says how far', async ({ page, world }) => {
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
 
-    await filterChip(page, 'Water', 2).click();
-    await expect(filterChip(page, 'Water', 2)).toHaveAttribute('aria-pressed', 'true');
+    await openFilter(page);
+    await filterOption(page, 'Water', 2).click();
+    await expect(filterOption(page, 'Water', 2)).toHaveAttribute('aria-pressed', 'true');
     await expect(cards(page)).toHaveCount(2);
     await expect(cardFor(page, 'Open well')).toBeVisible();
     await expect(cardFor(page, 'Submersible pump')).toBeVisible();
     await expect(cardFor(page, 'Barbed fence')).toHaveCount(0);
+    await expect(activeFilter(page, 'Category', 'Water')).toBeVisible();
+    await expect(page.locator('.filterbar .tally')).toHaveText('2 of 4 shown');
   });
 
-  test('All puts the whole list back', async ({ page, world }) => {
+  test('a category and a condition combine rather than replace each other', async ({ page, world }) => {
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
 
-    await filterChip(page, 'Boundary', 1).click();
+    await openFilter(page);
+    await filterOption(page, 'Water', 2).click();
+    await filterOption(page, 'Watch it', 1).click();
     await expect(cards(page)).toHaveCount(1);
-    await filterChip(page, 'All', 4).click();
+    await expect(cardFor(page, 'Submersible pump')).toBeVisible();
+    await expect(page.locator('.filterbar .tally')).toHaveText('1 of 4 shown');
+  });
+
+  test('Clear all puts the whole list back', async ({ page, world }) => {
+    world.set('features', land(orchard()));
+    await page.goto(featuresUrl(ID.parcel));
+
+    await openFilter(page);
+    await filterOption(page, 'Boundary', 1).click();
+    await expect(cards(page)).toHaveCount(1);
+    await page.getByRole('button', { name: 'Clear all' }).click();
+    await expect(cards(page)).toHaveCount(4);
+    await expect(page.locator('.filterbar .fchip')).toHaveCount(0);
+  });
+
+  test('the chip a filter leaves in the bar lets that filter go', async ({ page, world }) => {
+    world.set('features', land(orchard()));
+    await page.goto(featuresUrl(ID.parcel));
+
+    await openFilter(page);
+    await filterOption(page, 'Boundary', 1).click();
+    await page.keyboard.press('Escape');
+    await expect(filterPanel(page)).toHaveCount(0);
+    await activeFilter(page, 'Category', 'Boundary').click();
     await expect(cards(page)).toHaveCount(4);
   });
 
-  test('Needs repair leaves only what is broken on the screen', async ({ page, world }) => {
+  test('Broken leaves only what is broken on the screen', async ({ page, world }) => {
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
 
-    await filterChip(page, 'Needs repair', 1).click();
+    await openFilter(page);
+    await filterOption(page, 'Broken', 1).click();
     await expect(cards(page)).toHaveCount(1);
     await expect(cardFor(page, 'Barbed fence')).toBeVisible();
-    // "Yield dropped" is a warning, not a repair — the two must not be
-    // counted together.
+    // "Yield dropped" is Watch it, not Broken — the two must not be counted
+    // together.
     await expect(cardFor(page, 'Submersible pump')).toHaveCount(0);
   });
 
-  test('Not checked is its own chip, and keeps the never-inspected apart from the broken', async ({ page, world }) => {
+  test('Not checked is its own condition, and keeps the never-inspected apart from the broken', async ({ page, world }) => {
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(filterChip(page, 'Not checked', 1)).toBeVisible();
-    await filterChip(page, 'Not checked', 1).click();
+    await openFilter(page);
+    await expect(filterOption(page, 'Not checked', 1)).toBeVisible();
+    await filterOption(page, 'Not checked', 1).click();
     await expect(cards(page)).toHaveCount(1);
     await expect(cardFor(page, 'Old shed')).toBeVisible();
   });
 
-  test('the chip that counts what is broken is the only one drawn as an alarm', async ({ page, world }) => {
+  test('the filter is words, not alarms: the broken card carries the alarm and no option does', async ({ page, world }) => {
+    // The Needs repair chip used to be filled red, and a pressed chip amber,
+    // beside the header's buttons. The shared filter draws every option the
+    // same way and washes the pressed one; the red belongs to the card that is
+    // broken (design.md § App-surface rules).
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
 
-    // The red is the whole point of that chip and there is nothing accessible
-    // to read it by; the dot it carries is aria-hidden (ui.tsx Chip).
-    await expect(filterChip(page, 'Needs repair', 1)).toHaveClass(/alert/);
-    // "Not checked" is a job, not an alarm — a red chip over four features
-    // nobody has walked yet says the land is broken when it is only unvisited.
-    await expect(filterChip(page, 'Not checked', 1)).not.toHaveClass(/alert/);
-    await expect(filterChip(page, 'Water', 2)).not.toHaveClass(/alert/);
-    await expect(filterChip(page, 'All', 4)).not.toHaveClass(/alert/);
+    await expect(cardFor(page, 'Barbed fence')).toHaveClass(/alert/);
+    await openFilter(page);
+    await expect(filterOption(page, 'Broken', 1)).toBeVisible();
+    await expect(filterPanel(page).locator('.alert')).toHaveCount(0);
   });
 
-  test('a chip with nothing in it is not a filter, so it is never drawn', async ({ page, world }) => {
-    // Everything on this land is sound: the derived chips both count zero.
+  test('an option with nothing in it is not a filter, so it is never drawn', async ({ page, world }) => {
+    // Everything on this land is sound: Watch it, Broken and Not checked would
+    // all count zero.
     world.set('features', land([
       feat({ id: 'w-feat-well', label: 'Open well', category: 'water', condition: 'Working', conditionState: 'good' }),
     ]));
     await page.goto(featuresUrl(ID.parcel));
 
-    // The row, first — the two absences below are true of a page that has not
-    // drawn — and then the whole of it: All and Water, and no third chip.
-    await expect(filterChip(page, 'Water', 1)).toBeVisible();
-    await expect(filterChips(page)).toHaveText([/^All\s*1$/, /^Water\s*1$/]);
-    await expect(page.getByRole('button', { name: /^Needs repair/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /^Not checked \d/ })).toHaveCount(0);
+    // The panel, first — the absences below are true of a page that has not
+    // drawn — and then the whole of it: one category, one condition.
+    await openFilter(page);
+    await expect(filterOption(page, 'Water', 1)).toBeVisible();
+    await expect(filterPanel(page).getByRole('button')).toHaveText([/^Water\s*1$/, /^Working\s*1$/]);
+    await expect(filterPanel(page).getByRole('button', { name: /^Broken/ })).toHaveCount(0);
+    await expect(filterPanel(page).getByRole('button', { name: /^Not checked/ })).toHaveCount(0);
   });
 
-  test('fixing the last broken thing takes the Needs repair filter off with it', async ({ page, world }) => {
-    // The chip the server stops offering cannot be un-pressed, so the grid
+  test('fixing the last broken thing takes the Broken filter off with it', async ({ page, world }) => {
+    // An option the cards stop offering cannot be un-pressed, so the grid
     // would empty with nothing on screen saying a filter was on.
     const rows = liveLand(world, orchard());
     await page.goto(featuresUrl(ID.parcel));
 
-    await filterChip(page, 'Needs repair', 1).click();
+    await openFilter(page);
+    await filterOption(page, 'Broken', 1).click();
     await expect(cards(page)).toHaveCount(1);
+    await page.keyboard.press('Escape');
 
     await cardFor(page, 'Barbed fence').getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await cardFor(page, 'Barbed fence').getByRole('button', { name: 'Remove', exact: true }).click();
+    await removeDialog(page, 'Barbed fence').getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await expect(page.getByRole('button', { name: /^Needs repair/ })).toHaveCount(0);
+    await expect(activeFilter(page, 'Condition', 'Broken')).toHaveCount(0);
     await expect(cards(page)).toHaveCount(3);              // the three that are left
     expect(rows.map((r) => r.label)).not.toContain('Barbed fence');
   });
@@ -680,21 +802,18 @@ test.describe('W07 · filing a feature', () => {
     await expect(cardFor(page, 'Bore')).toBeVisible();
   });
 
-  test('the panel asks for the detail before anything is written, and files both halves at once', async ({ page, world }) => {
-    // REPLACES "a feature filed by chip opens for editing". A chip press used to
-    // file a bare name on the spot and then open the per-card editor over the
-    // new card to ask what the thing actually was — one feature, two writes, in
-    // two places, with the page jumping between them. The panel asks first, so
-    // `addFeature` names it and `updateFeature` carries everything else, and no
-    // editor is opened afterwards.
+  test('the panel asks for the detail before anything is written, and files it all in one write', async ({ page, world }) => {
+    // Rewritten 27/09/2026. The panel used to file a name with `addFeature` and
+    // send a free-text spec in a second `updateFeature`. Since 37ae2ca each
+    // type has its own questions, and one `addFeature` carries all of them.
     liveLand(world, []);
     await page.goto(featuresUrl(ID.parcel));
 
     await addButton(page).click();
     const panel = drawer(page);
     await panel.getByRole('button', { name: 'Transformer', exact: true }).click();
-    await panel.getByLabel('Size, depth, year').fill('63 kVA · 2011');
-    await panel.getByLabel('Condition', { exact: true }).fill('Oil leak on the bushing');
+    await panel.getByLabel('Capacity (kVA)', { exact: true }).fill('63');
+    await panel.getByLabel('Condition detail', { exact: true }).fill('Oil leak on the bushing');
     await panel.getByRole('button', { name: 'Watch it', exact: true }).click();
     await panel.getByLabel('Note', { exact: true }).fill('DISCOM replaced it after the storm');
     await fileIt(page).click();
@@ -706,20 +825,18 @@ test.describe('W07 · filing a feature', () => {
     await expect(cardFor(page, 'Transformer')).toHaveClass(/flash/);
 
     await expect.poll(() => world.calls('addFeature').length).toBe(1);
-    expect(world.lastVars('addFeature'))
-      .toMatchObject({ recordId: ID.parcel, label: 'Transformer' });
-    await expect.poll(() => world.calls('updateFeature').length).toBe(1);
-    expect(world.lastVars('updateFeature')).toMatchObject({
-      label: 'Transformer', spec: '63 kVA · 2011',
+    expect(world.lastVars('addFeature')).toMatchObject({
+      recordId: ID.parcel, label: 'Transformer', typeKey: 'transformer',
       condition: 'Oil leak on the bushing', conditionState: 'warn',
       note: 'DISCOM replaced it after the storm',
     });
+    expect(JSON.parse(String(world.lastVars('addFeature').attributes))).toEqual({ capacityKva: '63' });
+    expect(world.calls('updateFeature')).toHaveLength(0);
 
     // So the card arrives finished, rather than as a name with a green dot
     // beside it waiting for somebody to come back and say what it is.
-    await expect(cardFor(page, 'Transformer')).toContainText('63 kVA · 2011');
     await expect(cardFor(page, 'Transformer')).toContainText('Oil leak on the bushing');
-    await expect(openEditor(page)).toHaveCount(0);
+    await expect(panel).toHaveCount(0);
   });
 
   test('the panel opens on Not checked, because that is what a feature is until somebody stands next to it', async ({ page, world }) => {
@@ -749,18 +866,18 @@ test.describe('W07 · filing a feature', () => {
   });
 
   test('a name of your own files that name, and the panel closes only once it exists', async ({ page, world }) => {
-    // The name box is behind the last chip now — "Something else" is what
-    // reveals it — because a free-text box standing open beside sixteen chips
-    // was one question with two answers. What it proves is unchanged: the typed
-    // name is what gets filed, and it is still on screen until the feature is.
+    // The name box appears once a type is chosen, and for "Something else" it
+    // starts empty (RecordFeatures.tsx chooseType). What it proves is
+    // unchanged: the typed name is what gets filed.
     liveLand(world, []);
     await page.goto(featuresUrl(ID.parcel));
 
     await addButton(page).click();
     const panel = drawer(page);
-    await expect(panel.getByLabel('Name it')).toHaveCount(0);
+    await expect(nameBox(panel)).toHaveCount(0);
     await panel.getByRole('button', { name: 'Something else' }).click();
-    await panel.getByLabel('Name it').fill('Cattle trough');
+    await expect(nameBox(panel)).toHaveValue('');
+    await nameBox(panel).fill('Cattle trough');
     await fileIt(page).click();
 
     await expect.poll(() => world.calls('addFeature').length).toBe(1);
@@ -771,7 +888,7 @@ test.describe('W07 · filing a feature', () => {
     // The panel is unmounted when it closes, so re-opening starts blank rather
     // than on the last feature filed — which is what emptying the box did.
     await addButton(page).click();
-    await expect(drawer(page).getByLabel('Name it')).toHaveCount(0);
+    await expect(nameBox(drawer(page))).toHaveCount(0);
     await expect(drawer(page).locator('#fa-kinds button[aria-pressed="true"]')).toHaveCount(0);
   });
 
@@ -784,8 +901,8 @@ test.describe('W07 · filing a feature', () => {
     await addButton(page).click();
     const panel = drawer(page);
     await panel.getByRole('button', { name: 'Something else' }).click();
-    await panel.getByLabel('Name it').fill('Silt trap');
-    await panel.getByLabel('Name it').press('Enter');
+    await nameBox(panel).fill('Silt trap');
+    await nameBox(panel).press('Enter');
 
     await expect.poll(() => world.calls('addFeature').length).toBe(1);
     expect(world.lastVars('addFeature')).toMatchObject({ label: 'Silt trap' });
@@ -805,19 +922,21 @@ test.describe('W07 · filing a feature', () => {
 
     await panel.getByRole('button', { name: 'Something else' }).click();
     await expect(fileIt(page)).toBeDisabled();
-    await panel.getByLabel('Name it').fill('   ');
+    await nameBox(panel).fill('   ');
     await expect(fileIt(page)).toBeDisabled();
     expect(world.calls('addFeature')).toHaveLength(0);
 
-    // And pressing the chosen type again clears it rather than leaving it stuck
-    // on, which puts the primary straight back to refusing.
+    // Choosing a named type over a blank name fills the name in, which is what
+    // lets the primary file it. Rewritten 27/09/2026: pressing the chosen type
+    // again used to clear it; since 37ae2ca it keeps the choice
+    // (chooseType returns early on the same key), so the primary stays ready.
     const bore = panel.getByRole('button', { name: 'Bore', exact: true });
     await bore.click();
     await expect(bore).toHaveAttribute('aria-pressed', 'true');
+    await expect(nameBox(panel)).toHaveValue('Bore');
     await expect(fileIt(page)).toBeEnabled();
     await bore.click();
-    await expect(bore).toHaveAttribute('aria-pressed', 'false');
-    await expect(fileIt(page)).toBeDisabled();
+    await expect(bore).toHaveAttribute('aria-pressed', 'true');
     expect(world.calls('addFeature')).toHaveLength(0);
   });
 
@@ -828,39 +947,33 @@ test.describe('W07 · filing a feature', () => {
     ]);
     await page.goto(featuresUrl(ID.parcel));
 
-    await filterChip(page, 'Water', 1).click();
+    await openFilter(page);
+    await filterOption(page, 'Water', 1).click();
     await expect(cards(page)).toHaveCount(1);
+    await page.keyboard.press('Escape');
 
     await addButton(page).click();
     await drawer(page).getByRole('button', { name: 'Gate', exact: true }).click();
     await fileIt(page).click();
 
-    await expect(filterChip(page, 'All', 3)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.filterbar .fchip')).toHaveCount(0);
     await expect(cards(page)).toHaveCount(3);
   });
 
-  test('filing from the panel does not reach over and throw away the editor that is open', async ({ page, world }) => {
-    // REPLACES "filing a second feature does not throw away the editor", which
-    // could only happen when a chip press opened one. The hazard is the same in
-    // the other direction and still live: filing drops the category filter and
-    // re-reads the whole list under whatever the owner already had open.
+  test('while one feature is being edited, nothing else can be filed underneath it', async ({ page, world }) => {
+    // Rewritten 27/09/2026. This used to prove that filing did not throw away
+    // an inline editor left open on a card. Since 07944a0 editing is a modal
+    // panel: the page behind it is `inert` (Drawer.tsx useSealedPage), so the
+    // hazard cannot arise. What is worth holding is that the seal is there.
     liveLand(world, [feat({ id: FEATURE.well, label: 'Open well', category: 'water' })]);
     await page.goto(featuresUrl(ID.parcel));
 
     await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
-    await openEditor(page).getByLabel('What it is', { exact: true }).fill('420 ft · 5 in');
+    await expect(editPanel(page, 'Open well')).toBeVisible();
 
-    await addButton(page).click();
-    await drawer(page).getByRole('button', { name: 'Pond', exact: true }).click();
-    await fileIt(page).click();
-
-    await expect.poll(() => world.calls('addFeature').length).toBe(1);
-    await expect(cardFor(page, 'Pond')).toBeVisible();
-    // Still one editor, still the same one, still holding what was typed.
-    await expect(openEditor(page)).toHaveCount(1);
-    await expect(openEditor(page).getByLabel('Name', { exact: true })).toHaveValue('Open well');
-    await expect(openEditor(page).getByLabel('What it is', { exact: true }))
-      .toHaveValue('420 ft · 5 in');
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(addButton(page).locator('xpath=ancestor-or-self::*[@inert]')).not.toHaveCount(0);
+    expect(world.calls('addFeature')).toHaveLength(0);
   });
 
   test('a filing the server refuses says so in the panel, and keeps it open', async ({ page, world }) => {
@@ -875,9 +988,9 @@ test.describe('W07 · filing a feature', () => {
     // that was pressed — it used to be a line under the dashed card in the grid,
     // which is not where the press happened.
     await expect(drawer(page).getByRole('alert'))
-      .toHaveText('That feature could not be filed. Reload the page and try again.');
+      .toHaveText('The feature details were not accepted. Check the values and try again.');
     await expect(drawer(page)).toBeVisible();
-    await expect(openEditor(page)).toHaveCount(0);
+    expect(world.calls('addFeature')).toHaveLength(1);
   });
 
   test('a filing that fell over keeps every word that was typed, because retyping it is the insult', async ({ page, world }) => {
@@ -887,62 +1000,39 @@ test.describe('W07 · filing a feature', () => {
     await addButton(page).click();
     const panel = drawer(page);
     await panel.getByRole('button', { name: 'Something else' }).click();
-    await panel.getByLabel('Name it').fill('Cattle trough');
-    await panel.getByLabel('Size, depth, year').fill('8 ft, brick');
+    await nameBox(panel).fill('Cattle trough');
+    await panel.getByLabel('Description').fill('8 ft, brick');
     await fileIt(page).click();
 
-    await expect(panel.getByRole('alert'))
-      .toHaveText('That feature did not save. What you typed is still here — try again.');
+    // Only the opening sentence is asserted: the rest of it is copy the
+    // uncommitted work shortened ("…What you entered is still here; try
+    // again." at HEAD, "…Try again." in the working tree).
+    await expect(panel.getByRole('alert')).toContainText('That feature did not save.');
     // And it is. The panel asks for more than a name now, so there is more to
     // lose than there was — all of it is still in the boxes.
-    await expect(panel.getByLabel('Name it')).toHaveValue('Cattle trough');
-    await expect(panel.getByLabel('Size, depth, year')).toHaveValue('8 ft, brick');
+    await expect(nameBox(panel)).toHaveValue('Cattle trough');
+    await expect(panel.getByLabel('Description')).toHaveValue('8 ft, brick');
   });
 
-  test('a detail that would not save says the feature itself went in, and will not file it twice', async ({ page, world }) => {
-    // Two mutations, because the API has no single call that takes a feature and
-    // its detail. So the halves have to be reported apart: the feature EXISTS by
-    // the time the second one fails, and a second press must finish it rather
-    // than file a duplicate — which is what the relabelled primary is for.
+  test('a type’s own questions travel with the feature, in the same one write', async ({ page, world }) => {
+    // Rewritten 27/09/2026. This used to cover a detail saved by a second
+    // write failing after the feature was filed ("Bore was filed, but its
+    // detail was not saved", "Save the detail"). Since 37ae2ca there is no
+    // second write, so there is no half-filed feature to report.
     liveLand(world, []);
-    world.set('updateFeature', false);
     await page.goto(featuresUrl(ID.parcel));
 
     await addButton(page).click();
     const panel = drawer(page);
     await panel.getByRole('button', { name: 'Bore', exact: true }).click();
-    await panel.getByLabel('Size, depth, year').fill('420 ft · 5 in');
+    await panel.getByLabel('Depth (ft)', { exact: true }).fill('420');
+    await panel.getByLabel('Diameter (in)', { exact: true }).fill('5');
     await fileIt(page).click();
 
-    await expect(panel.getByRole('alert')).toContainText('Bore was filed, but its detail was not saved.');
-    await expect(panel.getByRole('button', { name: 'Save the detail' })).toBeVisible();
-    await expect(fileIt(page)).toHaveCount(0);
-
-    await panel.getByRole('button', { name: 'Save the detail' }).click();
-    await expect.poll(() => world.calls('updateFeature').length).toBe(2);
-    // One feature, not two.
-    expect(world.calls('addFeature')).toHaveLength(1);
-  });
-
-  test('the card at the end of the grid says what a feature becomes, and only opens the panel', async ({ page }) => {
-    // On the empty record, where it is the only thing in the grid. It used to BE
-    // the form: a chip row and a name box that filed a feature on one press,
-    // under a bare name, before anyone had said what condition it was in. It is
-    // one control now, so there is nothing in it to file with.
-    await page.goto(featuresUrl(ID.plot));
-    const add = addCard(page);
-
-    await expect(add.getByRole('heading', { name: 'Add a feature' })).toBeVisible();
-    await expect(add).toContainText(
-      'A bore, a fence, a shed. It becomes a pin, a photo slot and a repair history.');
-    await expect(add.locator('button[aria-pressed]')).toHaveCount(0);
-    await expect(add.locator('input')).toHaveCount(0);
-    // It says what it is going to do before it is pressed, like every other
-    // trigger on the record.
-    await expect(add).toHaveAttribute('aria-haspopup', 'dialog');
-
-    await add.click();
-    await expect(drawer(page)).toBeVisible();
+    await expect.poll(() => world.calls('addFeature').length).toBe(1);
+    expect(JSON.parse(String(world.lastVars('addFeature').attributes)))
+      .toEqual({ depthFt: '420', diameterIn: '5' });
+    expect(world.calls('updateFeature')).toHaveLength(0);
   });
 
   test('the panel offers the sixteen names it has, and a way to say something else', async ({ page }) => {
@@ -956,13 +1046,14 @@ test.describe('W07 · filing a feature', () => {
     const kinds = drawer(page).locator('#fa-kinds button');
     await expect(kinds).toHaveText([
       'Bore', 'Well', 'Pond', 'Transformer', 'Meter', 'Solar', 'Fence', 'Gate',
-      'Shed', 'House', 'Compound wall', 'Trees', 'Crop', 'Road', 'Bund', 'Canal',
+      // "Tree", singular: the list comes from the API's catalogue since
+      // 37ae2ca (feature_schema.py FEATURE_TYPES), not a list in the page.
+      'Shed', 'House', 'Compound wall', 'Tree', 'Crop', 'Road', 'Bund', 'Canal',
       'Something else',
     ]);
-    await expect(drawer(page).getByLabel('Name it')).toHaveCount(0);
+    await expect(nameBox(drawer(page))).toHaveCount(0);
     await kinds.last().click();
-    await expect(drawer(page).getByLabel('Name it'))
-      .toHaveAttribute('placeholder', 'Something else…');
+    await expect(nameBox(drawer(page))).toHaveAttribute('placeholder', 'Something else');
   });
 
   test('the primary says it is filing while the feature is still being filed', async ({ page, world }) => {
@@ -973,15 +1064,14 @@ test.describe('W07 · filing a feature', () => {
     await addButton(page).click();
     const panel = drawer(page);
     await panel.getByRole('button', { name: 'Something else' }).click();
-    await panel.getByLabel('Name it').fill('Cattle trough');
+    await nameBox(panel).fill('Cattle trough');
     await fileIt(page).click();
 
-    // "Filing…", not "Adding…": every drawer's primary says the same word for
-    // the same state now (Drawer.DrawerAction).
-    await expect(panel.getByRole('button', { name: 'Filing…' })).toBeDisabled();
+    // "Saving…", the working word this panel passes to Drawer.DrawerAction.
+    await expect(panel.getByRole('button', { name: 'Saving…' })).toBeDisabled();
     // And the typed name is still in the box while it goes, because it is the
     // thing being filed — the panel closes when the feature exists, not before.
-    await expect(panel.getByLabel('Name it')).toHaveValue('Cattle trough');
+    await expect(nameBox(panel)).toHaveValue('Cattle trough');
   });
 
   test('the button at the top of the page opens the panel with the type chips under the cursor', async ({ page }) => {
@@ -1000,9 +1090,7 @@ test.describe('W07 · filing a feature', () => {
     await expect(panel.locator('#fa-kinds button').first()).toBeFocused();
     // The panel covers the header that names the record, so it carries the
     // record's own name in its eyebrow (Drawer.drawerEyebrow).
-    await expect(panel.locator('.eyebrow')).toHaveText('Sy 214/2 · Features');
-    await expect(panel).toContainText(
-      'A bore, a fence, a shed. It becomes a pin, a photo slot and a repair history of its own.');
+    await expect(panel.locator('.eyebrow')).toHaveText('Sy 214/2 · Site features');
 
     // Cancel is a deliberate press, so it closes at once — it is Escape and a
     // slipped click on the scrim that ask about typed work — and focus goes back
@@ -1015,81 +1103,100 @@ test.describe('W07 · filing a feature', () => {
 
 // ── the editor ─────────────────────────────────────────────────────────
 
+/**
+ * Rewritten 27/09/2026 against the committed screen. Editing used to replace a
+ * card with an inline form (Name, What it is, Condition, Note, Save, Cancel).
+ * Since 07944a0 a card's pencil opens the same drawer as filing, named
+ * "Edit <label>", and since 37ae2ca it asks each type's own questions instead
+ * of a free-text spec, and sends `typeKey`, `attributes` and `expectedVersion`
+ * rather than `spec`. Every scenario the old block held is kept where the
+ * behaviour still exists; the one about focus landing in the name box now
+ * lands on the type chips, because that is where the panel puts it.
+ */
 test.describe('W07 · turning a name into a record', () => {
   const bore = () => [feat({
     id: FEATURE.well, label: 'Borewell 1', spec: '420 ft · 5 in · 2005', category: 'water',
     condition: 'Yield dropped', conditionState: 'warn', note: 'Ran dry in May',
     lat: 15.7408, lon: 79.2697, pinLabel: 'W1',
+    typeKey: 'bore', attributes: JSON.stringify({ depthFt: 420, diameterIn: 5 }), version: 3,
   })];
+  const pencil = (page: Page, label: string) =>
+    cardFor(page, label).getByRole('button', { name: `Edit ${label}` });
 
-  test('the pencil opens the whole card as a form, filled with what is already on it', async ({ page, world }) => {
+  test('the pencil opens the whole feature in the panel, filled with what is already on it', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
+    await pencil(page, 'Borewell 1').click();
 
-    const editor = openEditor(page);
-    await expect(editor.getByLabel('Name', { exact: true })).toHaveValue('Borewell 1');
-    await expect(editor.getByLabel('What it is', { exact: true })).toHaveValue('420 ft · 5 in · 2005');
-    await expect(editor.getByLabel('Condition', { exact: true })).toHaveValue('Yield dropped');
-    await expect(editor.getByLabel('Note', { exact: true })).toHaveValue('Ran dry in May');
-    await expect(editor.getByRole('button', { name: 'Watch it', exact: true }))
+    const panel = editPanel(page, 'Borewell 1');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Bore', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
-    // The card it replaced is gone; typing a spec beside a stale copy of the
-    // same spec is how two of them end up disagreeing.
-    await expect(page.getByText('420 ft · 5 in · 2005', { exact: true })).toHaveCount(0);
+    await expect(nameBox(panel)).toHaveValue('Borewell 1');
+    await expect(panel.getByLabel('Depth (ft)', { exact: true })).toHaveValue('420');
+    await expect(panel.getByLabel('Diameter (in)', { exact: true })).toHaveValue('5');
+    await expect(panel.getByLabel('Condition detail', { exact: true })).toHaveValue('Yield dropped');
+    await expect(panel.getByLabel('Note', { exact: true })).toHaveValue('Ran dry in May');
+    await expect(panel.getByRole('button', { name: 'Watch it', exact: true }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(panel.getByLabel('Latitude')).toHaveValue('15.7408');
+    await expect(panel.getByLabel('Longitude')).toHaveValue('79.2697');
   });
 
-  test('the form opens with the cursor already in the name, so a phone can type straight away', async ({ page, world }) => {
+  test('the panel opens on the type chips, the same place filing starts', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
+    await pencil(page, 'Borewell 1').click();
 
-    await expect(openEditor(page).getByLabel('Name', { exact: true })).toBeFocused();
+    await expect(editPanel(page, 'Borewell 1').locator('#fa-kinds button').first()).toBeFocused();
   });
 
-  test('a save sends the whole form, so a spec that was cleared is actually cleared', async ({ page, world }) => {
+  test('a save sends the whole form, so a detail that was cleared is actually cleared', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('What it is', { exact: true }).fill('');
-    await editor.getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await panel.getByLabel('Depth (ft)', { exact: true }).fill('');
+    await saveIt(page).click();
 
     await expect.poll(() => world.calls('updateFeature').length).toBe(1);
-    expect(world.lastVars('updateFeature')).toEqual({
+    const sent = world.lastVars('updateFeature');
+    expect(sent).toMatchObject({
       featureId: FEATURE.well,
       label: 'Borewell 1',
-      spec: '',
+      typeKey: 'bore',
       condition: 'Yield dropped',
       conditionState: 'warn',
       note: 'Ran dry in May',
+      expectedVersion: 3,
     });
-    await expect(cardFor(page, 'Borewell 1').locator('.note.mono')).toHaveCount(0);
+    // Cleared is removed, not sent as an empty value; what was not touched
+    // goes back exactly as it came.
+    expect(JSON.parse(String(sent.attributes))).toEqual({ diameterIn: 5 });
+    await expect(panel).toHaveCount(0);
   });
 
   test('the words that go to the server are the typed ones without the spaces around them', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('Name', { exact: true }).fill('  Borewell 1  ');
-    await editor.getByLabel('What it is', { exact: true }).fill('  420 ft · 5 in  ');
-    await editor.getByLabel('Note', { exact: true }).fill('  Ran dry in May  ');
-    await editor.getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await nameBox(panel).fill('  Borewell 1  ');
+    await panel.getByLabel('Condition detail', { exact: true }).fill('  Yield dropped  ');
+    await panel.getByLabel('Note', { exact: true }).fill('  Ran dry in May  ');
+    await saveIt(page).click();
 
     await expect.poll(() => world.calls('updateFeature').length).toBe(1);
     // A stray space is what a thumb on a phone keyboard leaves behind; stored,
     // it is a name that no longer matches itself in a search or a sort.
-    expect(world.lastVars('updateFeature')).toEqual({
+    expect(world.lastVars('updateFeature')).toMatchObject({
       featureId: FEATURE.well,
       label: 'Borewell 1',
-      spec: '420 ft · 5 in',
       condition: 'Yield dropped',
-      conditionState: 'warn',
       note: 'Ran dry in May',
     });
     await expect(cardFor(page, 'Borewell 1')).toBeVisible();
@@ -1102,68 +1209,60 @@ test.describe('W07 · turning a name into a record', () => {
     ]);
     await page.goto(featuresUrl(ID.parcel));
 
-    await filterChip(page, 'Water', 1).click();
+    await openFilter(page);
+    await filterOption(page, 'Water', 1).click();
     await expect(cards(page)).toHaveCount(1);
+    await page.keyboard.press('Escape');
 
-    await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
-    await openEditor(page).getByLabel('Condition', { exact: true }).fill('Silted');
-    await openEditor(page).getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Open well').click();
+    await editPanel(page, 'Open well').getByLabel('Condition detail', { exact: true }).fill('Silted');
+    await saveIt(page).click();
 
-    // An edit can move a feature out of the chip it was filed under, and a
+    // An edit can move a feature out of the filter it was found under, and a
     // card that vanishes as it is saved reads as a card that was deleted.
-    await expect(filterChip(page, 'All', 2)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.filterbar .fchip')).toHaveCount(0);
     await expect(cards(page)).toHaveCount(2);
-    await expect(cardFor(page, 'Open well').locator('.state.good')).toHaveText('Silted');
+    await expect(cardFor(page, 'Open well').locator('.state.good')).toHaveText('Working');
+    await expect(cardFor(page, 'Open well').locator('p.note').filter({ hasText: 'Silted' })).toBeVisible();
   });
 
   test('a saved edit hands the cursor back to the pencil it came from', async ({ page, world }) => {
-    // DEFECT, and a flaky one — this test goes red roughly one run in two, and
-    // the red is the app losing a coin toss rather than the suite wobbling.
-    //
-    // RecordFeatures.tsx:133-135 restores the row's focus one animation frame
-    // after the save, from the `editTriggers` map — and :540 only ever WRITES
-    // to that map (`if (node)`), so the entry for a card whose pencil is
-    // currently replaced by the editor is the DETACHED button from before the
-    // editor opened. save() (:196) runs after an `await`, so React commits the
-    // re-rendered card from the scheduler rather than from the click, and that
-    // commit races the frame. Lose the race and `focus()` is called on a node
-    // with `isConnected === false` — measured, not guessed — the call does
-    // nothing, the Save button it was standing on is removed, and the keyboard
-    // is dumped on <body>: the next Tab starts again at the top of the page.
-    // Cancel (:444-449) is reliable only because it runs inside the click,
-    // where React has already flushed. The fix is to focus from an effect
-    // after the commit, or to clear the map entry when the ref is handed null.
-    // It is NOT marked test.fail(), because a marker that is wrong half the
-    // time is worse than the flake it documents.
+    // Under the inline editor this was a known flake: focus was restored from
+    // a map that could hold a detached button. The drawer now returns focus
+    // itself (Drawer.tsx useSealedPage: the opener if it is still connected,
+    // else `returnFocus`). Kept unmarked; if it flakes again, that is the
+    // finding, not the suite.
     liveLand(world, [
       feat({ id: FEATURE.well, label: 'Open well', category: 'water', condition: 'Working', conditionState: 'good' }),
       feat({ id: FEATURE.fence, label: 'Barbed fence', category: 'boundary', conditionState: 'unknown' }),
     ]);
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
-    await openEditor(page).getByLabel('Condition', { exact: true }).fill('Silted');
-    await openEditor(page).getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Open well').click();
+    await editPanel(page, 'Open well').getByLabel('Condition detail', { exact: true }).fill('Silted');
+    await saveIt(page).click();
 
-    await expect(cardFor(page, 'Open well').locator('.state.good')).toHaveText('Silted');
-    await expect(cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' })).toBeFocused();
+    await expect(cardFor(page, 'Open well').locator('p.note').filter({ hasText: 'Silted' })).toBeVisible();
+    await expect(pencil(page, 'Open well')).toBeFocused();
   });
 
   test('an edited feature comes back onto its card in the words that were typed', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('Name', { exact: true }).fill('Borewell 1 (east)');
-    await editor.getByLabel('Condition', { exact: true }).fill('Dead');
-    await editor.getByRole('button', { name: 'Broken', exact: true }).click();
-    await editor.getByLabel('Note', { exact: true }).fill('Starter panel burnt out');
-    await editor.getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await nameBox(panel).fill('Borewell 1 (east)');
+    await panel.getByLabel('Condition detail', { exact: true }).fill('Dead');
+    await panel.getByRole('button', { name: 'Broken', exact: true }).click();
+    await panel.getByLabel('Note', { exact: true }).fill('Starter panel burnt out');
+    await saveIt(page).click();
 
-    await expect(openEditor(page)).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     const card = cardFor(page, 'Borewell 1 (east)');
-    await expect(card.locator('.state.bad')).toHaveText('Dead');
+    // The state in its one word, and the typed words under it.
+    await expect(card.locator('.state.bad')).toHaveText('Broken');
+    await expect(card.locator('p.note').filter({ hasText: 'Dead' })).toBeVisible();
     await expect(card).toContainText('Starter panel burnt out');
     await expect(card).toHaveClass(/alert/);
   });
@@ -1172,66 +1271,67 @@ test.describe('W07 · turning a name into a record', () => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
     for (const word of ['Working', 'Watch it', 'Broken', 'Not checked']) {
-      await expect(editor.getByRole('button', { name: word, exact: true })).toBeVisible();
+      await expect(panel.getByRole('button', { name: word, exact: true })).toBeVisible();
     }
-    await editor.getByRole('button', { name: 'Working', exact: true }).click();
-    await expect(editor.getByRole('button', { name: 'Working', exact: true }))
+    await panel.getByRole('button', { name: 'Working', exact: true }).click();
+    await expect(panel.getByRole('button', { name: 'Working', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
-    await expect(editor.getByRole('button', { name: 'Watch it', exact: true }))
+    await expect(panel.getByRole('button', { name: 'Watch it', exact: true }))
       .toHaveAttribute('aria-pressed', 'false');
   });
 
   test('a feature the server has never had a word for opens on Not checked', async ({ page, world }) => {
-    liveLand(world, [feat({ id: FEATURE.fence, label: 'Barbed fence', conditionState: 'unknown' })]);
+    liveLand(world, [feat({ id: FEATURE.fence, label: 'Barbed fence', typeKey: 'fence', conditionState: 'unknown' })]);
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Barbed fence').getByRole('button', { name: 'Edit Barbed fence' }).click();
-    await expect(openEditor(page).getByRole('button', { name: 'Not checked', exact: true }))
+    await pencil(page, 'Barbed fence').click();
+    await expect(editPanel(page, 'Barbed fence').getByRole('button', { name: 'Not checked', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('a save the server refuses keeps the form open and says why, above the button that asked', async ({ page, world }) => {
+  test('a save the server refuses keeps the panel open and says why, above the button that asked', async ({ page, world }) => {
     world.set('features', land(bore()));
     world.set('updateFeature', false);
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('Condition', { exact: true }).fill('Dead');
-    await editor.getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await panel.getByLabel('Condition detail', { exact: true }).fill('Dead');
+    await saveIt(page).click();
 
-    await expect(editor.getByRole('alert'))
-      .toHaveText('That change was not saved. Reload the page and try again.');
-    await expect(editor.getByLabel('Condition', { exact: true })).toHaveValue('Dead');
-    await expect(editor.getByRole('button', { name: 'Save' })).toBeEnabled();
+    // A refusal here is most often somebody else's edit landing first, which
+    // is why the save carries `expectedVersion`.
+    await expect(panel.getByRole('alert')).toHaveText(
+      'This feature changed elsewhere or the values were not accepted. Reload and try again.');
+    await expect(panel.getByLabel('Condition detail', { exact: true })).toHaveValue('Dead');
+    await expect(saveIt(page)).toBeEnabled();
   });
 
-  test('a save that fell over says the typed words are still here, and they are', async ({ page, world }) => {
+  test('a save that fell over says so, and the typed words are still there', async ({ page, world }) => {
     world.set('features', land(bore()));
     world.set('updateFeature', World.gqlError('the write timed out'));
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('Note', { exact: true }).fill('Panel replaced 12 Aug');
-    await editor.getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await panel.getByLabel('Note', { exact: true }).fill('Panel replaced 12 Aug');
+    await saveIt(page).click();
 
-    await expect(editor.getByRole('alert'))
-      .toHaveText('That change could not be saved. What you typed is still here.');
-    await expect(editor.getByLabel('Note', { exact: true })).toHaveValue('Panel replaced 12 Aug');
+    // The opening sentence only: the rest is copy the uncommitted work shortened.
+    await expect(panel.getByRole('alert')).toContainText('That feature did not save.');
+    await expect(panel.getByLabel('Note', { exact: true })).toHaveValue('Panel replaced 12 Aug');
   });
 
   test('a feature cannot be saved with its name rubbed out', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('Name', { exact: true }).fill('   ');
-    await expect(editor.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await pencil(page, 'Borewell 1').click();
+    await nameBox(editPanel(page, 'Borewell 1')).fill('   ');
+    await expect(saveIt(page)).toBeDisabled();
     expect(world.calls('updateFeature')).toHaveLength(0);
   });
 
@@ -1240,29 +1340,32 @@ test.describe('W07 · turning a name into a record', () => {
     world.set('updateFeature', World.slow(1200, true));
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    const editor = openEditor(page);
-    await editor.getByLabel('Condition', { exact: true }).fill('Dead');
-    await editor.getByRole('button', { name: 'Save' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await panel.getByLabel('Condition detail', { exact: true }).fill('Dead');
+    await saveIt(page).click();
 
-    await expect(editor.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    await expect(panel.getByRole('button', { name: 'Saving…' })).toBeDisabled();
   });
 
-  test('Cancel closes the form and puts the cursor back on the pencil it came from', async ({ page, world }) => {
+  test('Cancel closes the panel and puts the cursor back on the pencil it came from', async ({ page, world }) => {
     liveLand(world, bore());
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    await openEditor(page).getByLabel('Condition', { exact: true }).fill('Dead');
-    await openEditor(page).getByRole('button', { name: 'Cancel' }).click();
+    await pencil(page, 'Borewell 1').click();
+    const panel = editPanel(page, 'Borewell 1');
+    await panel.getByLabel('Condition detail', { exact: true }).fill('Dead');
+    await panel.getByRole('button', { name: 'Cancel' }).click();
 
-    await expect(openEditor(page)).toHaveCount(0);
-    await expect(cardFor(page, 'Borewell 1').locator('.state.warn')).toHaveText('Yield dropped');
-    await expect(cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' })).toBeFocused();
+    await expect(panel).toHaveCount(0);
+    await expect(cardFor(page, 'Borewell 1').locator('.state.warn')).toHaveText('Watch it');
+    await expect(cardFor(page, 'Borewell 1').locator('p.note').filter({ hasText: 'Yield dropped' })).toBeVisible();
+    await expect(cardFor(page, 'Borewell 1')).not.toContainText('Dead');
+    await expect(pencil(page, 'Borewell 1')).toBeFocused();
     expect(world.calls('updateFeature')).toHaveLength(0);
   });
 
-  test('a refusal on one card does not follow the pencil onto the next one', async ({ page, world }) => {
+  test('a refusal on one feature does not follow the pencil onto the next one', async ({ page, world }) => {
     world.set('features', land([
       feat({ id: FEATURE.well, label: 'Open well', category: 'water', condition: 'Working', conditionState: 'good' }),
       feat({ id: FEATURE.fence, label: 'Barbed fence', category: 'boundary', conditionState: 'unknown' }),
@@ -1270,30 +1373,30 @@ test.describe('W07 · turning a name into a record', () => {
     world.set('updateFeature', false);
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
-    await openEditor(page).getByRole('button', { name: 'Save' }).click();
-    await expect(openEditor(page).getByRole('alert')).toBeVisible();
+    await pencil(page, 'Open well').click();
+    await saveIt(page).click();
+    await expect(editPanel(page, 'Open well').getByRole('alert')).toBeVisible();
+    await editPanel(page, 'Open well').getByRole('button', { name: 'Cancel' }).click();
 
-    // Straight from one card's pencil to another's, without closing the first:
-    // the message is one piece of state shared by every editor on the page, so
-    // a fence that has never been saved would open under a refusal.
-    await cardFor(page, 'Barbed fence').getByRole('button', { name: 'Edit Barbed fence' }).click();
-    await expect(openEditor(page).getByLabel('Name', { exact: true })).toHaveValue('Barbed fence');
-    await expect(openEditor(page).getByRole('alert')).toHaveCount(0);
+    // The panel is unmounted on close, so the next feature's panel starts
+    // with nothing to report.
+    await pencil(page, 'Barbed fence').click();
+    await expect(nameBox(editPanel(page, 'Barbed fence'))).toHaveValue('Barbed fence');
+    await expect(editPanel(page, 'Barbed fence').getByRole('alert')).toHaveCount(0);
   });
 
-  test('reopening a form that was refused does not reopen the refusal with it', async ({ page, world }) => {
+  test('reopening a panel that was refused does not reopen the refusal with it', async ({ page, world }) => {
     world.set('features', land(bore()));
     world.set('updateFeature', false);
     await page.goto(featuresUrl(ID.parcel));
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    await openEditor(page).getByRole('button', { name: 'Save' }).click();
-    await expect(openEditor(page).getByRole('alert')).toBeVisible();
-    await openEditor(page).getByRole('button', { name: 'Cancel' }).click();
+    await pencil(page, 'Borewell 1').click();
+    await saveIt(page).click();
+    await expect(editPanel(page, 'Borewell 1').getByRole('alert')).toBeVisible();
+    await editPanel(page, 'Borewell 1').getByRole('button', { name: 'Cancel' }).click();
 
-    await cardFor(page, 'Borewell 1').getByRole('button', { name: 'Edit Borewell 1' }).click();
-    await expect(openEditor(page).getByRole('alert')).toHaveCount(0);
+    await pencil(page, 'Borewell 1').click();
+    await expect(editPanel(page, 'Borewell 1').getByRole('alert')).toHaveCount(0);
   });
 });
 
@@ -1312,8 +1415,15 @@ test.describe('W07 · taking a feature away', () => {
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
 
-    await expect(card.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
-    await expect(card.getByRole('button', { name: 'Keep' })).toBeVisible();
+    // The shared confirmation, naming the feature and saying what goes with
+    // it and what stays (delete_feature deletes the row; photos and costs
+    // keep theirs).
+    const dialog = removeDialog(page, 'Barbed fence');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Its details, condition and pin are deleted and cannot be brought back.'
+      + ' Photos of it stay in Media, and its costs stay in Money.');
+    await expect(dialog.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
     expect(world.calls('deleteFeature')).toHaveLength(0);
     await expect(cards(page)).toHaveCount(2);
   });
@@ -1324,10 +1434,11 @@ test.describe('W07 · taking a feature away', () => {
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Remove', exact: true }).click();
+    await removeDialog(page, 'Barbed fence').getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect.poll(() => world.calls('deleteFeature').length).toBe(1);
     expect(world.lastVars('deleteFeature')).toMatchObject({ featureId: FEATURE.fence });
+    await expect(removeDialog(page, 'Barbed fence')).toHaveCount(0);
     await expect(cardFor(page, 'Barbed fence')).toHaveCount(0);
     await expect(cardFor(page, 'Open well')).toBeVisible();
     expect(rows.map((r) => r.id)).toEqual([FEATURE.well]);
@@ -1339,7 +1450,7 @@ test.describe('W07 · taking a feature away', () => {
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Remove', exact: true }).click();
+    await removeDialog(page, 'Barbed fence').getByRole('button', { name: 'Remove', exact: true }).click();
 
     // The card that held the pressed control is gone, so focus goes to the one
     // control on this screen that is always there — the header's own button,
@@ -1347,34 +1458,36 @@ test.describe('W07 · taking a feature away', () => {
     await expect(addButton(page)).toBeFocused();
   });
 
-  test('Keep puts the card back the way it was, with the cursor where it started', async ({ page, world }) => {
+  test('Cancel leaves the card the way it was, with the cursor where it started', async ({ page, world }) => {
     liveLand(world, two());
     await page.goto(featuresUrl(ID.parcel));
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Keep' }).click();
+    await removeDialog(page, 'Barbed fence').getByRole('button', { name: 'Cancel' }).click();
 
+    await expect(removeDialog(page, 'Barbed fence')).toHaveCount(0);
     await expect(card.getByRole('button', { name: 'Remove Barbed fence' })).toBeFocused();
     expect(world.calls('deleteFeature')).toHaveLength(0);
     await expect(cards(page)).toHaveCount(2);
   });
 
-  test('a removal the server refuses keeps the feature, and says so on that card alone', async ({ page, world }) => {
+  test('a removal the server refuses keeps the feature, and says so in the confirmation that asked', async ({ page, world }) => {
     world.set('features', land(two()));
     world.set('deleteFeature', false);
     await page.goto(featuresUrl(ID.parcel));
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Remove', exact: true }).click();
+    const dialog = removeDialog(page, 'Barbed fence');
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await expect(card.getByRole('alert'))
+    await expect(dialog.getByRole('alert'))
       .toHaveText('That feature could not be removed. Reload the page and try again.');
-    // The confirm row stays open: shutting it while the card is still there
+    // The confirmation stays open: shutting it while the card is still there
     // reads as "Remove does not work".
-    await expect(card.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
-    await expect(cardFor(page, 'Open well').getByRole('alert')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+    await expect(cards(page)).toHaveCount(2);
   });
 
   test('a removal that fell over says the feature is still filed here', async ({ page, world }) => {
@@ -1384,24 +1497,30 @@ test.describe('W07 · taking a feature away', () => {
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Remove', exact: true }).click();
+    const dialog = removeDialog(page, 'Barbed fence');
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await expect(card.getByRole('alert'))
+    await expect(dialog.getByRole('alert'))
       .toHaveText('That feature could not be removed. It is still filed here.');
     await expect(cardFor(page, 'Barbed fence')).toBeVisible();
   });
 
-  test('the card being removed is the only one that greys out while it goes', async ({ page, world }) => {
+  test('a removal in flight says so, and will not take a second press', async ({ page, world }) => {
     world.set('features', land(two()));
     world.set('deleteFeature', World.slow(1200, true));
     await page.goto(featuresUrl(ID.parcel));
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Remove', exact: true }).click();
+    const dialog = removeDialog(page, 'Barbed fence');
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await expect(card.getByRole('button', { name: 'Removing…' })).toBeDisabled();
-    await expect(cardFor(page, 'Open well').getByRole('button', { name: 'Remove Open well' })).toBeEnabled();
+    // The shared confirmation's busy word, on the one button that would send
+    // it again; the dialog holds until the server has answered.
+    await expect(dialog.getByRole('button', { name: 'Working…' })).toBeDisabled();
+    await expect(dialog).toHaveAttribute('aria-busy', 'true');
+    await expect(dialog).toHaveCount(0);
+    expect(world.calls('deleteFeature')).toHaveLength(1);
   });
 
   test('asking to remove a second time takes back the refusal the first ask got', async ({ page, world }) => {
@@ -1411,29 +1530,43 @@ test.describe('W07 · taking a feature away', () => {
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await card.getByRole('button', { name: 'Remove', exact: true }).click();
-    await expect(card.getByRole('alert')).toBeVisible();
+    const dialog = removeDialog(page, 'Barbed fence');
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toBeVisible();
 
-    await card.getByRole('button', { name: 'Keep' }).click();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
 
     // The question is being asked again, so the answer to the last one is no
     // longer the answer to anything.
-    await expect(card.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
-    await expect(card.getByRole('alert')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
   });
 
-  test('opening the pencil on a card takes back the question the bin asked', async ({ page, world }) => {
+  test('while the confirmation is open the page behind it cannot be reached', async ({ page, world }) => {
+    // Was "opening the pencil on a card takes back the question the bin
+    // asked": the question used to be a pair of buttons inside the card, so a
+    // pencil elsewhere could still be pressed. It is a modal now (Dialog.tsx),
+    // and the one way out of it is its own Cancel.
     liveLand(world, two());
     await page.goto(featuresUrl(ID.parcel));
 
     const card = cardFor(page, 'Barbed fence');
     await card.getByRole('button', { name: 'Remove Barbed fence' }).click();
-    await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
+    const dialog = removeDialog(page, 'Barbed fence');
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+    // Opening focus lands on Cancel, the safe choice, and Tab stays inside.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Remove', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
 
-    await expect(cardFor(page, 'Barbed fence').getByRole('button', { name: 'Remove', exact: true }))
-      .toHaveCount(0);
-    await expect(openEditor(page).getByLabel('Name', { exact: true })).toHaveValue('Open well');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
+    await expect(nameBox(editPanel(page, 'Open well'))).toHaveValue('Open well');
+    expect(world.calls('deleteFeature')).toHaveLength(0);
   });
 });
 
@@ -1442,7 +1575,7 @@ test.describe('W07 · taking a feature away', () => {
 /**
  * Nothing on this screen files an order any more.
  *
- * "Ask for a check" used to buy the ₹1,200 site visit from a confirm dialog:
+ * "Ask for a site visit" (then "Ask for a check") used to buy the ₹1,200 site visit from a confirm dialog:
  * one tap, no review of what was being bought, no idempotency key, no
  * reference to come back to, and no check that the record could even say where
  * the land is. It is now a `<Link>` into the order flow
@@ -1471,24 +1604,29 @@ const visitOrdered = [{
   held: 1_200, pendingReview: 0,
 }];
 
-/** Whichever shape the check control is wearing — a link when the orders are
- *  known and there is no visit yet, a disabled button while they are not. Used
- *  where a test is about the CONTROL rather than about which of the two it is. */
-const askForCheck = (page: Page) =>
-  page.getByRole('link', { name: /^Ask for a check/ })
-    .or(page.getByRole('button', { name: /^Ask for a check/ }));
+/** Whichever shape the site-visit control is wearing — a link when the orders
+ *  are known and there is no visit yet, a disabled button while they are not.
+ *  Used where a test is about the CONTROL rather than about which of the two
+ *  it is. It is named for the catalogue's service, a site visit: "check" on
+ *  this tab is the look somebody takes at a feature, not a thing you buy
+ *  (design.md § App vocabulary, "Property tabs"). */
+const askForVisit = (page: Page) =>
+  page.getByRole('link', { name: /^Ask for a site visit/ })
+    .or(page.getByRole('button', { name: /^Ask for a site visit/ }));
+const visitLink = (page: Page) => page.getByRole('link', { name: /^Ask for a site visit/ });
 
-test.describe('W07 · asking for a check', () => {
+test.describe('W07 · asking for a site visit', () => {
   test('the price is on the control that asks for one, because a visit costs money', async ({ page }) => {
     await page.goto(featuresUrl(ID.parcel));
-    await expect(page.getByRole('link', { name: /^Ask for a check/ })).toContainText('₹1,200');
+    // The catalogue's own price (servicesOffered, site_visit), not a number
+    // typed into the page.
+    await expect(visitLink(page)).toContainText('₹1,200');
   });
 
-  test('asking for a check hands the order flow the land, the service and the brief', async ({ page, world }) => {
+  test('asking for a site visit hands the order flow the land, the service and the brief', async ({ page, world }) => {
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(page.getByRole('link', { name: /^Ask for a check/ }))
-      .toHaveAttribute('href', ORDER_CHECK);
+    await expect(visitLink(page)).toHaveAttribute('href', ORDER_CHECK);
     // And it is a way in, not a purchase: no question is asked on this screen
     // and no order leaves it.
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -1497,7 +1635,7 @@ test.describe('W07 · asking for a check', () => {
 
   test('following it lands on the step that chooses the work, with the site visit already chosen', async ({ page, world }) => {
     await page.goto(featuresUrl(ID.parcel));
-    await page.getByRole('link', { name: /^Ask for a check/ }).click();
+    await visitLink(page).click();
 
     await expect(page).toHaveURL(ORDER_CHECK);
     await expect(page.getByRole('heading', { name: 'What do you want done on this land?' }))
@@ -1506,14 +1644,17 @@ test.describe('W07 · asking for a check', () => {
     // for — and the service came with it, so the tile is already pressed.
     await expect(page.getByRole('button', { name: /^Site visit/ }))
       .toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: /^Boundary re-survey/ }))
+    // Title opinion, not Boundary re-survey: the seeded parcel already has a
+    // re-survey running (W-2102), and a service already on order is drawn as
+    // its open request rather than as a tile that can be pressed.
+    await expect(page.getByRole('button', { name: /^Title opinion/ }))
       .toHaveAttribute('aria-pressed', 'false');
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
   test('the visit arrives at the questions already told what to look at', async ({ page, world }) => {
     await page.goto(featuresUrl(ID.parcel));
-    await page.getByRole('link', { name: /^Ask for a check/ }).click();
+    await visitLink(page).click();
     await page.getByRole('button', { name: 'Answer what it needs' }).click();
 
     await expect(page.getByRole('heading', { name: 'What we need to know' })).toBeVisible();
@@ -1528,11 +1669,11 @@ test.describe('W07 · asking for a check', () => {
     world.set('orders', visitOrdered);
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(page.getByRole('link', { name: 'Open ordered check' }))
+    await expect(page.getByRole('link', { name: 'Open the site visit order' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
     // Not the order flow under another name: a second paid visit cannot be
     // started from here at all, in either shape.
-    await expect(askForCheck(page)).toHaveCount(0);
+    await expect(askForVisit(page)).toHaveCount(0);
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
@@ -1540,12 +1681,14 @@ test.describe('W07 · asking for a check', () => {
     world.set('orders', World.never());
     await page.goto(featuresUrl(ID.parcel));
 
-    const waiting = page.getByRole('button', { name: 'Checking orders…' });
+    // "Looking up", not "Checking": check on this tab means a look on the
+    // ground.
+    const waiting = page.getByRole('button', { name: 'Looking up your orders…' });
     await expect(waiting).toBeDisabled();
     // The shape matters and not only the greying: a <Link> has no `disabled`,
     // so a class that dims it still navigates on a click, on Enter and on a
     // middle click into a new tab. A real button is refused by the browser.
-    await expect(page.getByRole('link', { name: /^Ask for a check/ })).toHaveCount(0);
+    await expect(visitLink(page)).toHaveCount(0);
     await waiting.click({ force: true });
     await expect(page).toHaveURL(featuresUrl(ID.parcel));
     expect(world.calls('orderService')).toHaveLength(0);
@@ -1555,17 +1698,18 @@ test.describe('W07 · asking for a check', () => {
     world.set('orders', World.gqlError('orders are not readable'));
     await page.goto(featuresUrl(ID.parcel));
 
+    // The failure, and why the control beside it is greyed.
     const said = page.getByRole('alert')
-      .filter({ hasText: 'Existing orders could not be checked, so another paid visit is disabled' });
+      .filter({ hasText: 'Your existing orders did not load, so a site visit cannot be ordered yet.' });
     await expect(said).toBeVisible();
 
     // Still priced, so nobody reads it as a different offer — but inert, and
     // inert the way the browser enforces rather than the way a stylesheet
     // suggests. A duplicate guard that could not run is not a guard.
-    const asked = page.getByRole('button', { name: /^Ask for a check/ });
+    const asked = page.getByRole('button', { name: /^Ask for a site visit/ });
     await expect(asked).toBeDisabled();
     await expect(asked).toContainText('₹1,200');
-    await expect(page.getByRole('link', { name: /^Ask for a check/ })).toHaveCount(0);
+    await expect(visitLink(page)).toHaveCount(0);
     await asked.click({ force: true });
     await expect(page).toHaveURL(featuresUrl(ID.parcel));
     expect(world.calls('orderService')).toHaveLength(0);
@@ -1574,24 +1718,13 @@ test.describe('W07 · asking for a check', () => {
   test('Try again on the orders line brings the way into the order flow back', async ({ page, world }) => {
     world.set('orders', World.gqlError('orders are not readable'));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(page.getByRole('button', { name: /^Ask for a check/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /^Ask for a site visit/ })).toBeDisabled();
 
     world.set('orders', []);
     await page.getByRole('button', { name: 'Try again' }).click();
 
-    await expect(page.getByRole('link', { name: /^Ask for a check/ }))
-      .toHaveAttribute('href', ORDER_CHECK);
-    await expect(page.getByText('Existing orders could not be checked')).toHaveCount(0);
-  });
-
-  test('the footnote under the grid points at a control that is actually on this page', async ({ page }) => {
-    await page.goto(featuresUrl(ID.parcel));
-
-    // The footnote is where the grid says what Pattadar does and does not
-    // book. It names this control by its words and by where it stands, so a
-    // control that moved, was renamed or went inert leaves the sentence lying.
-    await expect(page.getByText('Pattadar books a site visit')).toBeVisible();
-    await expect(page.getByRole('link', { name: /^Ask for a check/ })).toBeEnabled();
+    await expect(visitLink(page)).toHaveAttribute('href', ORDER_CHECK);
+    await expect(page.getByText('Your existing orders did not load')).toHaveCount(0);
   });
 
   test('nothing about the features themselves ever files an order', async ({ page, world }) => {
@@ -1604,14 +1737,15 @@ test.describe('W07 · asking for a check', () => {
     // of the same write rather than a second trip through the per-card editor.
     await addButton(page).click();
     await drawer(page).getByRole('button', { name: 'Bore', exact: true }).click();
-    await drawer(page).getByLabel('Condition', { exact: true }).fill('Dry');
+    await drawer(page).getByLabel('Condition detail', { exact: true }).fill('Dry');
     await fileIt(page).click();
     await expect(drawer(page)).toHaveCount(0);
     await cardFor(page, 'Open well').getByRole('button', { name: 'Edit Open well' }).click();
-    await openEditor(page).getByLabel('Condition', { exact: true }).fill('Silted');
-    await openEditor(page).getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('dialog', { name: 'Edit Open well' }).getByLabel('Condition detail', { exact: true }).fill('Silted');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     await cardFor(page, 'Open well').getByRole('button', { name: 'Remove Open well' }).click();
-    await cardFor(page, 'Open well').getByRole('button', { name: 'Remove', exact: true }).click();
+    await removeDialog(page, 'Open well').getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect(cardFor(page, 'Bore')).toBeVisible();
     await expect(cardFor(page, 'Open well')).toHaveCount(0);
@@ -1626,7 +1760,9 @@ test.describe('W07 · loading, empty and failed', () => {
     world.set('features', World.never());
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(page.getByText('Loading…')).toBeVisible();
+    // The waiting word names what it waits for, the way the failure does
+    // ("Site features did not load").
+    await expect(page.getByText('Loading site features…')).toBeVisible();
     await expect(addCard(page)).toHaveCount(0);
     await expect(addButton(page)).toBeDisabled();
   });
@@ -1635,13 +1771,12 @@ test.describe('W07 · loading, empty and failed', () => {
     world.set('features', World.gqlError('the features store is down'));
     await page.goto(featuresUrl(ID.parcel));
 
-    const panel = page.getByRole('alert').filter({ hasText: 'What is on this land did not load' });
+    const panel = page.getByRole('alert').filter({ hasText: 'Site features did not load' });
     await expect(panel).toBeVisible();
     // The reason, verbatim, for whoever is being asked "what does it say?"
     await expect(panel).toContainText('the features store is down');
     // And the sentence that stops a failed read reading as a lost record.
-    await expect(panel).toContainText('Nothing has been lost');
-    await expect(panel).toContainText('Your records are untouched.');
+    await expect(panel).toContainText('Check your connection and try again.');
     await expect(panel.getByRole('button', { name: 'Try again' })).toBeEnabled();
     // Filing against a record that would not load is not a safe offer, so
     // neither way into the drawer is drawn.
@@ -1652,13 +1787,13 @@ test.describe('W07 · loading, empty and failed', () => {
   test('Try again on a failed read brings the land back', async ({ page, world }) => {
     world.set('features', World.gqlError('the features store is down'));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(page.getByText('What is on this land did not load')).toBeVisible();
+    await expect(page.getByText('Site features did not load')).toBeVisible();
 
     world.set('features', land([feat({ id: FEATURE.well, label: 'Open well', condition: 'Working' })]));
     await page.getByRole('button', { name: 'Try again' }).click();
 
     await expect(cardFor(page, 'Open well')).toBeVisible();
-    await expect(page.getByText('What is on this land did not load')).toHaveCount(0);
+    await expect(page.getByText('Site features did not load')).toHaveCount(0);
     await expect(addButton(page)).toBeEnabled();
   });
 
@@ -1678,18 +1813,20 @@ test.describe('W07 · loading, empty and failed', () => {
     // The failing read has to have actually been made: an error panel that is
     // absent because nothing was re-read proves nothing about a cache.
     await expect.poll(() => world.calls('features').length).toBeGreaterThan(read);
-    await expect(page.getByText('What is on this land did not load')).toHaveCount(0);
+    await expect(page.getByText('Site features did not load')).toHaveCount(0);
     await expect(cardFor(page, 'Open well')).toBeVisible();
   });
 
   test('a record with nothing on it offers the first feature instead of an empty grid', async ({ page }) => {
     await page.goto(featuresUrl(ID.plot));
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('On this land');
-    await expect(summary(page)).toHaveText('0 features');
-    // No feature cards at all — the invitation is a button, not one of them.
+    await expect(page.locator('header.sechead h2')).toHaveText('Site features');
+    await expect(summary(page)).toHaveText('0 site features');
+    // No feature cards at all, and no dashed invitation either: the header's
+    // button is the one way to file the first.
     await expect(cards(page)).toHaveCount(0);
-    await expect(addCard(page)).toBeVisible();
+    await expect(addButton(page)).toBeVisible();
+    await expect(addCard(page)).toHaveCount(0);
     // The footnote is about cards; with no cards there is nothing for any of
     // its sentences to be about.
     await expect(page.getByText('Changing what a feature is, or the condition it is in, is the pencil'))
@@ -1697,30 +1834,27 @@ test.describe('W07 · loading, empty and failed', () => {
   });
 
   test('an empty hanger stops claiming an order it has no cards to keep', async ({ page }) => {
-    // DEFECT. RecordFeatures.tsx:381-399 draws "Worst condition first · every
-    // one carries its own pin and its own photos" outside the
-    // loading/failed/loaded branch, so it is printed over an empty grid, over
-    // the skeleton, and over the error panel — the same fault the footnote at
-    // :645 was fixed for. The owner is owed that line only where there are
-    // cards for it to describe.
-    test.fail();
+    // Was a DEFECT: "Worst condition first · every one carries its own pin and
+    // its own photos" was drawn outside the loading/failed/loaded branch, over
+    // an empty grid. The copy rename dropped both halves of that line from the
+    // section head, so it is asserted absent rather than expected to fail.
     await page.goto(featuresUrl(ID.plot));
-    await expect(addCard(page)).toBeVisible();
+    await expect(addButton(page)).toBeVisible();
     await expect(page.getByText('Worst condition first')).toHaveCount(0);
   });
 
   test('a record that is not in the portfolio says that, rather than that it has no features', async ({ page }) => {
     await page.goto(featuresUrl(ID.missing));
-    await expect(page.getByRole('heading', { name: 'That record is not in your portfolio' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'On this land' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Site features' })).toHaveCount(0);
   });
 
   test('a record whose own read failed never draws the features hanger at all', async ({ page, world }) => {
     world.set('record', World.gqlError('the record store is down'));
     await page.goto(featuresUrl(ID.parcel));
 
-    await expect(page.getByText('This record did not load')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'On this land' })).toHaveCount(0);
+    await expect(page.getByText('This property did not load')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Site features' })).toHaveCount(0);
   });
 });
 
@@ -1752,15 +1886,29 @@ test.describe('W07 · on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 
-  test('the chips and the sentence beside them stack rather than squeeze @phone', async ({ page, world }) => {
+  test('the filter sits above the grid, and its panel fits the glass @phone', async ({ page, world }) => {
+    // Was "the chips and the sentence beside them stack rather than squeeze":
+    // the sentence left the section head before 28/09/2026 and the chip row
+    // became the shared filter, so what is left to hold on a phone is that
+    // the filter comes before the cards and its panel stays on screen.
     world.set('features', land([
       feat({ id: 'w-feat-1', label: 'Open well', category: 'water', condition: 'Working' }),
     ]));
     await page.goto(featuresUrl(ID.parcel));
 
-    const chip = await filterChip(page, 'All', 1).boundingBox();
-    const note = await page.getByText('Worst condition first · every one carries its own pin and its own photos')
-      .boundingBox();
-    expect(note!.y).toBeGreaterThan(chip!.y + chip!.height - 1);
+    const trigger = await page.getByRole('button', { name: '+ Filter' }).boundingBox();
+    const card = await cardFor(page, 'Open well').boundingBox();
+    expect(trigger).not.toBeNull();
+    expect(card).not.toBeNull();
+    expect(card!.y).toBeGreaterThan(trigger!.y + trigger!.height - 1);
+
+    await openFilter(page);
+    const panel = await filterPanel(page).boundingBox();
+    expect(panel).not.toBeNull();
+    expect(panel!.x).toBeGreaterThanOrEqual(0);
+    expect(panel!.x + panel!.width).toBeLessThanOrEqual(390 + 1);
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
   });
 });

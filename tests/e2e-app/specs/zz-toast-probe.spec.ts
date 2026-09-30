@@ -1,4 +1,4 @@
-/** Throwaway: when does the "The paper is filed." toast actually appear, and how
+/** Throwaway: when does the "The document is filed." toast actually appear, and how
  *  long does the filing take? Delete after review. */
 import { test, expect, World } from '../fixtures/harness';
 import { ID } from '../fixtures/ids';
@@ -23,14 +23,14 @@ test('probe · toast after filing a paper', async ({ page, world }) => {
   });
 
   await page.goto(`/app/records/${ID.parcel}`);
-  await page.locator('header.sechead').getByRole('button', { name: 'Add a paper' }).click();
+  await page.locator('header.sechead').getByRole('button', { name: 'Add a document' }).click();
   await expect(page.getByRole('dialog', { name: /^File a paper$/ })).toBeVisible();
-  await page.getByLabel('Add a paper to this record').setInputFiles({
+  await page.getByLabel('Add a document to this property').setInputFiles({
     name: 'IMG_4482.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(5_120),
   });
 
   const t0 = Date.now();
-  await page.getByRole('button', { name: 'File the paper' }).click();
+  await page.getByRole('button', { name: 'File the document' }).click();
 
   await expect.poll(() => world.calls('addPaper').length, { timeout: 60_000 }).toBe(1);
   console.log(`PROBE addPaper landed after ${Date.now() - t0}ms`);

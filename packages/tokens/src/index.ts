@@ -279,13 +279,14 @@ export type GlassToneName = keyof typeof glass.light;
 
 export const typography = {
   /**
-   * Roboto — the MUI default font, SELF-HOSTED (apps/web imports
-   * @fontsource/roboto — the founder rule: nothing loads from third-party
-   * URLs).
+   * The one face (design.md § Typography): the same stack as `--font-sans`
+   * in apps/web/src/styles/tokens.css — scripts/typography-tests.ts fails when
+   * the copies differ. apps/web and apps/university self-host it through
+   * @fontsource/atkinson-hyperlegible. Nothing reads this field yet: Expo
+   * (system face + Menlo) and iOS (SF + New York) keep their own type until
+   * docs/specs/TODO-one-platform.md is decided. There is no mono token.
    */
-  fontFamily: "'Roboto', 'Helvetica', 'Arial', sans-serif",
-  fontFamilyMono:
-    "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontFamily: '"Atkinson Hyperlegible", system-ui, sans-serif',
   size: {
     xs: 12,
     sm: 14,

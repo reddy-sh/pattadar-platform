@@ -1,5 +1,42 @@
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import type { Connect, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+
+// DEV-ONLY: the full village-map build (scripts/village-map-import.py --out
+// .local/vm-build) is ~132 MB and lives in S3 behind CloudFront /vm/*, not in
+// the bundle. `vite dev` serves it under /vm/ whenever it exists — no flag to
+// remember — and VM_DIR points elsewhere (VM_DIR=off: the fixture only).
+// `vite preview` (the e2e suites) serves only an explicit VM_DIR, so a
+// laptop's local build can never change what a test sees. Without either,
+// /vm/ falls through to the small fixture in public/vm.
+const LOCAL_VM_BUILD = fileURLToPath(new URL('../../.local/vm-build', import.meta.url));
+const explicitVm = process.env.VM_DIR && process.env.VM_DIR !== 'off' ? resolve(process.env.VM_DIR) : '';
+const devVmDir = process.env.VM_DIR === 'off'
+  ? ''
+  : explicitVm || (existsSync(resolve(LOCAL_VM_BUILD, 'catalog.json')) ? LOCAL_VM_BUILD : '');
+const vmServe = (vmDir: string): Connect.NextHandleFunction => (req, res, next) => {
+  const url = (req.url || '').split('?')[0];
+  if (!vmDir || !url.startsWith('/vm/')) return next();
+  const file = resolve(vmDir, decodeURIComponent(url.slice('/vm/'.length)));
+  // Only files inside the build, and only what the importer writes.
+  if (!file.startsWith(vmDir + sep) || !/\.(geo)?json$/.test(file)) return next();
+  readFile(file).then(
+    (body) => { res.setHeader('Content-Type', 'application/json'); res.end(body); },
+    () => { res.statusCode = 404; res.end(); },
+  );
+};
+const villageMapsDir = (): Plugin => ({
+  name: 'pattadar-vm-dir',
+  configureServer: (server) => {
+    if (devVmDir) server.config.logger.info(`  village maps: /vm/ from ${devVmDir}`);
+    server.middlewares.use(vmServe(devVmDir));
+  },
+  configurePreviewServer: (server) => { server.middlewares.use(vmServe(explicitVm)); },
+});
 
 // DEV-ONLY: where the '/api' proxies point. Isolated browser suites override
 // VITE_API_PROXY_TARGET so they run against their own API instance and never
@@ -56,12 +93,18 @@ const devProxy = {
   '/api/gateway/capabilities': { target: gatewayTarget, changeOrigin: true },
   '/api/gateway/account': { target: gatewayTarget, changeOrigin: true },
   '/api/gateway/assistant': { target: gatewayTarget, changeOrigin: true },
-  '/api/gateway/pattadar': {
-    target: apiTarget,
-    changeOrigin: true,
-    rewrite: (path: string) => path.replace(/^\/api\/gateway\/pattadar/, ''),
-    headers: { 'x-user-id': devUserId },
-  },
+  // GRAPHQL_VIA_GATEWAY=1 (start-local.sh LOCAL_AUTH=real): GraphQL goes to
+  // the gateway like every other call, which validates the Cognito Bearer and
+  // sets x-user-id itself — the same path AWS uses, and the only one where a
+  // real sign-in decides whose records are on screen.
+  '/api/gateway/pattadar': process.env.GRAPHQL_VIA_GATEWAY === '1'
+    ? { target: gatewayTarget, changeOrigin: true }
+    : {
+        target: apiTarget,
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api\/gateway\/pattadar/, ''),
+        headers: { 'x-user-id': devUserId },
+      },
   // Everything else stays gateway-relative: the slim gateway
   // (services/gateway) listens on 8080 in local dev. In AWS, CloudFront
   // routes '/api' to the ALB/gateway — same bundle, no runtime config.
@@ -73,7 +116,7 @@ export default defineConfig({
   // browsers have globalThis only — without this the whole bundle throws
   // 'global is not defined' at load (white page).
   define: { global: 'globalThis' },
-  plugins: [react()],
+  plugins: [react(), villageMapsDir()],
   // `vite preview` serves the PRODUCTION bundle and needs the same dev-only
   // proxies, because that is what the e2e suite drives (a built bundle on its
   // own port, its own API, its own identity — the founder's :5180/:8080 stack

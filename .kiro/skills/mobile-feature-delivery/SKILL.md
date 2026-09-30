@@ -5,7 +5,7 @@ compatibility: Requires apps/mobile and shared packages. Never hand-edit generat
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-16"
+  verified: "2026-09-27"
 ---
 
 # Mobile Feature Delivery
@@ -22,7 +22,11 @@ shared domain/network rules in `packages/core`; platform behavior stays native.
    semantics, permission denial/recovery, safe areas, dynamic type, reduced
    motion, background/resume behavior, and Android/iOS divergence.
 4. Use `design-system-governance` for tokens/accessibility and
-   `backend-contract-change` for service changes.
+   `backend-contract-change` for service changes. The web's one-face rule does
+   not reach Expo yet: keep the Paper theme's face and record any font change as
+   a decision in `docs/specs/TODO-one-platform.md` rather than importing web
+   fonts. Screen-local components go into `src/components/` by the same
+   one-component rule.
 5. Add focused TypeScript tests and the appropriate Maestro YAML flow; document
    any missing EAS/binary/store gate rather than pretending `build` creates one.
 6. Use `verify-change` for typecheck/tests. EAS, native generation, signing,

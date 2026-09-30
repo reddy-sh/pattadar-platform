@@ -3,13 +3,17 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import { UNREACHABLE_LABEL, UNREACHABLE_NOTE } from '../data/useLiveOrSample';
 
 interface PageHeaderProps {
   title: string;
   /** Overline eyebrow above the title (M3 label style). */
   eyebrow?: string;
   subtitle?: string;
-  /** Shown when the view is rendering the bundled sample dataset. */
+  /**
+   * Shown when the live read failed. It does NOT mean sample data is on
+   * screen — nothing is, by design (see data/useLiveOrSample.ts).
+   */
   sample?: boolean;
   /** Small chips inline with the title (counts etc.). */
   titleChips?: ReactNode;
@@ -61,8 +65,8 @@ export function PageHeader({
           </Typography>
           {titleChips}
           {sample && (
-            <Tooltip title="The live service is not reachable — nothing is shown until it responds.">
-              <Chip size="small" variant="outlined" color="error" label="Service unreachable" />
+            <Tooltip title={UNREACHABLE_NOTE}>
+              <Chip size="small" variant="outlined" color="error" label={UNREACHABLE_LABEL} />
             </Tooltip>
           )}
         </Box>

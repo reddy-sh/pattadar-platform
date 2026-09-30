@@ -1,0 +1,21 @@
+{
+  "id": "resurvey-fixture",
+  "state": "AP",
+  "layout": "flat",
+  "source": {
+    "description": "Resurvey (LP-numbered) village exports kept in this folder. These are a newer, finer edition than the 2021 Prakasam archive for the same eight villages (Chinthagunta: 2,100 plots here against 276), so a build that includes both lists this source first and it wins at a shared address.",
+    "authority": "Survey department exports (see README.md)"
+  },
+  "districtRule": "Placed by DISTRICT_CODE-MANDAL_CODE from services/api/data/mandals.csv, confirmed by each village's outline falling inside the same-named village of the 2021 archive.",
+  "files": {
+    "AMBAPURAM.kmz": "28-15",
+    "Burada_Palem.kmz": "28-15",
+    "Burada_Palem_Label.kmz": "28-15",
+    "CHINTHAGUNTA.kmz": "28-15",
+    "HANUMANTHUNIPADU RESURVEY KML.kmz": "28-16",
+    "MARRIPALEM.kmz": "28-15",
+    "MUNAGAPADU.kmz": "28-15",
+    "Madalavaripalem.kmz": "28-14",
+    "Ramayanakadnrika.kmz": "28-14"
+  }
+}

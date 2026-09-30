@@ -4,7 +4,6 @@ import CheckCircleRounded from '@mui/icons-material/CheckCircleRounded';
 import DownloadRounded from '@mui/icons-material/DownloadRounded';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import OpenInNewRounded from '@mui/icons-material/OpenInNewRounded';
-import PlayCircleOutlineRounded from '@mui/icons-material/PlayCircleOutlineRounded';
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -12,7 +11,7 @@ import { CourseVisual } from '../components/CourseVisual';
 import { contentForModule } from '../content';
 import { courseBySlug } from '../data/catalog';
 import { coverageForModule } from '../data/complianceCoverage';
-import { officialReferencesById } from '../data/officialReferences';
+import { officialReferenceById, officialReferencesById } from '../data/officialReferences';
 import type { Course } from '../domain/types';
 import { downloadCourseGuide } from '../pdf/coursePdf';
 import { useUniversity } from '../state/UniversityProvider';
@@ -72,7 +71,7 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
           <section className="lesson-gate" aria-labelledby="lesson-gate-title">
             <LockOutlined />
             <div><h2 id="lesson-gate-title">Join to open this lesson</h2><p>Enrollment enables the complete reading, practice activity, knowledge check, downloads, and progress tracking.</p></div>
-            <button className="button button--primary" type="button" onClick={() => void joinCourse(course.id)}>Join course</button>
+            <button className="button button--primary" type="button" onClick={() => void joinCourse(course.id)}>Join preview course</button>
           </section>
         ) : (
           <div className="lesson-layout">
@@ -83,17 +82,39 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
                 <ul>{content.objectives.map((objective) => <li key={objective}>{objective}</li>)}</ul>
               </section>
 
-              <aside className="video-plan" aria-label="Video lesson status">
-                <PlayCircleOutlineRounded />
-                <div><strong>Video lesson planned</strong><p>The complete learning material is available in the reading below. A reviewed video will be added in a later release.</p></div>
-              </aside>
-
               {content.sections.map((section) => (
                 <section className="lesson-section" key={section.heading}>
                   <h2>{section.heading}</h2>
                   <p>{section.body}</p>
+                  {section.evidenceLayers ? (
+                    <div className="lesson-evidence-grid" aria-label="Evidence layer questions and limits">
+                      {section.evidenceLayers.map((layer) => (
+                        <div className="lesson-evidence-card" key={layer.name}>
+                          <h3>{layer.name}</h3>
+                          <p><strong>Ask:</strong> {layer.question}</p>
+                          <p><strong>Limit:</strong> {layer.limit}</p>
+                          <div className="lesson-evidence-card__sources">
+                            <strong>Official sources</strong>
+                            {layer.referenceIds.map((id) => {
+                              const reference = officialReferenceById(id);
+                              return reference ? <a key={id} href={reference.url} target="_blank" rel="noreferrer">{reference.title}<OpenInNewRounded aria-hidden="true" /></a> : null;
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </section>
               ))}
+
+              {content.practiceCase ? (
+                <section className="lesson-scenario">
+                  <span className="lesson-label">Fictional training case</span>
+                  <h2>{content.practiceCase.title}</h2>
+                  <p>These are invented exercise facts, not government records or a real property.</p>
+                  <ul>{content.practiceCase.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>
+                </section>
+              ) : null}
 
               <section className="lesson-practice">
                 <span className="lesson-label">Practice</span>
@@ -106,12 +127,12 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
                 <section className="lesson-references" aria-labelledby="official-references-title">
                   <span className="lesson-label">Official sources</span>
                   <h2 id="official-references-title">Government references</h2>
-                  <p>These sources were reviewed on 20 September 2026. Verify the current government page and effective law before relying on a workflow.</p>
+                  <p>Source review dates appear below. Verify the current government page and effective law before relying on a workflow.</p>
                   <ul>
                     {references.map((reference) => (
                       <li key={reference.id}>
                         <a href={reference.url} target="_blank" rel="noreferrer">
-                          <span><strong>{reference.title}</strong><small>{reference.authority} · {reference.kind}</small></span>
+                          <span><strong>{reference.title}</strong><small>{reference.authority} · {reference.kind} · reviewed {reference.reviewedOn}</small></span>
                           <OpenInNewRounded aria-label="Open official government source" />
                         </a>
                         <p>{reference.description}</p>
@@ -166,7 +187,11 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
                 <div>
                   <span className="lesson-label">Progress</span>
                   <h2>{isComplete ? 'Lesson complete' : 'Finish this lesson'}</h2>
-                  <p>{isComplete ? 'This lesson is included in your course progress.' : 'Pass the knowledge check, then record your completion.'}</p>
+                  <p>{isComplete
+                    ? 'This lesson is included in your preview learning record.'
+                    : module.kind === 'lesson'
+                      ? 'Pass the knowledge check, then record your reading progress.'
+                      : 'Pass the knowledge check to record preview progress. Practical evidence and human assessment are not collected here yet.'}</p>
                 </div>
                 <button
                   className={isComplete ? 'button button--quiet' : 'button button--primary'}
@@ -174,7 +199,7 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
                   disabled={!isComplete && !passed}
                   onClick={() => void toggleCourseModule(course.id, module.id)}
                 >
-                  {isComplete ? <><CheckCircleRounded /> Mark incomplete</> : 'Mark lesson complete'}
+                  {isComplete ? <><CheckCircleRounded /> Mark incomplete</> : 'Record preview progress'}
                 </button>
               </section>
             </article>

@@ -404,8 +404,8 @@ export function OrderLand() {
   // and the heading is where that is said. `chosen` may still be in flight, in
   // which case the general question is the honest one to ask.
   const heading = chosen
-    ? `Which land is the ${chosen.label.toLowerCase()} for?`
-    : 'Which land is this for?';
+    ? `Which property is the ${chosen.label.toLowerCase()} for?`
+    : 'Choose the property';
 
   if (legacy) {
     return (
@@ -424,12 +424,7 @@ export function OrderLand() {
             Choose a different service
           </Link>
         ) : undefined}
-      >
-        <p className="lede">
-          Every service is done on one piece of land. Choose it, and we will show you what
-          that land actually needs.
-        </p>
-      </PageHead>
+      />
 
       {/* Four states, not one. A portfolio still loading, a read that failed,
           an account with no land yet and a search that matched nothing are
@@ -438,22 +433,19 @@ export function OrderLand() {
       {isLoading && !mine ? (
         <SkRecordCards count={6} />
       ) : !mine ? (
-        <Failed what="Your land" error={error} boxed h="20rem" />
+        <Failed what="Your properties" error={error} boxed h="20rem" />
       ) : pool.length === 0 ? (
         <Empty
-          boxed h="20rem" icon="parcel" title="No land to order against yet"
+          boxed h="20rem" icon="parcel" title="Add a property before ordering"
           action={<Link className="btn primary" to="/app/properties?new=1">Add a property</Link>}
-        >
-          A service is always done on one piece of land. Add the land first, then come back
-          and order.
-        </Empty>
+        />
       ) : (
         <>
           {/* Labelled, and deliberately not `.search`: that class is
               `justify-self: center; width: min(36rem, 100%)`, so nesting it in
               a `.field` grid centres the pill under a left-aligned label. */}
           <div className="field" style={{ maxWidth: '32rem', marginBottom: 'var(--space-md)' }}>
-            <label htmlFor="land-q">Find your land</label>
+            <label htmlFor="land-q">Find your property</label>
             <span className="row tight" style={{ position: 'relative' }}>
               <SearchOutlined
                 sx={{ fontSize: 16, position: 'absolute', left: '0.625rem', opacity: 0.55 }}
@@ -487,7 +479,7 @@ export function OrderLand() {
               {jobsOn && jobsOn.size > 0 && (
                 <Chip active={running} count={jobsOn.size}
                       onClick={() => go({ running: !running })}>
-                  A job running
+                  An order in progress
                 </Chip>
               )}
             </div>
@@ -498,7 +490,7 @@ export function OrderLand() {
               be the outage deciding whether anything can be ordered. */}
           {ordersErr && (
             <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-              We could not check what is already running on your land.
+              Existing orders could not be checked.
             </p>
           )}
 
@@ -511,23 +503,18 @@ export function OrderLand() {
             <Empty
               boxed h="14rem" icon="search"
               title={`${num(pool.length)} properties in ${plural(villages.length, 'village')}`}
-            >
-              Type a survey number, a village or a khata above — or pick a village from the
-              chips. Numbers match however you write them: 120/2 finds Sy 120-2.
-            </Empty>
+            />
           ) : matches.length === 0 ? (
             <Empty
               boxed h="14rem" icon="search"
-              title={q ? `No land matches “${q}”` : 'Nothing matches those filters'}
+              title={q ? `No property matches “${q}”` : 'Nothing matches those filters'}
               action={(
                 <button type="button" className="btn sm"
                         onClick={() => go({ q: '', village: '', running: false })}>
                   Clear
                 </button>
               )}
-            >
-              Try the village name, the survey number or the khata number.
-            </Empty>
+            />
           ) : (
             <>
               {/* `selecting` keeps every tick box visible once one is ticked —
@@ -556,8 +543,7 @@ export function OrderLand() {
                     </button>
                   ) : (
                     <span className="note">
-                      Showing {num(visible.length)} of {num(matches.length)}. Narrow by village or
-                      survey number to see the rest.
+                      Showing {num(visible.length)} of {num(matches.length)}.
                     </span>
                   )}
                   <span className="hair" aria-hidden />
@@ -576,8 +562,7 @@ export function OrderLand() {
         <div className="selbar">
           <div className="bulkbar" role="group" aria-label="Order for the selected properties">
             <span className="count" role="status">
-              {plural(chosenIds.length, 'property', 'properties')} selected — one job will be
-              filed on each.
+              {plural(chosenIds.length, 'property', 'properties')} selected
             </span>
             <span className="vrule" aria-hidden />
             <span className="acts">
@@ -648,9 +633,8 @@ export function OrderLand() {
                 <p className="note" style={{ margin: 0 }}>
                   {offers.filter((o) => PER_PROPERTY.has(o.key)).map((o) => o.label).join(' and ')}
                   {' '}
-                  {offers.filter((o) => PER_PROPERTY.has(o.key)).length > 1 ? 'ask' : 'asks'} something
-                  about one parcel — which side, which deed — so they are ordered one property at a
-                  time, from that property.
+                  {offers.filter((o) => PER_PROPERTY.has(o.key)).length > 1 ? 'are' : 'is'} ordered
+                  one property at a time.
                 </p>
               )}
 
@@ -670,8 +654,8 @@ export function OrderLand() {
 
               {armed && (
                 <p className="note" style={{ margin: 0 }}>
-                  {plural(eligibleIds.length, 'new job')} at {inr(armed.price)} each, about {armed.days} days.
-                  Nothing is charged now — the desk quotes each job and you pay when you choose to.
+                  {plural(eligibleIds.length, 'new order')} at {inr(armed.price)} each, about {armed.days} days.
+                  Nothing is charged now.
                 </p>
               )}
 
@@ -679,8 +663,7 @@ export function OrderLand() {
                 <div className="card alert" style={{ padding: 'var(--space-sm)' }}>
                   <strong>{plural(duplicateOrders.length, 'request')} already exists</strong>
                   <p className="note">
-                    Those properties are excluded from this order. Open or cancel each existing
-                    request before asking for the same work again.
+                    Those properties are excluded from this order.
                   </p>
                   <div className="row tight">
                     {duplicateOrders.map((existing) => (
@@ -711,24 +694,14 @@ export function OrderLand() {
           first-time owner has to be able to read what this costs before they
           are asked to add a property to find out. */}
       <section className="sec">
-        <h2>What can be ordered</h2>
-        {/* Counted, not spelled out. The catalogue is the server's and it is
-            searchable precisely so it can grow past what a sentence here
-            claims — "Six jobs" was already a hostage to the seventh. */}
-        <p className="lede" style={{ marginTop: '0.375rem' }}>
-          {offers ? `${plural(offers.length, 'job')}, on` : 'Work on'} any one piece of your land.
-          Choose the land first — the price and the wait are the same whichever you pick.
-        </p>
+        <h2>Available services</h2>
         <div style={{ marginTop: 'var(--space-md)' }}>
           {offersLoading && !offers ? (
             <Loading h="14rem" what="the list of services" />
           ) : !offers ? (
             <Failed what="The list of services" error={offersErr} boxed h="14rem" />
           ) : offers.length === 0 ? (
-            <Empty boxed h="10rem" icon="unsorted" title="There is nothing on offer just now">
-              Nothing is wrong with your land. You can still ask a surveyor, an advocate or a
-              caretaker directly from any record.
-            </Empty>
+            <Empty boxed h="10rem" icon="unsorted" title="No services are available right now" />
           ) : (
             <div className="cards">
               {offers.map((o) => <OfferTile key={o.key} o={o} q={q} />)}

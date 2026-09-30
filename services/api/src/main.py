@@ -21,6 +21,7 @@ from . import geography
 # six column additions live in their own module so this file — the iOS-facing
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
 from . import village_map, web360
+from . import growth
 from psycopg.conninfo import make_conninfo
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
@@ -669,6 +670,10 @@ class PersonType:
     spouse_contact: str
     spouse_status: str
     created_at: str
+    # The heir's own answer once they have claimed their invitation:
+    # '' | agreed | disputed, and what they asked to be corrected.
+    heir_confirmed: str = ""
+    heir_note: str = ""
 
 
 @strawberry.type
@@ -775,6 +780,11 @@ class InvitationType:
     expiry: str
     status: str
     created_at: str
+    # Whether the invitation left the building: sent | logged (local stub) |
+    # failed | '' (older rows). `token` carries the one-time link ONLY in the
+    # createInvitation response; every read returns it blank.
+    delivery_status: str = ""
+    accepted_at: str = ""
 
 
 @strawberry.type
@@ -1224,7 +1234,7 @@ class RequireAuthenticatedRoot(SchemaExtension):
     """
     def resolve(self, next_, root, info, *args, **kwargs):
         if info.parent_type.name in {"Query", "Mutation"}:
-            public_queries = {"trainingCertificate"}
+            public_queries = {"trainingCertificate", "invitePreview"}
             public_mutations = {"verifyBeneficiary", "acknowledgeInactivity"}
             public = (info.parent_type.name == "Query" and info.field_name in public_queries) or \
                 (info.parent_type.name == "Mutation" and info.field_name in public_mutations)
@@ -1361,6 +1371,16 @@ async def _assert_owns_scope(conn, uid: str, scope_id: str) -> None:
 
 
 # ── Audit helper ──────────────────────────────────────────────────────
+
+def _note_target(entity_type: str, entity_id: str, note_id: str) -> str:
+    """Which trail a note's audit line belongs on.
+
+    A note on a passbook, a parcel or a W360 record belongs on that thing's
+    own trail, so filing or removing it shows in the record's Activity; any
+    other note (a document's) keeps its own id. W360 records were missing from
+    this list, so their notes wrote an audit line nothing ever displayed."""
+    return entity_id if entity_type in ("parcel", "passbook", "record") else note_id
+
 
 async def log_audit(conn, actor: str, action: str, target: str, details: str = "",
                     *, affected_owner: str = "", actor_kind: str = "",
@@ -1508,6 +1528,35 @@ def _named(prefix: str, *parts) -> str:
 _DEFAULT_RATES = {"stamp": 0.05, "transfer": 0.015, "reg": 0.01, "user": 0.0005}
 
 
+_PRINCIPAL_RE = re.compile(r"subject_[0-9a-f]{64}")
+
+
+def _real_name(name: str, uid: str) -> str:
+    """A name fit to show a person, or "".
+
+    Several first-contact paths seed `users.name` with the uid itself, and
+    `ensure_self` used to copy that into the group's self row — so a family
+    page printed "Head: subject_f3fc…" and the same 71 characters as a member.
+    A principal id is an internal identifier, never a name."""
+    n = (name or "").strip()
+    if not n or n == uid or _PRINCIPAL_RE.fullmatch(n):
+        return ""
+    return n
+
+
+async def _self_name(conn, uid: str) -> str:
+    """The owner's own name: their profile if it holds a real one, else the
+    name on most of their passbooks (the same fallback Home greets with)."""
+    u = await (await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))).fetchone() or {}
+    name = _real_name(u.get("name") or "", uid)
+    if name:
+        return name
+    pb = await (await conn.execute(
+        "SELECT owner_name FROM passbooks WHERE owner_user_id=%s AND owner_name <> '' "
+        "GROUP BY owner_name ORDER BY count(*) DESC LIMIT 1", (uid,))).fetchone() or {}
+    return _real_name(pb.get("owner_name") or "", uid)
+
+
 async def ensure_self(conn, uid: str, group_id: str, self_role: str = "") -> str:
     """Return the caller's own 'self' member id within a group, creating it from
     their profile on first use. Each group has its own self node (roots the
@@ -1525,7 +1574,7 @@ async def ensure_self(conn, uid: str, group_id: str, self_role: str = "") -> str
         "is_beneficiary, present_address, invite_status, created_at) "
         "VALUES (%s,%s,%s,%s,'self',%s,true,false,%s,'',%s) "
         "ON CONFLICT (owner_user_id, group_id) WHERE is_self DO NOTHING RETURNING id",
-        (sid, uid, group_id, (u.get("name") or "You"), self_role, (u.get("address") or ""),
+        (sid, uid, group_id, (await _self_name(conn, uid) or "You"), self_role, (u.get("address") or ""),
          datetime.utcnow().isoformat()))
     row = await cur.fetchone()
     if row:
@@ -1562,10 +1611,14 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
         "SELECT role FROM family_members WHERE group_id=%s AND owner_user_id=%s AND is_self=true LIMIT 1",
         (gid, uid))).fetchone() or {}).get("role", "")
     head = await (await conn.execute(
-        "SELECT COALESCE(NULLIF(f.name,''), NULLIF(u.name,''), 'You') AS name, "
+        "SELECT COALESCE(f.name,'') AS name, "
         "COALESCE(u.last_active_at,'') AS last_active_at "
         "FROM users u LEFT JOIN family_members f ON f.owner_user_id=u.id "
         "AND f.group_id=%s AND f.is_self=true WHERE u.id=%s LIMIT 1", (gid, uid))).fetchone() or {}
+    # The self row's own name, unless it is a principal id seeded before
+    # _real_name existed; then the owner's real name; then "You".
+    head_name = (_real_name(head.get("name") or "", uid)
+                 or await _self_name(conn, uid) or "You")
     esc = await (await conn.execute(
         "SELECT stage, next_action_at, last_outcome FROM inactivity_escalations "
         "WHERE owner_user_id=%s AND group_id=%s", (uid, gid))).fetchone() or {}
@@ -1581,7 +1634,7 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
                      member_count=int(mc), land_count=int(lc), total_extent=float(ext or 0),
                      total_share=float(sh or 0), created_at=g.get("created_at", ""),
                      parcel_count=int(pc), property_count=int(prc),
-                     head_name=head.get("name", ""), last_active_at=head.get("last_active_at", ""),
+                     head_name=head_name, last_active_at=head.get("last_active_at", ""),
                      inactivity_stage=esc.get("stage") or "active",
                      inactivity_next_at=esc.get("next_action_at", ""),
                      inactivity_last_outcome=esc.get("last_outcome", ""),
@@ -1596,6 +1649,25 @@ class Query:
     async def training_certificate(self, code: str) -> Optional[web360.TrainingCertificate]:
         """Public, signed Pattadar University certificate verification."""
         return await web360.WebQuery().training_certificate(code)
+
+    @strawberry.field
+    async def invite_preview(self, token: str) -> growth.InvitePreview:
+        """Public: who invited you and for what. Never land, shares or documents."""
+        return await growth.preview(token)
+
+    @strawberry.field
+    async def setup_tasks(self, info: strawberry.Info) -> List[growth.SetupTask]:
+        """What is waiting on the signed-in account to finish setting up."""
+        return await growth.tasks(info)
+
+    @strawberry.field
+    async def my_heir_records(self, info: strawberry.Info) -> List[growth.HeirRecord]:
+        """Family records other owners have listed this account on, once claimed."""
+        return await growth.heir_records(info)
+
+    @strawberry.field
+    async def my_referral(self, info: strawberry.Info) -> growth.ReferralSummary:
+        return await growth.summary(info)
 
     @strawberry.field
     async def web(self) -> web360.WebQuery:
@@ -1922,7 +1994,16 @@ class Query:
             cur = await conn.execute(
                 "SELECT * FROM family_members WHERE owner_user_id=%s AND group_id=%s "
                 "ORDER BY is_self DESC, created_at", (uid, group_id))
-            return [to_type(PersonType, without_token(r)) for r in await cur.fetchall()]
+            rows = await cur.fetchall()
+            out = []
+            for r in rows:
+                # Existing self rows may still hold the principal id as their
+                # name. Shown with the owner's real name; the row is not
+                # rewritten on a read.
+                if r.get("is_self") and not _real_name(r.get("name") or "", uid):
+                    r = {**r, "name": await _self_name(conn, uid) or "You"}
+                out.append(to_type(PersonType, without_token(r)))
+            return out
 
     @strawberry.field
     async def group_activity(self, info: strawberry.Info, group_id: str) -> List[AuditEventType]:
@@ -2357,8 +2438,8 @@ class Query:
             gr = await conn.execute("SELECT count(*) AS cnt FROM groups WHERE owner_user_id = %s", (uid,))
             gr_cnt = (await gr.fetchone())["cnt"]
             inv = await conn.execute(
-                f"SELECT count(*) AS cnt FROM invitations WHERE status='pending' "
-                f"AND (scope_id IN {own_pb} OR scope_id IN {own_pc})", (uid, uid)
+                "SELECT count(*) AS cnt FROM invitations WHERE status='pending' AND " + _INVITATION_OWNED,
+                (uid,) * 6
             )
             inv_cnt = (await inv.fetchone())["cnt"]
             val_cur = await conn.execute(
@@ -2527,8 +2608,12 @@ async def _write_person(conn, uid, pid, v, is_update):
     return to_type(PersonType, row)
 
 
-async def _verify_by_token(info, token: str, inactivity_email_consent: bool = False) -> "BeneficiaryType":
-    """Consume one live invitation with member→invitation lock ordering."""
+async def _verify_by_token(info, token: str, inactivity_email_consent: bool = False,
+                           link_principal: str = "") -> "BeneficiaryType":
+    """Consume one live invitation with member→invitation lock ordering.
+
+    `link_principal` is the signed-in account claiming it (growth.claim): the
+    same consumption also binds the invitation and the member row to it."""
     token = (token or "").strip()
     if not token:
         raise ValueError("Invalid or expired verification link")
@@ -2592,7 +2677,14 @@ async def _verify_by_token(info, token: str, inactivity_email_consent: bool = Fa
                     (token_hash, scope_id))).fetchone()
             if not row:
                 raise ValueError("Invalid or expired verification link")
-            await conn.execute("UPDATE invitations SET status='accepted',token='' WHERE token=%s", (token_hash,))
+            await conn.execute(
+                "UPDATE invitations SET status='accepted',token='',accepted_by=%s,"
+                "accepted_at=CASE WHEN %s<>'' THEN %s ELSE accepted_at END WHERE token=%s",
+                (link_principal, link_principal, datetime.now(timezone.utc).isoformat(), token_hash))
+            if link_principal:
+                await conn.execute(
+                    "UPDATE family_members SET linked_principal=%s WHERE id=%s OR legacy_beneficiary_id=%s",
+                    (link_principal, scope_id, scope_id))
             out = dict(row)
             out.setdefault("person_name", out.get("name") or "")
             out.setdefault("person_contact", out.get("phone") or out.get("email") or "")
@@ -3962,7 +4054,7 @@ class Mutation:
                     (new_id(), bid, kind, invitee or contact, _capability_hash(token),
                      _invitation_expiry(), datetime.utcnow().isoformat()),
                 )
-                await log_audit(conn, uid, "add_beneficiary", bid, f"{person_name} ({kind}) — invite sent, pending verification")
+                await log_audit(conn, uid, "add_beneficiary", bid, f"{person_name} ({kind}) — invite created, pending verification")
                 row["invite_token"] = token
                 return to_type(BeneficiaryType, row)
 
@@ -3977,6 +4069,30 @@ class Mutation:
         return await _verify_by_token(info, token)
 
     @strawberry.mutation
+    async def claim_invitation(
+        self, info: strawberry.Info, token: str, inactivity_email_consent: bool = False,
+    ) -> growth.ClaimResult:
+        return await growth.claim(info, token, inactivity_email_consent)
+
+    @strawberry.mutation
+    async def update_my_heir_profile(
+        self, info: strawberry.Info, member_id: str, dob: str = "", present_address: str = "",
+        gender: str = "", marital_status: str = "", spouse_name: str = "",
+    ) -> bool:
+        return await growth.update_heir_profile(info, member_id, dob, present_address,
+                                                gender, marital_status, spouse_name)
+
+    @strawberry.mutation
+    async def confirm_my_heir_details(
+        self, info: strawberry.Info, member_id: str, agree: bool, note: str = "",
+    ) -> bool:
+        return await growth.confirm_heir_details(info, member_id, agree, note)
+
+    @strawberry.mutation
+    async def redeem_referral_code(self, info: strawberry.Info, code: str) -> bool:
+        return await growth.redeem_code(info, code)
+
+    @strawberry.mutation
     async def add_note(self, info: strawberry.Info, entity_type: str, entity_id: str, body: str) -> NoteType:
         """Append a note to a passbook / parcel / document. Append-only history."""
         uid = _uid_from_info(info)
@@ -3988,8 +4104,8 @@ class Mutation:
                 (nid, uid, entity_type, entity_id, body, datetime.utcnow().isoformat()),
             )
             row = await cur.fetchone()
-            note_target = entity_id if entity_type in ("parcel", "passbook") else nid
-            await log_audit(conn, uid, "add_note", note_target, "Added a note")
+            await log_audit(conn, uid, "add_note", _note_target(entity_type, entity_id, nid),
+                            "Added a note")
             return to_type(NoteType, row)
 
     @strawberry.mutation
@@ -4163,10 +4279,21 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_note(self, info: strawberry.Info, id: str) -> bool:
+        """Remove one note. The web never offers this (W360 notes are shown as
+        permanent), but the iOS client names the mutation, so it stays — and a
+        removal now writes its own audit line on the same trail the filing
+        did, so a note can no longer leave the record's Activity silently."""
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute("DELETE FROM notes WHERE id=%s AND owner_user_id=%s", (id, uid))
-            return cur.rowcount > 0
+            cur = await conn.execute(
+                "DELETE FROM notes WHERE id=%s AND owner_user_id=%s RETURNING entity_type, entity_id",
+                (id, uid))
+            row = await cur.fetchone()
+            if row:
+                await log_audit(conn, uid, "delete_note",
+                                _note_target(row["entity_type"], row["entity_id"], id),
+                                "Deleted a note")
+            return row is not None
 
     @strawberry.mutation
     async def set_passbook_photo(self, info: strawberry.Info, id: str, photo: str) -> bool:
@@ -4811,25 +4938,72 @@ class Mutation:
         invitee_contact: str,
         expiry: str,
     ) -> InvitationType:
+        """Invite someone to a parcel or a khata the caller owns, and send the link.
+
+        The token is stored only as its hash, like every other bearer link; the
+        raw link travels in the message and, once, in this response so the
+        owner can share it by hand when no provider is configured. The result
+        says whether it was actually delivered (`deliveryStatus`)."""
         uid = _uid_from_info(info)
+        scope_type = (scope_type or "").strip()
+        scope_id = (scope_id or "").strip()
+        if scope_type not in {"parcel", "passbook"}:
+            raise ValueError("Invite someone to a parcel or a khata")
+        if role not in {"view", "manage"}:
+            raise ValueError("Choose View or Manage")
+        contact = (invitee_contact or "").strip()
+        digits = re.sub(r"[\s-]", "", contact)
+        if not (re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", contact) or re.fullmatch(r"\+?\d{10,13}", digits)):
+            raise ValueError("Enter a mobile number or an email address")
+        try:
+            until = date.fromisoformat((expiry or "")[:10])
+        except ValueError:
+            raise ValueError("Choose when the invitation expires")
+        today = datetime.now(timezone.utc).date()
+        if until < today or until > today + timedelta(days=365):
+            raise ValueError("An invitation can last from today up to a year")
         iid = new_id()
         token = str(uuid.uuid4())
         async with pool.connection() as conn:
-            await _assert_owns_scope(conn, uid, scope_id)
+            if scope_type == "passbook":
+                ok = await (await conn.execute(
+                    "SELECT 1 FROM passbooks WHERE id=%s AND owner_user_id=%s", (scope_id, uid))).fetchone()
+            else:
+                ok = await (await conn.execute(
+                    "SELECT 1 FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id "
+                    "WHERE p.id=%s AND pb.owner_user_id=%s", (scope_id, uid))).fetchone()
+            if not ok:
+                raise NotAuthorized("Not authorized for this scope")
             cur = await conn.execute(
-                "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                (iid, scope_type, scope_id, role, invitee_contact, token, expiry, "pending", datetime.utcnow().isoformat()),
+                "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, "
+                "created_at, owner_user_id) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s) RETURNING *",
+                (iid, scope_type, scope_id, role, contact, _capability_hash(token),
+                 f"{until.isoformat()}T23:59:59+05:30", datetime.utcnow().isoformat(), uid),
             )
             row = await cur.fetchone()
-            await log_audit(conn, uid, "send_invitation", iid, f"To {invitee_contact}")
-            return to_type(InvitationType, row)
+            path = f"/i/{token}"
+            link = f"{os.getenv('APP_PUBLIC_URL', '').rstrip('/')}{path}"
+            who = await growth._short_name(conn, uid) or "Someone you know"
+            # Deliberately says nothing about the land: the message can be read
+            # by whoever holds the phone.
+            body = (f"{who} invited you to their land records on Pattadar. "
+                    f"Open this link to accept: {link}")
+            sent = await notify.notify_contact(conn, contact, "You're invited to Pattadar", body, owner=uid)
+            status = sent.get("status") or ("sent" if sent.get("ok") else "failed")
+            await conn.execute("UPDATE invitations SET delivery_status=%s WHERE id=%s", (status, iid))
+            await log_audit(conn, uid, "send_invitation", iid, f"To {contact} ({status})")
+            out = dict(row)
+            out["token"] = path
+            out["delivery_status"] = status
+            return to_type(InvitationType, out)
 
     @strawberry.mutation
     async def update_invitation_status(self, info: strawberry.Info, id: str, status: str) -> InvitationType:
         uid = _uid_from_info(info)
-        if status not in {"pending", "accepted", "revoked", "expired"}:
-            raise ValueError("Invalid invitation status")
+        # Accepted and expired are the system's to set — accepting is the
+        # invitee's act, expiry is the clock's. An owner can only revoke.
+        if status != "revoked":
+            raise ValueError("An invitation can only be revoked here")
         async with pool.connection() as conn:
             async with conn.transaction():
                 row = await (await conn.execute(
@@ -5335,43 +5509,63 @@ class Mutation:
                 await log_audit(conn, uid, "update_profile", uid, "name or email changed")
                 return to_type(UserType, row)
 
+    # The decorator is load-bearing. `update_me` was once inserted directly
+    # above this method and took its `@strawberry.mutation` with it, so
+    # `updateProfile` left the schema while every client kept calling it: the
+    # web Profile's Save and the mobile Aadhaar update were answered "Cannot
+    # query field" for weeks. tests/test_profile_schema.py pins both names.
+    @strawberry.mutation
     async def update_profile(
         self,
         info: strawberry.Info,
-        language: str,
-        districts_of_interest: str,
-        notification_prefs: str,
-        kyc_ref: str,
-        mfa_enabled: bool,
-        address: str = "",
+        language: Optional[str] = None,
+        districts_of_interest: Optional[str] = None,
+        notification_prefs: Optional[str] = None,
+        kyc_ref: str = "",
+        mfa_enabled: Optional[bool] = None,
+        address: Optional[str] = None,
     ) -> UserType:
         """Update the signed-in user's profile & preferences. The Aadhaar is
         kept as a masked token for display plus ciphertext for retrieval; an
-        empty kyc_ref leaves whatever is stored untouched."""
+        empty kyc_ref leaves whatever is stored untouched.
+
+        An argument that is NOT SENT leaves its column alone; one sent as ""
+        clears it. Every argument used to be required, so the mobile Aadhaar
+        update had to send `language:""` and friends and would have blanked
+        the owner's language, districts and notification choices to save one
+        number. Callers that send everything (the web Profile) are unchanged.
+        """
         uid = _uid_from_info(info)
-        masked = _mask_aadhaar(kyc_ref)
-        kyc_enc = await encrypt_aadhaar(kyc_ref, uid, "account", uid) if (kyc_ref or "").strip() else ""
+        kyc_given = bool((kyc_ref or "").strip())
+        masked = _mask_aadhaar(kyc_ref) if kyc_given else ""
+        # Something typed that is not twelve digits is refused, not dropped:
+        # dropping it saved the rest and answered success, so the owner was
+        # told their Aadhaar was on file when nothing had been kept.
+        if kyc_given and not masked:
+            raise ValueError("An Aadhaar number is 12 digits.")
+        kyc_enc = await encrypt_aadhaar(kyc_ref, uid, "account", uid) if kyc_given else ""
         async with pool.connection() as conn:
             async with conn.transaction():
                 await conn.execute(
                     "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
                     (uid, uid),
                 )
-                if kyc_enc:
-                    cur = await conn.execute(
-                        "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
-                        "kyc_ref_masked=%s, kyc_ref_enc=%s, mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
-                        (language, districts_of_interest, notification_prefs, masked, kyc_enc,
-                         mfa_enabled, address, uid),
-                    )
-                else:
-                    # No Aadhaar supplied — leave whatever is stored alone rather
-                    # than blanking it (same rule as member updates).
-                    cur = await conn.execute(
-                        "UPDATE users SET language=%s, districts_of_interest=%s, notification_prefs=%s, "
-                        "mfa_enabled=%s, address=%s WHERE id=%s RETURNING *",
-                        (language, districts_of_interest, notification_prefs, mfa_enabled, address, uid),
-                    )
+                # COALESCE(NULL, col) keeps the stored value for an argument
+                # that was not sent. No Aadhaar supplied also leaves the stored
+                # one alone rather than blanking it (same rule as members).
+                cur = await conn.execute(
+                    "UPDATE users SET "
+                    "language=COALESCE(%s, language), "
+                    "districts_of_interest=COALESCE(%s, districts_of_interest), "
+                    "notification_prefs=COALESCE(%s, notification_prefs), "
+                    "mfa_enabled=COALESCE(%s, mfa_enabled), "
+                    "address=COALESCE(%s, address), "
+                    "kyc_ref_masked=COALESCE(%s, kyc_ref_masked), "
+                    "kyc_ref_enc=COALESCE(%s, kyc_ref_enc) "
+                    "WHERE id=%s RETURNING *",
+                    (language, districts_of_interest, notification_prefs, mfa_enabled, address,
+                     masked if kyc_enc else None, kyc_enc or None, uid),
+                )
                 row = await cur.fetchone()
                 await log_audit(conn, uid, "update_profile", uid, "profile updated")
                 return to_type(UserType, row)
@@ -6762,6 +6956,8 @@ async def init_db() -> None:
         web360.bind(pool, _uid_from_info)
         await web360.ensure_schema(conn)
         await account.ensure_schema(conn)
+        # Invitee claims, setup tasks and referrals (growth.py).
+        await growth.ensure_schema(conn)
         # Centralized audit read model + transactional outbox (phase 1).
         await audit.ensure_schema(conn)
 
@@ -7431,6 +7627,9 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
 
 from .ai_reading import jobs as reading_jobs
 app.include_router(reading_jobs.router)
+# /inbox and /push/*: reading-complete notices (bound by reading_jobs.lifecycle).
+from . import inbox as inbox_routes
+app.include_router(inbox_routes.router)
 # Every AI document reading (prompts, provider adapter, cost accounting,
 # consent gate) lives in src/ai_reading; these are the same paths as before.
 from . import ai_reading

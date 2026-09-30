@@ -37,6 +37,17 @@ DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_governance_policy_scope"
     " ON governance_policy_sets (country_code, state_code, district_code, status, revision)",
+    # Mandal and village extend the jurisdiction two levels below district so
+    # a scope can be authored, published and archived at any administrative
+    # grain the same way district already was, independently of its parent
+    # and every sibling: each is its own row, keyed by its own scope_key.
+    "ALTER TABLE governance_policy_sets ADD COLUMN IF NOT EXISTS mandal_code"
+    " TEXT NOT NULL DEFAULT '*'",
+    "ALTER TABLE governance_policy_sets ADD COLUMN IF NOT EXISTS village_code"
+    " TEXT NOT NULL DEFAULT '*'",
+    "CREATE INDEX IF NOT EXISTS idx_governance_policy_scope5"
+    " ON governance_policy_sets"
+    " (country_code, state_code, district_code, mandal_code, village_code, status, revision)",
     """CREATE TABLE IF NOT EXISTS governance_policy_events (
         id TEXT PRIMARY KEY,
         policy_id TEXT NOT NULL,
@@ -609,44 +620,111 @@ def digest(document: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json(validate_document(document)).encode()).hexdigest()
 
 
-def scope_key(country_code: str, state_code: str = "*", district_code: str = "*") -> str:
-    return "/".join((country_code or "*", state_code or "*", district_code or "*")).upper()
+def scope_key(country_code: str, state_code: str = "*", district_code: str = "*",
+             mandal_code: str = "*", village_code: str = "*") -> str:
+    return "/".join((country_code or "*", state_code or "*", district_code or "*",
+                     mandal_code or "*", village_code or "*")).upper()
 
 
-def normalize_scope(country_code: str, state_code: str = "*",
-                    district_code: str = "*") -> tuple[str, str, str, str]:
-    """Return a valid country/state/district scope and its stable key."""
+def _code(value: str, allow_underscore: bool, limit: int) -> str:
+    text = (value or "*").strip()
+    if text == "*":
+        return "*"
+    text = text.upper()
+    if allow_underscore:
+        text = re.sub(r"[^A-Z0-9_-]", "", text.replace(" ", "_"))
+    else:
+        text = re.sub(r"[^A-Z0-9-]", "", text)
+    return text[:limit]
+
+
+def normalize_scope(country_code: str, state_code: str = "*", district_code: str = "*",
+                    mandal_code: str = "*", village_code: str = "*",
+                    ) -> tuple[str, str, str, str, str, str]:
+    """Return a valid country/state/district/mandal/village scope and its key.
+
+    Every level below country can be overridden on its own, but only by
+    narrowing an already-concrete parent: a mandal override needs a real
+    district and a village override needs a real mandal. That keeps every
+    stored scope reachable by walking the hierarchy from the top, so a wider
+    edit can never silently orphan a narrower one it doesn't know about.
+    """
     country = re.sub(r"[^A-Z0-9-]", "", (country_code or "IN").strip().upper())[:8]
-    state = "*" if (state_code or "*").strip() == "*" else re.sub(
-        r"[^A-Z0-9-]", "", state_code.strip().upper())[:16]
-    district = "*" if (district_code or "*").strip() == "*" else re.sub(
-        r"[^A-Z0-9_-]", "", district_code.strip().upper().replace(" ", "_"))[:80]
-    if not country or not state or not district:
-        raise ValueError("Country, state and district codes are required")
+    state = _code(state_code, False, 16)
+    district = _code(district_code, True, 80)
+    mandal = _code(mandal_code, True, 80)
+    village = _code(village_code, True, 80)
+    if not country or not state or not district or not mandal or not village:
+        raise ValueError("Country, state, district, mandal and village codes are required")
     if state == "*" and district != "*":
         raise ValueError("A district override requires a state")
-    return country, state, district, scope_key(country, state, district)
+    if district == "*" and mandal != "*":
+        raise ValueError("A mandal override requires a district")
+    if mandal == "*" and village != "*":
+        raise ValueError("A village override requires a mandal")
+    return country, state, district, mandal, village, scope_key(
+        country, state, district, mandal, village)
+
+
+def cascade_pattern(scope_key: str) -> str | None:
+    """SQL ``LIKE`` pattern (already escaped) covering this scope and every
+    scope beneath it, or ``None`` when the key names a full leaf with no
+    descendants and an exact match is the whole answer.
+
+    A jurisdiction with a wildcard tail is a management level, not a single
+    policy: ``IN/AP/*/*/*`` means "the state of Andhra Pradesh", and revising
+    any district, mandal or village under it is still something an AP
+    administrator needs to see happen. Matching by prefix is what makes that
+    true in one query instead of one per descendant level.
+    """
+    parts = (scope_key or "").split("/")
+    star = next((i for i, part in enumerate(parts) if part == "*"), None)
+    if star is None:
+        return None
+    prefix = "/".join(parts[:star]) + "/"
+    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped + "%"
 
 
 async def ensure_baseline(conn) -> None:
     """Install reviewed country and AP baselines; never overwrite admin revisions."""
+    # These ids were seeded under the old three-level (country/state/district)
+    # scope key. That key format can no longer be produced by normalize_scope,
+    # so the rows are permanently unreachable; remove them rather than leave
+    # dead entries sitting in every admin's scope list, or their events
+    # polluting a cascade history that only ever matches the new key shape,
+    # forever.
+    await conn.execute(
+        "DELETE FROM governance_policy_sets WHERE created_by='system-baseline'"
+        " AND id IN ('gps-in-all-v1','gps-in-ap-all-v1')"
+        " AND scope_key IN ('IN/*/*','IN/AP/*')")
+    # Unlike the policy-set ids above (reused for the current row on every
+    # startup, so the DELETE must not catch an already-migrated row), these
+    # event ids were retired in favour of the '-v2' ids below and are never
+    # written again. Matching on id alone is safe and also catches instances
+    # from an even earlier column layout, where scope_key defaulted to ''
+    # rather than the three-segment key, and wouldn't match a value list.
+    await conn.execute(
+        "DELETE FROM governance_policy_events WHERE actor='system-baseline'"
+        " AND id IN ('gpe-in-all-v1','gpe-in-ap-all-v1')")
     baselines = [
-        ("gps-in-all-v1", "gpe-in-all-v1", "IN/*/*", "IN", "*", "*",
+        ("gps-in-all-v1", "gpe-in-all-v2", "IN/*/*/*/*", "IN", "*", "*", "*", "*",
          GLOBAL_DOCUMENT, "Initial researched India baseline"),
-        ("gps-in-ap-all-v1", "gpe-in-ap-all-v1", "IN/AP/*", "IN", "AP", "*",
+        ("gps-in-ap-all-v1", "gpe-in-ap-all-v2", "IN/AP/*/*/*", "IN", "AP", "*", "*", "*",
          BASELINE_DOCUMENT, "Initial researched Andhra Pradesh baseline"),
     ]
-    for policy_id, event_id, key, country, state, district, raw, detail in baselines:
+    for policy_id, event_id, key, country, state, district, mandal, village, raw, detail in baselines:
         document = validate_document(raw)
         body = canonical_json(document)
         source_digest = digest(document)
         await conn.execute(
             "INSERT INTO governance_policy_sets (id,scope_key,country_code,state_code,district_code,"
-            " revision,status,schema_version,document,source_digest,created_by,created_at,published_by,published_at)"
-            " VALUES (%s,%s,%s,%s,%s,1,'published',1,%s,%s,"
+            " mandal_code,village_code,revision,status,schema_version,document,source_digest,"
+            " created_by,created_at,published_by,published_at)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,1,'published',1,%s,%s,"
             " 'system-baseline','2026-09-20','system-baseline','2026-09-20')"
             " ON CONFLICT (scope_key,revision) DO NOTHING",
-            (policy_id, key, country, state, district, body, source_digest),
+            (policy_id, key, country, state, district, mandal, village, body, source_digest),
         )
         # System baselines are code-owned. Refresh only those rows; an admin
         # revision has a different creator and is never overwritten here.

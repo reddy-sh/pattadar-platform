@@ -97,7 +97,7 @@ export function DiscoveryFilters({
         ) : null}
       </div>
       <p className="discovery-filter__note">
-        General practice courses remain visible nationwide. State-specific courses cover only the named jurisdiction; proposed learning centres are separate.
+        General practice courses remain visible in both launch states. State-specific courses cover only the named jurisdiction; regional learning hubs do not imply a physical venue.
       </p>
     </section>
   );

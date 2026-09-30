@@ -55,18 +55,18 @@ async def record_audit(
     resource_id: str,
     affected_owner: str,
     metadata: Optional[dict] = None,
-) -> None:
+) -> bool:
     """Enqueue one audit envelope into the api's outbox.
 
-    Never raises. The bytes are already on their way to the reader by the time
-    this runs, and a ledger that is slow, rejecting or absent must not turn a
-    download into a failure — it turns into a warning here instead.
+    Returns whether the API accepted it. Existing callers may ignore the
+    result; stream sessions use it to retain a retryable audit claim.
+    Never raises: a ledger outage must not fail the file read.
     """
     from .routes.proxy import _api_base_url
 
     base = _api_base_url()
     if not base:
-        return
+        return False
     payload: dict[str, Any] = {
         "action": action,
         "actor_id": actor_id,
@@ -94,5 +94,8 @@ async def record_audit(
             _log.warning(
                 "audit.ingest_rejected action=%s status=%s", action, response.status_code
             )
+            return False
+        return True
     except Exception as exc:  # noqa: BLE001 — advisory write, never fatal
         _log.warning("audit.ingest_failed action=%s error=%s", action, exc)
+        return False

@@ -247,7 +247,7 @@ export function DashboardPage() {
         ) : (
           !withDoc.has(p.id) && <Chip size="small" label="deed missing" color="warning" variant="outlined" />
         )}
-        <Typography variant="body2" className="tnum" sx={{ ml: 'auto', fontWeight: 600 }}>
+        <Typography variant="body2" className="tnum" sx={{ ml: 'auto', fontWeight: 700 }}>
           {formatArea(Number(p.extent) || 0)}
         </Typography>
       </Box>
@@ -271,7 +271,7 @@ export function DashboardPage() {
       <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
         {name}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto', fontWeight: 600 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto', fontWeight: 700 }}>
         {parcels.length} parcel{parcels.length !== 1 ? 's' : ''} · {formatArea(villageAcres(parcels))}
       </Typography>
     </Box>
@@ -374,7 +374,7 @@ export function DashboardPage() {
                     label={masked ? 'Show' : 'Hide'}
                     onClick={toggleMask}
                     variant="outlined"
-                    sx={{ fontWeight: 600 }}
+                    sx={{ fontWeight: 700 }}
                   />
                 </Box>
                 <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -499,7 +499,7 @@ export function DashboardPage() {
                         variant="body2"
                         sx={{
                           color: 'success.main',
-                          fontWeight: 600,
+                          fontWeight: 700,
                           py: 0.25,
                           display: 'flex',
                           alignItems: 'center',

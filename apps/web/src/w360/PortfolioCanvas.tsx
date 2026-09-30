@@ -25,12 +25,46 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 import { centreOf, hasBoundaryRing, isLocated } from './portfolioGeo';
+import { drawSurveyBoundaryLayer, sharedCornerOffsets } from './surveyBoundaryLayer';
 
 const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ESRI =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const BLANK =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+const openRing = (ring: Array<[number, number]>) =>
+  ring.length > 1
+  && ring[0][0] === ring[ring.length - 1][0]
+  && ring[0][1] === ring[ring.length - 1][1]
+    ? ring.slice(0, -1) : ring;
+
+/** A label's box, in the map container's pixels. */
+interface Box { x: number; y: number; w: number; h: number }
+
+const clearOf = (s: Box, others: Box[]) => !others.some((t) =>
+  s.x < t.x + t.w && s.x + s.w > t.x && s.y < t.y + t.h && s.y + s.h > t.y);
+
+const within = (s: Box, b: Box) =>
+  s.x >= b.x && s.y >= b.y && s.x + s.w <= b.x + b.w && s.y + s.h <= b.y + b.h;
+
+/** Where a survey map may move a name off the middle of its outline, in label
+ *  widths and heights, nearest first. */
+const NAME_SPOTS: Array<[number, number]> = [
+  [0, 0], [0, -1], [0, 1],
+  [-0.25, 0], [0.25, 0], [-0.25, -1], [0.25, -1], [-0.25, 1], [0.25, 1],
+  [-0.5, 0], [0.5, 0], [-0.5, -1], [0.5, -1], [-0.5, 1], [0.5, 1],
+];
+
+/** An outline's box on screen. */
+function screenBox(map: L.Map, ring: Array<[number, number]>): Box {
+  const pts = ring.map((corner) => map.latLngToContainerPoint(corner as L.LatLngTuple));
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
 
 /** One record as this map needs it. Everything else about it — worth, khata,
  *  tags — belongs on the card, and putting it here would only mean two places
@@ -44,6 +78,9 @@ export interface PortfolioPin {
   status: string;
   /** The surveyed outline, or empty. Fewer than three corners is not a shape. */
   ring: Array<[number, number]>;
+  /** Already-formatted dimensions in ring order. Present only when this map is
+   * being used as a survey map rather than as the portfolio overview. */
+  sideLabels?: string[];
   lat: number;
   lon: number;
 }
@@ -58,12 +95,19 @@ export interface PortfolioCanvasHandle {
 export interface PortfolioCanvasProps {
   records: PortfolioPin[];
   satellite?: boolean;
+  /** Portfolio colours statuses; surveyed uses the Location map's orange
+   * boundary, corner letters, and dimensions for every ring. */
+  appearance?: 'portfolio' | 'surveyed';
   selected?: string | null;
   hovered?: string | null;
   onHover?: (id: string | null) => void;
   onSelect?: (id: string | null) => void;
-  /** A second click, or a click on the name, opens the record. */
+  /** A second click (or Enter) on the picked record. Properties opens the
+   *  record; the combined map zooms to it instead. */
   onOpen?: (id: string) => void;
+  /** The map region's accessible name. Properties' map is the whole
+   *  portfolio; a combined view's holds only its own records. */
+  label?: string;
   ref?: Ref<PortfolioCanvasHandle>;
 }
 
@@ -73,14 +117,15 @@ export interface PortfolioCanvasProps {
 const AP_TG: L.LatLngTuple = [16.9, 79.4];
 
 export function PortfolioCanvas({
-  records, satellite = false, selected = null, hovered = null,
-  onHover, onSelect, onOpen, ref,
+  records, satellite = false, appearance = 'portfolio', selected = null, hovered = null,
+  onHover, onSelect, onOpen, label = 'Map of your properties', ref,
 }: PortfolioCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const streetTiles = useRef<L.TileLayer | null>(null);
   const imageryTiles = useRef<L.TileLayer | null>(null);
   const shapeLayer = useRef<L.LayerGroup | null>(null);
+  const rulerLayer = useRef<L.LayerGroup | null>(null);
   const labelBox = useRef<HTMLDivElement | null>(null);
   const watcher = useRef<ResizeObserver | null>(null);
   const kill = useRef<number | null>(null);
@@ -89,23 +134,32 @@ export function PortfolioCanvas({
   const fittedFor = useRef('');
   const boxes = useRef(new Map<string, L.Path | L.CircleMarker>());
   const [tilesFailed, setTilesFailed] = useState(false);
+  const [zoomTick, setZoomTick] = useState(0);
   const activeTiles = useRef<L.TileLayer | null>(null);
   const failedTiles = useRef(new Map<L.TileLayer, Set<HTMLElement>>());
 
   /** Handlers read through a ref so the draw effect does not have to re-run —
    *  and re-create every layer — each time the page hands it a new closure. */
-  const live = useRef({ records, selected, hovered, onHover, onSelect, onOpen });
-  live.current = { records, selected, hovered, onHover, onSelect, onOpen };
+  const live = useRef({ records, selected, hovered, onHover, onSelect, onOpen, appearance });
+  live.current = { records, selected, hovered, onHover, onSelect, onOpen, appearance };
   // The caller filters its records on every render. An equivalent array must
   // not replace the focused SVG path merely because a label was hovered.
-  const recordsKey = JSON.stringify(records);
+  const recordsKey = JSON.stringify([appearance, records]);
 
+  // Both measure the box before framing. Right after a size change — a stage
+  // going full screen, or coming back — Leaflet still holds the old size, and a
+  // frame computed from it lands off centre.
   useImperativeHandle(ref, () => ({
-    fit: () => { fittedFor.current = ''; fitNow(); },
+    fit: () => {
+      mapRef.current?.invalidateSize({ pan: false });
+      fittedFor.current = '';
+      fitNow();
+    },
     goTo: (id: string) => {
       const map = mapRef.current;
       const rec = live.current.records.find((r) => r.id === id);
       if (!map || !rec || !isLocated(rec)) return false;
+      map.invalidateSize({ pan: false });
       if (hasBoundaryRing(rec.ring)) {
         map.fitBounds(L.latLngBounds(rec.ring as L.LatLngTuple[]), { padding: [60, 60], maxZoom: 19 });
       } else {
@@ -160,6 +214,7 @@ export function PortfolioCanvas({
       layer.on('tileunload', (e: L.TileEvent) => { failures.delete(e.tile); update(); });
     }
     shapeLayer.current = L.layerGroup().addTo(map);
+    rulerLayer.current = L.layerGroup().addTo(map);
 
     // Labels are a plain overlay, not a Leaflet pane: they are wanted above
     // everything, they must never take a click, and they are hidden wholesale
@@ -171,7 +226,12 @@ export function PortfolioCanvas({
 
     map.on('click', () => live.current.onSelect?.(null));
     map.on('movestart zoomstart', () => box.classList.add('moving'));
-    map.on('moveend zoomend', () => { box.classList.remove('moving'); place(); });
+    map.on('moveend', () => { box.classList.remove('moving'); place(); });
+    map.on('zoomend', () => {
+      box.classList.remove('moving');
+      place();
+      setZoomTick((tick) => tick + 1);
+    });
 
     // Framing waits for a size: the panel is laid out after the map mounts and
     // is 0×0 for a frame or two.
@@ -200,6 +260,8 @@ export function PortfolioCanvas({
       labelBox.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
+      shapeLayer.current = null;
+      rulerLayer.current = null;
       boxes.current.clear();
       failedTiles.current.clear();
       activeTiles.current = null;
@@ -237,10 +299,23 @@ export function PortfolioCanvas({
   const place = () => {
     const map = mapRef.current;
     const box = labelBox.current;
-    if (!map || !box) return;
+    const host = hostRef.current;
+    if (!map || !box || !host) return;
     const { records: currentRecords, selected: currentSelected, hovered: currentHovered } = live.current;
     box.textContent = '';
-    const taken: Array<{ x: number; y: number; w: number; h: number }> = [];
+    // A survey map's corner letters and side lengths are text too, and a name
+    // set down on one read as a longer label — "Sy 214/2" over half of "89 m".
+    // They are obstacles the names step around, measured from the DOM like the
+    // names themselves. The portfolio map draws neither, so nothing changes there.
+    const surveyed = live.current.appearance === 'surveyed';
+    const origin = host.getBoundingClientRect();
+    const marks: Box[] = Array.from(
+      host.querySelectorAll<HTMLElement>('.w-side > span, .w-corner-no > span'),
+    ).map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left - origin.left, y: r.top - origin.top, w: r.width, h: r.height };
+    }).filter((t) => t.w > 0 && t.h > 0);
+    const placed: Box[] = [];
     // The picked record is placed first so it never loses to a neighbour.
     const order = [...currentRecords.filter(isLocated)].sort((a, b) =>
       Number(b.id === currentSelected) - Number(a.id === currentSelected));
@@ -266,14 +341,35 @@ export function PortfolioCanvas({
 
       const w = el.offsetWidth + 4;        // +4: a hair of air between two names
       const h = el.offsetHeight + 4;
-      const hit = { x: p.x - w / 2, y: p.y - h / 2, w, h };
-      if (hit.x < 0 || hit.y < 0 || hit.x + w > size.x || hit.y + h > size.y
-        || taken.some((t) => hit.x < t.x + t.w && hit.x + hit.w > t.x
-                         && hit.y < t.y + t.h && hit.y + hit.h > t.y)) {
+      const spotAt = (dx: number, dy: number) => ({ x: p.x + dx - w / 2, y: p.y + dy - h / 2, w, h, dx, dy });
+      const inWindow = (s: Box) => s.x >= 0 && s.y >= 0 && s.x + s.w <= size.x && s.y + s.h <= size.y;
+      // On a survey map the middle of an outline is where the lengths of a
+      // shared edge and the letters of a shared corner land. So a few nearby
+      // spots are tried, nearest first and never outside the outline's own box.
+      // An outline smaller than its name, lengths and letters together cannot
+      // carry all of them without printing text over text, so there the name
+      // waits for the next zoom: the rail, the tooltip and the pick panel still
+      // name it. The portfolio map keeps its one position: a pin's name moved
+      // off its pin names nothing.
+      let hit: (Box & { dx: number; dy: number }) | undefined;
+      if (surveyed) {
+        const bounds = hasBoundaryRing(r.ring) ? screenBox(map, r.ring) : null;
+        hit = NAME_SPOTS.map(([fx, fy]) => spotAt(fx * w, fy * h)).find((s) => inWindow(s)
+          && clearOf(s, placed) && clearOf(s, marks)
+          && ((s.dx === 0 && s.dy === 0) || !bounds || within(s, bounds)));
+      } else {
+        const centre = spotAt(0, 0);
+        if (inWindow(centre) && clearOf(centre, placed)) hit = centre;
+      }
+      if (!hit) {
         el.remove();
         continue;
       }
-      taken.push(hit);
+      if (hit.dx || hit.dy) {
+        el.style.left = `${p.x + hit.dx}px`;
+        el.style.top = `${p.y + hit.dy}px`;
+      }
+      placed.push(hit);
     }
   };
 
@@ -305,7 +401,11 @@ export function PortfolioCanvas({
       const tone = `pf-${r.status === 'disputed' ? 'disputed'
         : r.status === 'for_sale' ? 'sale' : 'owned'}`;
       const layer: L.Path = hasBoundaryRing(r.ring)
-        ? L.polygon(r.ring as L.LatLngTuple[], { className: `pf-shape ${tone}`, bubblingMouseEvents: false })
+        ? L.polygon(r.ring as L.LatLngTuple[], {
+          className: appearance === 'surveyed'
+            ? 'w-ring pf-survey' : `pf-shape ${tone}`,
+          bubblingMouseEvents: false,
+        })
         // A pin, and shaped as one deliberately: a record with no survey has a
         // POSITION and not an extent, and drawing it as a little square would
         // claim a boundary the record does not have.
@@ -345,6 +445,47 @@ export function PortfolioCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordsKey]);
 
+  // Combined FMB uses the same ruler grammar as one record's Location map:
+  // every selected outline carries its corner letters and side lengths. This
+  // layer is separate from the polygons so a zoom can recompute screen-space
+  // label offsets without replacing the focusable survey paths underneath.
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = rulerLayer.current;
+    if (!map || !group) return;
+    group.clearLayers();
+    if (appearance !== 'surveyed') return;
+
+    const surveyed = records.filter((record) =>
+      hasBoundaryRing(record.ring) && record.sideLabels?.length);
+    const rings = surveyed.map((record) => openRing(record.ring));
+    // Where two outlines share a corner, each disc steps into its own outline
+    // so both letters can be read; the lengths then avoid the discs where they
+    // are actually drawn.
+    const offsets = sharedCornerOffsets(map, rings);
+    const collisionPoints = rings.flatMap((ring, r) => ring.map((corner, i) => {
+      const p = map.latLngToContainerPoint(corner as L.LatLngTuple);
+      const nudge = offsets[r][i];
+      return nudge ? L.point(p.x + nudge[0], p.y + nudge[1]) : p;
+    }));
+    const taken: L.Point[] = [];
+    surveyed.forEach((record, r) => {
+      drawSurveyBoundaryLayer({
+        map,
+        group,
+        ring: rings[r],
+        sideLabels: record.sideLabels ?? [],
+        collisionPoints,
+        taken,
+        cornerOffsets: offsets[r],
+      });
+    });
+    // The names avoid the discs and lengths just drawn, so they are placed
+    // again now rather than against the ones this redraw replaced.
+    place();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appearance, recordsKey, zoomTick]);
+
   useEffect(() => {
     for (const [id, layer] of boxes.current) {
       const element = layer.getElement();
@@ -365,10 +506,10 @@ export function PortfolioCanvas({
   };
 
   return <>
-    <div className="pf-map" ref={hostRef} role="region" aria-label="Map of your properties" />
+    <div className="pf-map" ref={hostRef} role="region" aria-label={label} />
     {tilesFailed && (
       <p className="nogeo pf-map-error" role="status" style={{ top: '4rem', right: '3rem', zIndex: 500, pointerEvents: 'auto' }}>
-        {satellite ? 'Satellite imagery' : 'Street map'} could not be fully loaded. Your saved locations are still shown.
+        {satellite ? 'Satellite imagery' : 'Street map'} could not be fully loaded.
         {' '}<button type="button" className="btn sm" onClick={retryTiles}>Retry map</button>
       </p>
     )}

@@ -11,6 +11,9 @@ async function openVillage(page: Page) {
     plots: 2, centre: [17.001, 82.002], outline: [west, east] }];
   await page.route('**/vm/overview.json', (route) => route.fulfill({ json: manifest }));
   await page.route('**/vm/index.json', (route) => route.fulfill({ json: manifest }));
+  // No mandal catalog: the screen falls back to one landing map of every
+  // outline in the index, which is the manifest this test chose.
+  await page.route('**/vm/catalog.json', (route) => route.fulfill({ json: [] }));
   await page.route('**/api/gateway/pattadar/village-maps', (route) => route.fulfill({ json: [] }));
   await page.route('**/vm/map-fixture.json', (route) => route.fulfill({ json: {
     type: 'FeatureCollection',
@@ -19,7 +22,7 @@ async function openVillage(page: Page) {
       geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]].map(([lat, lon]) => [lon, lat])] },
     })),
   } }));
-  await page.goto('/app/villages');
+  await page.goto('/app/maps');
   await page.getByRole('button', { name: new RegExp(`^${village}`) }).click();
   await expect(page.locator('.vc-badge')).toContainText(village);
   await expect(page.locator('.vc-label').first()).toBeVisible();
@@ -34,7 +37,7 @@ test('village tape requires Satellite, restores the prior map, and supports undo
 
   await mode('Measure on satellite').click();
   await expect(mode('Satellite')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.vc-measure')).toContainText('Satellite locked');
+  await expect(page.locator('.vc-measure')).toContainText('Satellite view on');
   for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
     await expect(mode(name)).toBeDisabled();
   }
@@ -109,7 +112,7 @@ test('village street tiles report failure after imagery loaded and can be retrie
   await page.getByRole('button', { name: 'Retry map', exact: true }).click();
   await expect(page.locator('.vc-tile-error')).toHaveCount(0);
   await expect(page.locator('.leaflet-tile-loaded').first()).toBeVisible();
-  await page.getByRole('link', { name: 'Your land on map', exact: true }).click();
+  await page.getByRole('link', { name: 'Properties map', exact: true }).click();
   await expect(page).toHaveURL(/\/properties\?view=map$/);
 });
 
@@ -120,7 +123,7 @@ test('a subdivision record does not claim its parent survey plot', async ({ page
     await openVillage(page);
     await page.getByLabel('Find survey or plot number').fill('262');
     await page.getByRole('button', { name: 'Find plot', exact: true }).click();
-    await expect(page.locator('.vm-facts')).toContainText('Not one of your records');
+    await expect(page.locator('.vm-facts')).toContainText('Not one of your properties');
     await expect(page.locator('.vm-facts')).not.toContainText('Subdivision owner regression');
   } finally {
     await deleteMapRecords(request, [id]);

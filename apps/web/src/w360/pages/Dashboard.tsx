@@ -1,30 +1,28 @@
 /** W01 — the portfolio in one screen: what you hold, what it is worth, what is
- *  waiting on you, and where the value actually sits. */
+  *  waiting on you, and where the value actually sits.
+ *
+ *  Home (26/09/2026, founder decision): user-focused and Material 3 — the
+ *  greeting and shortcuts, "For you" (reminders and orders waiting on the
+ *  owner in one list), missing details, four overview cards that are also
+ *  ways in, recently opened, then recent activity. Value appears only when
+ *  something has been valued. */
 import { useState } from 'react';
 import { Link } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import FileUploadOutlined from '@mui/icons-material/FileUploadOutlined';
+import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
+import IosShareOutlined from '@mui/icons-material/IosShareOutlined';
 
-import { usePortfolio, useDismissWaiting } from '../api';
-import type { Portfolio, RecordCard, WaitingItem } from '../api';
+import { useAuditTrail } from '../../data/hooks';
+import { EMPTY_FILTER, useOrders, usePortfolio, useProperties, useDismissWaiting } from '../api';
+import type { Order, Portfolio, RecordCard, WaitingItem } from '../api';
 import { Dialog } from '../Dialog';
+import { ActivityRow } from './Audit';
 import {
-  Card, Cell, Empty, Eyebrow, Failed, Icon, Loading, PageHead, inr, num, plural,
+  Card, Empty, Failed, Icon, KV, Loading, PageHead, StatusChip, inr, num, plural,
 } from '../ui';
-
-/** The owner sits in one time zone and the land in another; both clocks matter
- *  because the office that opens at 09:30 IST is the one holding the file.
- *  The land's clock is named after where the land actually is — the village
- *  holding most of the value — not after the town this screen was drawn with. */
-function clocks(landPlace: string): string {
-  const at = (tz?: string) =>
-    new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false })
-      .format(new Date());
-  const here = new Intl.DateTimeFormat('en-GB', { timeZoneName: 'short' })
-    .formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value ?? 'Local';
-  const there = `${landPlace || 'India'} ${at('Asia/Kolkata')} IST`;
-  return `${here} ${at()}, ${there}`;
-}
+import { SetupChecklist } from '../SetupChecklist';
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -67,7 +65,7 @@ export function RecordTile({ rec }: { rec: RecordCard }) {
  */
 function whereTo(w: WaitingItem): { to: string; label: string } | null {
   if (w.recordId) return { to: `/app/records/${w.recordId}`, label: 'Open record' };
-  if (w.icon === 'lock') return { to: '/app/papers', label: 'Open Papers' };
+  if (w.icon === 'lock') return { to: '/app/papers', label: 'Open Documents' };
   return null;
 }
 
@@ -150,9 +148,7 @@ function WaitingRow({ w }: { w: WaitingItem }) {
           }
         >
           <p className="note">
-            &ldquo;{w.title}&rdquo; leaves this screen for good — it cannot be brought back.
-            Only the reminder goes: whatever it is about is left exactly as it is, with the
-            same deadline on it.
+            &ldquo;{w.title}&rdquo; cannot be brought back.
           </p>
         </Dialog>
       )}
@@ -160,218 +156,316 @@ function WaitingRow({ w }: { w: WaitingItem }) {
   );
 }
 
-/** What is actually waiting on the owner. Lifted out of the one big return so
- *  a first-run dashboard can carry it too: an invitation to a family group can
- *  arrive before the account holds a single parcel, and it was the one panel
- *  worth drawing on a screen with nothing else on it. */
-function Waiting({ data }: { data: Portfolio }) {
+/** One order that is waiting on the owner: work came back, or a change asked
+ *  for. It opens the order, which is where accepting or answering happens. */
+function OrderRow({ o }: { o: Order }) {
   return (
-    <Card title="Waiting on you" link="Notifications" linkTo="/app/notifications">
-      {data.waiting.length === 0 && <p className="note">Nothing is waiting on you.</p>}
+    <div>
+      <span className="muted" style={{ display: 'flex', paddingTop: '0.125rem' }}>
+        <Icon name="agent" size={19} />
+      </span>
+      <div className="grow">
+        <h3>
+          <Link to={`/app/services/${o.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+            {o.pendingReview > 0 ? `Review submitted work · ${o.title}` : o.title}
+          </Link>
+        </h3>
+        <p className="note" style={{ marginTop: '0.1875rem' }}>
+          {[o.ref, o.recordTitle].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+      <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+        <StatusChip state={o.statusState}>{o.statusLabel}</StatusChip>
+        <Link className="btn" to={`/app/services/${o.id}`}>Open order</Link>
+      </span>
+    </div>
+  );
+}
+
+/** "For you": everything that needs the owner, in one list. Reminders and
+ *  orders that came back are the same question — what should I do next — so
+ *  they are one card, not two. With nothing waiting it is one short line. */
+function ForYou({ data, orders }: { data: Portfolio; orders: Order[] }) {
+  const total = data.waiting.length + orders.length;
+  if (total === 0) {
+    return (
+      <section className="card foryou-clear" aria-label="For you">
+        <span className="up" style={{ display: 'flex' }}><Icon name="ok" size={18} /></span>
+        <strong>You're all caught up</strong>
+        <span className="note">Nothing needs your attention.</span>
+      </section>
+    );
+  }
+  return (
+    <Card title="For you" aside={<span className="num muted">{total}</span>}>
       <div className="rows">
+        {orders.map((o) => <OrderRow key={o.id} o={o} />)}
         {data.waiting.map((w) => <WaitingRow key={w.id} w={w} />)}
       </div>
     </Card>
   );
 }
 
+/** One overview figure that is also a way in (Material 3 summary card). */
+function Overview({ label, value, note, to, words }: {
+  label: string; value: string; note?: string; to: string;
+  /** The value is a word ("Not valued"), not a figure: no tabular face. */
+  words?: boolean;
+}) {
+  return (
+    <Link className="ovcard" to={to}>
+      <span className="ov-label">{label}</span>
+      <span className={words ? 'ov-value' : 'ov-value num'}>{value}</span>
+      {note && <span className="ov-note">{note}</span>}
+    </Link>
+  );
+}
+
+/** The four things an owner comes to Home to start. Each lands on the screen
+ *  that does it with its dialog already open (`?new=1`, `?do=`), so none is a
+ *  second click. "Add property" opens the add drawer, which starts on the
+ *  passbook scanner. */
+function Shortcuts() {
+  return (
+    <nav className="shortcuts" aria-label="Shortcuts">
+      <Link className="btn primary" to="/app/properties?new=1">
+        <AddOutlined sx={{ fontSize: 17 }} /> Add property
+      </Link>
+      <Link className="btn" to="/app/papers?do=add">
+        <FileUploadOutlined sx={{ fontSize: 16 }} /> Add document
+      </Link>
+      <Link className="btn" to="/app/order">
+        <HandshakeOutlined sx={{ fontSize: 16 }} /> Order a service
+      </Link>
+      <Link className="btn" to="/app/papers?do=share">
+        <IosShareOutlined sx={{ fontSize: 16 }} /> Share documents
+      </Link>
+    </nav>
+  );
+}
+
+interface Gap { label: string; fix: string; to: string }
+
+/**
+ * What a property is missing, from facts the card already carries.
+ *
+ * Only gaps the owner can close from this app are listed. A deed number is
+ * not: `deedLine` reads parcels.reg_doc_no, which nothing in W360 writes, so
+ * "No deed recorded" would be a nag with no way to act on it. EC and tax
+ * checks are not on the card at all and are not guessed at.
+ */
+function gapsOf(r: RecordCard): Gap[] {
+  const out: Gap[] = [];
+  const land = r.classification === 'agri' || r.classification === 'open_plot';
+  // _located() already falls back to the boundary's centre, so 0,0 here means
+  // neither a pin nor a boundary.
+  if (!r.lat && !r.lon) {
+    out.push({ label: 'Not on the map', fix: 'Set location', to: `/app/records/${r.id}/map` });
+  } else if (land && r.ring.length < 6) {
+    out.push({ label: 'No boundary', fix: 'Draw boundary', to: `/app/records/${r.id}/map` });
+  }
+  if (r.paperCount === 0) {
+    out.push({ label: 'No documents', fix: 'Add document', to: `/app/records/${r.id}` });
+  }
+  return out;
+}
+
+const GAP_ROWS = 5;
+
+/** Properties you own that are missing a location, a boundary or documents.
+ *  Managed and watched land is somebody else's to complete. Hidden while it
+ *  loads, when it fails, and when nothing is missing. */
+function MissingDetails() {
+  const { data } = useProperties(EMPTY_FILTER);
+  const owned = (data?.cards ?? []).filter((c) => c.stake === 'owned');
+  const open = owned.map((r) => ({ r, gaps: gapsOf(r) })).filter((x) => x.gaps.length > 0);
+  if (open.length === 0) return null;
+  const done = owned.length - open.length;
+  return (
+    <div className="sec">
+      <Card title="Missing details"
+            aside={<span className="note">{done} of {owned.length} complete</span>}>
+        <div className="rows">
+          {open.slice(0, GAP_ROWS).map(({ r, gaps }) => (
+            <div key={r.id}>
+              <span className="muted" style={{ display: 'flex', paddingTop: '0.125rem' }}>
+                <Icon name={r.classification} size={19} />
+              </span>
+              <div className="grow">
+                <h3>
+                  <Link to={`/app/records/${r.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                    {r.title}
+                  </Link>
+                </h3>
+                <span className="gapchips">
+                  {gaps.map((g) => <StatusChip key={g.label} state="warn">{g.label}</StatusChip>)}
+                </span>
+              </div>
+              <Link className="btn" to={gaps[0].to}>{gaps[0].fix}</Link>
+            </div>
+          ))}
+        </div>
+        {open.length > GAP_ROWS && (
+          <p className="note" style={{ margin: 'var(--space-md) 0 0' }}>
+            {plural(open.length - GAP_ROWS, 'more property', 'more properties')} ·{' '}
+            <Link className="link accent" to="/app/properties">All properties</Link>
+          </p>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+const ACTIVITY_ROWS = 5;
+
+/** The last few events from Activity, drawn with Activity's own row. The
+ *  trail arrives newest first. Hidden while empty: Home is not the place to
+ *  say that nothing has happened. */
+function RecentActivity() {
+  const { data } = useAuditTrail();
+  const events = (data ?? []).slice(0, ACTIVITY_ROWS);
+  if (events.length === 0) return null;
+  return (
+    <section className="sec" aria-labelledby="home-activity">
+      <div className="row between" style={{ marginBottom: 'var(--space-md)' }}>
+        <h2 id="home-activity" className="home-h2" style={{ margin: 0 }}>Recent activity</h2>
+        <Link className="link accent" to="/app/audit" style={{ fontSize: '0.8125rem' }}>
+          All activity
+        </Link>
+      </div>
+      <div className="card" style={{ padding: 0 }}>
+        <div className="rows boxed">
+          {events.map((e) => <ActivityRow key={e.id} e={e} />)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function Dashboard() {
   const { data, isLoading, error } = usePortfolio();
+  // The same query the rail's Services badge already runs, so this costs
+  // nothing extra: it is answered from the cache.
+  const orderQ = useOrders();
 
-  if (isLoading) return <main><Loading h="70vh" what="your dashboard" /></main>;
+  if (isLoading) return <main><Loading h="70vh" what="your home page" /></main>;
   // A failed read used to hold this same skeleton for good — retry: 1 in
   // main.tsx settles a dead query at isLoading:false, data:undefined, and the
   // old guard could not tell that apart from a query still in flight.
-  if (!data) return <main><Failed what="Your dashboard" error={error} boxed h="26rem" /></main>;
+  if (!data) return <main><Failed what="Your home page" error={error} boxed h="26rem" /></main>;
 
-  // Each clause appears only if the portfolio actually holds that kind, and
-  // every noun agrees with its count — the line used to read
-  // "Built — (0 sq.ft)" for anyone who owns only land.
-  const land = [
-    data.farmCount ? `${plural(data.farmCount, 'farm parcel')} (${num(data.farmExtent, 2)} ac)` : '',
-    data.plotCount ? `${plural(data.plotCount, 'open plot')} (${num(data.plotExtent)} sq.yd)` : '',
-  ].filter(Boolean).join(' and ');
-  const built = [
-    data.builtFlats ? plural(data.builtFlats, 'flat') : '',
-    data.builtShops ? plural(data.builtShops, 'shop') : '',
-  ].filter(Boolean).join(' + ');
-  const summary = [
-    land && `Land — ${land}`,
-    built && `Built — ${built} (${num(data.builtExtent)} sq.ft)`,
+  const orders = orderQ.data ?? [];
+  const needYou = orders.filter((o) => o.needsYou || o.pendingReview > 0);
+  const properties = data.farmCount + data.plotCount + data.builtFlats + data.builtShops;
+  const all = properties + data.managedCount + data.watchedCount;
+  const title = data.displayName ? `${greeting()}, ${data.displayName}` : greeting();
+
+  // Only facts that exist: "1 property · 2.80 ac · 2 documents".
+  const meta = [
+    plural(all, 'property', 'properties'),
+    data.farmExtent > 0 ? `${num(data.farmExtent, 2)} ac` : '',
+    data.plotExtent > 0 ? `${num(data.plotExtent)} sq.yd` : '',
+    data.paperCount > 0 ? plural(data.paperCount, 'document') : '',
   ].filter(Boolean).join(' · ');
-  const stake = [
-    data.managedCount ? { n: data.managedCount, word: 'managed', to: 'managed' } : null,
-    data.watchedCount ? { n: data.watchedCount, word: 'watched', to: 'watch' } : null,
-  ].filter(Boolean) as { n: number; word: string; to: string }[];
+
+  const add = (
+    <Link to="/app/properties?new=1" className="btn primary">
+      <AddOutlined sx={{ fontSize: 17 }} /> Add property
+    </Link>
+  );
 
   /**
    * First run: the account holds nothing.
    *
-   * Everything below this point is a lens onto rows that do not exist. Drawn
-   * over an empty portfolio the screen said: four tiles reading ₹0, a chart
-   * titled "Where the value sits" with no bars under it, a "Recently opened"
-   * heading over an empty grid, and a per-village cost note about ₹0 paid.
-   * Together they read as an app that failed to load its data. What is true is
-   * much simpler and is now the only thing said: nothing has been added yet,
-   * and here is the one thing to do about it.
+   * Everything else on this page is a lens onto rows that do not exist, so the
+   * only things said are what needs the owner (an invitation can arrive before
+   * a parcel does) and the one thing to do.
    */
-  const holdings = data.farmCount + data.plotCount + data.builtFlats + data.builtShops
-    + data.managedCount + data.watchedCount;
-
-  if (holdings === 0) {
+  if (all === 0) {
     return (
       <main>
-        <PageHead
-          eyebrow="Your portfolio"
-          title={data.displayName ? `${greeting()}, ${data.displayName}` : greeting()}
-        >
-          <p className="note">
-            {data.waitingCount > 0
-              ? `${plural(data.waitingCount, 'thing')} waiting on you`
-              : 'Nothing waiting on you'}
-            {' · '}{clocks('')}
-          </p>
-        </PageHead>
-
-        <Empty
-          boxed h="20rem" icon="parcel" title="Nothing in your portfolio yet"
-          action={
-            <Link to="/app/properties?new=1" className="btn primary">
-              <AddOutlined sx={{ fontSize: 17 }} /> Add your first record
-            </Link>
-          }
-        >
-          A record is one parcel or one built property. Everything else here hangs off it —
-          its papers, its boundary on the map, its photos, who works it, and what it has cost
-          you. Add one and this screen fills itself in.
+        <PageHead title={title} />
+        <SetupChecklist />
+        {data.waiting.length > 0 && <div className="sec"><ForYou data={data} orders={needYou} /></div>}
+        <Empty boxed h="18rem" icon="parcel" title="No properties yet" action={add}>
+          Add a parcel or property, or upload a pattadar passbook.
         </Empty>
-
-        {/* An invitation can arrive before a single parcel does. */}
-        {data.waiting.length > 0 && (
-          <div className="sec">
-            <Waiting data={data} />
-          </div>
-        )}
       </main>
     );
   }
 
+  const openOrders = orders.length;
+  // Value is shown only when something has been valued. A market value of
+  // nought is "not valued", not a loss: the old strip printed −₹5.6 L as a
+  // gain on land that simply had no valuation recorded.
+  const valued = data.worthNow > 0;
+  const bars = data.valueBars.filter((b) => b.value > 0);
+
   return (
     <main>
-      <PageHead
-        eyebrow="Your portfolio"
-        title={data.displayName ? `${greeting()}, ${data.displayName}` : greeting()}
-        // "Share proof of ownership" used to sit here. It had no onClick — it
-        // was a dead control on the first screen of the app, and it asked the
-        // wrong question anyway: proof is shared FROM a record or from the
-        // vault, where there is something to name, set terms on and expire.
-        // The real flow lives on Papers → Share, so the decoration is gone
-        // rather than wired to a second, weaker copy of it.
-        actions={
-          <Link to="/app/properties?new=1" className="btn primary">
-            <AddOutlined sx={{ fontSize: 17 }} /> Add
-          </Link>
-        }
-      >
-        {summary && <p className="lede">{summary}</p>}
-        {stake.length > 0 && (
-          <p className="lede">
-            Owned only ·{' '}
-            {stake.map((s, i) => (
-              <span key={s.to}>
-                {i > 0 && ' and '}
-                <Link to={`/app/properties?stake=${s.to}`} className="accent">
-                  {s.n} {s.word}
-                </Link>
-              </span>
-            ))}
-            {' '}sit in Holdings
-          </p>
-        )}
-        <p className="note">
-          {data.waitingCount > 0
-            ? `${plural(data.waitingCount, 'thing')} waiting on you`
-            : 'Nothing waiting on you'}
-          {' · '}{clocks(data.valueBars[0]?.label ?? '')}
-        </p>
+      {/* "Add property" is the first shortcut, so it is not also a header
+          action — the same button twice on one screen. */}
+      <PageHead title={title}>
+        <p className="note" style={{ margin: '0.375rem 0 0' }}>{meta}</p>
+        <Shortcuts />
       </PageHead>
+      <SetupChecklist />
 
-      <div className="strip">
-        {data.tiles.map((t) => (
-          <Cell key={t.key} k={t.label} v={t.value} unit={t.unit} note={t.note} tone={t.tone} />
-        ))}
-      </div>
+      <div className="sec"><ForYou data={data} orders={needYou} /></div>
 
-      <div className="two sec">
-        <Waiting data={data} />
+      <MissingDetails />
 
-        <Card title="Where the value sits" aside={<span className="note">worth today</span>}>
-          {data.valueBars.length === 0 && (
-            <p className="note">
-              No village holds any value yet — a record needs a market value on its Money tab
-              before it can appear here.
-            </p>
-          )}
-          <div className="bars">
-            {data.valueBars.map((b) => (
-              <div className="bar" key={b.label}>
-                <span>{b.label}</span>
-                <span className="track">
-                  <span className="fill" style={{ width: `${Math.max(4, b.share * 100)}%` }} />
-                </span>
-                <span className="num right">{inr(b.value)}</span>
-              </div>
-            ))}
-          </div>
-          {/* Only says "one bar per village" when there are bars. */}
-          {data.valueBars.length > 0 && (
-            <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-              Worth today, one bar per village. Against {inr(data.invested)} paid in total — the
-              per-village split of cost is on each holding&rsquo;s Money tab.
-            </p>
-          )}
-          <hr className="hr" />
-          <div className="row between">
-            <span>Running costs this year</span>
-            <span className="num">{inr(data.runningCosts)}</span>
-          </div>
-          <hr className="hr" />
-          <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-            <span className="up" style={{ display: 'flex', paddingTop: '0.125rem' }}>
-              <Icon name="shield" size={17} />
-            </span>
-            {/* This line used to read "N papers, all in Mumbai (ap-south-1).
-                Last backup verified <date>." Both halves were made up. The
-                region was a literal typed here with no server field behind it,
-                so a stack storing its bytes anywhere else still claimed
-                Mumbai; and `backup_verified_on` is `_ddmmyyyy(_today())`
-                (web360.py) — today's date, on every account, every visit,
-                whether or not a backup ever ran. The one safety claim on the
-                screen was the one sentence nothing checked. What is true is
-                the count, and that Papers carries the storage note the server
-                actually sets (`regionNote`) next to the links out. The claim
-                can come back the day a verification is recorded and returned
-                as a real, optional timestamp. */}
-            <p className="note">
-              {data.paperCount > 0
-                ? `${plural(data.paperCount, 'paper')} filed against your records. `
-                : 'No papers filed against your records yet. '}
-              <Link className="accent" to="/app/papers">Papers</Link> says how they are
-              stored and what is out on a link right now.
-            </p>
-          </div>
-        </Card>
-      </div>
+      <section className="sec" aria-labelledby="home-overview">
+        <h2 id="home-overview" className="home-h2">Overview</h2>
+        <div className="overview">
+          <Overview label="Properties" value={num(all)}
+                    note={[
+                      data.farmCount ? plural(data.farmCount, 'land parcel') : '',
+                      data.plotCount ? plural(data.plotCount, 'plot') : '',
+                      data.builtFlats + data.builtShops > 0
+                        ? plural(data.builtFlats + data.builtShops, 'building') : '',
+                    ].filter(Boolean).join(' · ')}
+                    to="/app/properties" />
+          <Overview label="Documents" value={num(data.paperCount)} to="/app/papers" />
+          <Overview label="Open orders" value={num(openOrders)}
+                    note={needYou.length > 0 ? `${needYou.length} need you` : undefined}
+                    to="/app/services" />
+          <Overview label="Estimated value" value={valued ? inr(data.worthNow) : 'Not valued'}
+                    words={!valued}
+                    note={data.invested > 0 ? `Bought for ${inr(data.invested)}` : undefined}
+                    to="/app/properties" />
+        </div>
+      </section>
 
-      {/* A heading and an "All holdings ›" link over an empty grid is a
-          section that failed to load, as far as anyone reading it can tell.
-          Nothing opened yet is not worth a section. */}
+      {/* Only when something has actually been valued — a bar chart of ₹0
+          per village is a chart of nothing. */}
+      {bars.length > 0 && (
+        <div className="sec">
+          <Card title="Value by village">
+            <div className="bars">
+              {bars.map((b) => (
+                <div className="bar" key={b.label}>
+                  <span>{b.label}</span>
+                  <span className="track">
+                    <span className="fill" style={{ width: `${Math.max(4, b.share * 100)}%` }} />
+                  </span>
+                  <span className="num right">{inr(b.value)}</span>
+                </div>
+              ))}
+            </div>
+            {data.runningCosts > 0 && (
+              <KV rows={[{ k: 'Running costs this year', v: inr(data.runningCosts) }]} />
+            )}
+          </Card>
+        </div>
+      )}
+
       {data.recent.length > 0 && (
-        <section className="sec">
+        <section className="sec" aria-labelledby="home-recent">
           <div className="row between" style={{ marginBottom: 'var(--space-md)' }}>
-            <Eyebrow>Recently opened</Eyebrow>
+            <h2 id="home-recent" className="home-h2" style={{ margin: 0 }}>Recently opened</h2>
             <Link className="link accent" to="/app/properties" style={{ fontSize: '0.8125rem' }}>
-              All holdings ›
+              All properties
             </Link>
           </div>
           <div className="cards">
@@ -379,6 +473,8 @@ export function Dashboard() {
           </div>
         </section>
       )}
+
+      <RecentActivity />
     </main>
   );
 }

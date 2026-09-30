@@ -68,6 +68,7 @@ import {
   verifyLink,
 } from './familiesData';
 import type { GroupMember, MemberVars } from './familiesData';
+import { UNREACHABLE_LABEL } from '../../data/useLiveOrSample';
 import { PersonDialog } from './PersonDialog';
 
 type Notify = (msg: string, severity?: 'success' | 'error' | 'warning' | 'info') => void;
@@ -408,7 +409,9 @@ function MembersTab({
           >
             {totalShare}% allocated
           </Box>
-          {isSample ? ' · sample data' : ''}
+          {/* Not "· sample data": no sample row paints, so that said the one
+              thing that was not happening. */}
+          {isSample ? ` · ${UNREACHABLE_LABEL.toLowerCase()}` : ''}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
         <ExportMenu filename="pattadar-family" brand={exportBrand} cols={exportCols} rows={people} />
@@ -466,7 +469,7 @@ function MembersTab({
                       >
                         {(m.name || '?').slice(0, 1).toUpperCase()}
                       </Avatar>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
                         {m.name}
                       </Typography>
                       {m.isSelf && <Chip size="small" variant="outlined" label="You" />}

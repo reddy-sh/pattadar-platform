@@ -60,7 +60,7 @@ export interface DiscardCopy {
 
 const DISCARD: DiscardCopy = {
   title: 'Discard what you have entered?',
-  body: 'Nothing has been saved yet. Closing this panel loses everything you have entered here.',
+  body: 'Your unsaved changes will be lost.',
   keep: 'Keep editing',
   discard: 'Discard',
 };
@@ -145,9 +145,14 @@ function useSealedPage(
 
 export function Drawer({
   eyebrow, title, sub, onClose, onSubmit, busy, dirty, discardCopy,
-  primary, cancelLabel = 'Cancel', initialFocus, returnFocus,
-  panelClassName, panelStyle, children,
+  primary, primaryWhy, cancelLabel = 'Cancel', initialFocus, returnFocus,
+  panelClassName, panelStyle, over, children,
 }: {
+  /** A confirmation raised from inside the panel — removing the person or the
+   *  transfer it is about. Drawn where the discard confirmation is, above the
+   *  panel, and while it is up the drawer's own Escape and scrim do nothing:
+   *  one key must not answer the question and close the panel behind it. */
+  over?: ReactNode;
   /** `SY 120-2 · PEOPLE` — see drawerEyebrow. */
   eyebrow?: ReactNode;
   title: ReactNode;
@@ -173,6 +178,12 @@ export function Drawer({
    *  panel closes from its header X and the scrim rather than a pinned Close.
    *  The paper preview is the one caller that does this. */
   primary?: ReactNode;
+  /** Why the primary cannot be pressed yet, in one line pinned above the
+   *  footer: "Fill in what happened to file the note." A disabled button that
+   *  says nothing reads as broken. Give the same text's id to DrawerAction's
+   *  `describedBy` so a screen reader hears it on the button. Omit, or pass
+   *  '', while the primary is ready. */
+  primaryWhy?: { id: string; text: ReactNode };
   cancelLabel?: string;
   /** CSS selector, resolved inside the panel, for what should take focus. */
   initialFocus?: string;
@@ -204,12 +215,12 @@ export function Drawer({
    *  The deliberate ways out — the header X, Cancel — still close at once.
    *  Only the two accidental paths come through here. */
   const tryClose = useCallback(() => {
-    // A write is in flight, or our own confirmation is already up: one Escape
-    // must not both dismiss that dialog and act on the drawer behind it.
-    if (asking || busy) return;
+    // A write is in flight, or a confirmation is already up: one Escape must
+    // not both dismiss that dialog and act on the drawer behind it.
+    if (asking || busy || over) return;
     if (dirty) setAsking(true);
     else onClose();
-  }, [asking, busy, dirty, onClose]);
+  }, [asking, busy, dirty, onClose, over]);
 
   /** Tab, Escape, and where focus lands. The shared hook only wraps at the
    *  panel's first and last stop, which is why it can stay armed while the
@@ -240,10 +251,15 @@ export function Drawer({
   // an empty slot would be furniture. Every form drawer passes a primary and
   // keeps its footer exactly as before.
   const foot = primary ? (
-    <div className="drawerfoot">
-      {primary}
-      <button type="button" className="btn" onClick={onClose}>{cancelLabel}</button>
-    </div>
+    <>
+      {primaryWhy?.text && (
+        <p id={primaryWhy.id} className="note drawerwhy">{primaryWhy.text}</p>
+      )}
+      <div className="drawerfoot">
+        {primary}
+        <button type="button" className="btn" onClick={onClose}>{cancelLabel}</button>
+      </div>
+    </>
   ) : null;
 
   /** `tabIndex={-1}` so a caller can hand it the opening focus with
@@ -283,6 +299,10 @@ export function Drawer({
         )}
       </aside>
 
+      {over && !asking && (
+        <div style={{ position: 'relative', zIndex: 41 }}>{over}</div>
+      )}
+
       {asking && (
         /* Lifted into a stacking context of its own. The shared dialog's scrim
            sits at z-index 39 and the drawer at 40, so a confirmation raised
@@ -321,11 +341,11 @@ export function Drawer({
  * drawer and nowhere else; every drawer needs it, so it lives here.
  */
 export function DrawerAction({
-  label, working, paused, pending, disabled, onClick, submit = true,
+  label, working, paused, pending, disabled, onClick, submit = true, describedBy,
 }: {
-  /** What the button does when it is idle: "Assign them", "File the note". */
+  /** What the button does when it is idle: "Assign them", "Add the note". */
   label: string;
-  /** What it says mid-write: "Assigning…", "Filing…". */
+  /** What it says mid-write: "Assigning…", "Adding…". */
   working: string;
   paused?: boolean;
   pending?: boolean;
@@ -333,6 +353,8 @@ export function DrawerAction({
   onClick?: () => void;
   /** False for a drawer that is not a form. */
   submit?: boolean;
+  /** The id of Drawer's `primaryWhy` line, while it is shown. */
+  describedBy?: string;
 }) {
   return (
     <button
@@ -340,6 +362,7 @@ export function DrawerAction({
       className="btn primary grow"
       style={{ justifyContent: 'center' }}
       disabled={disabled || pending}
+      aria-describedby={describedBy}
       onClick={onClick}
     >
       {paused ? 'Waiting for the network…' : pending ? working : label}

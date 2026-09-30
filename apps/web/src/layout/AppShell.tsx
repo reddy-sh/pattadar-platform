@@ -187,7 +187,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
                     bgcolor: 'primary.container',
                     color: 'primary.onContainer',
                     '& .MuiListItemIcon-root': { color: 'primary.onContainer' },
-                    '& .MuiListItemText-primary': { fontWeight: 600 },
+                    '& .MuiListItemText-primary': { fontWeight: 700 },
                     '&:hover': {
                       bgcolor: `color-mix(in srgb, ${(t.vars ?? t).palette.primary.main} 24%, transparent)`,
                     },
@@ -305,7 +305,7 @@ export function AppShell() {
                 bgcolor: 'action.selected',
                 color: 'text.primary',
                 fontSize: 15,
-                fontWeight: 600,
+                fontWeight: 700,
               }}
             >
               {(user?.email?.[0] ?? 'P').toUpperCase()}

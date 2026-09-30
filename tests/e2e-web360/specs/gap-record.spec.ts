@@ -106,13 +106,13 @@ test.describe('W360 · a record that will not load', () => {
 
     // main.tsx:43 sets retry: 1, so the error state is only reached after the
     // second refusal — the default expect timeout covers that round trip.
-    const failed = page.getByRole('alert').filter({ hasText: 'This record did not load' });
+    const failed = page.getByRole('alert').filter({ hasText: 'This property did not load' });
     await expect(failed).toBeVisible();
-    await expect(failed).toContainText('Nothing has been lost');
+    await expect(failed).toContainText('Check your connection and try again.');
     // The one sentence this app must never say to an owner whose parcel is
     // fine and whose server is not. Both branches render a <main> with the same
     // breadcrumbs, so the only thing separating them is this copy.
-    await expect(page.getByText('That record is not in your portfolio')).toHaveCount(0);
+    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
 
     // A dead end is not an error state: the read is retryable in place…
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeEnabled();
@@ -151,33 +151,35 @@ test.describe('W360 · unfiling a paper', () => {
     await expect(row).toBeVisible();
 
     // First tap only ASKS. Removing evidence has no undo, so a single click
-    // must not reach the server — the row stays, and so does the paper.
+    // must not reach the server — the row stays, and so does the paper. The
+    // question is the shared confirmation since 28/09/2026 (it was a Remove /
+    // Keep pair in the row), titled with the paper it would unfile.
+    const question = page.getByRole('dialog', { name: `Remove ${PAPER}?` });
     await trigger.click();
-    await expect(page.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Keep', exact: true })).toBeVisible();
+    await expect(question.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+    await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
     await expect(row).toBeVisible();
     expect(await papersOnServer()).toHaveLength(1);
 
-    // Keep is the whole reason the confirm exists: it must close the pair and
+    // Cancel is the whole reason the question exists: it must close it and
     // leave the paper filed, not quietly do the thing it backed out of.
-    await page.getByRole('button', { name: 'Keep', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+    await question.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(question).toHaveCount(0);
     await expect(row).toBeVisible();
     expect(await papersOnServer()).toHaveLength(1);
 
     await trigger.click();
-    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(row).toHaveCount(0);
-    // Neither refusal line (RecordPapers.tsx:606, :608) may appear on the happy
-    // path — a removal that failed still empties the row optimistically.
+    // Neither refusal line may appear on the happy path.
     await expect(page.getByText(/could not be removed|still filed here/)).toHaveCount(0);
 
     // Read it back from the server, not from the list React already redrew.
     await page.reload();
     await expect(page.getByText(PAPER, { exact: true })).toHaveCount(0);
     // The list's last row is replaced by the "nothing filed" note, not by the
-    // "no paper matches that" one — there is no filter typed here.
-    await expect(page.getByText('Nothing is filed against this parcel yet.', { exact: false })).toBeVisible();
+    // "no document matches that" one — there is no filter typed here.
+    await expect(page.getByText('No documents on this parcel yet.')).toBeVisible();
     expect(await papersOnServer()).toHaveLength(0);
   });
 });
@@ -201,7 +203,8 @@ test.describe('W360 · tagging a photo', () => {
   test('a tag typed on a photo is filed against that photo and survives a reload', async ({ page }) => {
     await page.goto(`/app/records/${PARCEL}/photos`);
 
-    const chip = page.getByRole('button', { name: '+ tag' });
+    // A text button named for what it does (it read "+ tag" until 28/09/2026).
+    const chip = page.getByRole('button', { name: 'Add a tag' });
     const tag = page.locator('aside.side .tag').filter({ hasText: TAG });
     await expect(chip).toBeVisible();
     await chip.click();
@@ -237,7 +240,7 @@ test.describe('W360 · archiving from the record', () => {
   test('Archive from the record asks first, and lands you where the change is visible', async ({ page, request }) => {
     const id = await scratchParcel(request, 'Sy ARCHME');
     const kebab = page.getByRole('button', { name: 'Actions for Sy ARCHME' });
-    const item = page.getByRole('menuitem', { name: 'Archive this record' });
+    const item = page.getByRole('menuitem', { name: 'Archive this property' });
     const live = async () => {
       const out = await gql(request, `{ web { properties { cards { id } } } }`);
       return ((out?.data?.web?.properties?.cards ?? []) as { id: string }[]).map((c) => c.id);
@@ -285,9 +288,9 @@ test.describe('W360 · archiving from the record', () => {
 });
 
 test.describe('W360 · asking for a survey', () => {
-  /** The GeoJSON checkbox lives alone in the "What to send" card. */
+  /** The GeoJSON checkbox lives alone in the "Attachments" card. */
   const sendCard = (page: import('@playwright/test').Page) =>
-    page.locator('section.card', { has: page.getByRole('heading', { name: 'What to send' }) });
+    page.locator('section.card', { has: page.getByRole('heading', { name: 'Attachments' }) });
 
   test('an unsurveyed record asks for corners to be established, and attaches no boundary', async ({ page }) => {
     await page.goto(`/app/records/${UNSURVEYED}/request?kind=survey`);
@@ -308,9 +311,9 @@ test.describe('W360 · asking for a survey', () => {
     // said nothing was attached.
     await expect(geo).not.toBeChecked();
     await expect(geo).toBeDisabled();
-    await expect(sendCard(page)).toContainText('This record has no surveyed boundary yet.');
+    await expect(sendCard(page)).toContainText('No surveyed boundary yet.');
     await expect(sendCard(page).locator('.cardhead .chip')).toHaveText('0');
-    await expect(page.getByText(/Nothing of yours is attached/)).toBeVisible();
+    await expect(page.getByText('Nothing attached.')).toBeVisible();
   });
 
   test('a surveyed record still offers its boundary, so the noGeo wording is a branch and not the only opener', async ({ page }) => {

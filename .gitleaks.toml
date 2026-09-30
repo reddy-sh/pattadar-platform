@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public village map identifiers are paths, not API credentials"
+regexes = ['''^ap/markapuram/[a-z]+/[a-z]+$''']

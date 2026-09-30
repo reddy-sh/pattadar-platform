@@ -8,10 +8,8 @@
  * runs the steps and the stage SIDE BY SIDE: the step being told is the only one
  * lit, and the stage shows only its act, three times larger than before.
  *
- * Three acts, each mirroring one step of the frozen HOW copy:
- *   1. photograph a passbook or deed and watch the details fill themselves in
- *   2. invite family and heirs, then see confirmations come back
- *   3. everything settles into one organised, locked set of records
+ * Three acts mirror the actual app: start from a passbook and review details,
+ * choose property-scoped invitation terms, then find copies on Documents.
  *
  * This module deliberately imports NO animation library. It owns which act is
  * showing, the timers and the step list, and pulls in the Motion-powered artwork
@@ -29,18 +27,38 @@
  * The sequence plays ONCE and rests on the last step, so nothing loops
  * indefinitely and no pause control is owed (WCAG 2.2.2).
  *
- * COPY IS BYTE-FROZEN — strings come from landingContent.ts.
+ * Step copy comes from landingContent.ts.
  */
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { HOW } from './landingContent';
+import { AddPropertyView, JourneyChrome } from './JourneyProductArtwork';
 import { SceneBoundary, prefersReducedMotion } from './sceneKit';
 
 const JourneyScene = lazy(() => import('./JourneyScene'));
 
 /** How long each act holds the stage. Mirrored by `--journey-act` in site.css,
  * which draws the progress line under the step being told. */
-const ACT_MS = 3400;
+const ACT_MS = 4200;
 const LAST = HOW.steps.length - 1;
+
+/** A real first frame, not an empty loading box. It holds the stage before the
+ * lazy Motion scene starts, so the section never reads unfinished. */
+function JourneySceneFallback() {
+  return (
+    <svg
+      className="journey__svg"
+      viewBox="0 0 520 420"
+      width={520}
+      height={420}
+      fill="none"
+      role="presentation"
+      focusable="false"
+    >
+      <JourneyChrome />
+      <AddPropertyView />
+    </svg>
+  );
+}
 
 export function PlatformJourney() {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -135,11 +153,15 @@ export function PlatformJourney() {
        * chunk never shifts the page under someone mid-read — and it is also
        * where we stay for good if that chunk never arrives. */}
       <figure className="journey__figure" aria-hidden="true">
-        <SceneBoundary fallback={<div className="journey__placeholder" />}>
-          <Suspense fallback={<div className="journey__placeholder" />}>
-            <JourneyScene act={act} playing={playing} instant={reducedMotion} />
-          </Suspense>
-        </SceneBoundary>
+        {!playing && !reducedMotion ? (
+          <JourneySceneFallback />
+        ) : (
+          <SceneBoundary fallback={<JourneySceneFallback />}>
+            <Suspense fallback={<JourneySceneFallback />}>
+              <JourneyScene act={act} playing={playing} instant={reducedMotion} />
+            </Suspense>
+          </SceneBoundary>
+        )}
       </figure>
     </div>
   );

@@ -47,7 +47,14 @@ world.set('properties', World.never());                // stays loading
 world.set('orders', World.slow(1500, []));             // answers, late
 world.set('deletePaper', false);                       // a refused mutation
 world.set('ticket', (vars) => vars.id === TICKET.closed ? null : seedTicket);
+world.set('root.notes', [note]);                       // a field read outside `web {`
 ```
+
+Keys are `web` fields. A W360 screen that reads through the root schema
+instead, like the record head's `notes`, is keyed `root.<field>`. The world
+routes a root-level document only when such an answer exists; any other
+root-level document gets a 400, which the previous app's screens are built to
+swallow.
 
 And to assert what the app asked for:
 

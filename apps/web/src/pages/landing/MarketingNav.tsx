@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 
 import { NAV_CTA, WORDMARK } from './landingContent';
 import { PRICING_NAV_LABEL } from '../pricing/pricingContent';
@@ -14,7 +16,7 @@ interface MarketingNavProps {
 /** One marketing header for the landing and Pricing pages.
  *
  * Pricing is one route link in one DOM action group at every width. Landing's
- * seven section controls remain separate because they scroll within `/`.
+ * eight section controls remain separate because they scroll within `/`.
  */
 export function MarketingNav({
   sectionLinks = [],
@@ -23,6 +25,8 @@ export function MarketingNav({
   onSection,
   onSignIn,
 }: MarketingNavProps) {
+  const [sectionsOpen, setSectionsOpen] = useState(false);
+
   return (
     <header className="nav" data-state={scrolled ? 'scrolled' : 'rest'}>
       <div className="nav__inner">
@@ -36,13 +40,37 @@ export function MarketingNav({
           </span>
         )}
         {sectionLinks.length > 0 && (
-          <nav className="nav__links" aria-label="Primary">
-            {sectionLinks.map(([label, id]) => (
-              <button key={id} type="button" onClick={() => onSection?.(id)}>
-                {label}
-              </button>
-            ))}
-          </nav>
+          <>
+            <button
+              type="button"
+              className="nav__menu"
+              aria-label="Sections"
+              aria-controls="marketing-sections"
+              aria-expanded={sectionsOpen}
+              onClick={() => setSectionsOpen((open) => !open)}
+            >
+              <MenuRoundedIcon aria-hidden />
+            </button>
+            <nav
+              className="nav__links"
+              id="marketing-sections"
+              data-open={sectionsOpen ? 'true' : undefined}
+              aria-label="Primary"
+              onKeyDown={(event) => {
+                if (sectionsOpen && event.key === 'Escape') {
+                  setSectionsOpen(false);
+                  const menu = document.querySelector<HTMLButtonElement>('.nav__menu');
+                  if (menu?.getClientRects().length) menu.focus();
+                }
+              }}
+            >
+              {sectionLinks.map(([label, id]) => (
+                <button key={id} type="button" onClick={() => { setSectionsOpen(false); onSection?.(id); }}>
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </>
         )}
         <nav className="nav__actions" aria-label="Pricing and account">
           <RouterLink

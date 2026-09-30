@@ -16,6 +16,9 @@ import psycopg
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "api" / "src"))
 import associates
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from seed_guard import require_local_dsn
+
 
 DSN = os.getenv(
     "APP_PG_DSN",
@@ -231,6 +234,7 @@ def seed(conn) -> None:
 
 
 if __name__ == "__main__":
+    require_local_dsn(DSN, "seed-company-members.py")
     with psycopg.connect(DSN, autocommit=True) as connection:
         if "--purge" in sys.argv:
             purge(connection)

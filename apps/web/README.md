@@ -58,9 +58,13 @@ hangers.
 | `/app/papers` · `/app/papers/:id` | W15 · the vault · W13 · the reader |
 | `/app/shared` | W09 · someone else's kit, never in your totals |
 
-Eight sections the handover did not draw (groups, invitations, notifications,
-wallet, tools, audit, admin, profile) render a short page naming what they are
-for and linking to the working `/legacy/*` screen. Old `/app` URLs
+Every rail section is drawn in W360 now — the "still in the previous version"
+signpost (`w360/pages/Section.tsx`) is gone. Invitations (`/app/invitations`)
+was the last; `/legacy/invitations`, `/legacy/tools` and `/legacy/profile` only
+redirect. `/app/help` is Help & support, at the foot of the rail with Tools and
+Pattadar University. Invitation links land on `/i/:token` (and `/verify/:token`),
+referral links on `/r/:code`; the invitee's heir screen is `/app/heir/:id` and
+Invite & earn is `/app/refer` (docs/specs/2026-09-27-invitations-onboarding-referrals.md). Old `/app` URLs
 (`/app/parcels`, `/app/documents`, `/app/passbooks`) redirect into the new
 vocabulary.
 
@@ -78,6 +82,12 @@ To see your OWN records with the screens fully populated, and to undo it:
 .local/api-venv/bin/python scripts/seed-demo-data.py shankarreddy.t
 .local/api-venv/bin/python scripts/seed-demo-data.py --purge shankarreddy.t
 ```
+
+Every seeder and the e2e purge check `APP_PG_DSN` first and refuse to run
+against anything but a local database (`scripts/seed_guard.py`). They write
+invented owners, khatas, survey numbers and valuations, and `seed-demo-data.py`
+also fills base fields on records that were merely empty — so a wrong DSN
+corrupts real records rather than adding removable ones.
 
 The filler is entirely removable — `demo-` ids plus a `demo_stamp` table that
 records which empty base fields were filled, so `--purge` puts the records back
@@ -166,7 +176,7 @@ Each placeholder page maps to the rhub source it gets rebuilt from
 | `/app/calculator` | Calculator | `Calculator.tsx`, `landcalc.ts`, `units.ts` (logic moves to `@pattadar/core`) |
 | `/app/audit` | Audit | AuditView (`RemoteApp.tsx`) |
 | `/app/admin` | Admin | AdminView (`RemoteApp.tsx`) + gateway super-admin AI/model settings |
-| `/app/profile` | Profile | ProfileView (`RemoteApp.tsx`) |
+| `/app/profile` | Profile | Drawn in W360: `src/w360/pages/Profile.tsx` (from ProfileView, `RemoteApp.tsx`). `/legacy/profile` redirects here. |
 
 ## Component replacements
 

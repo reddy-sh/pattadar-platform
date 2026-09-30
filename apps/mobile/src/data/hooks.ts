@@ -677,10 +677,12 @@ export function useMemberActions() {
 
 export function useVerifyBeneficiary() {
   return useMutation({
-    mutationFn: (token: string) =>
+    // `consent` is the optional household safeguard-email agreement the web
+    // page has always asked for; the app used to drop it on the floor.
+    mutationFn: ({ token, consent }: { token: string; consent: boolean }) =>
       api.gql<{ verifyBeneficiary: { id: string; status: string } | null }>(
         VERIFY_BENEFICIARY_MUTATION,
-        { token },
+        { token, consent },
       ),
   });
 }

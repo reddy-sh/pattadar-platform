@@ -51,7 +51,7 @@ export function AccountDataPage() {
     {error && <p role="alert">{error}</p>}
     {message && <p role="status">{message}</p>}
     <section style={{marginBlock:'2rem'}}>
-      <h2>Your recorded choices</h2>
+      <h2>Your choices</h2>
       <p>Notice version {VERSION}. These choices are recorded with your account and the date. Changes do not undo files already processed or messages already sent.</p>
       {PURPOSES.map(([key,label])=><label key={key} style={{display:'block',marginBlock:12}}><input type="checkbox" checked={purposes.includes(key)} disabled={!loaded||!!busy} onChange={e=>setPurposes(p=>e.target.checked?[...p,key]:p.filter(x=>x!==key))}/> {label}</label>)}
       <button className="btn primary" disabled={!loaded||!!busy} onClick={()=>void run('consent',async()=>{
@@ -61,8 +61,8 @@ export function AccountDataPage() {
       {welcome && <p><Link to={continueTo}>Continue to my records</Link></p>}
     </section>
     <section style={{marginBlock:'2rem'}}>
-      <h2>Export your records</h2>
-      <p>Download your account data and a manifest of your stored files as JSON. The original files remain available in Papers.</p>
+      <h2>Export your data</h2>
+      <p>Download your account data and a manifest of your stored files as JSON. The original files remain available in Documents.</p>
       <button className="btn" disabled={!!busy} onClick={()=>void run('export',async()=>{
         const res=await apiFetch('/api/gateway/account/export',{timeoutMs:120_000});
         if(!res.ok) { await read(res); return; }

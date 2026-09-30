@@ -72,9 +72,16 @@ export function useFocusTrap(
   useEffect(() => {
     if (!active) return undefined;
     const onKey = (e: KeyboardEvent) => {
+      const el = ref.current;
+      // A modal raised on top of this one — a confirmation opened from inside
+      // a drawer — owns the keyboard while focus is in it. Without this, Tab
+      // hauled focus back into the panel underneath and Escape closed both, so
+      // a two-button confirmation over a drawer could only ever reach its
+      // first button.
+      const at = document.activeElement;
+      if (el && at && !el.contains(at) && at.closest('[aria-modal="true"]')) return;
       if (e.key === 'Escape') { e.preventDefault(); if (!busy) onClose(); return; }
       if (e.key !== 'Tab') return;
-      const el = ref.current;
       if (!el) return;
       const all = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE))
         .filter((n) => n.offsetParent !== null || n === document.activeElement);

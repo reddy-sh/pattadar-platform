@@ -88,6 +88,7 @@ export {
   toAcres,
   unitKey,
   unitLabel,
+  unitLabelFor,
 } from './land/units';
 export type { ExtentPref, UnitKey } from './land/units';
 export {
@@ -134,7 +135,10 @@ export {
 } from './land/photoScreening';
 export {
   PLAUSIBLE_RADIUS_KM,
+  PHOTO_ON_SITE_RADIUS_M,
   checkLocation,
+  checkPhotoOnRecord,
+  pointInRing,
   formatDistance,
   haversineKm,
   mapsAppFor,
@@ -143,20 +147,30 @@ export {
   safeMapLabel,
   placeCandidates,
   villageKey,
+  mapKey,
   DEFAULT_STATE,
   ringCentroid,
   type LatLng,
   type LocationSanity,
   type MapsApp,
   type MapsLinkOptions,
+  type PhotoGeoStatus,
+  type PhotoGeoCheck,
 } from './land/geo';
 export type { RingSide } from './land/landcalc';
-export { parseBoundaryFile, BoundaryFileError, toBoundaryGeoJson, boundaryFileName } from './land/boundaryFile';
+export {
+  parseBoundaryFile, BoundaryFileError, toBoundaryGeoJson, boundaryFileName,
+  ringFromFmbGeometry,
+} from './land/boundaryFile';
+export { readGeoPdf } from './land/geoPdf';
+export type { GeoPdfOutline, GeoPdfReading } from './land/geoPdf';
 export type { ParsedBoundary, BoundaryExportMeta } from './land/boundaryFile';
 export { barFraction } from './land/scale';
 export { canonicalizeNameTokens, nameVariantPair } from './land/names';
 export * from './records/registry';
 export * from './records/completeness';
 export * from './records/docFamilies';
+export * from './records/fileKinds';
+export * from './records/docCode';
 export * from './format/docName';
 export * from './format/dob';

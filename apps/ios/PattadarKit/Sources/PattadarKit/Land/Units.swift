@@ -41,6 +41,30 @@ public enum UnitKey: String, CaseIterable, Sendable {
         case .ankanam: "Ankanam"
         }
     }
+
+    /// One of this unit. `label` stays plural: a picker names units, not
+    /// quantities, and it is also the provenance string the API stores for a
+    /// parcel, so it must never change.
+    public var singular: String {
+        switch self {
+        case .acre: "Acre"
+        case .cent: "Cent"
+        case .gunta: "Gunta"
+        case .sqyd: "Sq. yard"
+        case .sqft: "Sq. foot"
+        case .sqm: "Sq. metre"
+        case .hectare: "Hectare"
+        case .ankanam: "Ankanam"
+        }
+    }
+
+    /// The unit's name agreeing with a count: 1 → "Acre", anything else →
+    /// "Acres". The twin of `unitLabelFor` in packages/core/src/land/units.ts,
+    /// which fixed the web converter's "1 Acres =". No phone screen reads it
+    /// yet; `areaText` still prints the plural (docs/specs/TODO-one-platform.md).
+    public func label(for count: Double) -> String {
+        count == 1 ? singular : label
+    }
 }
 
 private let squareFeetPerAcre = 43560.0

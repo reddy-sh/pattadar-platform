@@ -51,6 +51,14 @@ module "persistent" {
   spa_logout_urls = ["http://localhost:5173/", "http://127.0.0.1:5173/",
   "http://localhost:5180/", "http://127.0.0.1:5180/"]
 
+  # Browser origins allowed to POST a presigned upload form at the documents
+  # bucket. Loopback here mirrors the callback list above; both spellings,
+  # because an Origin header is matched byte-for-byte like a redirect_uri.
+  documents_cors_origins = [
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://localhost:5180", "http://127.0.0.1:5180",
+  ]
+
   manage_dns          = var.manage_dns
   manage_github_oidc  = var.manage_github_oidc
   manage_org_security = var.manage_org_security

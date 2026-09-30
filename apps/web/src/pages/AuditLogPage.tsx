@@ -159,7 +159,7 @@ export function AuditLogPage() {
                             </Typography>
                             <Typography
                               variant="body2"
-                              sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 12.5 }}
+                              sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12.5 }}
                             >
                               {e.details || '—'}
                             </Typography>

@@ -47,9 +47,6 @@ export function RecordComplianceGuidance({
       <ul>
         {items.map((item) => <li key={item.key}>{item.title}</li>)}
       </ul>
-      {compact && checklist.items.length > items.length && (
-        <p className="note">Add the record first to see the complete checklist against its papers.</p>
-      )}
     </section>
   );
 }
@@ -97,7 +94,7 @@ export function SecureShareGuidance({ district = '*' }: { district?: string }) {
         <span><strong>Share the property, not the person</strong><small>Purpose-limited access</small></span>
       </div>
       <p className="note">
-        Choose only the papers needed for this purpose. Do not share {guide.neverByDefault.slice(0, 4).join(', ')} by default.
+        Do not share {guide.neverByDefault.slice(0, 4).join(', ')} by default.
       </p>
       <p className="note">{guide.controls.slice(0, 3).join(' · ')}</p>
     </section>

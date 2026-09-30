@@ -125,6 +125,22 @@ export function villageKey(name: string): string {
     .replace(/(.)\1+/g, '$1');
 }
 
+/**
+ * Where a shipped village map lives: `state/district/mandal/village`, every
+ * segment folded by `villageKey`. The village name alone is not an address —
+ * one 2021 Prakasam archive holds MYLAVARAM in Addanki and in Chimakurthi, and
+ * POTHAVARAM in four mandals — so the mandal is what keeps two villages apart
+ * and the district and state keep two mandals apart. The folded segments are
+ * also the file path, which keeps object names to [a-z/]. Returns '' when any
+ * level is missing: a partial key is not an address either.
+ *
+ * Twin of `map_key()` in services/api/src/village_map.py.
+ */
+export function mapKey(state: string, district: string, mandal: string, village: string): string {
+  const parts = [state, district, mandal, village].map(villageKey);
+  return parts.every(Boolean) ? parts.join('/') : '';
+}
+
 /* ── Handing a parcel to the device's own map ─────────────────────────────
  *
  * Pattadar draws its own maps on OpenStreetMap, which is free, key-free and
@@ -271,4 +287,111 @@ export function ringCentroid(ring: LatLng[]): LatLng | null {
     };
   }
   return { latitude: lat / (3 * twiceArea), longitude: lon / (3 * twiceArea) };
+}
+
+/**
+ * Is a point inside a boundary ring? Ray casting (even-odd rule), the same
+ * test the map label placement and the seed feature guard already use — pulled
+ * into core so the photo check and those share one implementation rather than
+ * a fourth copy. The ring may be open or closed; treats lon as x and lat as y.
+ *
+ * A ring with fewer than three real corners encloses nothing, so the answer is
+ * false — a photo can never be "inside" a shape that is not a shape.
+ */
+export function pointInRing(pt: LatLng, ring: LatLng[]): boolean {
+  const pts = ring.filter((p) => Number.isFinite(p?.latitude) && Number.isFinite(p?.longitude));
+  if (pts.length < 3) return false;
+  const x = pt.longitude;
+  const y = pt.latitude;
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].longitude, yi = pts[i].latitude;
+    const xj = pts[j].longitude, yj = pts[j].latitude;
+    const intersects = (yi > y) !== (yj > y)
+      && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/** How far outside the property a photo may sit before it is worth a second
+ *  look — beyond this, the phone's location was likely wrong, or the picture is
+ *  not of this land. A boundary is walked with GPS that drifts several metres,
+ *  and a person photographs a field from its edge or the road beside it, so the
+ *  margin is generous: it must never nag about a legitimate shot from the bund. */
+export const PHOTO_ON_SITE_RADIUS_M = 150;
+
+/** The verdict on whether a photo was taken at the property it is filed against.
+ *  `unknown` means the photo carries no usable location — NOT that it is wrong;
+ *  a photo that proves nothing must not be accused of anything. */
+export type PhotoGeoStatus = 'unknown' | 'inside' | 'near' | 'outside' | 'far';
+
+export interface PhotoGeoCheck {
+  status: PhotoGeoStatus;
+  /** Distance from the record's point, in metres. 0 when unknown or inside. */
+  distanceM: number;
+  /** True when the owner should look — 'outside' or 'far'. */
+  suspect: boolean;
+  /** A ready-to-render sentence, '' when there is nothing to say. */
+  message: string;
+}
+
+/**
+ * Check a photo's coordinates against the property it is filed against.
+ *
+ * The record's own facts decide: when it has a surveyed ring the photo is
+ * tested for containment (with a metres margin outside it, since GPS drifts and
+ * people shoot from the edge); otherwise the photo is measured against the
+ * record's pin. A photo with no coordinates, or a record with no location, is
+ * `unknown` — an unverifiable photo is never reported as a wrong one, the same
+ * rule checkLocation keeps.
+ *
+ * This does NOT decide whether a photo is evidence — provenance (shot in-app,
+ * unedited, on a paid visit) is a separate question. This answers only "were
+ * the coordinates on it near this land".
+ */
+export function checkPhotoOnRecord(
+  photo: LatLng | null | undefined,
+  recordPoint: LatLng | null | undefined,
+  ring: LatLng[] = [],
+  radiusM = PHOTO_ON_SITE_RADIUS_M,
+): PhotoGeoCheck {
+  const has = (p: LatLng | null | undefined): p is LatLng =>
+    !!p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude)
+    && !(p.latitude === 0 && p.longitude === 0);
+  if (!has(photo) || (!has(recordPoint) && ring.length < 3)) {
+    return { status: 'unknown', distanceM: 0, suspect: false, message: '' };
+  }
+  // Distance to the record's point (its pin, or the centroid of its ring) is
+  // what the sentence quotes, whichever branch decides the verdict.
+  const point = has(recordPoint) ? recordPoint : ringCentroid(ring);
+  const distanceM = point ? haversineKm(photo, point) * 1000 : 0;
+
+  if (ring.length >= 3) {
+    if (pointInRing(photo, ring)) {
+      return { status: 'inside', distanceM: Math.round(distanceM), suspect: false, message: '' };
+    }
+    // Outside the ring, but by how much decides how loud to be.
+    if (distanceM <= radiusM) {
+      return {
+        status: 'near', distanceM: Math.round(distanceM), suspect: false,
+        message: `This photo was taken ${formatDistance(distanceM / 1000)} outside the boundary — likely from the edge of the land.`,
+      };
+    }
+    const far = distanceM > radiusM * 10;
+    return {
+      status: far ? 'far' : 'outside', distanceM: Math.round(distanceM), suspect: true,
+      message: `This photo's location is ${formatDistance(distanceM / 1000)} from the property. The phone's location may be wrong, or this may not be a photo of this land.`,
+    };
+  }
+
+  // No ring — measure against the pin alone.
+  if (distanceM <= radiusM) {
+    return { status: 'inside', distanceM: Math.round(distanceM), suspect: false, message: '' };
+  }
+  const far = distanceM > radiusM * 10;
+  return {
+    status: far ? 'far' : 'outside', distanceM: Math.round(distanceM), suspect: true,
+    message: `This photo's location is ${formatDistance(distanceM / 1000)} from where this record is pinned. The phone's location may be wrong, or this may not be a photo of this land.`,
+  };
 }

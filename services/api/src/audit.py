@@ -197,6 +197,22 @@ _SPECS: dict = {s.action: s for s in [
     _spec("delete_property", CLASS_PERSONAL, "property"),
     _spec("archive_record", CLASS_PERSONAL, "record"),
     _spec("tag_record", CLASS_OPERATIONAL, "record", "short"),
+    # Combined properties — an owner holding several of their OWN records as one
+    # holding. Nothing about title, extent or ownership changes, so these are
+    # organisational events against the aggregate, and `count` is how many
+    # records are in it — never which ones.
+    _spec("create_combined_property", CLASS_PERSONAL, "combined_property",
+          metadata_keys=("count",)),
+    _spec("update_combined_property", CLASS_PERSONAL, "combined_property"),
+    _spec("set_combined_members", CLASS_PERSONAL, "combined_property",
+          metadata_keys=("count",)),
+    _spec("delete_combined_property", CLASS_PERSONAL, "combined_property",
+          metadata_keys=("count",)),
+    _spec("add_combined_expense", CLASS_PERSONAL, "combined_property"),
+    _spec("delete_combined_expense", CLASS_PERSONAL, "combined_property"),
+    # One FMB sheet filed across several members; each member also gets its
+    # own `add_paper` line for its copy.
+    _spec("add_joint_fmb", CLASS_PERSONAL, "combined_property"),
 
     # Sharing — recipient-facing, security-relevant because it grants outside
     # access to an owner's papers.

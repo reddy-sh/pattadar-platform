@@ -22,6 +22,23 @@ variable "noncurrent_version_expiration_days" {
   default     = 180
 }
 
+variable "documents_cors_origins" {
+  description = <<-EOT
+    Exact origins allowed to POST a presigned upload form directly at the
+    documents bucket. Scheme + host + port, no trailing slash, no wildcard:
+    every entry is a site that may write bytes into user storage.
+
+    Reads are NOT served from here — downloads stay proxied through the
+    gateway — so this list only ever needs the origins that host an upload UI.
+    Native clients (iOS, Expo) do not preflight and are unaffected by it.
+
+    Keep it in step with the Cognito callback list: an origin that can sign in
+    but cannot upload is the confusing half-broken state.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "enforce_documents_sse_kms_headers" {
   description = <<-EOT
     Deny document PutObject requests that omit the explicit SSE-KMS headers for

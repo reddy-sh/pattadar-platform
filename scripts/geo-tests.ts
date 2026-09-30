@@ -2,7 +2,7 @@
 import {
   checkLocation, formatDistance, haversineKm,
   mapsAppFor, mapsAppName, mapsLink, parseBoundaryFile, placeCandidates, ringCentroid,
-  villageKey, TILE_PX, boundsZoom, lonLatToPixel, pixelToLonLat, snapZoom,
+  villageKey, mapKey, TILE_PX, boundsZoom, lonLatToPixel, pixelToLonLat, snapZoom,
   ringSides, compassPoint, cornerLabel, ringPerimM, SQ_M_PER_ACRE, ringAreaSqM, safeMapLabel,
   toBoundaryGeoJson, boundaryFileName,
   BoundaryFileError,
@@ -350,6 +350,22 @@ check('two different villages stay different',
 check('Mangalakunta is not Chinthagunta',
   villageKey('Mangalakunta') !== villageKey('Chinthagunta'));
 check('an empty name keys to nothing', villageKey('') === '' && villageKey('  ') === '');
+
+// ── A village map's address: state / district / mandal / village ─────────
+// The same vectors are pinned for map_key() in
+// services/api/tests/test_village_map_key.py; keep the two lists in step.
+check('a map key folds every level',
+  mapKey('AP', 'MARKAPURAM', 'Konakanamitla', 'CHINTHAGUNTA') === 'ap/markapuram/konakanamitla/chintagunta',
+  mapKey('AP', 'MARKAPURAM', 'Konakanamitla', 'CHINTHAGUNTA'));
+check('two MYLAVARAMs in two mandals are two keys',
+  mapKey('AP', 'BAPATLA', 'Addanki', 'MYLAVARAM') !== mapKey('AP', 'PRAKASAM', 'Chimakurthi', 'MYLAVARAM'));
+check('a spaced mandal folds like the reference name',
+  mapKey('AP', 'MARKAPURAM', 'Peda  Araveedu', 'AMBAPURAM') === 'ap/markapuram/pedaravedu/ambapuram'
+  && mapKey('AP', 'MARKAPURAM', 'PEDAARAVEEDU', 'Ambapuram') === 'ap/markapuram/pedaravedu/ambapuram');
+check('ONGOLE (Rural) keys without punctuation',
+  mapKey('AP', 'PRAKASAM', 'ONGOLE (Rural)', 'X Palem') === 'ap/prakasam/ongolerural/xpalem');
+check('a missing level is no key at all',
+  mapKey('AP', '', 'Addanki', 'MYLAVARAM') === '' && mapKey('AP', 'BAPATLA', 'Addanki', '') === '');
 
 // ── Web Mercator, against Leaflet's own numbers ──────────────────────────
 // The one risk packages/core/src/land/tiles.ts carries is being a SECOND

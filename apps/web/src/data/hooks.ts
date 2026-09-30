@@ -35,14 +35,13 @@ import type {
   NotificationEntry,
   Parcel,
   Passbook,
-  Profile,
   Property,
   ServiceRequest,
   SroOffice,
   WalletSummary,
 } from '@pattadar/core';
 import { gql } from '../api/client';
-import { useLiveOrSample } from './useLiveOrSample';
+import { emptyLike, useLiveOrSample } from './useLiveOrSample';
 import type { DashMember } from './portfolio';
 
 const PARCEL_FIELDS =
@@ -337,11 +336,24 @@ export function useInvitations() {
 }
 
 // ---------------------------------------------------------------------------
-// Wallet — design-forward placeholder (no live endpoint yet; always sample).
+// Wallet — the legacy screen has no live endpoint.
 // ---------------------------------------------------------------------------
 
+/**
+ * There is no wallet query on this surface, so there is nothing to read and
+ * nothing to invent. This used to return `sampleWallet` outright — the one
+ * hook in the file that bypassed `emptyLike` — so `/legacy/wallet` printed an
+ * invented ₹12,500 balance over five payments nobody made, against the founder
+ * rule at useLiveOrSample.ts:1-7. It now reports the same shape-correct
+ * emptiness every other unreachable screen reports.
+ *
+ * `isSample` is false on purpose: that flag means "the live read failed" and
+ * paints a "Service unreachable" chip. No read was attempted here, so the chip
+ * would be a second false statement on top of the first. The screen's own
+ * "Coming soon" chip is the true one.
+ */
 export function useWallet(): { data: WalletSummary; isSample: boolean } {
-  return { data: sampleWallet, isSample: true };
+  return { data: emptyLike(sampleWallet), isSample: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -430,16 +442,5 @@ export function useAuditTrail() {
   );
 }
 
-export function useProfile() {
-  return useLiveOrSample<Profile>(
-    'profile',
-    async () => {
-      const d = await gql<{ me: Profile | null }>(
-        `query { me { id name email address language districtsOfInterest notificationPrefs kycRefMasked mfaEnabled } }`,
-      );
-      if (!d.me) throw new Error('no profile');
-      return d.me;
-    },
-    sampleProfile,
-  );
-}
+// useProfile left with pages/ProfilePage.tsx: /app/profile reads `me` through
+// useMe (w360/api.ts), which has no sample fallback to paint over a failed read.

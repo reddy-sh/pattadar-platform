@@ -18,11 +18,24 @@ export interface PlotFacts {
    *  the sheet and a figure from a polygon are not the same claim. */
   acres: number;
   measured: boolean;
+  /** The department's figure exactly as the sheet wrote it ("1.0", "4.28",
+   *  "6.109"), when it wrote one. `acres` is that text as a number, which is
+   *  right for arithmetic and wrong for printing: it drops the precision the
+   *  department chose. */
+  stated?: string;
   chaltha?: string;
   centre: [number, number];
   /** [south, west, north, east] — for the label pass and the viewport filter. */
   box: [number, number, number, number];
 }
+
+/** A plot's extent as the village screen prints it, in every place it prints
+ *  it: the sheet's figure as the department wrote it, or two decimals for a
+ *  plot measured off its ring. The inspector, the finder and the map label
+ *  used to round the same sheet value three different ways (4.250, 4.25 and
+ *  4.3), which is one plot wearing three extents. */
+export const acresText = (p: Pick<PlotFacts, 'acres' | 'stated'>): string =>
+  p.stated ?? p.acres.toFixed(2);
 
 /** Ring in [lat, lon]; area via the geodesic formula the record screens use. */
 export function factsFor(plots: VillagePlot[]): PlotFacts[] {
@@ -40,11 +53,13 @@ export function factsFor(plots: VillagePlot[]): PlotFacts[] {
       if (lon > east) east = lon;
     }
     const c = ringCentroid(p.ring.map(([latitude, longitude]) => ({ latitude, longitude })));
+    const onSheet = Number.isFinite(sheet) && sheet > 0;
     return {
       lp: p.lp,
       ring: p.ring,
-      acres: Number.isFinite(sheet) && sheet > 0 ? sheet : sqm / 4046.8564224,
-      measured: !(Number.isFinite(sheet) && sheet > 0),
+      acres: onSheet ? sheet : sqm / 4046.8564224,
+      measured: !onSheet,
+      stated: onSheet ? String(p.ac).trim() : undefined,
       chaltha: p.chaltha,
       centre: c ? [c.latitude, c.longitude] : [(south + north) / 2, (west + east) / 2],
       box: [south, west, north, east],

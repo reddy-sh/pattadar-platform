@@ -139,10 +139,10 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
 
   // The header needs a title before `data` lands. The three pre-data states
   // borrow a neutral one rather than flashing the id.
-  const title = data?.title ?? 'Paper';
+  const title = data?.title ?? 'Document';
   const eyebrow = data
-    ? drawerEyebrow(data.recordTitle || 'Your papers', 'Preview')
-    : 'Your papers · Preview';
+    ? drawerEyebrow(data.recordTitle || 'Your documents', 'Preview')
+    : 'Your documents · Preview';
 
   const isImage = !!data && data.mimeType.startsWith('image/');
   const pages = data?.pageCount ?? 0;
@@ -189,14 +189,14 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
         onKeyDown={onKeyDown}
       />
 
-      {isLoading && <Loading h="18rem" what="the paper" />}
+      {isLoading && <Loading h="18rem" what="the document" />}
 
       {!isLoading && error && (
-        <Failed what="This paper" error={error} boxed h="18rem" />
+        <Failed what="This document" error={error} boxed h="18rem" />
       )}
 
       {!isLoading && !error && !data && (
-        <Failed what="This paper" boxed h="18rem" />
+        <Failed what="This document" boxed h="18rem" />
       )}
 
       {data && (

@@ -70,6 +70,69 @@ resource "aws_s3_bucket_policy" "spa" {
   depends_on = [aws_s3_bucket_public_access_block.spa]
 }
 
+# --- Village maps (/vm/*) ----------------------------------------------------
+# The bucket is persistent-owned (modules/persistent/village_maps.tf) so the
+# published maps survive platform-down; its policy is owned HERE because it
+# names this distribution. try(): a persistent state from before the bucket
+# existed simply has no /vm/* origin, and /vm/* falls through to the SPA
+# bucket's bundled fixture as it did before.
+
+locals {
+  vm_bucket_name   = try(local.persistent.village_maps_bucket_name, null)
+  vm_bucket_arn    = try(local.persistent.village_maps_bucket_arn, null)
+  vm_bucket_domain = try(local.persistent.village_maps_bucket_regional_domain_name, null)
+  vm_enabled       = var.enable_cdn && local.vm_bucket_name != null
+}
+
+data "aws_iam_policy_document" "vm_bucket" {
+  count = local.vm_enabled ? 1 : 0
+
+  statement {
+    sid       = "CloudFrontOacRead"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.vm_bucket_arn}/*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.web[0].arn]
+    }
+  }
+
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    resources = [
+      local.vm_bucket_arn,
+      "${local.vm_bucket_arn}/*",
+    ]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "vm" {
+  count = local.vm_enabled ? 1 : 0
+
+  bucket = local.vm_bucket_name
+  policy = data.aws_iam_policy_document.vm_bucket[0].json
+}
+
 resource "aws_cloudfront_origin_access_control" "spa" {
   count = var.enable_cdn ? 1 : 0
 
@@ -305,6 +368,18 @@ resource "aws_cloudfront_distribution" "web" {
     origin_access_control_id = aws_cloudfront_origin_access_control.spa[0].id
   }
 
+  # Village maps, read through the same S3 OAC (it signs for any S3 origin; the
+  # bucket policy above is what scopes the read to this distribution).
+  dynamic "origin" {
+    for_each = local.vm_enabled ? [1] : []
+
+    content {
+      origin_id                = "vm"
+      domain_name              = local.vm_bucket_domain
+      origin_access_control_id = aws_cloudfront_origin_access_control.spa[0].id
+    }
+  }
+
   origin {
     origin_id   = "api"
     domain_name = var.api_domain
@@ -356,6 +431,25 @@ resource "aws_cloudfront_distribution" "web" {
     compress                 = true
     cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+  }
+
+  # /vm/* — shipped village maps from the persistent village-maps bucket.
+  # GET/HEAD only, CachingOptimized (the objects carry their own
+  # Cache-Control, set by scripts/vm-publish.py, which also invalidates /vm/*
+  # after a publish). The SPA rewrite is on the default behavior only, so a
+  # missing map is a genuine 403/404, never index.html parsed as JSON.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.vm_enabled ? [1] : []
+
+    content {
+      path_pattern           = "/vm/*"
+      target_origin_id       = "vm"
+      viewer_protocol_policy = "redirect-to-https"
+      allowed_methods        = ["GET", "HEAD"]
+      cached_methods         = ["GET", "HEAD"]
+      compress               = true
+      cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+    }
   }
 
   # ecs mode only: Next's immutable, content-hashed build assets. Long-cache

@@ -38,6 +38,8 @@ import sys
 import psycopg
 from psycopg.rows import dict_row
 
+from seed_guard import require_local_dsn
+
 DSN = os.getenv("APP_PG_DSN",
                 "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd")
 
@@ -182,6 +184,7 @@ def main() -> None:
     ap.add_argument("--purge", action="store_true",
                     help="remove the features this script filed, and write none")
     args = ap.parse_args()
+    require_local_dsn(DSN, "seed-record-features.py")
 
     with psycopg.connect(DSN, autocommit=True, row_factory=dict_row) as conn:
         rec = find_record(conn, args.record)

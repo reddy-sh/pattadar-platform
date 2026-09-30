@@ -83,12 +83,14 @@ function Section({ title, helper, children }: { title: string; helper?: string; 
 }
 
 const money = (v?: number | null) => (v && v > 0 ? formatINR(v) : '');
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** CL-93: unambiguous "26 Jul 2026" — never dd/mm/yyyy. */
+/** DD/MM/YYYY — the platform's one India date format. ISO dates are sliced
+ * before parsing so UTC offsets cannot move the calendar day. */
 const date = (v?: string | null) => {
   if (!v) return '';
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? v : `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString('en-GB');
 };
 
 type LatLng = { latitude: number; longitude: number };
@@ -683,8 +685,12 @@ export default function HoldingDetailScreen() {
                       title="Remove from this holding…"
                       onPress={async () => {
                         setDocMenu('');
-                        await deleteDocument.mutateAsync(doc.id).catch((e) => setDocError(String(e?.message ?? e)));
-                        setToast('Document removed. Its file stays on this phone and on the web.');
+                        try {
+                          await deleteDocument.mutateAsync(doc.id);
+                          setToast('Document removed. Its file stays on this phone and on the web.');
+                        } catch (e) {
+                          setDocError(e instanceof Error ? e.message : 'The document could not be removed.');
+                        }
                       }}
                     />
                   </Menu>
@@ -979,10 +985,14 @@ export default function HoldingDetailScreen() {
               loading={deleteParcel.isPending || deleteProperty.isPending}
               disabled={deleteParcel.isPending || deleteProperty.isPending}
               onPress={async () => {
-                if (parcel) await deleteParcel.mutateAsync(parcel.id).catch(() => undefined);
-                else if (property) await deleteProperty.mutateAsync(property.id).catch(() => undefined);
-                setConfirmDelete(false);
-                router.back();
+                try {
+                  if (parcel) await deleteParcel.mutateAsync(parcel.id);
+                  else if (property) await deleteProperty.mutateAsync(property.id);
+                  setConfirmDelete(false);
+                  router.back();
+                } catch (e) {
+                  setToast(e instanceof Error ? e.message : "Couldn't delete this holding");
+                }
               }}
             >
               Delete

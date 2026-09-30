@@ -13,7 +13,7 @@
  *     own header comment says those cards used to resolve to the page they
  *     were already on, so a regression to that is invisible from the wall.
  *
- *   · The vault header's two buttons ("Add papers", "Share a property") were
+ *   · The vault header's two buttons ("Add documents", "Share a property") were
  *     both handler-less decoration before they were wired. Nothing presses
  *     either, so both could go back to doing nothing and the suite stays green.
  *
@@ -142,7 +142,7 @@ async function fileAPaper(page: Pg, request: Req, recordId: string, reader: Reco
   // is not sent until the primary is pressed. The section head's button is the
   // one used here: a record with nothing filed grows a second "Add a paper" in
   // its empty state, and both open this same panel.
-  await page.locator('header.sechead').getByRole('button', { name: 'Add a paper' }).click();
+  await page.locator('header.sechead').getByRole('button', { name: 'Add a document' }).click();
   const panel = page.getByRole('dialog', { name: /^File (a paper|\d+ papers)$/ });
   await expect(panel).toBeVisible();
   await page.locator('main input[type=file]').first().setInputFiles({
@@ -224,16 +224,12 @@ test.describe('the vault wall', () => {
     await expect(rows).toHaveCount(printed);
   });
 
-  test('Add papers asks which property and lands on that record, where a paper can actually be filed', async ({ page }) => {
+  test('Add documents asks which property and lands on that record, where a paper can actually be filed', async ({ page }) => {
     await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Add papers' }).click();
+    await page.getByRole('button', { name: 'Add documents' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Which property are these papers for?' });
+    const dialog = page.getByRole('dialog', { name: 'Which property are these documents for?' });
     await expect(dialog).toBeVisible();
-    // The dialog exists to explain WHY the vault cannot just take a file: a
-    // paper is filed against the property it belongs to, which is what lets a
-    // deed be checked against the record it names.
-    await expect(dialog.getByText('Every paper is filed against')).toBeVisible();
 
     await dialog.getByLabel('Search your properties').fill('214/2');
     await dialog.getByRole('button', { name: 'Sy 214/2', exact: true }).click();
@@ -246,10 +242,10 @@ test.describe('the vault wall', () => {
     // inside the drawer, so asserting an attached `input[type=file]` on arrival
     // would only ever find the assistant's own attachment picker on <body>. The
     // journey has to end at a panel that takes a file.
-    const addPaper = page.locator('header.sechead').getByRole('button', { name: 'Add a paper' });
+    const addPaper = page.locator('header.sechead').getByRole('button', { name: 'Add a document' });
     await expect(addPaper).toBeVisible();
     await addPaper.click();
-    await expect(page.getByRole('dialog', { name: 'File a paper' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'File a document' })).toBeVisible();
     await expect(page.locator('main input[type=file]').first()).toBeAttached();
   });
 
@@ -258,9 +254,6 @@ test.describe('the vault wall', () => {
     await page.goto('/app/papers');
     await page.getByRole('button', { name: 'Share a property' }).click();
 
-    // Said out loud rather than left to a greyed-out button: nothing can be
-    // made until a property is chosen, and the button alone does not say why.
-    await expect(page.getByText('A link carries one property’s papers')).toBeVisible();
     const submit = page.getByRole('button', { name: 'Make the link' });
     await expect(submit).toBeDisabled();
 
@@ -343,7 +336,7 @@ test.describe('the Reader', () => {
     // The Reader is the only caller in the app that passes documentIds, and
     // the dialog has to say so — a recipient who expects one paper and gets
     // the whole record is the failure this sentence prevents.
-    await expect(page.getByText('This link carries only this paper')).toBeVisible();
+    await expect(page.getByText('Anyone with this link can open and download this document for 30 days.')).toBeVisible();
     const submit = page.getByRole('button', { name: 'Share', exact: true });
     await expect(submit).toBeDisabled();
 
@@ -355,7 +348,7 @@ test.describe('the Reader', () => {
     // Nothing on the screen behind the dialog changes as the link is made, so
     // the confirmation is the only thing that says it exists — and it has to
     // say where the link can be taken back.
-    await expect(page.getByText('The link is ready to copy. Revoke it any time from the Vault.')).toBeVisible();
+    await expect(page.getByText('The link is ready to copy. Revoke it any time from Documents.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Done' }).click();
     await page.reload();
@@ -396,8 +389,8 @@ test.describe('the Reader', () => {
 
     // A title deed that is out on a link is the one paper in the vault whose
     // deletion also destroys a stranger's access. The copy has to name both.
-    await expect(page.getByText('so it asks you to type 7788/2026 first')).toBeVisible();
-    await expect(page.getByText('The link is revoked with it')).toBeVisible();
+    await expect(page.getByText('This title deed is shared. Its link is revoked with it.')).toBeVisible();
+    await expect(page.getByLabel('Type 7788/2026 to confirm deletion')).toBeVisible();
 
     // The ordinary two-tap Delete/Remove pair must not be reachable here — a
     // deed is evidence, and one stray click in the rail must not unfile it.
@@ -413,7 +406,7 @@ test.describe('the Reader', () => {
     await expect(del).toBeEnabled();
     await del.click();
 
-    // Back to the record, not to "This paper is not in your vault" — which is
+    // Back to the record, not to "This document isn't in your account" — which is
     // what staying here would show, and reads as though the deletion broke
     // something rather than as the deletion that was asked for.
     await expect(page).toHaveURL(new RegExp(`/app/records/${record}$`));

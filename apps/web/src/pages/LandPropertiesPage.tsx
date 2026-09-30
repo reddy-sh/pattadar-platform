@@ -624,7 +624,7 @@ export function LandPropertiesPage() {
                   <CardHero fileRef={r.cover} fallbackIcon={r.icon} pill={parcelPill(r.status, r.litigation)} pill2={stakePill(r.stake)} />
                   <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1, flexGrow: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
-                      <Typography sx={{ fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography sx={{ fontSize: 17, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {r.title}
                       </Typography>
                       {/* Outlined: a land-type label classifies, it doesn't alert.
@@ -664,7 +664,7 @@ export function LandPropertiesPage() {
                             sx={(th) => ({
                               bgcolor: (th.vars ?? th).palette.primary.container,
                               color: (th.vars ?? th).palette.primary.onContainer,
-                              fontWeight: 600,
+                              fontWeight: 700,
                               '&:hover': {
                                 bgcolor: `color-mix(in srgb, ${(th.vars ?? th).palette.primary.main} 8%, ${(th.vars ?? th).palette.primary.container})`,
                               },
@@ -722,7 +722,7 @@ export function LandPropertiesPage() {
                           component="button"
                           underline="hover"
                           onClick={() => openDetail(r)}
-                          sx={{ fontWeight: 600 }}
+                          sx={{ fontWeight: 700 }}
                         >
                           {r.title}
                         </Link>

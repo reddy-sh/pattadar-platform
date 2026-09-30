@@ -54,12 +54,18 @@ const railLink = (page: import('@playwright/test').Page, name: string) =>
   rail(page).getByRole('link', { name, exact: true });
 
 const jumpBox = (page: import('@playwright/test').Page) =>
-  page.getByLabel('Jump to a parcel, paper, person');
+  page.getByLabel('Jump to a property, document, person');
 
 /** The results popup. It has no role of its own — the listbox inside it does —
  *  and the two status sentences are its direct children, so the panel is
  *  addressed by the id Shell.tsx gives it. */
 const jumpResults = (page: import('@playwright/test').Page) => page.locator('#w360-jump-results');
+
+/** The notifications bell in the topbar. Notifications left the rail for it;
+ *  its accessible name carries the count ("Notifications, 3 waiting") because
+ *  the badge itself is aria-hidden (Shell.tsx). */
+const bell = (page: import('@playwright/test').Page, name: string) =>
+  page.getByRole('link', { name, exact: true });
 
 /** The sections the rail points at that have been redrawn, and the heading each
  *  one must land on. The Dashboard greets by name and the greeting depends on
@@ -70,36 +76,33 @@ const DRAWN: Array<{ item: string; url: RegExp; heading: RegExp; level?: number 
   // column beside it (Shared.tsx:90).
   { item: 'Shared with me', url: /\/app\/shared$/, heading: /^Shared with me$/, level: 2 },
   { item: 'Waiting on you 1', url: /\/app\/assigned$/, heading: /^Waiting on you$/ },
-  { item: 'Maps', url: /\/app\/villages$/, heading: /^Maps$/ },
-  { item: 'Papers', url: /\/app\/papers$/, heading: /^Papers$/ },
-  { item: 'Services 6', url: /\/app\/services$/, heading: /^Work you can order$/ },
-  { item: 'Wallet', url: /\/app\/wallet$/, heading: /^What is set aside, and what has gone$/ },
-  // Audit is drawn now (w360/pages/Audit.tsx): the owner's centralized trail,
-  // routed at /app/audit. Its h1 is "Audit Log" whether or not the trail has
+  { item: 'Cadastral maps', url: /\/app\/maps$/, heading: /^Cadastral maps$/ },
+  { item: 'Documents', url: /\/app\/papers$/, heading: /^Documents$/ },
+  { item: 'Families & groups', url: /\/app\/groups$/, heading: /^Families & groups$/ },
+  { item: 'Services 6', url: /\/app\/services$/, heading: /^Services$/ },
+  { item: 'Wallet', url: /\/app\/wallet$/, heading: /^Wallet$/ },
+  // Activity is drawn now (w360/pages/Audit.tsx): the owner's centralized trail,
+  // routed at /app/audit. Its h1 is "Activity" whether or not the trail has
   // any rows — an empty trail is a truthful empty state, not a signpost.
-  { item: 'Audit Log', url: /\/app\/audit$/, heading: /^Audit Log$/ },
+  { item: 'Activity', url: /\/app\/audit$/, heading: /^Activity$/ },
+  // Tools is drawn now (w360/pages/Tools.tsx). It opens on the SRO directory,
+  // which is a root-schema read — the sweep below answers it.
+  { item: 'Tools', url: /\/app\/tools$/, heading: /^Tools$/ },
+  // Profile is drawn now (w360/pages/Profile.tsx). It reads `me` and
+  // `districts` through the root schema — the sweep below answers both.
+  { item: 'Profile', url: /\/app\/profile$/, heading: /^Profile$/ },
+  // Invitations was the last undrawn section; w360/pages/Invitations.tsx
+  // replaced the Section.tsx signpost, so there is no UNDRAWN list any more.
+  { item: 'Invitations', url: /\/app\/invitations$/, heading: /^Invitations$/ },
+  // The foot group, Help & resources (Shell.tsx).
+  { item: 'Help & support', url: /\/app\/help$/, heading: /^Help & support$/ },
   { item: 'Dashboard', url: /\/app$/, heading: /Shankar Reddy/ },
 ];
 
-/** The sections no design has arrived for (routes.tsx UNDRAWN), and the screen
- *  in the previous interface each one hands you to (Section.tsx SECTIONS). A
- *  "Not yet redrawn" card whose button goes nowhere useful is the same dead
- *  end as no card at all, so the destination is asserted, not just the label.
- *
- *  Six of them, not seven: `admin` left this list with W17. The rail's "Admin
- *  & Ref Data" entry is gone (Shell.tsx:283-288), /app/admin is a redirect
- *  into the Pattadar desk (routes.tsx), and Section.tsx has no `admin` key
- *  left to render — a stub under it would be a screen nothing routes to. The
- *  reference data itself is untouched at /legacy/admin. */
-const UNDRAWN: Array<{ item: string; url: RegExp; heading: string; legacy: string }> = [
-  { item: 'Families & Groups', url: /\/app\/groups$/, heading: 'Families & Groups', legacy: '/legacy/groups' },
-  { item: 'Invitations', url: /\/app\/invitations$/, heading: 'Invitations', legacy: '/legacy/invitations' },
-  { item: 'Notifications 3', url: /\/app\/notifications$/, heading: 'Notifications', legacy: '/legacy/notifications' },
-  { item: 'Tools', url: /\/app\/tools$/, heading: 'Tools', legacy: '/legacy/tools' },
-  // `Audit Log` left this list with W16: /app/audit is a real page now, not a
-  // signpost. It moved to DRAWN above.
-  { item: 'Profile', url: /\/app\/profile$/, heading: 'Profile', legacy: '/legacy/profile' },
-];
+/** Rail entries for the sealed world, which is a platform admin but not a
+ *  super admin: Your portfolio 5 · Shared 5 (with Invite & earn) · Money 2 ·
+ *  Account 3 · Operations 1 (the desk) · Help & resources 3. */
+const RAIL_ENTRIES = 19;
 
 /** A desk answer thin enough to say one thing.
  *
@@ -117,9 +120,9 @@ test.describe('the rail', () => {
     await page.goto('/app');
     await expect(railLink(page, 'Dashboard')).toHaveAttribute('aria-current', 'page');
 
-    await railLink(page, 'Papers').click();
+    await railLink(page, 'Documents').click();
     await expect(page).toHaveURL(/\/app\/papers$/);
-    await expect(railLink(page, 'Papers')).toHaveAttribute('aria-current', 'page');
+    await expect(railLink(page, 'Documents')).toHaveAttribute('aria-current', 'page');
     // Dashboard is `end`, so it stops claiming the page the moment you leave it.
     await expect(railLink(page, 'Dashboard')).not.toHaveAttribute('aria-current', 'page');
   });
@@ -129,7 +132,7 @@ test.describe('the rail', () => {
     // The shelf names ITSELF in its h1 (Shelf.tsx:93), so this asserts the
     // shelf arrived rather than that some heading did.
     await expect(page.getByRole('heading', { level: 1, name: 'Title' })).toBeVisible();
-    await expect(railLink(page, 'Papers')).toHaveAttribute('aria-current', 'page');
+    await expect(railLink(page, 'Documents')).toHaveAttribute('aria-current', 'page');
   });
 
   test('a record 360 is reached from the rail but belongs to none of it', async ({ page }) => {
@@ -137,9 +140,9 @@ test.describe('the rail', () => {
     // rail marks nothing rather than marking something that is not open.
     await page.goto(`/app/records/${ID.parcel}`);
     await expect(page.getByRole('heading', { name: 'Sy 214/2' }).first()).toBeVisible();
-    // All fifteen entries are there to mark — "nothing is marked" has to mean
-    // that, and not "the rail never drew".
-    await expect(rail(page).getByRole('link')).toHaveCount(15);
+    // Every entry is there to mark — "nothing is marked" has to mean that,
+    // and not "the rail never drew".
+    await expect(rail(page).getByRole('link')).toHaveCount(RAIL_ENTRIES);
     // aria-current has no role-level matcher, so the attribute is the handle.
     await expect(rail(page).locator('a[aria-current="page"]')).toHaveCount(0);
   });
@@ -159,7 +162,16 @@ test.describe('the rail', () => {
     await expect(railLink(page, 'Services 6')).toHaveAttribute('aria-current', 'page');
   });
 
-  test('every section that has been redrawn opens from the rail', async ({ page }) => {
+  test('every section that has been redrawn opens from the rail', async ({ page, world }) => {
+    // Tools opens on the SRO directory, read through the root schema rather
+    // than `web`; without an answer the seal refuses it and logs a 400.
+    world.set('root.sroOffices', []);
+    // Profile reads the account row and the district list the same way.
+    world.set('root.me', {
+      id: 'owner', name: 'Shankar Reddy', email: '', address: '', language: 'en',
+      districtsOfInterest: '', notificationPrefs: 'email', kycRefMasked: '', mfaEnabled: false,
+    });
+    world.set('root.districts', []);
     await page.goto('/app');
     for (const { item, url, heading, level } of DRAWN) {
       await railLink(page, item).click();
@@ -174,21 +186,35 @@ test.describe('the rail', () => {
     }
   });
 
-  test('the sections nobody has redrawn yet say so, and point at the one that works', async ({ page }) => {
-    await page.goto('/app');
-    for (const { item, url, heading, legacy } of UNDRAWN) {
-      await railLink(page, item).click();
-      await expect(page).toHaveURL(url);
-      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Not yet redrawn' })).toBeVisible();
-      // The way out has to go somewhere: Section.tsx:76 links each one at its
-      // own screen in the previous interface, not at a shared landing page.
-      await expect(page.getByRole('link', { name: `Open ${heading}` }))
-        .toHaveAttribute('href', legacy);
-      await expect(railLink(page, item)).toHaveAttribute('aria-current', 'page');
-    }
+  test('no rail entry leads to a "previous version" signpost any more', async ({ page, world }) => {
+    world.set('root.invitations', []);
+    await page.goto('/app/invitations');
+    await expect(page.getByRole('heading', { level: 1, name: 'Invitations' })).toBeVisible();
+    await expect(page.getByText('No invitations yet')).toBeVisible();
+    await expect(page.getByRole('link', { name: /previous version/ })).toHaveCount(0);
+    await expect(railLink(page, 'Invitations')).toHaveAttribute('aria-current', 'page');
   });
 
+  test('Help & resources sits at the foot of the rail, with the University opening in a new tab', async ({ page }) => {
+    await page.goto('/app');
+    const foot = rail(page).getByRole('group', { name: 'Help & resources' });
+    await expect(foot.getByRole('link')).toHaveText(['Tools', 'Pattadar University', 'Help & support']);
+    const uni = foot.getByRole('link', { name: 'Pattadar University (opens in a new tab)' });
+    await expect(uni).toHaveAttribute('target', '_blank');
+    await expect(uni).toHaveAttribute('rel', /noopener/);
+    // Last group in the rail, below the operator's desk.
+    await expect(rail(page).getByRole('group').last()).toHaveAttribute('aria-label', 'Help & resources');
+  });
+
+  test('the bell opens the Notifications inbox, not a signpost', async ({ page }) => {
+    await page.goto('/app');
+    const entry = bell(page, 'Notifications, 3 waiting');
+    await entry.click();
+    await expect(page).toHaveURL(/\/app\/notifications$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Notifications' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /previous version/ })).toHaveCount(0);
+    await expect(entry).toHaveAttribute('aria-current', 'page');
+  });
   // ── the Pattadar desk ──────────────────────────────────────────────
   //
   // The one entry in this rail that is nobody's section. W17 put the desk at
@@ -201,10 +227,10 @@ test.describe('the rail', () => {
   test('the operator’s desk sits at the foot of the rail, under the sections that are mine', async ({ page }) => {
     await page.goto('/app');
     const entries = rail(page).getByRole('link');
-    await expect(entries).toHaveCount(15);
-    // Last, and the last thing the reader reaches: it is the operator's entry,
-    // not one of the owner's sections.
-    await expect(entries.last()).toHaveAttribute('href', '/app/desk');
+    await expect(entries).toHaveCount(RAIL_ENTRIES);
+    // Last of the owner-and-staff entries: only the Help & resources foot
+    // group (three entries) comes after it.
+    await expect(entries.nth(RAIL_ENTRIES - 4)).toHaveAttribute('href', '/app/desk');
     // And the entry it replaced is gone from the rail entirely — two
     // admin-shaped entries with one of them dead is worse than either alone.
     // The /app/admin ADDRESS still resolves; that redirect is 21-routing's.
@@ -212,14 +238,14 @@ test.describe('the rail', () => {
 
     await railLink(page, 'Pattadar desk 2').click();
     await expect(page).toHaveURL(/\/app\/desk$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Jobs waiting for somebody' }))
+    await expect(page.getByRole('heading', { level: 1, name: 'Unassigned and stalled jobs' }))
       .toBeVisible({ timeout: 20_000 });
     await expect(railLink(page, 'Pattadar desk 2')).toHaveAttribute('aria-current', 'page');
   });
 
   test('the number beside the desk is the jobs the desk says are waiting for somebody', async ({ page }) => {
     await page.goto('/app/desk');
-    await expect(page.getByRole('heading', { level: 1, name: 'Jobs waiting for somebody' }))
+    await expect(page.getByRole('heading', { level: 1, name: 'Unassigned and stalled jobs' }))
       .toBeVisible({ timeout: 20_000 });
     // A job with nobody on it is the one offering "Find someone"; a job that
     // has somebody offers "Open the job" instead (Desk.tsx JobRow). Counted
@@ -246,9 +272,9 @@ test.describe('the rail', () => {
     await page.goto('/app');
     // The portfolio really did answer — the badge beside Notifications is its
     // `waiting` — so the rail drew with the admin flag in hand and still drew
-    // fourteen entries rather than fifteen.
-    await expect(railLink(page, 'Notifications 3')).toBeVisible();
-    await expect(rail(page).getByRole('link')).toHaveCount(14);
+    // one entry fewer than an operator's.
+    await expect(bell(page, 'Notifications, 3 waiting')).toBeVisible();
+    await expect(rail(page).getByRole('link')).toHaveCount(RAIL_ENTRIES - 1);
     await expect(rail(page).getByRole('link', { name: /Pattadar desk/ })).toHaveCount(0);
 
     // The reason DeskRail is a component and not a sixteenth line in `items`
@@ -262,8 +288,8 @@ test.describe('the rail', () => {
 
   test('the number beside Services is the number of jobs Services lists', async ({ page }) => {
     await page.goto('/app/services');
-    await expect(page.getByRole('heading', { name: 'Work you can order' })).toBeVisible();
-    const jobs = await page.getByRole('link', { name: 'Open the service' }).count();
+    await expect(page.getByRole('heading', { name: 'Services', level: 1 })).toBeVisible();
+    const jobs = await page.getByRole('link', { name: 'Open order' }).count();
     expect(jobs, 'the seeded world has open jobs to count').toBeGreaterThan(0);
     await expect(railLink(page, `Services ${jobs}`)).toBeVisible();
   });
@@ -271,7 +297,7 @@ test.describe('the rail', () => {
   test('the number beside Waiting on you is the work that screen says is waiting', async ({ page }) => {
     await page.goto('/app/assigned');
     await expect(page.getByRole('heading', { name: 'Waiting on you' })).toBeVisible();
-    const waiting = await page.getByRole('link', { name: 'Open the service' }).count();
+    const waiting = await page.getByRole('link', { name: 'Open order' }).count();
     expect(waiting, 'one seeded job is waiting on the owner').toBeGreaterThan(0);
     await expect(railLink(page, `Waiting on you ${waiting}`)).toBeVisible();
   });
@@ -281,7 +307,7 @@ test.describe('the rail', () => {
     await expect(page.getByRole('button', { name: /^Dismiss: / }).first()).toBeVisible();
     const reminders = await page.getByRole('button', { name: /^Dismiss: / }).count();
     expect(reminders, 'the seeded portfolio has reminders').toBeGreaterThan(0);
-    await expect(railLink(page, `Notifications ${reminders}`)).toBeVisible();
+    await expect(bell(page, `Notifications, ${reminders} waiting`)).toBeVisible();
   });
 
   test('the counts are the data and not decoration — change the data and they change', async ({ page, world }) => {
@@ -298,7 +324,7 @@ test.describe('the rail', () => {
     await page.goto('/app');
     await expect(railLink(page, 'Services 1')).toBeVisible();
     await expect(railLink(page, 'Waiting on you 1')).toBeVisible();
-    await expect(railLink(page, 'Notifications 1')).toBeVisible();
+    await expect(bell(page, 'Notifications, 1 waiting')).toBeVisible();
   });
 
   test('a job that came back with things to look at is waiting on me, even unaddressed', async ({ page, world }) => {
@@ -322,7 +348,7 @@ test.describe('the rail', () => {
 
     await expect(railLink(page, 'Services 2')).toBeVisible();
     await expect(railLink(page, 'Waiting on you 1')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open the service' })).toHaveCount(1);
+    await expect(page.getByRole('link', { name: 'Open order' })).toHaveCount(1);
   });
 
   test('dismissing a reminder takes the number beside Notifications down with it', async ({ page, world }) => {
@@ -336,13 +362,13 @@ test.describe('the rail', () => {
       : seeded));
 
     await page.goto('/app');
-    await expect(railLink(page, 'Notifications 3')).toBeVisible();
+    await expect(bell(page, 'Notifications, 3 waiting')).toBeVisible();
 
     await page.getByRole('button', { name: 'Dismiss: Land tax is due on Sy 214/2' }).click();
     await page.getByRole('button', { name: 'Dismiss it' }).click();
 
     await expect(page.getByRole('button', { name: 'Dismiss: Land tax is due on Sy 214/2' })).toHaveCount(0);
-    await expect(railLink(page, 'Notifications 2')).toBeVisible();
+    await expect(bell(page, 'Notifications, 2 waiting')).toBeVisible();
   });
 
   test('nothing on the rail is a bare dot — every mark is a number I can act on', async ({ page }) => {
@@ -362,7 +388,7 @@ test.describe('the rail', () => {
     await page.goto('/app');
     await expect(railLink(page, 'Services')).toBeVisible();
     await expect(railLink(page, 'Waiting on you')).toBeVisible();
-    await expect(railLink(page, 'Notifications')).toBeVisible();
+    await expect(bell(page, 'Notifications')).toBeVisible();
     // A zero badge is a badge: `count: ordered || undefined` (Shell.tsx:185-195).
     await expect(rail(page).getByText('0')).toHaveCount(0);
   });
@@ -373,7 +399,7 @@ test.describe('the rail', () => {
     await expect(railLink(page, 'Services')).toBeVisible();
     await expect(railLink(page, 'Waiting on you')).toBeVisible();
     // The reminders come from a query that DID answer, so that one still counts.
-    await expect(railLink(page, 'Notifications 3')).toBeVisible();
+    await expect(bell(page, 'Notifications, 3 waiting')).toBeVisible();
   });
 
   test('while the jobs are still coming the rail does not put a number up early', async ({ page, world }) => {
@@ -414,9 +440,9 @@ test.describe('the rail', () => {
     await expect(railLink(page, 'Services 6')).toBeVisible();
     world.clearCalls();
 
-    await railLink(page, 'Papers').click();
+    await railLink(page, 'Documents').click();
     await expect(page).toHaveURL(/\/app\/papers$/);
-    await expect(railLink(page, 'Papers')).toHaveAttribute('aria-current', 'page');
+    await expect(railLink(page, 'Documents')).toHaveAttribute('aria-current', 'page');
     await railLink(page, 'Properties').click();
     await expect(page).toHaveURL(/\/app\/properties$/);
 
@@ -444,15 +470,15 @@ test.describe('the rail', () => {
     await page.setViewportSize({ width: 1512, height: 950 });
     await expect(page.getByRole('button', { name: 'Collapse the rail' })).toBeVisible();
     await expect(page.locator('nav[aria-label="Sections"]')).not.toHaveAttribute('inert', '');
-    await expect(railLink(page, 'Papers')).toBeVisible();
+    await expect(railLink(page, 'Documents')).toBeVisible();
   });
 
   test('a collapsed rail still takes me where I ask', async ({ page }) => {
     await page.goto('/app');
     await page.getByRole('button', { name: 'Collapse the rail' }).click();
-    await railLink(page, 'Papers').click();
+    await railLink(page, 'Documents').click();
     await expect(page).toHaveURL(/\/app\/papers$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Papers' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
   });
 });
 
@@ -466,9 +492,10 @@ test.describe('the jump box', () => {
     await expect(page.getByRole('option', { name: /Flat 4B, Sai Residency/ })).toBeVisible();
     await expect(page.getByRole('option', { name: /Sale deed 4412 of 1998/ })).toBeVisible();
     await expect(page.getByRole('option', { name: /Sai Kumar/ })).toBeVisible();
-    // Each hit says which kind of thing it is, in the API's own word.
-    await expect(jumpResults(page).getByText('record', { exact: true })).toBeVisible();
-    await expect(jumpResults(page).getByText('paper', { exact: true })).toBeVisible();
+    // Each hit says which kind of thing it is, in the owner's word for the
+    // API's kind (Shell.tsx HIT_KIND: record → property, paper → document).
+    await expect(jumpResults(page).getByText('property', { exact: true })).toBeVisible();
+    await expect(jumpResults(page).getByText('document', { exact: true })).toBeVisible();
     await expect(jumpResults(page).getByText('person', { exact: true })).toBeVisible();
     expect(world.lastVars('search')).toMatchObject({ q: 'sa' });
   });
@@ -507,7 +534,7 @@ test.describe('the jump box', () => {
     await page.goto('/app');
     await jumpBox(page).fill('zzqq');
     await expect(jumpResults(page)).toContainText(
-      'Nothing matches “zzqq” — not a parcel, a paper or a person.',
+      'Nothing matches “zzqq”.',
     );
     await expect(page.getByRole('option')).toHaveCount(0);
   });
@@ -518,7 +545,7 @@ test.describe('the jump box', () => {
     await jumpBox(page).fill('katragunta');
 
     await expect(jumpResults(page)).toContainText(
-      'That search could not run. It is the connection, not your records.',
+      'That search could not run.',
     );
     // The sentence that must never appear for a search that never happened.
     await expect(jumpResults(page)).not.toContainText('Nothing matches');
@@ -870,11 +897,18 @@ test.describe('the top bar', () => {
       await frontDoor;
     });
 
-    test('both account screens are one click away, and land where they say', async ({ page }) => {
+    test('both account screens are one click away, and land where they say', async ({ page, world }) => {
+      // Profile is a drawn screen now and reads through the root schema.
+      world.set('root.me', {
+        id: 'owner', name: 'Shankar Reddy', email: '', address: '', language: 'en',
+        districtsOfInterest: '', notificationPrefs: 'email', kycRefMasked: '', mfaEnabled: false,
+      });
+      world.set('root.districts', []);
       await page.goto('/app');
       await avatar(page).click();
       await page.getByRole('menuitem', { name: 'Profile' }).click();
       await expect(page).toHaveURL(/\/app\/profile$/);
+      await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible();
 
       await avatar(page).click();
       // routes.tsx has mounted /app/account all along — the DPDP screen for
@@ -1328,7 +1362,7 @@ test.describe('a dialog', () => {
     // Dialog.tsx:152 closes only when the pointer landed on the scrim itself.
     // Without that guard, selecting a word of the warning closed the dialog.
     await openDismissDialog(page);
-    await page.getByRole('dialog').getByText('leaves this screen for good').click();
+    await page.getByRole('dialog').getByText('cannot be brought back').click();
     await expect(page.getByRole('dialog', { name: 'Dismiss this reminder?' })).toBeVisible();
   });
 
@@ -1359,8 +1393,7 @@ test.describe('a dialog', () => {
 
   test('a dialog says plainly what it is about to do, and offers the way out first', async ({ page }) => {
     await openDismissDialog(page);
-    await expect(page.getByRole('dialog')).toContainText('leaves this screen for good');
-    await expect(page.getByRole('dialog')).toContainText('it cannot be brought back');
+    await expect(page.getByRole('dialog')).toContainText('cannot be brought back');
     await expect(page.getByRole('button', { name: 'Keep it' })).toBeVisible();
   });
 
@@ -1431,7 +1464,7 @@ test.describe('on a phone', () => {
   test('following a link out of the drawer closes the drawer behind me @phone', async ({ page }) => {
     await page.goto('/app');
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
-    await railLink(page, 'Papers').click();
+    await railLink(page, 'Documents').click();
 
     await expect(page).toHaveURL(/\/app\/papers$/);
     await expect(page.getByRole('button', { name: 'Menu', exact: true }))
@@ -1445,7 +1478,7 @@ test.describe('on a phone', () => {
     // would read out the frame again instead of the screen that just arrived.
     await page.goto('/app');
     await page.getByRole('button', { name: 'Menu', exact: true }).click();
-    await railLink(page, 'Papers').click();
+    await railLink(page, 'Documents').click();
     await expect(page).toHaveURL(/\/app\/papers$/);
     await expect(page.getByRole('button', { name: 'Menu', exact: true })).not.toBeFocused();
   });

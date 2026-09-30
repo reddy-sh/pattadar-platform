@@ -2,7 +2,8 @@
  * End-to-end gate for the record-360 web app (screens W01–W15).
  *
  * Runs a fully self-contained stack so the founder's servers are NEVER
- * touched — theirs are :8080 (api), :8082 (gateway) and :5173 (web):
+ * touched — theirs are :8080 (api), :8082 (gateway) and :5180 (web, or :5173
+ * when start-local.sh runs the hosted sign-in):
  *   · pattadar API on :18080, from the venv scripts/start-local.sh provisions,
  *     against the disposable TEST_PG_DSN database (required)
  *   · apps/web BUILT (`vite build && vite preview`) on :5175, whose dev proxy
@@ -38,7 +39,7 @@ process.env.APP_PG_DSN = TEST_DSN; // seed subprocesses and API use the same iso
 
 export default defineConfig({
   testDir: './specs',
-  testIgnore: /map-(drawing|portfolio)\.spec\.ts$/,
+  testIgnore: /map-(drawing|portfolio|village)\.spec\.ts$/,
   // Re-seed first: the suite mutates, so every run must start from the same
   // rows or the second run fails for the wrong reason.
   globalSetup: require.resolve('./global-setup'),

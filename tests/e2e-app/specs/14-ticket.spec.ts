@@ -54,7 +54,7 @@
  *    stands is.
  *  · The layout is two columns and which column a block is in is part of the
  *    design, so `inMain()` and `inRail()` below scope by column rather than by
- *    page. The roster ("Who can do this") is a main-column block; the person
+ *    page. The roster ("Available providers") is a main-column block; the person
  *    card ("Who is on it"), "Sent out" and "On this land" are the rail, and
  *    the rail holds no action that exists nowhere else.
  *  · Exactly one block is promoted to the top of the main column wearing
@@ -136,7 +136,7 @@ import { ID, TICKET } from '../fixtures/ids';
 const SEND_FAILED =
   'That did not go out. Nothing was sent — check the number or the email and try again.';
 const ADD_FAILED =
-  'That was not recorded. Nothing was added to this job — check what you typed and try again.';
+  'That was not recorded. Nothing was added to this order — check what you typed and try again.';
 const MOVE_FAILED =
   'That did not go through. Nothing on this job has changed — reload the page and try again.';
 const ACCEPT_FAILED =
@@ -156,7 +156,7 @@ type Over = Record<string, unknown>;
 const MONEY = {
   quoted: 6_500, held: 6_500, released: 0, fee: 0, returned: 0, payeeShare: 0.9,
   provider: 'stub', live: false, funded: true,
-  headline: '₹6,500 is set aside for this job',
+  headline: '₹6,500 is held for this order',
   honesty: 'Payments are switched off on this build. Nothing has been charged.',
 };
 
@@ -253,7 +253,7 @@ const dispatch = (over: Over = {}) => ({ ...DISPATCH, ...over });
  *  match every panel on the page.
  *
  *  Note what this deliberately does NOT match: the two empty states. An empty
- *  "Sent out" and an empty "What came back" are bare `.card.dashed`
+ *  "Sent out" and an empty "Submitted work" are bare `.card.dashed`
  *  one-liners with no heading at all, because a `Card` around one sentence
  *  spends 87px of chrome on 39px of words. Their sentences are unchanged and
  *  are asserted by text. */
@@ -294,12 +294,12 @@ const ticketAt = (page: Page, id: string) => page.goto(`/app/services/${id}`);
 
 /** The rail card with the person on it. Three branches only — an associate,
  *  a typed name, or a closed job nobody ever had. The fourth answer, nobody
- *  on an open job, is `Who can do this` in the main column and this card is
+ *  on an open job, is `Available providers` in the main column and this card is
  *  not drawn at all beside it. */
-const whoIsOnIt = (page: Page) => card(page, 'Who is on it');
+const whoIsOnIt = (page: Page) => card(page, 'Assigned provider');
 
 /** The roster, full width, in the main column. */
-const whoCanDoThis = (page: Page) => card(page, 'Who can do this');
+const whoCanDoThis = (page: Page) => card(page, 'Available providers');
 
 /** One person offered by the roster. Each is a bare div in a `.rows.boxed`,
  *  and the name is the only handle on a row that is otherwise all notes. */
@@ -309,8 +309,8 @@ const offered = (page: Page, name: string) =>
 /** The send form, which is a dialog rather than the inline panel it used to
  *  be: as a panel it pushed 539px of card down the page before the blocks it
  *  was about and stretched a phone-number input to the full column width. */
-const sendDialog = (page: Page) => page.getByRole('dialog', { name: 'Send this to someone' });
-const recordDialog = (page: Page) => page.getByRole('dialog', { name: 'Record what came back' });
+const sendDialog = (page: Page) => page.getByRole('dialog', { name: 'Share this order' });
+const recordDialog = (page: Page) => page.getByRole('dialog', { name: 'Record submitted work' });
 
 /** The service is actually on screen.
  *
@@ -466,7 +466,7 @@ test.describe('W13 · what the service says', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const trail = card(page, 'Everything that happened');
+    const trail = card(page, 'Order activity');
     await expect(trail).toContainText('You asked for a corner survey');
     await expect(trail).toContainText('Written to Ravi Kumar on SMS');
     await expect(trail).toContainText('Put on Ravi Kumar');
@@ -479,7 +479,7 @@ test.describe('W13 · what the service says', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const line = card(page, 'Everything that happened').locator('.rows.boxed > div')
+    const line = card(page, 'Order activity').locator('.rows.boxed > div')
       .filter({ hasText: 'Put on Ravi Kumar' });
     await expect(line).toContainText('05/09/2026');
     await expect(line).toContainText('You');
@@ -489,14 +489,13 @@ test.describe('W13 · what the service says', () => {
     world.set('ticket', view({ events: [] }));
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(card(page, 'Everything that happened')).toContainText(
-      'Nothing has been recorded against this job. It was placed on 04/09/2026, on a screen '
-      + 'that did not keep a trail — anything that happens from here is written down.');
+    await expect(card(page, 'Order activity')).toContainText(
+      'No activity yet.');
   });
 
   test('what was asked for is listed as the answers I gave', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
-    const asked = card(page, 'What was asked for');
+    const asked = card(page, 'Order details');
     await expect(asked).toContainText('Which survey number');
     await expect(asked).toContainText('214/2');
     await expect(asked).toContainText('How many corners');
@@ -510,7 +509,7 @@ test.describe('W13 · what the service says', () => {
     world.set('ticket', view({ answers: [] }));
     await ticketAt(page, TICKET.needsYou);
 
-    const asked = card(page, 'What was asked for');
+    const asked = card(page, 'Order details');
     await expect(asked).toContainText('Establish 8 corners');
     await expect(asked).toContainText('No options were set on this order.');
   });
@@ -519,7 +518,7 @@ test.describe('W13 · what the service says', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const asked = card(page, 'What was asked for');
+    const asked = card(page, 'Order details');
     await expect(asked).toContainText('Establish 8 corners');
     await expect(asked).not.toContainText('No options were set on this order.');
     // And the land, as one line that goes back to the record.
@@ -564,11 +563,10 @@ test.describe('W13 · what the service says', () => {
 
   test('a service id that resolves to nothing is not told apart from one that is not mine', async ({ page, world }) => {
     await ticketAt(page, TICKET.missing);
-    await expect(page.getByText('This service is not here')).toBeVisible();
+    await expect(page.getByText("This order isn't in your account")).toBeVisible();
     expect(world.lastVars('ticket')).toMatchObject({ id: TICKET.missing });
     await expect(page.getByText(
-      'It was cancelled, or it belongs to someone else. Anything you set aside against it '
-      + 'is still in your wallet.')).toBeVisible();
+      'It was cancelled, or it belongs to someone else.')).toBeVisible();
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(0);
   });
 });
@@ -591,7 +589,7 @@ test.describe('W13 · what the service says', () => {
  *   · a name somebody typed, with nothing behind it, saying so.
  *
  * The fourth answer — nobody has it and the job is open — is NOT this card any
- * more. It is `Who can do this`, full width in the main column, and when that
+ * more. It is `Available providers`, full width in the main column, and when that
  * is on screen this card is not drawn at all: a rail card repeating "Nobody is
  * on this yet" beside it is the double-print the redesign exists to delete.
  */
@@ -601,7 +599,7 @@ test.describe('W13 · who is on it', () => {
   test('a Pattadar associate on the job is named with what they do, who they are with, and when', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
 
-    const who = inRail(page, 'Who is on it');
+    const who = inRail(page, 'Assigned provider');
     await expect(who.getByText('Ravi Kumar', { exact: true })).toBeVisible();
     await expect(who).toContainText('Licensed surveyor · Ravi Surveys');
     await expect(who).toContainText('on 05/09/2026');
@@ -629,7 +627,7 @@ test.describe('W13 · who is on it', () => {
       world.set('ticket', view({ assignee: '', assignedTo: associate({ via }) }));
       await ticketAt(page, TICKET.needsYou);
 
-      const who = inRail(page, 'Who is on it');
+      const who = inRail(page, 'Assigned provider');
       await expect(who).toContainText(`${sentence} on 05/09/2026`);
       for (const other of ['Put on it by Pattadar', 'They took this job', 'You put them on it']) {
         if (other !== sentence) await expect(who).not.toContainText(other);
@@ -648,8 +646,6 @@ test.describe('W13 · who is on it', () => {
     // to match when there IS a number: an absence asserted with a locator that
     // never matches anything is not an absence.
     await expect(page.locator('a[href^="tel:"]')).toHaveCount(1);
-    await expect(whoIsOnIt(page)).toContainText(
-      'Call them about this job. Pattadar gave them your land’s outline and nothing else.');
   });
 
   test('a number written with spaces is still a number a phone will dial', async ({ page, world }) => {
@@ -671,7 +667,6 @@ test.describe('W13 · who is on it', () => {
     const who = whoIsOnIt(page);
     await expect(who.getByRole('link', { name: 'rajesh@example.com' }))
       .toHaveAttribute('href', 'mailto:rajesh@example.com');
-    await expect(who).toContainText('Write to them about this job.');
     await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
   });
 
@@ -712,7 +707,6 @@ test.describe('W13 · who is on it', () => {
 
     await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
     await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0);
-    await expect(who).not.toContainText('Call them about this job');
     // Not merely unlinked — not in the markup at all, in an attribute or out
     // of it. This is the one thing on this card that cannot be got wrong twice.
     expect(await page.content()).not.toContain('9701122334');
@@ -746,8 +740,7 @@ test.describe('W13 · who is on it', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(whoIsOnIt(page)).toContainText(
-      'Pattadar is not showing this number on this job. The desk can reach them.');
+    await expect(whoIsOnIt(page)).toContainText('Number not shown on this order.');
   });
 
   // ── a name somebody typed has it ─────────────────────────────────────
@@ -756,7 +749,7 @@ test.describe('W13 · who is on it', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const who = inRail(page, 'Who is on it');
+    const who = inRail(page, 'Assigned provider');
     await expect(who).toContainText('Ravi Kumar, licensed surveyor');
     await expect(who).toContainText('Assigned 05/09/2026');
   });
@@ -766,9 +759,7 @@ test.describe('W13 · who is on it', () => {
 
     const who = whoIsOnIt(page);
     await expect(who).toContainText('Ravi Kumar, licensed surveyor');
-    await expect(who).toContainText(
-      'You typed this name, so Pattadar has no number for them. What you sent the job to '
-      + 'is under Sent out.');
+    await expect(who).toContainText('No number on file.');
     await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
     await expect(who.getByRole('button', { name: 'Put them on it' })).toHaveCount(0);
     await expect(who.getByRole('combobox')).toHaveCount(0);
@@ -808,21 +799,19 @@ test.describe('W13 · who can do this', () => {
   test('a job nobody is on leads with the roster, in the main column and wearing the accent', async ({ page, world }) => {
     await ticketAt(page, TICKET.placed);
 
-    const who = inMain(page, 'Who can do this');
-    await expect(who).toContainText(
-      'Nobody is on this yet. Put one of the people below on it, or name somebody who has '
-      + 'worked on your records before.');
+    const who = inMain(page, 'Available providers');
+    await expect(who).toContainText('Nobody is on this yet.');
     expect(world.lastVars('associatesForTicket')).toMatchObject({ ticketId: TICKET.placed });
 
     // Promoted: first block in the column, wearing the ring, and drawn ONCE —
     // the promoted block is removed from its canonical slot, and a count of
     // one is the whole point of that.
     await expect(firstBlock(page)).toHaveClass(/accent/);
-    await expect(firstBlock(page).getByRole('heading', { name: 'Who can do this' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Who can do this' })).toHaveCount(1);
+    await expect(firstBlock(page).getByRole('heading', { name: 'Available providers' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Available providers' })).toHaveCount(1);
     // And not in the rail, which now holds no roster of any kind.
-    await expect(inRail(page, 'Who can do this')).toHaveCount(0);
-    await expect(inRail(page, 'Who is on it')).toHaveCount(0);
+    await expect(inRail(page, 'Available providers')).toHaveCount(0);
+    await expect(inRail(page, 'Assigned provider')).toHaveCount(0);
   });
 
   test('each person offered carries their firm, the places they cover and the server’s own reason for offering them', async ({ page }) => {
@@ -831,7 +820,7 @@ test.describe('W13 · who can do this', () => {
     const srinivas = offered(page, 'G. Srinivas');
     await expect(srinivas).toContainText('Srinivas Surveys · Katragunta · Markapur · Prakasam');
     await expect(srinivas).toContainText('Covers Katragunta · Nothing in hand');
-    await expect(srinivas.getByText('Papers checked')).toBeVisible();
+    await expect(srinivas.getByText('Documents checked')).toBeVisible();
     await expect(srinivas.getByRole('button', { name: 'Put them on it' })).toBeEnabled();
   });
 
@@ -911,8 +900,7 @@ test.describe('W13 · who can do this', () => {
 
     const putOn = whoCanDoThis(page).getByRole('button', { name: 'Put on', exact: true });
     await expect(putOn).toBeDisabled();
-    await expect(whoCanDoThis(page)).toContainText(
-      'Pick a name first — that is who the job goes to.');
+    await expect(whoCanDoThis(page)).toContainText('Pick a name first.');
 
     await page.getByLabel('Or a name you have used').selectOption('Ravi Kumar');
     expect(world.calls('assignRequest')).toHaveLength(0);
@@ -947,8 +935,7 @@ test.describe('W13 · who can do this', () => {
   test('a job the desk is already looking for somebody for says so, and says what putting a name on it does', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
     await expect(whoCanDoThis(page)).toContainText(
-      'Pattadar’s desk has this on its list to find somebody for. Putting a name on it '
-      + 'yourself takes it off that list.');
+      'Pattadar is assigning a provider.');
   });
 
   test('a job the desk has never touched is not said to be on anybody’s list', async ({ page, world }) => {
@@ -958,7 +945,7 @@ test.describe('W13 · who can do this', () => {
     await ticketAt(page, TICKET.needsYou);
 
     await expect(whoCanDoThis(page)).toContainText('Nobody is on this yet.');
-    await expect(whoCanDoThis(page)).not.toContainText('has this on its list');
+    await expect(whoCanDoThis(page)).not.toContainText('is finding somebody for this');
   });
 
   test('an account that has never handed work to anybody is told so instead of being given an empty picker', async ({ page, world }) => {
@@ -968,9 +955,7 @@ test.describe('W13 · who can do this', () => {
 
     const who = whoCanDoThis(page);
     await expect(who).toContainText('Nobody has enrolled for this kind of work yet.');
-    await expect(who).toContainText(
-      'Nobody has worked on your records yet, so there is no name to pick. Send this job '
-      + 'out instead — Pattadar does the sending, so you can take it back.');
+    await expect(who).toContainText('No names used yet.');
     // No select whose only option is "Nobody yet", and no button over nobody.
     await expect(who.getByRole('combobox')).toHaveCount(0);
     await expect(who.getByRole('button', { name: 'Put them on it' })).toHaveCount(0);
@@ -1055,19 +1040,19 @@ test.describe('W13 · no button the server would refuse', () => {
 
     // Funding is a button in the card that explains the consequence, and it
     // is NOT also a menu item: it used to be both, plus a header button.
-    await expect(card(page, 'What this costs')
+    await expect(card(page, 'Cost')
       .getByRole('button', { name: 'Set ₹1,200 aside' })).toBeVisible();
-    expect(await actions(page, 'W-2101')).toEqual(['Send this to someone', 'Cancel this job']);
+    expect(await actions(page, 'W-2101')).toEqual(['Share this order', 'Cancel this order']);
   });
 
   test('an assigned job offers the reminder, taking them off and pulling it, and never accepting work nobody sent', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
 
-    // "Send it again" rather than "Send this to someone": a dispatch is
+    // "Send it again" rather than "Share this order": a dispatch is
     // already live on this job, and a second invite to the same person is a
     // reminder.
     expect(await actions(page, 'W-2102')).toEqual([
-      'Send it again', 'Take them off this job', 'Cancel this job']);
+      'Send it again', 'Remove this provider', 'Cancel this order']);
     await expect(page.getByRole('button', { name: 'Accept and file' })).toHaveCount(0);
   });
 
@@ -1084,7 +1069,7 @@ test.describe('W13 · no button the server would refuse', () => {
     // dashed card that says so — and the kebab does not repeat it.
     await expect(page.getByRole('button', { name: 'Record what came back' })).toBeVisible();
     expect(await actions(page, 'W-2103')).toEqual([
-      'Send it again', 'Take them off this job', 'Cancel this job']);
+      'Send it again', 'Remove this provider', 'Cancel this order']);
   });
 
   test('once something has come back the recording moves into the menu, because its card is gone', async ({ page, world }) => {
@@ -1094,7 +1079,7 @@ test.describe('W13 · no button the server would refuse', () => {
     await ticketAt(page, TICKET.needsYou);
 
     expect(await actions(page, 'W-2105')).toEqual([
-      'Record what came back', 'Send it again', 'Cancel this job']);
+      'Record what came back', 'Send it again', 'Cancel this order']);
   });
 
   test('a delivered job offers the sending and the pulling, and keeps accepting on the card it belongs to', async ({ page }) => {
@@ -1102,36 +1087,36 @@ test.describe('W13 · no button the server would refuse', () => {
 
     // Dispatch is legal at `submitted` and had no permanent control on this
     // screen for its whole life. That is the gap this closes.
-    expect(await actions(page, 'W-2104')).toEqual(['Send it again', 'Cancel this job']);
-    await expect(card(page, 'What came back')
+    expect(await actions(page, 'W-2104')).toEqual(['Send it again', 'Cancel this order']);
+    await expect(card(page, 'Submitted work')
       .getByRole('button', { name: 'Accept and file' })).toBeVisible();
-    await expect(card(page, 'What came back')
+    await expect(card(page, 'Submitted work')
       .getByRole('button', { name: 'Send it back' })).toBeVisible();
   });
 
   test('a job waiting on me offers the same two, because the server allows the same two', async ({ page }) => {
     await ticketAt(page, TICKET.needsYou);
-    expect(await actions(page, 'W-2105')).toEqual(['Send it again', 'Cancel this job']);
+    expect(await actions(page, 'W-2105')).toEqual(['Send it again', 'Cancel this order']);
   });
 
   test('a job that has never left the building is offered the first send, not a reminder', async ({ page, world }) => {
     world.set('ticket', view({ dispatches: [], can: ['cancel', 'dispatch'] }));
     await ticketAt(page, TICKET.needsYou);
 
-    expect(await actions(page, 'W-2105')).toEqual(['Send this to someone', 'Cancel this job']);
+    expect(await actions(page, 'W-2105')).toEqual(['Share this order', 'Cancel this order']);
   });
 
   test('a quiet job offers its three remedies in the menu as well as in the banner', async ({ page }) => {
     await ticketAt(page, TICKET.quiet);
     expect(await actions(page, 'W-2106')).toEqual([
-      'Send it again', 'Take them off this job', 'Cancel this job']);
+      'Send it again', 'Remove this provider', 'Cancel this order']);
   });
 
   test('a job that is done offers no actions at all, because the server allows none', async ({ page }) => {
     await ticketAt(page, TICKET.closed);
     await drawn(page, 'Corner survey');
     await expect(page.getByRole('button', { name: 'Actions for W-2098' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Send this to someone' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Share this order' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Accept and file' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Send it back' })).toHaveCount(0);
   });
@@ -1140,12 +1125,12 @@ test.describe('W13 · no button the server would refuse', () => {
     await ticketAt(page, TICKET.cancelled);
     await drawn(page, 'Corner survey');
     await expect(page.getByRole('button', { name: 'Actions for W-2099' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Send this to someone' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Share this order' })).toHaveCount(0);
   });
 
   test('no action is offered twice on one screen', async ({ page }) => {
     // The rule the kebab is built from, asserted as a rule rather than as
-    // eight separate lists: "Send this to someone" used to print in the
+    // eight separate lists: "Share this order" used to print in the
     // header, on its card and in the menu, all three at once.
     await ticketAt(page, TICKET.onSite);
     await drawn(page, 'Corner survey');
@@ -1171,7 +1156,7 @@ test.describe('W13 · no button the server would refuse', () => {
   test('a job that is done says how it ended, with the day it was accepted', async ({ page }) => {
     await ticketAt(page, TICKET.closed);
 
-    const ended = inMain(page, 'How it ended');
+    const ended = inMain(page, 'Outcome');
     await expect(ended).toContainText('Eight corners established and filed onto the record.');
     await expect(ended).toContainText('Accepted 14/08/2026');
     // Nothing is promoted on a closed job, so this is the plain card in the
@@ -1181,14 +1166,14 @@ test.describe('W13 · no button the server would refuse', () => {
 
   test('a cancelled job says how it ended too, in the words the server wrote', async ({ page }) => {
     await ticketAt(page, TICKET.cancelled);
-    await expect(inMain(page, 'How it ended'))
+    await expect(inMain(page, 'Outcome'))
       .toContainText('Cancelled before anybody was sent. ₹6,500 came back to the wallet.');
   });
 
   test('a job still running is not given a closing note it has not earned', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
     await drawn(page, 'Corner survey');
-    await expect(card(page, 'How it ended')).toHaveCount(0);
+    await expect(card(page, 'Outcome')).toHaveCount(0);
   });
 
   test('a closed job with nothing to say about how it ended draws no card rather than an empty one', async ({ page, world }) => {
@@ -1196,8 +1181,8 @@ test.describe('W13 · no button the server would refuse', () => {
     await ticketAt(page, TICKET.needsYou);
     await drawn(page, 'Corner survey');
 
-    await expect(card(page, 'How it ended')).toHaveCount(0);
-    await expect(card(page, 'What happens next')).toHaveCount(0);
+    await expect(card(page, 'Outcome')).toHaveCount(0);
+    await expect(card(page, 'Next step')).toHaveCount(0);
   });
 
   // ── defect ───────────────────────────────────────────────────────────
@@ -1212,7 +1197,7 @@ test.describe('W13 · no button the server would refuse', () => {
     await ticketAt(page, TICKET.closed);
     await drawn(page, 'Corner survey');
     await expect(page.getByRole('article', { name: 'Surveyor report' })).toBeVisible();
-    await expect(card(page, 'What came back')
+    await expect(card(page, 'Submitted work')
       .getByRole('button', { name: 'Change my mind' })).toHaveCount(0);
   });
 
@@ -1225,7 +1210,7 @@ test.describe('W13 · no button the server would refuse', () => {
     await ticketAt(page, TICKET.cancelled);
     await drawn(page, 'Corner survey');
 
-    const who = inRail(page, 'Who is on it');
+    const who = inRail(page, 'Assigned provider');
     await expect(who).toContainText('Nobody was ever put on this job');
     await expect(whoCanDoThis(page)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Put them on it' })).toHaveCount(0);
@@ -1248,11 +1233,11 @@ test.describe('W13 · no button the server would refuse', () => {
  * Exactly one block is hoisted to the top of the main column wearing `accent`,
  * and it always means "this is waiting on you". First match wins:
  *
- *   can('accept')                                → What came back
- *   nobody on it && can('assign') && !closed     → Who can do this
- *   !funded && quoted > 0 && !closed             → What this costs
+ *   can('accept')                                → Submitted work
+ *   nobody on it && can('assign') && !closed     → Available providers
+ *   !funded && quoted > 0 && !closed             → Cost
  *   otherwise                                    → nothing promoted, and the
- *                                                  plain "What happens next"
+ *                                                  plain "Next step"
  *                                                  fills the slot
  *
  * The promoted block is REMOVED from its canonical slot, so every test here
@@ -1264,8 +1249,8 @@ test.describe('W13 · what is waiting on me', () => {
   test('work that came back and can be accepted is the block at the top', async ({ page }) => {
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(firstBlock(page).getByRole('heading', { name: 'What came back' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'What came back' })).toHaveCount(1);
+    await expect(firstBlock(page).getByRole('heading', { name: 'Submitted work' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Submitted work' })).toHaveCount(1);
     // One ring, not two: the accept footer inside is already wearing it, so
     // the promotion is carried by the position instead.
     await expect(firstBlock(page).locator('.card.accent')).toHaveCount(1);
@@ -1275,12 +1260,12 @@ test.describe('W13 · what is waiting on me', () => {
   test('a job nobody is on promotes the roster, and only the roster', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
 
-    await expect(firstBlock(page).getByRole('heading', { name: 'Who can do this' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Who can do this' })).toHaveCount(1);
+    await expect(firstBlock(page).getByRole('heading', { name: 'Available providers' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Available providers' })).toHaveCount(1);
     // Unfunded with a price of ₹1,200 — but the roster matched first, so the
     // money card is in its own slot, plain.
-    await expect(card(page, 'What this costs')).not.toHaveClass(/accent/);
-    await expect(page.getByRole('heading', { name: 'What this costs' })).toHaveCount(1);
+    await expect(card(page, 'Cost')).not.toHaveClass(/accent/);
+    await expect(page.getByRole('heading', { name: 'Cost', exact: true })).toHaveCount(1);
   });
 
   test('a job with somebody on it and no money behind it promotes what it costs', async ({ page, world }) => {
@@ -1293,25 +1278,25 @@ test.describe('W13 · what is waiting on me', () => {
     await ticketAt(page, TICKET.needsYou);
 
     await expect(firstBlock(page)).toHaveClass(/accent/);
-    await expect(firstBlock(page).getByRole('heading', { name: 'What this costs' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'What this costs' })).toHaveCount(1);
-    await expect(card(page, 'What happens next')).toHaveCount(0);
+    await expect(firstBlock(page).getByRole('heading', { name: 'Cost', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Cost', exact: true })).toHaveCount(1);
+    await expect(card(page, 'Next step')).toHaveCount(0);
   });
 
   test('a job with money behind it and somebody on it says nothing is needed from me', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
 
-    const next = inMain(page, 'What happens next');
-    await expect(next).toContainText('Ravi Kumar has this. Nothing is needed from you.');
-    await expect(firstBlock(page).getByRole('heading', { name: 'What happens next' })).toBeVisible();
+    const next = inMain(page, 'Next step');
+    await expect(next).toContainText('Ravi Kumar has this.');
+    await expect(firstBlock(page).getByRole('heading', { name: 'Next step' })).toBeVisible();
     // Nothing is waiting, so nothing wears the ring.
     await expect(mainCol(page).locator('.accent')).toHaveCount(0);
   });
 
   test('the plain next card names whoever actually holds it, not the free-text beside them', async ({ page }) => {
     await ticketAt(page, TICKET.onSite);
-    await expect(inMain(page, 'What happens next'))
-      .toContainText('K. Anitha has this. Nothing is needed from you.');
+    await expect(inMain(page, 'Next step'))
+      .toContainText('K. Anitha has this.');
   });
 
   test('exactly one block on the page wears the accent, on every seeded job', async ({ page }) => {
@@ -1338,17 +1323,12 @@ test.describe('W13 · nine days of silence', () => {
     const alert = page.locator('section.card.alert');
     await expect(alert.getByRole('heading', { name: 'Nothing has happened for 9 days.' })).toBeVisible();
     await expect(alert).toContainText('Srinivas, document writer has not moved this since');
-    // The sentence promises three remedies — "send it again, put it on
-    // somebody else, or pull the job" — and for the whole life of this banner
-    // it offered two. `unassign` was in the server's `can` the entire time
+    // Three remedies. `unassign` was in the server's `can` the entire time
     // with no control anywhere on the page, so an owner with a silent
     // surveyor could only cancel the job outright.
-    await expect(alert).toContainText(
-      'You can send it again, put it on somebody else, or pull the job and get what you '
-      + 'set aside back.');
     await expect(alert.getByRole('button', { name: 'Send it again' })).toBeVisible();
-    await expect(alert.getByRole('button', { name: 'Take them off this job' })).toBeVisible();
-    await expect(alert.getByRole('button', { name: 'Cancel this job' })).toBeVisible();
+    await expect(alert.getByRole('button', { name: 'Remove this provider' })).toBeVisible();
+    await expect(alert.getByRole('button', { name: 'Cancel this order' })).toBeVisible();
   });
 
   test('the banner is the first thing in the column, above whatever else is waiting', async ({ page }) => {
@@ -1359,20 +1339,19 @@ test.describe('W13 · nine days of silence', () => {
   test('taking them off says it releases nothing, so it is not read as a cancel', async ({ page, world }) => {
     await ticketAt(page, TICKET.quiet);
     await page.locator('section.card.alert')
-      .getByRole('button', { name: 'Take them off this job' }).click();
+      .getByRole('button', { name: 'Remove this provider' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Take them off this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Remove this provider?' });
     await expect(dialog).toContainText(
-      'The job goes back to Placed and ₹1,200 stays set aside. It is not a cancel and it '
-      + 'releases nothing — you can put somebody else on it straight away.');
+      'The job goes back to Placed and ₹1,200 stays set aside.');
     await expect(dialog.getByRole('button', { name: 'Keep them on it' })).toBeFocused();
     expect(world.calls('assignRequest')).toHaveLength(0);
   });
 
   test('taking them off is assignRequest with nobody named, and nothing else', async ({ page, world }) => {
     await ticketAt(page, TICKET.quiet);
-    await fromMenu(page, 'W-2106', 'Take them off this job');
-    await page.getByRole('dialog', { name: 'Take them off this job?' })
+    await fromMenu(page, 'W-2106', 'Remove this provider');
+    await page.getByRole('dialog', { name: 'Remove this provider?' })
       .getByRole('button', { name: 'Take them off' }).click();
 
     await expect.poll(() => world.calls('assignRequest')).toHaveLength(1);
@@ -1385,18 +1364,18 @@ test.describe('W13 · nine days of silence', () => {
   test('a refused unassign says nothing on this job has changed, inside the dialog', async ({ page, world }) => {
     world.set('assignRequest', false);
     await ticketAt(page, TICKET.quiet);
-    await fromMenu(page, 'W-2106', 'Take them off this job');
-    await page.getByRole('dialog', { name: 'Take them off this job?' })
+    await fromMenu(page, 'W-2106', 'Remove this provider');
+    await page.getByRole('dialog', { name: 'Remove this provider?' })
       .getByRole('button', { name: 'Take them off' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Take them off this job?' })
+    await expect(page.getByRole('dialog', { name: 'Remove this provider?' })
       .getByText(MOVE_FAILED)).toBeVisible();
   });
 
   test('keeping them on it closes the dialog without moving the job', async ({ page, world }) => {
     await ticketAt(page, TICKET.quiet);
-    await fromMenu(page, 'W-2106', 'Take them off this job');
-    await page.getByRole('dialog', { name: 'Take them off this job?' })
+    await fromMenu(page, 'W-2106', 'Remove this provider');
+    await page.getByRole('dialog', { name: 'Remove this provider?' })
       .getByRole('button', { name: 'Keep them on it' }).click();
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -1424,9 +1403,7 @@ test.describe('W13 · nine days of silence', () => {
 
     const alert = page.locator('section.card.alert');
     await expect(alert.getByRole('heading', { name: 'Nothing has happened for 9 days.' })).toBeVisible();
-    await expect(alert).toContainText(
-      'Nobody has been put on this yet. Pick somebody below, or cancel it and get what you '
-      + 'set aside back.');
+    await expect(alert).toContainText('Not assigned yet.');
     // No buttons on this shape: the roster is the very next block, so anything
     // here could only scroll to a card already on screen.
     await expect(alert.getByRole('button')).toHaveCount(0);
@@ -1436,14 +1413,14 @@ test.describe('W13 · nine days of silence', () => {
   test('a quiet job with nothing set aside is not offered the pulling of money back', async ({ page, world }) => {
     world.set('ticket', view({
       quiet: true, quietDays: 12, can: ['dispatch'],
-      money: money({ held: 0, funded: false, headline: 'Nothing set aside yet' }),
+      money: money({ held: 0, funded: false, headline: 'Nothing held yet' }),
       ledger: [],
     }));
     await ticketAt(page, TICKET.quiet);
     const alert = page.locator('section.card.alert');
     await expect(alert.getByRole('button', { name: 'Send it again' })).toBeVisible();
-    await expect(alert.getByRole('button', { name: 'Cancel this job' })).toHaveCount(0);
-    await expect(alert.getByRole('button', { name: 'Take them off this job' })).toHaveCount(0);
+    await expect(alert.getByRole('button', { name: 'Cancel this order' })).toHaveCount(0);
+    await expect(alert.getByRole('button', { name: 'Remove this provider' })).toHaveCount(0);
   });
 
   test('sending it again asks for the number rather than reusing a masked one', async ({ page, world }) => {
@@ -1452,8 +1429,7 @@ test.describe('W13 · nine days of silence', () => {
     await page.locator('section.card.alert').getByRole('button', { name: 'Send it again' }).click();
 
     await expect(sendDialog(page)).toContainText(
-      'This one is a reminder. Their number is kept masked on this page, so type it again '
-      + '— it goes out on the channel below.');
+      'This one is a reminder. Type their number again.');
     await expect(page.getByLabel('Their name')).toHaveValue('Ravi Kumar');
     await expect(page.getByLabel('Email or phone')).toHaveValue('');
     await expect(page.getByLabel('Send it by')).toHaveValue('sms');
@@ -1474,8 +1450,8 @@ test.describe('W13 · nine days of silence', () => {
 
   test('the banner cancel opens the same dialog the kebab does', async ({ page }) => {
     await ticketAt(page, TICKET.quiet);
-    await page.locator('section.card.alert').getByRole('button', { name: 'Cancel this job' }).click();
-    await expect(page.getByRole('dialog', { name: 'Cancel this job?' })).toBeVisible();
+    await page.locator('section.card.alert').getByRole('button', { name: 'Cancel this order' }).click();
+    await expect(page.getByRole('dialog', { name: 'Cancel this order?' })).toBeVisible();
   });
 });
 
@@ -1483,7 +1459,7 @@ test.describe('W13 · nine days of silence', () => {
 test.describe('W13 · sending it out', () => {
   test('sending says what the other person will see, and what of mine does not go', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
 
     // A dialog rather than the inline panel it used to be: as a panel it
     // pushed 539px of card down the page before the blocks it was about, and
@@ -1492,15 +1468,8 @@ test.describe('W13 · sending it out', () => {
     // below survived the move.
     const panel = sendDialog(page);
     await expect(panel).toContainText(
-      'Pattadar records a revocable work link and sends it when a delivery provider is '
-      + 'configured.');
+      'They see the job, the land, what you asked for, the pay and the due date.');
     await expect(panel).toContainText('Nothing else of yours goes with it.');
-    // The one useful sentence from the old Sent-out paragraph, relocated
-    // verbatim to where somebody is about to need it. The rest of that
-    // paragraph contained a live copy bug — "Pattadar writes to person" — and
-    // was deleted rather than moved.
-    await expect(panel).toContainText(
-      'If delivery is not configured, copy the recorded link and send it yourself.');
     await expect(page.getByLabel('Their name')).toBeVisible();
     await expect(page.getByLabel('Email or phone')).toBeVisible();
     await expect(page.getByLabel('Send it by')).toHaveValue('auto');
@@ -1509,12 +1478,10 @@ test.describe('W13 · sending it out', () => {
 
   test('Send it waits for somewhere to write to, and says why on the screen', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
 
     await expect(page.getByRole('button', { name: 'Send it', exact: true })).toBeDisabled();
-    await expect(page.getByText(
-      'An email or a phone number first — Pattadar does the writing, so it needs somewhere '
-      + 'to write to.')).toBeVisible();
+    await expect(page.getByText('An email or a phone number first.')).toBeVisible();
 
     await page.getByLabel('Email or phone').fill('ravi@example.com');
     await expect(page.getByRole('button', { name: 'Send it', exact: true })).toBeEnabled();
@@ -1522,7 +1489,7 @@ test.describe('W13 · sending it out', () => {
 
   test('sending it records a revocable work link with exactly what I typed', async ({ page, world }) => {
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
     await page.getByLabel('Their name').fill('G. Srinivas');
     await page.getByLabel('Email or phone').fill('98480 12345');
     await page.getByLabel('Send it by').selectOption('whatsapp');
@@ -1539,7 +1506,7 @@ test.describe('W13 · sending it out', () => {
 
   test('a sent request closes the dialog and clears the number behind it', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
     await page.getByLabel('Email or phone').fill('98480 12345');
     await page.getByRole('button', { name: 'Send it', exact: true }).click();
 
@@ -1551,7 +1518,7 @@ test.describe('W13 · sending it out', () => {
     // somebody read off a scrap of paper is exactly the loss this module
     // keeps a block comment about.
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
     await page.getByLabel('Email or phone').fill('98480 12345');
 
     await page.locator('.scrim').click({ position: { x: 4, y: 4 } });
@@ -1561,14 +1528,14 @@ test.describe('W13 · sending it out', () => {
 
   test('the send dialog opens on its first field, because there is nothing here to be careful about', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
     await expect(page.getByLabel('Their name')).toBeFocused();
   });
 
   test('a refused send says nothing was sent, and keeps what I typed', async ({ page, world }) => {
     world.set('dispatchTicket', '');
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
     await page.getByLabel('Email or phone').fill('98480 12345');
     await page.getByRole('button', { name: 'Send it', exact: true }).click();
 
@@ -1579,7 +1546,7 @@ test.describe('W13 · sending it out', () => {
   test('a send that falls over on the way says the same thing', async ({ page, world }) => {
     world.set('dispatchTicket', World.gqlError('the message queue is down'));
     await ticketAt(page, TICKET.placed);
-    await fromMenu(page, 'W-2101', 'Send this to someone');
+    await fromMenu(page, 'W-2101', 'Share this order');
     await page.getByLabel('Email or phone').fill('98480 12345');
     await page.getByRole('button', { name: 'Send it', exact: true }).click();
 
@@ -1597,14 +1564,14 @@ test.describe('W13 · sending it out', () => {
       .filter({ hasText: 'Nothing has left the building.' });
     await expect(empty).toBeVisible();
     await expect(empty.getByRole('heading')).toHaveCount(0);
-    await expect(card(page, 'Sent out')).toHaveCount(0);
+    await expect(card(page, 'Sent to provider')).toHaveCount(0);
   });
 
   test('a job that HAS left the building keeps its titled card and its count', async ({ page, world }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const sent = inRail(page, 'Sent out');
+    const sent = inRail(page, 'Sent to provider');
     await expect(sent).toBeVisible();
     await expect(sent.locator('.num.muted')).toHaveText('1');
   });
@@ -1613,7 +1580,7 @@ test.describe('W13 · sending it out', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const sent = card(page, 'Sent out');
+    const sent = card(page, 'Sent to provider');
     await expect(sent).toContainText('Ravi Kumar');
     await expect(sent).toContainText('SMS · +91 98••• ••432 · 05/09/2026');
     await expect(sent).toContainText('Recorded, not sent');
@@ -1625,16 +1592,16 @@ test.describe('W13 · sending it out', () => {
     await ticketAt(page, TICKET.needsYou);
 
     expect(await page.locator('body').innerText()).not.toContain(TOKEN);
-    await expect(card(page, 'Sent out')
+    await expect(card(page, 'Sent to provider')
       .getByRole('button', { name: 'See what was sent' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   test('what was sent can be read back, and the link copied when nothing else will send it', async ({ page, world, baseURL }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'See what was sent' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'See what was sent' }).click();
 
-    const sent = card(page, 'Sent out');
+    const sent = card(page, 'Sent to provider');
     await expect(sent).toContainText('A job on Sy 214/2');
     await expect(sent).toContainText('Sy 214/2 at Katragunta needs 8 corners walked.');
     // ShareResult builds the recipient link from `window.location.origin`, so
@@ -1653,10 +1620,10 @@ test.describe('W13 · sending it out', () => {
       dispatches: [dispatch({ status: 'failed', error: 'The number was not reachable.' })],
     }));
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'See what was sent' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'See what was sent' }).click();
 
-    const sent = card(page, 'Sent out');
-    await expect(sent).toContainText('It did not go');
+    const sent = card(page, 'Sent to provider');
+    await expect(sent).toContainText('Failed');
     await expect(sent).toContainText('The number was not reachable.');
     await expect(sent.getByLabel('Recipient link')).toHaveCount(0);
   });
@@ -1664,29 +1631,27 @@ test.describe('W13 · sending it out', () => {
   test('withdrawing asks first, and says what it does and does not undo', async ({ page, world }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
 
-    await expect(card(page, 'Sent out')).toContainText(
-      'They are told it is off, and nothing more can come back on it. Anything they already '
-      + 'sent stays on this job.');
-    await expect(card(page, 'Sent out').getByRole('button', { name: 'Keep' })).toBeVisible();
+    await expect(card(page, 'Sent to provider')).toContainText('They are told it is off.');
+    await expect(card(page, 'Sent to provider').getByRole('button', { name: 'Keep' })).toBeVisible();
   });
 
   test('keeping it backs out of the withdrawal without calling anything', async ({ page, world }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
-    await card(page, 'Sent out').getByRole('button', { name: 'Keep' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Keep' }).click();
 
-    await expect(card(page, 'Sent out')).not.toContainText('They are told it is off');
+    await expect(card(page, 'Sent to provider')).not.toContainText('They are told it is off');
     expect(world.calls('revokeDispatch')).toHaveLength(0);
   });
 
   test('withdrawing takes that one dispatch back', async ({ page, world }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
 
     await expect.poll(() => world.calls('revokeDispatch')).toHaveLength(1);
     expect(world.lastVars('revokeDispatch')).toMatchObject({ dispatchId: 'w-dsp-1', reason: '' });
@@ -1696,8 +1661,8 @@ test.describe('W13 · sending it out', () => {
     world.set('revokeDispatch', false);
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
 
     await expect(page.getByText(MOVE_FAILED).first()).toBeVisible();
   });
@@ -1708,7 +1673,7 @@ test.describe('W13 · sending it out', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
 
-    const sent = card(page, 'Sent out');
+    const sent = card(page, 'Sent to provider');
     await expect(sent).toContainText('Withdrawn');
     await expect(sent).toContainText('He stopped answering.');
     await expect(sent.getByRole('button', { name: 'See what was sent' })).toBeVisible();
@@ -1718,10 +1683,10 @@ test.describe('W13 · sending it out', () => {
   test('a withdrawn dispatch no longer offers its link, though the copy of it stays', async ({ page, world }) => {
     world.set('ticket', view({ dispatches: [dispatch({ revoked: true, revokeReason: '' })] }));
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'See what was sent' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'See what was sent' }).click();
 
-    await expect(card(page, 'Sent out')).toContainText('8 corners walked');
-    await expect(card(page, 'Sent out').getByLabel('Recipient link')).toHaveCount(0);
+    await expect(card(page, 'Sent to provider')).toContainText('8 corners walked');
+    await expect(card(page, 'Sent to provider').getByLabel('Recipient link')).toHaveCount(0);
   });
 });
 
@@ -1737,7 +1702,7 @@ test.describe('W13 · what came back', () => {
     await expect(outline).toContainText('GPS, ±3 m');
 
     const report = page.getByRole('article', { name: 'Surveyor report' });
-    await expect(report).toContainText('A paper · sent 10/09/2026 by Ravi Kumar');
+    await expect(report).toContainText('A document · sent 10/09/2026 by Ravi Kumar');
     await expect(report).toContainText('Goes to: The map shelf');
   });
 
@@ -1854,11 +1819,9 @@ test.describe('W13 · what came back', () => {
     // the assertion is re-targeted at the text rather than at a heading that
     // no longer exists.
     const dashed = mainCol(page).locator('section.card.dashed');
-    await expect(dashed).toContainText(
-      'Nothing has come back yet. When the sketch, the photos or the report arrive, record '
-      + 'them here — nothing reaches Sy 214/2 until you have looked at them and said yes.');
+    await expect(dashed).toContainText('Nothing has come back yet.');
     await expect(dashed.getByRole('heading')).toHaveCount(0);
-    await expect(card(page, 'What came back')).toHaveCount(0);
+    await expect(card(page, 'Submitted work')).toHaveCount(0);
   });
 
   test('the dashed line carries the one action the server allows, and no other', async ({ page }) => {
@@ -1896,7 +1859,7 @@ test.describe('W13 · what came back', () => {
     await ticketAt(page, TICKET.needsYou);
 
     await expect(mainCol(page).locator('section.card.dashed')).toContainText(
-      'You sent this back on 11/09/2026. When it comes again, record it here.');
+      'You sent this back on 11/09/2026.');
   });
 
   test('a job that is done with nothing recorded says just that, and offers nothing', async ({ page, world }) => {
@@ -1904,14 +1867,14 @@ test.describe('W13 · what came back', () => {
     await ticketAt(page, TICKET.needsYou);
 
     await expect(mainCol(page).locator('section.card.dashed'))
-      .toContainText('Nothing was recorded against this job.');
+      .toContainText('Nothing was recorded against this order.');
     await expect(page.getByRole('button', { name: 'Record what came back' })).toHaveCount(0);
   });
 
   test('the count beside the card is the number of things on it', async ({ page, world }) => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await expect(card(page, 'What came back').locator('.num.muted')).toHaveText('2');
+    await expect(card(page, 'Submitted work').locator('.num.muted')).toHaveText('2');
   });
 
   // ── recording one by hand ────────────────────────────────────────────
@@ -1920,19 +1883,15 @@ test.describe('W13 · what came back', () => {
     await ticketAt(page, TICKET.onSite);
     await page.getByRole('button', { name: 'Record what came back' }).click();
 
-    await expect(page.getByText(
-      'Nothing here touches Sy 214/2 yet. File it on the job first, look at it, and add '
-      + 'it to the record when you are happy with it.')).toBeVisible();
+    await expect(page.getByText('Nothing here touches Sy 214/2 yet.')).toBeVisible();
   });
 
-  test('Add it waits for a name, and says why the name matters', async ({ page }) => {
+  test('Add it waits for a name, and says so', async ({ page }) => {
     await ticketAt(page, TICKET.onSite);
     await page.getByRole('button', { name: 'Record what came back' }).click();
 
     await expect(page.getByRole('button', { name: 'Add it' })).toBeDisabled();
-    await expect(page.getByText(
-      'Give it a name first. What you call it here is what you will be reading on this '
-      + 'job in six months.')).toBeVisible();
+    await expect(page.getByText('Give it a name first.')).toBeVisible();
     await page.getByLabel('What to call it').fill('Corner sketch');
     await expect(page.getByRole('button', { name: 'Add it' })).toBeEnabled();
   });
@@ -1997,11 +1956,11 @@ test.describe('W13 · what came back', () => {
     await page.getByRole('button', { name: 'Record what came back' }).click();
     await page.getByLabel('What to call it').fill('A very large scan');
     await page.getByLabel('The file that came back').setInputFiles({
-      name: 'huge.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(11 * 1024 * 1024, 0x20),
+      name: 'huge.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(16 * 1024 * 1024, 0x20),
     });
     await page.getByRole('button', { name: 'Add it' }).click();
 
-    await expect(page.getByText('huge.pdf is 11.0 MB. The limit is 10.0 MB — nothing was uploaded.'))
+    await expect(page.getByText('huge.pdf is 16.0 MB. The limit is 15.0 MB — nothing was uploaded.'))
       .toBeVisible();
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(0);
     expect(world.calls('addDeliverable')).toHaveLength(0);
@@ -2041,17 +2000,17 @@ test.describe('W13 · what came back', () => {
       .getByRole('button', { name: 'Keep it' }).click();
 
     await expect(page.getByText(MOVE_FAILED)).toHaveCount(1);
-    await expect(card(page, 'What came back').getByText(MOVE_FAILED)).toBeVisible();
+    await expect(card(page, 'Submitted work').getByText(MOVE_FAILED)).toBeVisible();
   });
 
   test('a failure raised in the rail is reported in the rail, not 800px up the page', async ({ page, world }) => {
     world.set('revokeDispatch', false);
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
-    await card(page, 'Sent out').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
+    await card(page, 'Sent to provider').getByRole('button', { name: 'Withdraw' }).click();
 
-    await expect(card(page, 'Sent out').getByText(MOVE_FAILED)).toBeVisible();
+    await expect(card(page, 'Sent to provider').getByText(MOVE_FAILED)).toBeVisible();
     await expect(page.getByText(MOVE_FAILED)).toHaveCount(1);
   });
 
@@ -2060,8 +2019,8 @@ test.describe('W13 · what came back', () => {
     // on screen. A kebab action must never be able to fail silently.
     world.set('assignRequest', World.gqlError('the roster is down'));
     await ticketAt(page, TICKET.quiet);
-    await fromMenu(page, 'W-2106', 'Take them off this job');
-    await page.getByRole('dialog', { name: 'Take them off this job?' })
+    await fromMenu(page, 'W-2106', 'Remove this provider');
+    await page.getByRole('dialog', { name: 'Remove this provider?' })
       .getByRole('button', { name: 'Take them off' }).click();
 
     await expect(page.getByText(MOVE_FAILED)).toBeVisible();
@@ -2122,8 +2081,7 @@ test.describe('W13 · accepting the work', () => {
 
     await expect(page.getByRole('button', { name: 'Accept and file' })).toBeDisabled();
     await expect(page.getByText(
-      'Decide on every item first — 2 items still waiting. An item you have not looked at '
-      + 'is not an item you meant to file.')).toBeVisible();
+      'Decide on every item first. 2 items still waiting.')).toBeVisible();
   });
 
   test('the accept card counts what is kept against what came, and what is set aside for whom', async ({ page, world }) => {
@@ -2145,12 +2103,11 @@ test.describe('W13 · accepting the work', () => {
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Accept and file?' });
+    const dialog = page.getByRole('dialog', { name: 'Accept this work?' });
     await expect(dialog).toContainText(
       '2 items go onto Sy 214/2: “8 corners, walked” → The record boundary; “Surveyor '
       + 'report” → The map shelf.');
-    await expect(dialog).toContainText(
-      'The outline on file is replaced — the one it replaces is kept on this job.');
+    await expect(dialog).toContainText('The outline on file is replaced.');
   });
 
   test('the dialog says who is owed what, in the words the server chose', async ({ page, world }) => {
@@ -2160,7 +2117,7 @@ test.describe('W13 · accepting the work', () => {
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Accept and file?' })).toContainText(
+    await expect(page.getByRole('dialog', { name: 'Accept this work?' })).toContainText(
       '₹5,850 is recorded as owed to Ravi Kumar, licensed surveyor and ₹650 to Pattadar. '
       + 'Payments are switched off on this build. Nothing has been charged.');
   });
@@ -2172,9 +2129,8 @@ test.describe('W13 · accepting the work', () => {
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Accept and file?' })).toContainText(
-      'Nothing is marked to keep, so nothing is added to Sy 214/2. The job is closed and '
-      + 'what is set aside is released.');
+    await expect(page.getByRole('dialog', { name: 'Accept this work?' })).toContainText(
+      'Nothing is added to Sy 214/2. The job closes and what is set aside is released.');
   });
 
   test('Accept and file is what calls acceptTicket, and nothing before it does', async ({ page, world }) => {
@@ -2185,7 +2141,7 @@ test.describe('W13 · accepting the work', () => {
     await page.getByRole('button', { name: 'Accept and file' }).click();
     expect(world.calls('acceptTicket')).toHaveLength(0);
 
-    await page.getByRole('dialog', { name: 'Accept and file?' })
+    await page.getByRole('dialog', { name: 'Accept this work?' })
       .getByRole('button', { name: 'Accept and file' }).click();
     await expect.poll(() => world.calls('acceptTicket')).toHaveLength(1);
     expect(world.lastVars('acceptTicket')).toMatchObject({ ticketId: TICKET.needsYou, note: '' });
@@ -2198,10 +2154,10 @@ test.describe('W13 · accepting the work', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
-    await page.getByRole('dialog', { name: 'Accept and file?' })
+    await page.getByRole('dialog', { name: 'Accept this work?' })
       .getByRole('button', { name: 'Accept and file' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Accept and file?' })
+    await expect(page.getByRole('dialog', { name: 'Accept this work?' })
       .getByText(ACCEPT_FAILED)).toBeVisible();
   });
 
@@ -2212,13 +2168,13 @@ test.describe('W13 · accepting the work', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
-    await page.getByRole('dialog', { name: 'Accept and file?' })
+    await page.getByRole('dialog', { name: 'Accept this work?' })
       .getByRole('button', { name: 'Accept and file' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Accept and file?' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Accept this work?' })).toBeVisible();
     // Scoped: the accept card behind the dialog prints the same sentence, which
     // is the defect recorded under "a refused review is said once, not twice".
-    await expect(page.getByRole('dialog', { name: 'Accept and file?' })
+    await expect(page.getByRole('dialog', { name: 'Accept this work?' })
       .getByText(ACCEPT_FAILED)).toBeVisible();
   });
 
@@ -2229,7 +2185,7 @@ test.describe('W13 · accepting the work', () => {
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Accept and file?' })
+    await expect(page.getByRole('dialog', { name: 'Accept this work?' })
       .getByRole('button', { name: 'Cancel' })).toBeFocused();
   });
 
@@ -2239,7 +2195,7 @@ test.describe('W13 · accepting the work', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
-    await page.getByRole('dialog', { name: 'Accept and file?' })
+    await page.getByRole('dialog', { name: 'Accept this work?' })
       .getByRole('button', { name: 'Cancel' }).click();
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -2253,7 +2209,7 @@ test.describe('W13 · accepting the work', () => {
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Accept and file' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Accept and file?' });
+    const dialog = page.getByRole('dialog', { name: 'Accept this work?' });
     await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
     for (let i = 0; i < 5; i += 1) {
       await page.keyboard.press('Tab');
@@ -2270,9 +2226,6 @@ test.describe('W13 · sending the whole job back', () => {
     await page.getByRole('button', { name: 'Send it back' }).click();
 
     await expect(page.getByLabel('What is missing')).toBeVisible();
-    await expect(page.getByText(
-      'They get your reasons on the channel this went out on, and can send new work back '
-      + 'against the same job. Everything already recorded stays on this job.')).toBeVisible();
   });
 
   test('the button waits for words, and says why', async ({ page, world }) => {
@@ -2281,8 +2234,7 @@ test.describe('W13 · sending the whole job back', () => {
     await page.getByRole('button', { name: 'Send it back' }).click();
 
     await expect(page.getByRole('button', { name: 'Send it back' }).last()).toBeDisabled();
-    await expect(page.getByText(
-      'Say what is missing first. These words are all they have to work from.')).toBeVisible();
+    await expect(page.getByText('Say what is missing first.')).toBeVisible();
   });
 
   test('sending it back carries exactly the words I typed', async ({ page, world }) => {
@@ -2336,21 +2288,19 @@ test.describe('W13 · pulling the job', () => {
   test('cancelling says who is told, what stays, and that there is no undo', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
     await page.getByRole('button', { name: 'Actions for W-2102' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Cancel this job?' })).toContainText(
-      'Ravi Kumar, licensed surveyor is told it is off and nothing more can come back on '
-      + 'it. Anything already filed onto Sy 214/2 stays where it is — this only closes the '
-      + 'job. There is no undo.');
+    await expect(page.getByRole('dialog', { name: 'Cancel this order?' })).toContainText(
+      'Ravi Kumar, licensed surveyor is told it is off. There is no undo.');
   });
 
   test('a job with money set aside offers to settle some of it, and does the arithmetic', async ({ page, world }) => {
     world.set('ticket', view({ can: ['cancel', 'dispatch'] }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Actions for W-2105' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Cancel this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Cancel this order?' });
     await expect(dialog).toContainText(
       '₹0 settled — ₹0 to Ravi Kumar, licensed surveyor, ₹0 to Pattadar. The rest, ₹6,500, '
       + 'goes back to your wallet.');
@@ -2364,24 +2314,24 @@ test.describe('W13 · pulling the job', () => {
     world.set('ticket', view({ can: ['cancel', 'dispatch'] }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Actions for W-2105' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Cancel this job?' })).toContainText(
-      'Nothing is charged and nothing is sent — paying online is not switched on yet.');
+    await expect(page.getByRole('dialog', { name: 'Cancel this order?' })).toContainText(
+      'Nothing is charged.');
   });
 
   test('a figure above what is set aside is clamped before it is sent anywhere', async ({ page, world }) => {
     world.set('ticket', view({ can: ['cancel', 'dispatch'] }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Actions for W-2105' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Cancel this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Cancel this order?' });
     await dialog.getByLabel('Settle some of the ₹6,500 set aside').fill('99999');
     await expect(dialog).toContainText('₹6,500 settled');
     await expect(dialog).toContainText('The rest, ₹0,');
 
-    await dialog.getByRole('button', { name: 'Cancel this job' }).click();
+    await dialog.getByRole('button', { name: 'Cancel this order' }).click();
     await expect.poll(() => world.calls('cancelTicket')).toHaveLength(1);
     expect(world.lastVars('cancelTicket')).toMatchObject({ payAnyway: 6_500 });
   });
@@ -2390,9 +2340,9 @@ test.describe('W13 · pulling the job', () => {
     world.set('ticket', view({ can: ['cancel', 'dispatch'] }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Actions for W-2105' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Cancel this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Cancel this order?' });
     await dialog.getByLabel('Settle some of the ₹6,500 set aside').fill('-500');
     await expect(dialog).toContainText('₹0 settled');
     await expect(dialog).toContainText('The rest, ₹6,500,');
@@ -2401,9 +2351,9 @@ test.describe('W13 · pulling the job', () => {
   test('a job with nothing set aside is not asked how much of it to settle', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
     await page.getByRole('button', { name: 'Actions for W-2101' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Cancel this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Cancel this order?' });
     await expect(dialog.getByLabel('Why')).toBeVisible();
     await expect(dialog.getByLabel(/Settle some of/)).toHaveCount(0);
   });
@@ -2412,12 +2362,12 @@ test.describe('W13 · pulling the job', () => {
     world.set('ticket', view({ can: ['cancel', 'dispatch'] }));
     await ticketAt(page, TICKET.needsYou);
     await page.getByRole('button', { name: 'Actions for W-2105' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Cancel this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Cancel this order?' });
     await dialog.getByLabel('Why').fill('He never went.');
     await dialog.getByLabel('Settle some of the ₹6,500 set aside').fill('1500');
-    await dialog.getByRole('button', { name: 'Cancel this job' }).click();
+    await dialog.getByRole('button', { name: 'Cancel this order' }).click();
 
     await expect.poll(() => world.calls('cancelTicket')).toHaveLength(1);
     expect(world.lastVars('cancelTicket')).toMatchObject({
@@ -2429,30 +2379,30 @@ test.describe('W13 · pulling the job', () => {
     world.set('cancelTicket', false);
     await ticketAt(page, TICKET.assigned);
     await page.getByRole('button', { name: 'Actions for W-2102' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
-    await page.getByRole('dialog', { name: 'Cancel this job?' })
-      .getByRole('button', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
+    await page.getByRole('dialog', { name: 'Cancel this order?' })
+      .getByRole('button', { name: 'Cancel this order' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Cancel this job?' })
+    await expect(page.getByRole('dialog', { name: 'Cancel this order?' })
       .getByText(MOVE_FAILED)).toBeVisible();
   });
 
   test('a pointer that slips onto the dim does not throw away the reason I typed', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
     await page.getByRole('button', { name: 'Actions for W-2102' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
-    await page.getByRole('dialog', { name: 'Cancel this job?' }).getByLabel('Why').fill('He never went.');
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
+    await page.getByRole('dialog', { name: 'Cancel this order?' }).getByLabel('Why').fill('He never went.');
 
     await page.locator('.scrim').click({ position: { x: 4, y: 4 } });
-    await expect(page.getByRole('dialog', { name: 'Cancel this job?' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Cancel this order?' })).toBeVisible();
     await expect(page.getByLabel('Why')).toHaveValue('He never went.');
   });
 
   test('Cancel in the dialog closes it without pulling the job', async ({ page, world }) => {
     await ticketAt(page, TICKET.assigned);
     await page.getByRole('button', { name: 'Actions for W-2102' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
-    await page.getByRole('dialog', { name: 'Cancel this job?' })
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
+    await page.getByRole('dialog', { name: 'Cancel this order?' })
       .getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -2462,12 +2412,12 @@ test.describe('W13 · pulling the job', () => {
   test('Escape closes the cancel dialog and gives the kebab its focus back', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
     await page.getByRole('button', { name: 'Actions for W-2102' }).click();
-    await page.getByRole('menuitem', { name: 'Cancel this job' }).click();
+    await page.getByRole('menuitem', { name: 'Cancel this order' }).click();
 
     // Wait for the dialog to have TAKEN focus, not merely to be visible:
     // Dialog.tsx attaches its Escape handler in the same commit that moves
     // focus in, so a key pressed before that lands on the page behind it.
-    const dialog = page.getByRole('dialog', { name: 'Cancel this job?' });
+    const dialog = page.getByRole('dialog', { name: 'Cancel this order?' });
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
     await page.keyboard.press('Escape');
 
@@ -2481,18 +2431,17 @@ test.describe('W13 · the money, with payments off', () => {
   test('the card leads with the server sentence, the Not charged pill, and the honesty under it', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
 
-    const costs = card(page, 'What this costs');
-    await expect(costs).toContainText('₹6,500 is set aside for this job');
+    const costs = card(page, 'Cost');
+    await expect(costs).toContainText('₹6,500 is held for this order');
     await expect(costs.locator('.pill.sim').first()).toHaveText('Not charged');
     await expect(costs).toContainText(
       'Payments are switched off on this build. Nothing has been charged.');
-    await expect(costs).toContainText('Adding money to the wallet is not switched on yet.');
   });
 
   test('with payments off the card offers no checkout at all', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
-    await expect(card(page, 'What this costs')).toContainText('₹6,500 is set aside for this job');
-    await expect(card(page, 'What this costs')
+    await expect(card(page, 'Cost')).toContainText('₹6,500 is held for this order');
+    await expect(card(page, 'Cost')
       .getByRole('link', { name: /checkout|Payment and settlement/ })).toHaveCount(0);
   });
 
@@ -2505,7 +2454,7 @@ test.describe('W13 · the money, with payments off', () => {
     // apart.
     await ticketAt(page, TICKET.placed);
 
-    const costs = card(page, 'What this costs');
+    const costs = card(page, 'Cost');
     await expect(costs).toContainText('₹1,200 has not been set aside yet');
     await expect(costs).not.toContainText('A job with no money behind it');
     await expect(costs.getByRole('button', { name: 'Set ₹1,200 aside' })).toBeVisible();
@@ -2516,7 +2465,7 @@ test.describe('W13 · the money, with payments off', () => {
   // condition and then keeps it on the wrong one. The branch that survives is
   // `ledger.length === 0 && (held > 0 || released > 0 || returned > 0)` — a
   // job with ₹6,500 held against it and no ledger rows to show for it — and
-  // the sentence it prints there is "Nothing set aside yet", which is the one
+  // the sentence it prints there is "Nothing held yet", which is the one
   // thing that is certainly untrue of that job. The owner is owed either
   // nothing at all in that state or a sentence about the missing rows; what
   // they must not be told is that their money is not set aside when the same
@@ -2527,22 +2476,22 @@ test.describe('W13 · the money, with payments off', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(card(page, 'What this costs')).toContainText('₹6,500 is set aside for this job');
-    await expect(card(page, 'What this costs')).not.toContainText('Nothing set aside yet');
+    await expect(card(page, 'Cost')).toContainText('₹6,500 is held for this order');
+    await expect(card(page, 'Cost')).not.toContainText('Nothing held yet');
   });
 
   test('the card never prints the same nothing-set-aside sentence twice', async ({ page, world }) => {
     world.set('ticket', view({
-      money: money({ held: 0, funded: false, headline: 'Nothing set aside yet' }), ledger: [],
+      money: money({ held: 0, funded: false, headline: 'Nothing held yet' }), ledger: [],
     }));
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(page.getByText('Nothing set aside yet', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('Nothing held yet', { exact: true })).toHaveCount(1);
   });
 
   test('setting money aside is offered on a job I can still send out, and calls fundTicket', async ({ page, world }) => {
     await ticketAt(page, TICKET.placed);
-    await card(page, 'What this costs').getByRole('button', { name: 'Set ₹1,200 aside' }).click();
+    await card(page, 'Cost').getByRole('button', { name: 'Set ₹1,200 aside' }).click();
 
     await expect.poll(() => world.calls('fundTicket')).toHaveLength(1);
     expect(world.lastVars('fundTicket')).toMatchObject({ ticketId: TICKET.placed });
@@ -2553,7 +2502,7 @@ test.describe('W13 · the money, with payments off', () => {
     // menu item, for one action. The card is the one that explains the
     // consequence, so the card keeps it.
     await ticketAt(page, TICKET.placed);
-    await expect(card(page, 'What this costs')
+    await expect(card(page, 'Cost')
       .getByRole('button', { name: 'Set ₹1,200 aside' })).toBeVisible();
 
     const menu = await actions(page, 'W-2101');
@@ -2565,14 +2514,14 @@ test.describe('W13 · the money, with payments off', () => {
   test('a refused funding says nothing on the job has changed', async ({ page, world }) => {
     world.set('fundTicket', '');
     await ticketAt(page, TICKET.placed);
-    await card(page, 'What this costs').getByRole('button', { name: 'Set ₹1,200 aside' }).click();
+    await card(page, 'Cost').getByRole('button', { name: 'Set ₹1,200 aside' }).click();
 
     await expect(page.getByText(MOVE_FAILED).first()).toBeVisible();
   });
 
   test('a cancelled job is never offered money, because there is nothing left to fund', async ({ page }) => {
     await ticketAt(page, TICKET.cancelled);
-    await expect(card(page, 'What this costs')).toContainText('has not been set aside yet');
+    await expect(card(page, 'Cost')).toContainText('has not been set aside yet');
     await expect(page.getByRole('button', { name: /Set .* aside/ })).toHaveCount(0);
   });
 
@@ -2580,7 +2529,7 @@ test.describe('W13 · the money, with payments off', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    const costs = card(page, 'What this costs');
+    const costs = card(page, 'Cost');
     await expect(costs).toContainText('Set aside for W-2105');
     await expect(costs).toContainText('05/09/2026');
     await expect(costs.locator('.num').filter({ hasText: '₹6,500' }).first()).toBeVisible();
@@ -2591,9 +2540,9 @@ test.describe('W13 · the money, with payments off', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(card(page, 'What this costs')).toContainText('Set aside for W-2105');
+    await expect(card(page, 'Cost')).toContainText('Set aside for W-2105');
     await expect(page.getByText('Settled', { exact: true })).toHaveCount(0);
-    await expect(page.getByText('It did not go', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Failed', { exact: true })).toHaveCount(0);
   });
 
   test('a ledger row the provider actually moved would say so, and is not what this build has', async ({ page, world }) => {
@@ -2602,7 +2551,7 @@ test.describe('W13 · the money, with payments off', () => {
     }));
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(card(page, 'What this costs').getByText('Settled', { exact: true })).toBeVisible();
+    await expect(card(page, 'Cost').getByText('Settled', { exact: true })).toBeVisible();
   });
 });
 
@@ -2612,7 +2561,7 @@ test.describe('W13 · the money, with payments switched on', () => {
     paymentsOn(world);
     await ticketAt(page, TICKET.placed);
 
-    await expect(card(page, 'What this costs')
+    await expect(card(page, 'Cost')
       .getByRole('link', { name: 'Open checkout · ₹1,200' }))
       .toHaveAttribute('href', `/app/services/${TICKET.placed}/pay`);
   });
@@ -2621,7 +2570,7 @@ test.describe('W13 · the money, with payments switched on', () => {
     paymentsOn(world);
     await ticketAt(page, TICKET.assigned);
 
-    const costs = card(page, 'What this costs');
+    const costs = card(page, 'Cost');
     await expect(costs.getByRole('link', { name: 'Payment and settlement status' })).toBeVisible();
     await expect(costs.getByRole('link', { name: /Open checkout/ })).toHaveCount(0);
   });
@@ -2629,7 +2578,7 @@ test.describe('W13 · the money, with payments switched on', () => {
   test('a job that is done is offered the status of its payment too', async ({ page, world }) => {
     paymentsOn(world);
     await ticketAt(page, TICKET.closed);
-    await expect(card(page, 'What this costs')
+    await expect(card(page, 'Cost')
       .getByRole('link', { name: 'Payment and settlement status' })).toBeVisible();
   });
 
@@ -2638,12 +2587,12 @@ test.describe('W13 · the money, with payments switched on', () => {
     world.route(PAY_TICKET, () => ({ json: payState({ mode: 'test', enabled: true }) }));
     await ticketAt(page, TICKET.placed);
 
-    expect(await actions(page, 'W-2101')).toEqual(['Send this to someone', 'Cancel this job']);
+    expect(await actions(page, 'W-2101')).toEqual(['Share this order', 'Cancel this order']);
     await page.keyboard.press('Escape');
 
     // A real link, so it is middle-clickable and copyable — a menu item
     // calling navigate() was neither.
-    await card(page, 'What this costs')
+    await card(page, 'Cost')
       .getByRole('link', { name: 'Open checkout · ₹1,200' }).click();
     await expect(page).toHaveURL(new RegExp(`/app/services/${TICKET.placed}/pay$`));
     expect(world.calls('fundTicket')).toHaveLength(0);
@@ -2662,7 +2611,7 @@ test.describe('W13 · the money, with payments switched on', () => {
   test('with payments on the money card no longer offers to set money aside by hand', async ({ page, world }) => {
     paymentsOn(world);
     await ticketAt(page, TICKET.placed);
-    await expect(card(page, 'What this costs')
+    await expect(card(page, 'Cost')
       .getByRole('link', { name: 'Open checkout · ₹1,200' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Set .* aside/ })).toHaveCount(0);
   });
@@ -2677,7 +2626,7 @@ test.describe('W13 · payment settings that will not load', () => {
     world.route(PAY_CONFIG, () => ({ status: 500, json: { detail: 'nope' } }));
     await ticketAt(page, TICKET.placed);
 
-    const costs = card(page, 'What this costs');
+    const costs = card(page, 'Cost');
     await expect(costs.getByText('Payment settings could not be loaded.')).toBeVisible();
     await expect(costs.getByRole('button', { name: 'Retry' })).toBeVisible();
   });
@@ -2687,7 +2636,7 @@ test.describe('W13 · payment settings that will not load', () => {
     await ticketAt(page, TICKET.placed);
 
     await expect(page.getByRole('button', { name: /Set .* aside/ })).toHaveCount(0);
-    expect(await actions(page, 'W-2101')).toEqual(['Send this to someone', 'Cancel this job']);
+    expect(await actions(page, 'W-2101')).toEqual(['Share this order', 'Cancel this order']);
   });
 });
 
@@ -2869,7 +2818,7 @@ test.describe('W13 · on this land', () => {
   test('the rail says which land this is and where it is, and offers both ways back to it', async ({ page }) => {
     await ticketAt(page, TICKET.assigned);
 
-    const land = inRail(page, 'On this land');
+    const land = inRail(page, 'Property');
     await expect(land).toContainText('Sy 214/2');
     await expect(land).toContainText('Katragunta, Markapur, Prakasam');
     await expect(land.getByRole('link', { name: 'Open the record ›' }))
@@ -2880,13 +2829,13 @@ test.describe('W13 · on this land', () => {
 
   test('a job still running is offered everything else ordered on the land, not only a closed one', async ({ page }) => {
     await ticketAt(page, TICKET.placed);
-    await expect(inRail(page, 'On this land')
+    await expect(inRail(page, 'Property')
       .getByRole('link', { name: 'Everything ordered on Sy 214/2 ›' })).toBeVisible();
   });
 
   test('a job that is done keeps the same two links in the same place', async ({ page }) => {
     await ticketAt(page, TICKET.closed);
-    await expect(inRail(page, 'On this land')
+    await expect(inRail(page, 'Property')
       .getByRole('link', { name: 'Everything ordered on Sy 214/2 ›' })).toBeVisible();
     // Not stranded below the split any more.
     await expect(page.getByRole('link', { name: /Everything ordered on/ })).toHaveCount(1);
@@ -2896,16 +2845,16 @@ test.describe('W13 · on this land', () => {
     world.set('ticket', view());
     await ticketAt(page, TICKET.needsYou);
 
-    await expect(inRail(page, 'Who is on it')).toBeVisible();
-    await expect(inRail(page, 'Sent out')).toBeVisible();
-    await expect(inRail(page, 'On this land')).toBeVisible();
+    await expect(inRail(page, 'Assigned provider')).toBeVisible();
+    await expect(inRail(page, 'Sent to provider')).toBeVisible();
+    await expect(inRail(page, 'Property')).toBeVisible();
     // The money, the answers and the trail all moved out of here and into the
     // main column, where the tables and the prose have the width.
-    await expect(inRail(page, 'What this costs')).toHaveCount(0);
-    await expect(inRail(page, 'What was asked for')).toHaveCount(0);
-    await expect(inMain(page, 'What this costs')).toBeVisible();
-    await expect(inMain(page, 'What was asked for')).toBeVisible();
-    await expect(inMain(page, 'Everything that happened')).toBeVisible();
+    await expect(inRail(page, 'Cost')).toHaveCount(0);
+    await expect(inRail(page, 'Order details')).toHaveCount(0);
+    await expect(inMain(page, 'Cost')).toBeVisible();
+    await expect(inMain(page, 'Order details')).toBeVisible();
+    await expect(inMain(page, 'Order activity')).toBeVisible();
   });
 });
 

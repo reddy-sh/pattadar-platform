@@ -734,7 +734,7 @@ export function DocumentsTab({
         <Box sx={selectionBarSx}>
           {bulk ? (
             <>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 {bulk.mode === 'delete' ? 'Deleting' : 'Collecting'} {Math.min(bulk.done + 1, bulk.total)} of{' '}
                 {bulk.total}…
               </Typography>
@@ -747,7 +747,7 @@ export function DocumentsTab({
             </>
           ) : (
             <>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 {selected.size} selected
               </Typography>
               <Box sx={{ flexGrow: 1 }} />
@@ -814,14 +814,14 @@ export function DocumentsTab({
                   All folders
                 </Button>
                 <Typography variant="caption" sx={{ opacity: 0.6 }}>/</Typography>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary' }}>
                   {familyLabel(family)}
                 </Typography>
               </>
             ) : (
               <>
                 <FilterAltOutlinedIcon sx={{ fontSize: 18 }} />
-                <Typography variant="caption" sx={{ fontWeight: 600, letterSpacing: 0.6, mr: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: 0.6, mr: 0.5 }}>
                   TYPE
                 </Typography>
                 <Chip
@@ -894,7 +894,7 @@ export function DocumentsTab({
             >
               <FolderOutlinedIcon sx={{ color: `${folderTint(f)}.main`, mt: 0.25 }} />
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                   {familyLabel(f)}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
@@ -961,7 +961,7 @@ export function DocumentsTab({
                         onClick={() => openFile(r)}
                       >
                         <Box sx={{ color: 'text.secondary', display: 'flex' }}>{docIcon(r.docType)}</Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 400 }}>
                           {r.name}
                         </Typography>
                       </Box>

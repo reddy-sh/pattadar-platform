@@ -30,6 +30,11 @@ SQ_M_PER_ACRE = 4046.8564224
 
 # §3: a printed label matches a computed distance within 0.5 m.
 MATCH_TOLERANCE_M = 0.5
+# Defensive bounds for model-produced tables. Real cadastral sheets are far
+# below this; beyond it the recursive cycle search can become factorial and the
+# safe outcome is manual review, never monopolising the API after a paid read.
+MAX_FMB_POINTS = 64
+MAX_CYCLE_STEPS = 100_000
 
 
 def parse_ac_cents(text: str) -> float | None:
@@ -64,8 +69,13 @@ def _hamiltonian_cycle(ids: list, allowed: set) -> list | None:
         return None
     start = ids[0]
     rest = set(ids[1:])
+    steps = 0
 
     def extend(path: list, remaining: set):
+        nonlocal steps
+        steps += 1
+        if steps > MAX_CYCLE_STEPS:
+            return None
         last = path[-1]
         if not remaining:
             return path if frozenset((last, start)) in allowed else None
@@ -192,7 +202,7 @@ def build_geometry(
     sheet_extent_text / field_extent_text: the extents as written ("Ac 60.00
         Cent", "Ac 197-05 Cent") for the area cross-check.
     """
-    if len(points) < 3:
+    if len(points) < 3 or len(points) > MAX_FMB_POINTS:
         return None
     pts = []
     for p in points:
@@ -204,6 +214,8 @@ def build_geometry(
             })
         except (KeyError, TypeError, ValueError):
             return None
+    if len({p["id"] for p in pts}) != len(pts):
+        return None
     printed = [float(x) for x in printed_lengths if x]
     red = {round(float(x), 2) for x in (red_lengths or [])}
     by_id = {p["id"]: p for p in pts}

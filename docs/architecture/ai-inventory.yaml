@@ -133,6 +133,11 @@ capabilities:
     operations:
       - { name: import-passbook,             sync: POST /import-passbook,             durable: POST /import-passbook-async,             prompt: PASSBOOK_SYSTEM }
       - { name: import-registered-document,  sync: POST /import-registered-document,  durable: POST /import-registered-document-async,  prompt: DEED_SYSTEM }
+      # DEED_SYSTEM's `parties[]` also carries per-party extent/extent_unit/share
+      # for the title-provenance graph (record_transfers). Extraction PROPOSES a
+      # transfer; a person confirms it. The prompt is forbidden from dividing a
+      # total extent itself, and the mandatory transfer-direction caveat stands —
+      # an unconfirmed edge is never drawn as settled title.
       - { name: extract-property,            sync: POST /extract-property,            durable: POST /extract-property-async,            prompt: PROPERTY_SYSTEM }
       - { name: extract-aadhaar,             sync: POST /extract-aadhaar,             durable: POST /extract-aadhaar-async,             prompt: AADHAAR_SYSTEM }
     consumers:

@@ -1,10 +1,12 @@
 import type { Course, LessonContent } from '../domain/types';
 import { learnerCourseLessons } from './learnerCourses';
 import { professionalCourseLessons } from './professionalCourses';
+import { telanganaCourseLessons } from './telanganaCourse';
 
 export const lessonContentByModuleId: Record<string, LessonContent> = {
   ...learnerCourseLessons,
   ...professionalCourseLessons,
+  ...telanganaCourseLessons,
 };
 
 export function contentForModule(moduleId: string | undefined): LessonContent | undefined {

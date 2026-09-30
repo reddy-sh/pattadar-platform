@@ -40,10 +40,8 @@ function AssociateRows({ people, village }: {
     return (
       <Empty
         boxed h="16rem" icon="person" title={`Nobody is available in ${village.name}.`}
-        action={<Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>}
-      >
-        This village is ready to become a location-targeted recruitment gap.
-      </Empty>
+        action={<Link className="btn primary" to="/app/desk/enrol">Add a member</Link>}
+      />
     );
   }
   return (
@@ -151,7 +149,7 @@ export function DeskCoverage() {
   const levelWord = level === 'state' ? 'State' : level === 'district' ? 'District' : 'Village';
   const context = districtScope?.name || stateScope?.name || 'all states';
   const tally = villageScope
-    ? plural(people.data?.length ?? 0, 'associate')
+    ? plural(people.data?.length ?? 0, 'member')
     : `${plural(places.length, level)} · ${plural(cols.length, 'kind')} of work`;
 
   const choose = (place: PlaceRow) => {
@@ -181,20 +179,13 @@ export function DeskCoverage() {
             <ArrowBackOutlined sx={{ fontSize: 14 }} /> Back to Pattadar desk
           </Link>
         )}
-        title="Who covers what"
-      >
-        <p className="lede" style={{ marginTop: '0.375rem' }}>
-          Every place we hold land, against every kind of work. A zero is a service we
-          can sell there and nobody to do it.
-        </p>
-      </PageHead>
+        title="Provider coverage"
+      />
 
       {isLoading ? <Loading h="18rem" what="the coverage grid" />
         : !data ? <Failed what="The coverage grid" error={error} boxed h="18rem" />
           : cells.length === 0 ? (
-            <Empty boxed h="18rem" icon="map" title="No records to cover yet.">
-              The grid fills in as land is added.
-            </Empty>
+            <Empty boxed h="18rem" icon="map" title="No properties to cover yet" />
           ) : (
             <>
               <div className="row between coverage-controls" style={{ marginBottom: 'var(--space-sm)' }}>
@@ -220,8 +211,7 @@ export function DeskCoverage() {
 
               {!villageScope && bare && (
                 <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-                  You hold land in {plural(places.length, level)} across {context} and nobody
-                  is enrolled for any of it. Every order will land on this desk.
+                  Nobody enrolled across {context}.
                 </p>
               )}
 
@@ -232,16 +222,15 @@ export function DeskCoverage() {
                       People who can serve {villageScope.name}
                     </h2>
                   </div>
-                  {people.isLoading ? <Loading h="14rem" what="available associates" />
+                  {people.isLoading ? <Loading h="14rem" what="available members" />
                     : !people.data ? (
-                      <Failed what="Available associates" error={people.error} boxed h="14rem" />
+                      <Failed what="Available members" error={people.error} boxed h="14rem" />
                     ) : <AssociateRows people={people.data} village={villageScope} />}
                 </section>
               ) : (
                 <>
                   <div className="row between" style={{ marginBottom: 'var(--space-sm)' }}>
                     <h2 style={{ margin: 0, fontSize: '1rem' }}>{levelWord}s</h2>
-                    <span className="note">Choose a {levelWord.toLowerCase()} to go deeper</span>
                   </div>
                   {/* Its own scroller. Ten disciplines plus a location and a sentence
                       is wider than a phone whatever is done to it. */}
@@ -293,15 +282,12 @@ export function DeskCoverage() {
                   </div>
 
                   <div className="row" style={{ marginTop: 'var(--space-md)', alignItems: 'flex-start' }}>
-                    <p className="note" style={{ maxWidth: '38rem', margin: 0 }}>
-                      {orphans.length > 0
-                        ? `${plural(orphans.length, level)} ${orphans.length === 1 ? 'has' : 'have'} `
-                          + 'land and nobody to work on it. Enrol somebody, or widen an existing '
-                          + 'associate’s area — an advocate only needs the correct state.'
-                        : `Every ${level} here has somebody for at least one kind of work. Widening an `
-                          + 'existing associate’s area is usually faster than finding a new person.'}
-                    </p>
-                    <Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>
+                    {orphans.length > 0 && (
+                      <p className="note" style={{ maxWidth: '38rem', margin: 0 }}>
+                        {`${plural(orphans.length, level)} with nobody to work on it.`}
+                      </p>
+                    )}
+                    <Link className="btn primary" to="/app/desk/enrol">Add a member</Link>
                   </div>
                 </>
               )}

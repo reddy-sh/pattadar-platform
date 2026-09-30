@@ -6,24 +6,15 @@ import { Link, useSearchParams } from 'react-router';
 import { PageMeta } from '../components/PageMeta';
 import {
   landRecordAvailabilityLabels,
-  stateLandRecordProfiles,
+  publishedStateLandRecordProfiles,
 } from '../data/stateLandRecords';
-import type { JurisdictionKind } from '../domain/types';
 import { buildStateDirectoryStructuredData } from '../seo/stateSeo';
 
-type KindFilter = JurisdictionKind | 'all';
-
 const directoryStructuredData = buildStateDirectoryStructuredData();
-
-function isKindFilter(value: string | null): value is KindFilter {
-  return value === 'all' || value === 'state' || value === 'union-territory';
-}
 
 export function StateGuidesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') ?? '';
-  const requestedKind = searchParams.get('kind');
-  const kind: KindFilter = isKindFilter(requestedKind) ? requestedKind : 'all';
   const paramsKey = searchParams.toString();
   const pendingParams = useRef(new URLSearchParams(paramsKey));
   const committedParams = useRef(paramsKey);
@@ -34,8 +25,7 @@ export function StateGuidesPage() {
 
   const visible = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
-    return stateLandRecordProfiles.filter((profile) => {
-      const matchesKind = kind === 'all' || profile.kind === kind;
+    return publishedStateLandRecordProfiles.filter((profile) => {
       const haystack = [
         profile.name,
         profile.code,
@@ -43,13 +33,13 @@ export function StateGuidesPage() {
         profile.summary,
         ...profile.localTerms,
       ].join(' ').toLocaleLowerCase();
-      return matchesKind && (!term || haystack.includes(term));
+      return !term || haystack.includes(term);
     });
-  }, [kind, query]);
+  }, [query]);
 
-  const updateParam = (key: 'q' | 'kind', value: string) => {
+  const updateParam = (key: 'q', value: string) => {
     const next = new URLSearchParams(pendingParams.current);
-    if (!value || value === 'all') next.delete(key);
+    if (!value) next.delete(key);
     else next.set(key, value);
     pendingParams.current = next;
     setSearchParams(next, { replace: true });
@@ -58,27 +48,27 @@ export function StateGuidesPage() {
   return (
     <main className="page-shell interior-page state-directory-page">
       <PageMeta
-        title="India Land Records by State and Union Territory | Pattadar University"
-        description="Official land-record guides for all 28 Indian states and 8 union territories, including local record names, mutation, maps, registration, and evidence limits."
+        title="Andhra Pradesh and Telangana Land Records | Pattadar University"
+        description="Government-sourced land-record learning guides for Andhra Pradesh and Telangana, covering revenue records, mutation, survey maps, registration, and evidence limits."
         path="/states"
         structuredData={directoryStructuredData}
       />
       <header className="page-heading state-directory-heading">
-        <span className="context-line">India jurisdiction library</span>
+        <span className="context-line">Reviewed jurisdiction library</span>
         <h1>State land-record guides</h1>
-        <p>Learn the record names, official systems, and evidence boundaries used across all 28 states and 8 union territories.</p>
+        <p>Start with reviewed learning for Andhra Pradesh and Telangana. Each guide uses current government sources and names the limits of portal, revenue, survey, and registration evidence.</p>
       </header>
 
       <dl className="jurisdiction-summary" aria-label="Directory coverage">
-        <div><dt>States</dt><dd>28</dd></div>
-        <div><dt>Union territories</dt><dd>8</dd></div>
+        <div><dt>Reviewed states</dt><dd>2</dd></div>
+        <div><dt>Detailed courses</dt><dd>2</dd></div>
         <div><dt>Government sources only</dt><dd>Yes</dd></div>
         <div><dt>Source review</dt><dd>20 Sep 2026</dd></div>
       </dl>
 
       <section className="state-directory-boundary" aria-labelledby="directory-boundary-title">
-        <h2 id="directory-boundary-title">One country, many record systems</h2>
-        <p>Land administration is state managed. A Jamabandi, 7/12, Patta, Parcha, RTC, or Record of Rights can have a different form, authority, coverage, and legal use. Portal data is a starting point, not an automated title certificate.</p>
+        <h2 id="directory-boundary-title">Two states, separate current systems</h2>
+        <p>Andhra Pradesh uses MeeBhoomi, BhuNaksha, GSWS, and Registration services as separate evidence layers. Telangana now uses Bhu Bharati as its integrated entry point under the 2025 Record of Rights framework. Neither portal produces an automatic title or boundary conclusion.</p>
       </section>
 
       <section className="state-directory-controls" aria-label="Filter state guides">
@@ -95,15 +85,7 @@ export function StateGuidesPage() {
             />
           </span>
         </label>
-        <label className="filter-select" htmlFor="state-guide-kind">
-          <span>Jurisdiction type</span>
-          <select id="state-guide-kind" value={kind} onChange={(event) => updateParam('kind', event.target.value)}>
-            <option value="all">All jurisdictions</option>
-            <option value="state">States</option>
-            <option value="union-territory">Union territories</option>
-          </select>
-        </label>
-        <span className="state-directory-count" aria-live="polite">{visible.length} of {stateLandRecordProfiles.length} guides</span>
+        <span className="state-directory-count" aria-live="polite">{visible.length} of {publishedStateLandRecordProfiles.length} guides</span>
       </section>
 
       {visible.length ? (
@@ -138,7 +120,7 @@ export function StateGuidesPage() {
       ) : (
         <section className="filter-empty" aria-live="polite">
           <SearchRounded />
-          <div><h2>No guides match</h2><p>Try a state name, local record term, or another jurisdiction type.</p></div>
+          <div><h2>No guides match</h2><p>Try Andhra Pradesh, Telangana, a local record term, or a portal name.</p></div>
           <button className="button button--quiet" type="button" onClick={() => setSearchParams({}, { replace: true })}>Clear search</button>
         </section>
       )}

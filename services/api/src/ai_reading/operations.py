@@ -35,7 +35,7 @@ from .prompts import (
     PASSBOOK_SYSTEM,
     PROPERTY_SYSTEM,
 )
-from .usage import cacheable_system, log_usage
+from .usage import cacheable_system, log_usage, merge_usage, safe_file_label
 
 _log = logging.getLogger("pattadar")
 
@@ -55,6 +55,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
         return JSONResponse(status_code=413, content={"error": "File too large (max 8 MB)"})
     mime = (file.content_type or "").lower()
     name = (file.filename or "").lower()
+    log_name = safe_file_label(file.filename)
     b64 = base64.standard_b64encode(data).decode()
     if mime == "application/pdf" or name.endswith(".pdf"):
         block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
@@ -85,34 +86,36 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
     try:
         r = await send_messages(payload, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
     except httpx.TimeoutException:
-        _log.warning("AI extract timed out (file=%s, model=%s)", file.filename or "", IMPORT_MODEL)
+        _log.warning("AI extract timed out (file=%s, model=%s)", log_name, IMPORT_MODEL)
         return JSONResponse(status_code=504, content={"error": "AI took too long to read this document (timed out). Try again or enter details manually."})
     except Exception as e:
-        _log.warning("AI extract failed (file=%s, bytes=%d): %r", file.filename or "", len(data), e)
+        _log.warning("AI extract failed (file=%s, bytes=%d): %r", log_name, len(data), e)
         return JSONResponse(status_code=502, content={"error": failure_message(e, len(data))})
     if r.status_code != 200:
-        _log.warning("AI extract non-200 (file=%s, status=%s): %s", file.filename or "", r.status_code, (r.text or '')[:300])
+        _log.warning("AI extract non-200 (file=%s, status=%s): %s", log_name, r.status_code, (r.text or '')[:300])
         return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
     body = r.json()
-    log_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="first")
+    usage = log_usage(body, endpoint="import-passbook", name=log_name, attempt="first")
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
     # more with the model reasoning less, which leaves far more of the ceiling
     # for the answer. Only worth doing when that is demonstrably what happened.
     if (not fields) and body.get("stop_reason") == "max_tokens":
-        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", file.filename or "")
+        _log.info("AI extract hit the ceiling (file=%s) — retrying with lower effort", log_name)
         retry = dict(payload)
         retry["output_config"] = {"effort": "low"}
         try:
             r2 = await send_messages(retry, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
             if r2.status_code == 200:
                 body = r2.json()
-                log_usage(body, endpoint="import-passbook", name=file.filename or "", attempt="low-effort-retry")
+                # The retry is a second paid call; the reported cost is the sum.
+                usage = merge_usage(usage, log_usage(
+                    body, endpoint="import-passbook", name=log_name, attempt="low-effort-retry"))
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = extract_json(text)
         except Exception as e:
-            _log.warning("AI extract low-effort retry failed (file=%s): %r", file.filename or "", e)
+            _log.warning("AI extract low-effort retry failed (file=%s): %r", log_name, e)
     if not text or not fields:
         # An empty or unparseable reply used to be returned as a 200 with
         # {"fields": {}} — the app then prefilled nothing and the form sat there
@@ -120,7 +123,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
         # we could not read is a failure and must say so.
         _log.warning(
             "AI extract produced nothing (file=%s, bytes=%d, stop_reason=%s, text_len=%d)",
-            file.filename or "", len(data), body.get("stop_reason"), len(text),
+            log_name, len(data), body.get("stop_reason"), len(text),
         )
         msg = ("This passbook is long enough that the reading ran out of room. Photograph just the "
                "pages with the details, or enter them by hand."
@@ -128,7 +131,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
                "Nothing could be read from this passbook. It may be a scan of photographs rather "
                "than text — try a clearer copy, or enter the details by hand.")
         return JSONResponse(status_code=502, content={"error": msg})
-    return {"fields": fields, "raw": text}
+    return {"fields": fields, "raw": text, "usage": usage}
 
 
 async def classify_parcel_photo(file: UploadFile = File(...), request: Request = None):
@@ -243,6 +246,7 @@ async def extract_registered_fields(
 
     Returns (200, {"fields", "raw"}) or (status, {"error"}) — exactly the
     bodies the sync endpoint has always sent."""
+    name = safe_file_label(name)
     try:
         r = await send_messages(payload, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
     except httpx.TimeoutException:
@@ -255,7 +259,7 @@ async def extract_registered_fields(
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
         return 502, {"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"}
     body = r.json()
-    log_usage(body, endpoint="import-registered-document", name=name, attempt="first")
+    usage = log_usage(body, endpoint="import-registered-document", name=name, attempt="first")
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -269,7 +273,10 @@ async def extract_registered_fields(
             r2 = await send_messages(retry, api_key=api_key, timeout=MODEL_TIMEOUT_SECONDS)
             if r2.status_code == 200:
                 body = r2.json()
-                log_usage(body, endpoint="import-registered-document", name=name, attempt="low-effort-retry")
+                # The retry is a second paid call, not a replacement — the owner
+                # was charged for both, so the reported cost is their sum.
+                usage = merge_usage(usage, log_usage(
+                    body, endpoint="import-registered-document", name=name, attempt="low-effort-retry"))
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = extract_json(text)
         except Exception as e:
@@ -296,7 +303,12 @@ async def extract_registered_fields(
         fmb_geometry.attach_geometry(fields)
     except Exception as e:
         _log.warning("FMB geometry derivation failed (file=%s): %r", name, e)
-    return 200, aadhaar.sanitize_document_result({"fields": fields, "raw": text})
+    # Usage rides ALONGSIDE the sanitized body, never through it: that function
+    # is the Aadhaar redaction boundary and rebuilds the dict from a fixed set
+    # of keys, so anything it does not name is dropped by design. Token counts
+    # and a list-price dollar figure carry no identity, so they are attached
+    # after redaction rather than being made to survive it.
+    return 200, {**aadhaar.sanitize_document_result({"fields": fields, "raw": text}), "usage": usage}
 
 
 async def extract_property(file: UploadFile = File(...), request: Request = None):
@@ -311,4 +323,4 @@ async def extract_property(file: UploadFile = File(...), request: Request = None
     if "_error" in out:
         status, msg = out["_error"]
         return JSONResponse(status_code=status, content={"error": msg})
-    return {"fields": out.get("fields") or {}}
+    return {"fields": out.get("fields") or {}, "usage": out.get("usage")}

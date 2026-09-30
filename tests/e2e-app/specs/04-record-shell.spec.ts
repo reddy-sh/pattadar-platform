@@ -126,8 +126,10 @@ const FLAT = {
 const parcel = (over: Record<string, unknown> = {}) => ({ ...PARCEL, ...over });
 const flat = (over: Record<string, unknown> = {}) => ({ ...FLAT, ...over });
 
+// The strip is named for the thing it walks, in the app's own noun for it
+// (design.md § App vocabulary, "Property tabs").
 const tabStrip = (page: Page) =>
-  page.getByRole('navigation', { name: 'This record' });
+  page.getByRole('navigation', { name: 'This property' });
 
 const kebab = (page: Page, title = 'Sy 214/2') =>
   page.getByRole('button', { name: `Actions for ${title}` });
@@ -167,18 +169,18 @@ test.describe('W03 · the frame around every hanger', () => {
       .toBeVisible({ timeout: 25_000 });
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toHaveCount(0);
     await expect(tabStrip(page)).toHaveCount(0);
-    await expect(page.getByText('That record is not in your portfolio')).toHaveCount(0);
+    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
   });
 
   test('a record that is not in your portfolio is told so, and not shown a failure', async ({ page }) => {
     await page.goto(at(ID.missing));
 
-    await expect(page.getByRole('heading', { name: 'That record is not in your portfolio' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
     await expect(page.getByText('It may have been archived, or shared with you rather than owned by you.')).toBeVisible();
     // The two facts are different, so the two screens must be. Nothing here
     // may say the read failed.
     await expect(page.getByRole('alert')).toHaveCount(0);
-    await expect(page.getByText('This record did not load')).toHaveCount(0);
+    await expect(page.getByText('This property did not load')).toHaveCount(0);
     // Scoped to the trail: the rail behind it has a Properties link of its own.
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
     await expect(crumbs.getByRole('link', { name: 'Properties' })).toBeVisible();
@@ -192,11 +194,11 @@ test.describe('W03 · the frame around every hanger', () => {
     await page.goto(at(ID.parcel));
 
     const failed = page.getByRole('alert');
-    await expect(failed).toContainText('This record did not load');
-    await expect(failed).toContainText('Nothing has been lost');
+    await expect(failed).toContainText('This property did not load');
+    await expect(failed).toContainText('Check your connection and try again.');
     // Printed verbatim, for whoever is being asked "what does it say?".
     await expect(failed).toContainText('the record store is down');
-    await expect(page.getByText('That record is not in your portfolio')).toHaveCount(0);
+    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
     // Its trail says "Record", not "Not found" (Record.tsx:70 against :78) —
     // the same distinction the page under it is making, one line up.
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
@@ -216,23 +218,23 @@ test.describe('W03 · the frame around every hanger', () => {
       await page.goto(at(ID.parcel));
 
       const failed = page.getByRole('alert');
-      await expect(failed).toContainText('This record did not load');
+      await expect(failed).toContainText('This property did not load');
       await expect(failed).toContainText('GraphQL HTTP 503');
-      await expect(page.getByText('That record is not in your portfolio')).toHaveCount(0);
+      await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
     });
   });
 
   test('Try again on a record that did not load asks the world for it once more', async ({ page, world }) => {
     world.set('record', World.gqlError('the record store is down'));
     await page.goto(at(ID.parcel));
-    await expect(page.getByRole('alert')).toContainText('This record did not load');
+    await expect(page.getByRole('alert')).toContainText('This property did not load');
 
     const before = world.calls('record').length;
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect.poll(() => world.calls('record').length).toBeGreaterThan(before);
     // It failed again, so the screen is still here saying so — which is itself
     // the answer, rather than a button that silently does nothing.
-    await expect(page.getByRole('alert')).toContainText('This record did not load');
+    await expect(page.getByRole('alert')).toContainText('This property did not load');
   });
 
   test('a record that did not load still offers the way back to Properties', async ({ page, world }) => {
@@ -248,8 +250,10 @@ test.describe('W03 · the frame around every hanger', () => {
     world.set('record', World.gqlError('the record store is down'));
     await page.goto(at(ID.parcel, 'people'));
 
-    await expect(page.getByRole('alert')).toContainText('This record did not load');
-    await expect(page.getByRole('heading', { name: 'Who looks after it' })).toHaveCount(0);
+    await expect(page.getByRole('alert')).toContainText('This property did not load');
+    // The People hanger's own heading, which is drawn only once there is a
+    // record to hang it on.
+    await expect(page.getByRole('heading', { name: 'People', exact: true })).toHaveCount(0);
     await expect(tabStrip(page)).toHaveCount(0);
   });
 });
@@ -412,12 +416,16 @@ test.describe('W03 · the header', () => {
 // ── the hangers ────────────────────────────────────────────────────────
 
 const HANGERS = [
-  { label: 'Papers', path: '', heading: 'Sy 214/2' },
-  { label: 'Features', path: 'features', heading: 'On this land' },
-  { label: 'People', path: 'people', heading: 'Who looks after it' },
-  { label: 'Services', path: 'services', heading: 'What you have ordered' },
-  { label: 'Money', path: 'money', heading: 'What it cost, what it’s worth' },
-  { label: 'Audit', path: 'history', heading: 'What has been changed' },
+  // The index carries the record's own h1; every other hanger heads itself
+  // with an h2 under it (RecordHead.tsx SectionHead), and that h2 is the
+  // tab's own word (design.md § App vocabulary, "Property tabs"). People opens
+  // on its Owners side, which is a segment under the People heading.
+  { label: 'Documents', path: '', heading: 'Sy 214/2', level: 1 },
+  { label: 'Site features', path: 'features', heading: 'Site features', level: 2 },
+  { label: 'People', path: 'people', heading: 'People', level: 2 },
+  { label: 'Services', path: 'services', heading: 'Service orders', level: 2 },
+  { label: 'Money', path: 'money', heading: 'Money', level: 2 },
+  { label: 'Activity', path: 'history', heading: 'Activity', level: 2 },
 ];
 
 test.describe('W03 · the six hangers', () => {
@@ -439,13 +447,13 @@ test.describe('W03 · the six hangers', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
     const tabs = tabStrip(page);
-    await expect(tabs.getByRole('link', { name: 'Papers' })).toContainText('12');
-    await expect(tabs.getByRole('link', { name: 'Features' })).toContainText('14');
+    await expect(tabs.getByRole('link', { name: 'Documents' })).toContainText('12');
+    await expect(tabs.getByRole('link', { name: 'Site features' })).toContainText('14');
     await expect(tabs.getByRole('link', { name: 'People' })).toContainText('3');
     await expect(tabs.getByRole('link', { name: 'Services' })).toContainText('2');
-    // Money and Audit are not countable things, so they carry no number.
+    // Money and Activity are not countable things, so they carry no number.
     await expect(tabs.getByRole('link', { name: 'Money' })).toHaveText('Money');
-    await expect(tabs.getByRole('link', { name: 'Audit' })).toHaveText('Audit');
+    await expect(tabs.getByRole('link', { name: 'Activity' })).toHaveText('Activity');
   });
 
   test('a record with nothing filed on it wears no counts at all', async ({ page }) => {
@@ -462,7 +470,7 @@ test.describe('W03 · the six hangers', () => {
   for (const h of HANGERS) {
     test(`the ${h.label} hanger opens its own question and marks itself as where you are`, async ({ page, world }) => {
       world.set('record', parcel());
-      // Papers is the index, so it is reached FROM somewhere else; the rest are
+      // Documents is the index, so it is reached FROM somewhere else; the rest are
       // reached from the index.
       await page.goto(at(ID.parcel, h.path === '' ? 'features' : ''));
       await expect(tabStrip(page)).toBeVisible();
@@ -470,23 +478,23 @@ test.describe('W03 · the six hangers', () => {
       await tabStrip(page).getByRole('link', { name: h.label }).click();
 
       await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, h.path).replace(/\//g, '\\/')}$`));
-      await expect(page.getByRole('heading', { level: 1, name: h.heading })).toBeVisible();
+      await expect(page.getByRole('heading', { level: h.level, name: h.heading, exact: true })).toBeVisible();
       const tabs = tabStrip(page);
       await expect(tabs.locator('[aria-current="page"]')).toHaveCount(1);
       await expect(tabs.getByRole('link', { name: h.label })).toHaveAttribute('aria-current', 'page');
     });
   }
 
-  test('Papers is the front door: it is current at the bare record URL and nowhere else', async ({ page, world }) => {
+  test('Documents is the front door: it is current at the bare record URL and nowhere else', async ({ page, world }) => {
     world.set('record', parcel());
     await page.goto(at(ID.parcel));
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
     const tabs = tabStrip(page);
-    await expect(tabs.getByRole('link', { name: 'Papers' })).toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Documents' })).toHaveAttribute('aria-current', 'page');
 
     await page.goto(at(ID.parcel, 'money'));
-    await expect(tabs.getByRole('link', { name: 'Papers' })).not.toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Documents' })).not.toHaveAttribute('aria-current', 'page');
   });
 
   test('the breadcrumb on a hanger walks back to the record, and then to Properties', async ({ page, world }) => {
@@ -512,42 +520,90 @@ test.describe('W03 · the six hangers', () => {
     await expect(crumbs).toContainText('Sy 214/2');
   });
 
-  test('Map and Expenses are the same record under their own URLs, even though the strip does not name them', async ({ page, world }) => {
-    world.set('record', parcel());
+  test('a record inside a holding walks back to the holding, not to Properties', async ({ page, world }) => {
+    // Opening a member from a combined holding was a door that shut behind you:
+    // the trail read "Properties › Sy 13/4" however you had arrived, and the
+    // record carried no link to its holding on any of its nine tabs. The way
+    // back was the browser's own button and nothing else.
+    //
+    // `RecordDetail` now reports the holding it belongs to — one value, because
+    // the API enforces that a record is a member of at most one — and the trail
+    // leads back to it. Asserted on a HANGER on purpose: that is exactly where a
+    // `?from=` parameter gets dropped. The trail is built from the record, so it
+    // holds on every tab without any link having to carry provenance.
+    world.set('record', parcel({ combinedId: 'cp-katragunta', combinedName: 'Katragunta Land' }));
+    await page.goto(at(ID.parcel, 'people'));
 
-    await page.goto(at(ID.parcel, 'map'));
-    await expect(page.getByRole('heading', { level: 1, name: 'Map & boundary' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Map');
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(crumbs.getByRole('link', { name: 'Combined views' })).toBeVisible();
+    await expect(crumbs).toContainText('Katragunta Land');
+    await expect(crumbs).toContainText('Sy 214/2');
+    // One root, not two: the holding replaces Properties rather than joining it.
+    await expect(crumbs.getByRole('link', { name: 'Properties', exact: true })).toHaveCount(0);
 
-    await page.goto(at(ID.parcel, 'expenses'));
-    await expect(page.getByRole('heading', { level: 1, name: 'Expenses' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Expenses');
+    await crumbs.getByRole('link', { name: 'Katragunta Land' }).click();
+    await expect(page).toHaveURL(/\/app\/combined\/cp-katragunta$/);
   });
 
-  test('the Photos hanger is on the same frame and names the record it belongs to', async ({ page, world }) => {
+  test('a record in no holding still walks back to Properties', async ({ page, world }) => {
+    // The other half of the branch. An empty `combinedId` has to leave the trail
+    // exactly as it was, or every standalone record grows a crumb to nowhere.
+    world.set('record', parcel({ combinedId: '', combinedName: '' }));
+    await page.goto(at(ID.parcel, 'people'));
+
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(crumbs.getByRole('link', { name: 'Properties', exact: true })).toBeVisible();
+    await expect(crumbs).not.toContainText('Combined views');
+  });
+
+  test('Expenses is drawn inside the frame under Money, and Money stays the tab you are on', async ({ page, world }) => {
+    // The ledger used to own the page: one click from Money and the property's
+    // tabs vanished. It is Money's screen now (RecordHead.tsx TABS `also`),
+    // drawn in the frame, with the breadcrumb naming both and Money a link
+    // back to itself.
+    world.set('record', parcel());
+
+    await page.goto(at(ID.parcel, 'expenses'));
+    await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Expenses', exact: true })).toBeVisible();
+    await expect(tabStrip(page).getByRole('link', { name: 'Money' })).toHaveAttribute('aria-current', 'page');
+    await expect(tabStrip(page).locator('[aria-current="page"]')).toHaveCount(1);
+
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(crumbs).toContainText('Properties');
+    await expect(crumbs).toContainText('Sy 214/2');
+    await expect(crumbs).toContainText('Expenses');
+    await crumbs.getByRole('link', { name: 'Money' }).click();
+    await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'money').replace(/\//g, '\\/')}$`));
+    await expect(page.getByRole('heading', { level: 2, name: 'Money', exact: true })).toBeVisible();
+  });
+
+  test('the Media hanger is on the same frame and names the record it belongs to', async ({ page, world }) => {
     world.set('record', parcel());
     await page.goto(at(ID.parcel, 'photos'));
 
-    // The gallery is full-bleed rather than a hanger in the strip, so what
-    // says it is still this record is its own header and its way back.
-    await expect(page.getByText('Sy 214/2 · Photos')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Back to the record' }))
-      .toHaveAttribute('href', at(ID.parcel));
+    // The gallery is a tab of the frame: the record is the h1 above it, the
+    // tab's own word is its h2, and Media is the tab marked as where you are.
+    await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Media', exact: true })).toBeVisible();
+    await expect(tabStrip(page).getByRole('link', { name: /^Media/ })).toHaveAttribute('aria-current', 'page');
     await expect.poll(() => world.asked('photos')).toBe(true);
     expect(world.lastVars('record')).toMatchObject({ id: ID.parcel });
-    await expect(page.getByText('That record is not in your portfolio')).toHaveCount(0);
+    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
   });
 });
 
 // ── the kebab ──────────────────────────────────────────────────────────
 
+// "See what changed" and "Open location & boundary" left the menu: both are
+// tabs in the strip right under it (Activity, Location), so the kebab no
+// longer offers a second way to the same page (RecordHead.tsx, the note on
+// the menu's items).
 const MENU_ITEMS = [
   'Edit details',
-  'See what changed',
-  'Open map & boundary',
   'Ask a surveyor',
-  'Archive this record',
-  'Delete this record',
+  'Archive this property',
+  'Delete this property',
 ];
 
 test.describe('W03 · the actions menu', () => {
@@ -580,12 +636,12 @@ test.describe('W03 · the actions menu', () => {
     // portalled to the app root, so Tab alone would never reach it.
     await expect(page.getByRole('menuitem', { name: 'Edit details' })).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(page.getByRole('menuitem', { name: 'See what changed' })).toBeFocused();
+    await expect(page.getByRole('menuitem', { name: 'Ask a surveyor' })).toBeFocused();
     await page.keyboard.press('ArrowUp');
     await expect(page.getByRole('menuitem', { name: 'Edit details' })).toBeFocused();
     // Up from the top cycles to the bottom rather than falling out of the menu.
     await page.keyboard.press('ArrowUp');
-    await expect(page.getByRole('menuitem', { name: 'Delete this record' })).toBeFocused();
+    await expect(page.getByRole('menuitem', { name: 'Delete this property' })).toBeFocused();
   });
 
   test('Escape shuts the actions menu and acts on nothing', async ({ page, world }) => {
@@ -624,7 +680,7 @@ test.describe('W03 · the actions menu', () => {
     // focus used to drop activeElement onto <body> and restart the next Tab at
     // the top of the page. Focus goes back to the kebab first and the browser's
     // own Tab then moves on to the next control after it — the first hanger.
-    await expect(tabStrip(page).getByRole('link', { name: 'Papers' })).toBeFocused();
+    await expect(tabStrip(page).getByRole('link', { name: 'Documents' })).toBeFocused();
     expect(world.calls('archiveRecords')).toHaveLength(0);
     expect(world.calls('saveRecord')).toHaveLength(0);
   });
@@ -645,26 +701,27 @@ test.describe('W03 · the actions menu', () => {
     expect(world.calls('deleteRecords')).toHaveLength(0);
   });
 
-  test('See what changed goes to the audit hanger', async ({ page, world }) => {
+  test('what changed and where the land is are tabs under the menu, not items in it', async ({ page, world }) => {
+    // The kebab used to repeat two tabs of the strip right under it. They are
+    // reached from the strip now, one click away on every tab, and the menu
+    // keeps only what acts on the property.
     world.set('record', parcel());
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'See what changed' }).click();
+    const menu = page.getByRole('menu', { name: 'Actions for Sy 214/2' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'See what changed' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: 'Open location & boundary' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
+    await tabStrip(page).getByRole('link', { name: /^Activity/ }).click();
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'history').replace(/\//g, '\\/')}$`));
-    await expect(page.getByRole('heading', { level: 1, name: 'What has been changed' })).toBeVisible();
-  });
+    await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
 
-  test('Open map & boundary goes to the ground the record sits on', async ({ page, world }) => {
-    world.set('record', parcel());
-    await page.goto(at(ID.parcel));
-
-    await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Open map & boundary' }).click();
-
+    await tabStrip(page).getByRole('link', { name: /^Location/ }).click();
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'map').replace(/\//g, '\\/')}$`));
-    await expect(page.getByRole('heading', { level: 1, name: 'Map & boundary' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary', exact: true })).toBeVisible();
   });
 
   test('Ask a surveyor opens the request already knowing what is being asked for', async ({ page, world }) => {
@@ -674,8 +731,11 @@ test.describe('W03 · the actions menu', () => {
     await kebab(page).click();
     await page.getByRole('menuitem', { name: 'Ask a surveyor' }).click();
 
-    await expect(page).toHaveURL(/\/app\/records\/w-sy-214-2\/request\?kind=survey$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Ask a surveyor' })).toBeVisible();
+    // The catalogue survey the Location tab orders, not the retired free-text
+    // /request form: the order flow opens on its first step with the survey
+    // already the service being asked about.
+    await expect(page).toHaveURL(/\/app\/records\/w-sy-214-2\/order\?service=survey&step=pick$/);
+    await expect(page.getByRole('heading', { level: 2, name: 'What do you want done on this land?' })).toBeVisible();
   });
 
   // DEFECT. The item list at RecordPapers.tsx:253-269 is a constant: every
@@ -696,7 +756,7 @@ test.describe('W03 · the actions menu', () => {
     await kebab(page).click();
     const menu = page.getByRole('menu', { name: 'Actions for Sy 214/2' });
     await expect(menu.getByRole('menuitem', { name: 'Unarchive this record' })).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: 'Archive this record' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: 'Archive this property' })).toHaveCount(0);
   });
 });
 
@@ -708,11 +768,11 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Archive this record' }).click();
+    await page.getByRole('menuitem', { name: 'Archive this property' }).click();
 
     const ask = page.getByRole('dialog', { name: 'Archive Sy 214/2?' });
     await expect(ask).toBeVisible();
-    await expect(ask).toContainText('Archived records leave the list, the map and every total, but keep everything filed under them.');
+    await expect(ask).toContainText('Archived properties leave lists, maps and totals, but keep everything filed under them.');
     // The promise this dialog makes, and the one the archived record's own
     // kebab then cannot keep — see the test.fail above.
     await expect(ask).toContainText('Bring it back any time from the Archived facet in the rail.');
@@ -728,7 +788,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Archive this record' }).click();
+    await page.getByRole('menuitem', { name: 'Archive this property' }).click();
     await expect(page.getByRole('dialog', { name: 'Archive Sy 214/2?' })).toBeVisible();
 
     await page.keyboard.press('Escape');
@@ -746,7 +806,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Archive this record' }).click();
+    await page.getByRole('menuitem', { name: 'Archive this property' }).click();
     const ask = page.getByRole('dialog', { name: 'Archive Sy 214/2?' });
     await ask.getByRole('button', { name: 'Archive' }).click();
 
@@ -765,7 +825,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Archive this record' }).click();
+    await page.getByRole('menuitem', { name: 'Archive this property' }).click();
     await page.getByRole('dialog', { name: 'Archive Sy 214/2?' })
       .getByRole('button', { name: 'Archive' }).click();
 
@@ -779,12 +839,12 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Archive this record' }).click();
+    await page.getByRole('menuitem', { name: 'Archive this property' }).click();
     const ask = page.getByRole('dialog', { name: 'Archive Sy 214/2?' });
     await ask.getByRole('button', { name: 'Archive' }).click();
 
     await expect(ask.getByRole('alert'))
-      .toHaveText('That record could not be archived — it may already be gone. Reload the page.');
+      .toHaveText('That property could not be archived. Reload the page.');
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel).replace(/\//g, '\\/')}$`));
   });
 
@@ -794,12 +854,12 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Archive this record' }).click();
+    await page.getByRole('menuitem', { name: 'Archive this property' }).click();
     const ask = page.getByRole('dialog', { name: 'Archive Sy 214/2?' });
     await ask.getByRole('button', { name: 'Archive' }).click();
 
     await expect(ask.getByRole('alert'))
-      .toHaveText('That record could not be archived. Nothing was changed.');
+      .toHaveText('That property could not be archived. Nothing was changed.');
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel).replace(/\//g, '\\/')}$`));
   });
 
@@ -808,12 +868,11 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Delete this record' }).click();
+    await page.getByRole('menuitem', { name: 'Delete this property' }).click();
 
     const ask = page.getByRole('dialog', { name: 'Delete Sy 214/2?' });
-    await expect(ask).toContainText('papers, photos, features, people');
+    await expect(ask).toContainText('Everything filed under it is deleted too.');
     await expect(ask).toContainText('There is no undo.');
-    await expect(ask).toContainText('archive it instead');
 
     await ask.getByRole('button', { name: 'Cancel' }).click();
     expect(world.calls('deleteRecords')).toHaveLength(0);
@@ -824,7 +883,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Delete this record' }).click();
+    await page.getByRole('menuitem', { name: 'Delete this property' }).click();
     await page.getByRole('dialog', { name: 'Delete Sy 214/2?' })
       .getByRole('button', { name: 'Delete' }).click();
 
@@ -838,12 +897,12 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Delete this record' }).click();
+    await page.getByRole('menuitem', { name: 'Delete this property' }).click();
     const ask = page.getByRole('dialog', { name: 'Delete Sy 214/2?' });
     await ask.getByRole('button', { name: 'Delete' }).click();
 
     await expect(ask.getByRole('alert'))
-      .toHaveText('That record could not be deleted — it may already be gone. Reload the page.');
+      .toHaveText('That property could not be deleted. Reload the page.');
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel).replace(/\//g, '\\/')}$`));
   });
 
@@ -853,12 +912,12 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.goto(at(ID.parcel));
 
     await kebab(page).click();
-    await page.getByRole('menuitem', { name: 'Delete this record' }).click();
+    await page.getByRole('menuitem', { name: 'Delete this property' }).click();
     const ask = page.getByRole('dialog', { name: 'Delete Sy 214/2?' });
     await ask.getByRole('button', { name: 'Delete' }).click();
 
     await expect(ask.getByRole('alert'))
-      .toHaveText('That record could not be deleted. Nothing was removed.');
+      .toHaveText('That property could not be deleted. Nothing was removed.');
   });
 });
 
@@ -913,7 +972,7 @@ test.describe('W03 · editing the record’s own fields', () => {
     // what it cost was settled on the day it was bought.
     await expect(drawer.getByText('What kind of record')).toHaveCount(0);
     await expect(drawer.getByLabel('What you paid')).toHaveCount(0);
-    await expect(drawer.getByRole('button', { name: 'Add record' })).toHaveCount(0);
+    await expect(drawer.getByRole('button', { name: 'Add property' })).toHaveCount(0);
     await expect(drawer.getByLabel('Worth today')).toBeVisible();
     await expect(drawer.getByRole('button', { name: 'Save changes' })).toBeVisible();
   });
@@ -1083,8 +1142,8 @@ test.describe('W03 · editing the record’s own fields', () => {
     await page.goto(at(ID.parcel));
     const drawer = await openDrawer(page);
 
-    await expect(drawer).toContainText('This record is archived.');
-    await expect(drawer).toContainText('Archived. Unarchive the record to give it a status again.');
+    await expect(drawer).toContainText('This property is archived.');
+    await expect(drawer.locator('.field', { hasText: 'Status' })).toContainText('Archived');
     // Not a greyed-out select with a tooltip: there is nothing honest for a
     // three-option status box to show for a record whose status is 'archived'.
     await expect(drawer.getByLabel('Status')).toHaveCount(0);
@@ -1397,7 +1456,7 @@ test.describe('W03 · a record with nothing filed on it', () => {
     await page.goto(at(ID.plot));
 
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 88' })).toBeVisible();
-    await expect(page.getByText('Nothing is filed against this parcel yet.')).toBeVisible();
+    await expect(page.getByText('No documents on this parcel yet.')).toBeVisible();
     await expect(page.getByText('Nothing filmed or photographed here yet.')).toBeVisible();
     // Never surveyed and never pinned: the screen says so rather than drawing
     // 0.0000° N as if it were a place in the Gulf of Guinea.
@@ -1442,7 +1501,7 @@ test('on a phone the record still names itself and keeps all six hangers @phone'
   await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
   const tabs = tabStrip(page);
   await expect(tabs.getByRole('link')).toHaveCount(6);
-  await expect(tabs.getByRole('link', { name: 'Papers' })).toHaveAttribute('aria-current', 'page');
+  await expect(tabs.getByRole('link', { name: 'Documents' })).toHaveAttribute('aria-current', 'page');
   await expect(kebab(page)).toBeVisible();
   // All four figures are still there, in a strip that re-flows rather than
   // dropping two of them off the side (w360.css:519-528).

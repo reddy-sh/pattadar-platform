@@ -597,12 +597,12 @@ export default function GeoMap(props: GeoMapProps) {
             </>
           ) : null}
           {area > 0 ? (
-            <span style={{ color: 'var(--mui-palette-primary-main, #fe860f)', fontWeight: 600 }}>
+            <span style={{ color: 'var(--mui-palette-primary-main, #fe860f)', fontWeight: 700 }}>
               Area {fmtArea(area)}
               {perim > 0 ? ` · Perimeter ${fmtLen(perim)}` : ''}
             </span>
           ) : perim > 0 ? (
-            <span style={{ color: 'var(--mui-palette-primary-main, #fe860f)', fontWeight: 600 }}>Length {fmtLen(perim)}</span>
+            <span style={{ color: 'var(--mui-palette-primary-main, #fe860f)', fontWeight: 700 }}>Length {fmtLen(perim)}</span>
           ) : null}
         </div>
       ) : null}

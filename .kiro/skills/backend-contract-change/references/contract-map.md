@@ -6,6 +6,7 @@
 |---|---|---|---|
 | Root GraphQL schema | `services/api/src/main.py` | web/core and native iOS | iOS-facing; parity impact likely |
 | W360 namespace | `services/api/src/web360.py` (`Query.web`) | active web W360 | iOS does not read it; do not invent Swift calls |
+| Combined properties | `web360.py` (`combined*` fields, `combined_*` tables) | active web W360 only | an aggregate over records — never in `_cards`, never in portfolio totals, and a cost filed at its scope must not reach `land_expenses` |
 | Gateway public/auth route | `services/gateway/app/main.py`, auth modules | browsers/mobile/public tokens | strip inbound `x-user-id`; derive principal |
 | Storage/share route | gateway storage modules | documents/shares | server-side owner/scope + scan gate |
 | Assistant internal route | `services/assistant` | gateway/internal tools | keep internal namespace inaccessible publicly |

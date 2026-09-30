@@ -385,7 +385,7 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
           e.target.value = '';
         }} />
         <UploadFileOutlinedIcon color="primary" />
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+        <Typography variant="body2" sx={{ fontWeight: 700 }}>
           {uploading ? 'Uploading…' : 'Drop files here, or click to upload'}
         </Typography>
         <Typography variant="caption" color="text.secondary">
@@ -430,7 +430,7 @@ export function PropertyFilesPanel({ scope }: { scope: FilesScope }) {
                         <FileThumb doc={r} name={r.name} onOpen={() => openFile(r)} />
                         <Typography
                           variant="body2"
-                          sx={{ fontWeight: 500, cursor: r.fileRef ? 'pointer' : 'default' }}
+                          sx={{ fontWeight: 400, cursor: r.fileRef ? 'pointer' : 'default' }}
                           onClick={() => openFile(r)}
                         >
                           {r.name}

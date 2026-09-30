@@ -8,22 +8,27 @@
  *  in the Papers rail showing the single most recent note with no way to add a
  *  second one.
  *
- *  Two things about notes are deliberate and both are the server's rule, not a
- *  gap in this screen:
+ *  Two things about notes are deliberate:
  *
- *   - they are append-only. There is no update or delete resolver for `notes`,
- *     so a filed note cannot be edited or withdrawn. What somebody wrote down
- *     at the time is the point of writing it down.
- *   - filing one writes an audit line, and that line cannot be removed either.
+ *   - they cannot be edited. There is no update resolver for `notes`, so what
+ *     somebody wrote down at the time stays as it was written — which is the
+ *     point of writing it down. This screen offers no removal either. The API
+ *     does keep a `deleteNote` (the iOS client names it); a removal writes its
+ *     own audit line on this property's trail, so a note never leaves the
+ *     Activity tab silently.
+ *   - adding one writes an audit line on the same trail, shown in Activity.
  *
- *  Both are said on screen, because an owner who expects an edit button and
- *  finds none should be told why rather than left looking for it.
+ *  The first is said behind the ⓘ beside the heading and inside the drawer,
+ *  because an owner who expects an edit button and finds none should be told
+ *  why rather than left looking for it. It says only what is enforced: an
+ *  earlier "cannot be edited or removed" was not true of the API.
  */
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 
 import { useAddNote, useNotes } from '../api';
-import { Card, Failed, Loading, ddmmyyyy, plural } from '../ui';
+import { Empty, Failed, Loading, plural } from '../ui';
+import { fmtLocal } from '../../lib/format';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
@@ -62,6 +67,7 @@ function NoteDrawer({ recordId, recordTitle, onClose, returnFocus }: {
   returnFocus: React.RefObject<HTMLButtonElement | null>;
 }) {
   const add = useAddNote(false);
+  const whyId = useId();
   const [head, setHead] = useState('');
   const [rest, setRest] = useState('');
   const [err, setErr] = useState('');
@@ -87,7 +93,7 @@ function NoteDrawer({ recordId, recordTitle, onClose, returnFocus }: {
       // The typed note stays on screen. Losing what somebody just wrote because
       // the network dropped is the one failure this screen must not have — it is
       // the only place in the app holding text that exists nowhere else.
-      setErr('That note was not filed. What you wrote is still here — try again.');
+      setErr('That note was not filed. Try again.');
     }
   }
 
@@ -95,24 +101,27 @@ function NoteDrawer({ recordId, recordTitle, onClose, returnFocus }: {
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'Notes')}
       title="Add a note"
-      sub="A visit, a dispute, a boundary walk — anything about this land that is on no document."
       onClose={onClose}
       onSubmit={() => void file()}
       busy={add.isPending}
       dirty={dirty}
       discardCopy={{
         title: 'Discard this note?',
-        body: 'Nothing has been written down yet. Closing this panel loses what you have typed, and a note is the one thing here that exists nowhere else.',
+        body: 'What you have typed will be lost.',
       }}
       initialFocus="#no-head"
       returnFocus={returnFocus}
+      // One verb for one act: the header's "Add a note" opens this, and its
+      // primary adds it.
+      primaryWhy={line ? undefined : { id: whyId, text: 'Fill in what happened to add the note.' }}
       primary={(
         <DrawerAction
-          label="File the note"
-          working="Filing…"
+          label="Add the note"
+          working="Adding…"
           pending={add.isPending}
           paused={add.isPaused}
           disabled={!line}
+          describedBy={line ? undefined : whyId}
         />
       )}
     >
@@ -121,7 +130,6 @@ function NoteDrawer({ recordId, recordTitle, onClose, returnFocus }: {
         <input id="no-head" type="text" value={head}
                placeholder="Village officer confirmed the north boundary"
                onChange={(e) => setHead(e.target.value)} />
-        <span className="note">One line. It becomes the note&rsquo;s heading in the list.</span>
       </div>
 
       <div className="field">
@@ -131,13 +139,8 @@ function NoteDrawer({ recordId, recordTitle, onClose, returnFocus }: {
                   onChange={(e) => setRest(e.target.value)} />
       </div>
 
-      {/* Said before it is filed, not after. Append-only is the server's rule —
-          there is no update or delete resolver for `notes` — and an owner who
-          goes looking for an edit button should have been told there is none
-          while the text was still theirs to change. */}
       <p className="note" style={{ margin: 0 }}>
-        A note is filed by you and cannot be edited or removed afterwards. Filing one also
-        writes a line in the Audit log saying so, and that line cannot be removed either.
+        A note cannot be edited once it is added.
       </p>
 
       {err && (
@@ -158,9 +161,16 @@ export function RecordNotes() {
   return (
     <>
       <SectionHead
-        title="What you want remembered"
-        sub={data && `${plural(notes.length, 'note')} · newest first`
-          + ' · nothing here is a legal record'}
+        title="Notes"
+        // The sort order is worth saying only when there is an order to see.
+        sub={data && (notes.length > 1
+          ? `${plural(notes.length, 'note')} · Newest first`
+          : plural(notes.length, 'note'))}
+        // Standing guidance, behind the ⓘ. "Only you" used to fill a whole
+        // rail column of its own, and "Filed by you" sat on every card: both
+        // are true of every note here (the read is scoped to the owner), so
+        // they are said once, here.
+        info="Only you can see your notes. A note cannot be edited once it is added."
         actions={(
           <button ref={addTrigger} type="button" className="btn primary"
                   aria-haspopup="dialog" aria-expanded={writing}
@@ -179,83 +189,45 @@ export function RecordNotes() {
         />
       )}
 
-      <div className="split">
-        <div>
-          {isLoading ? (
-            <Loading h="16rem" />
-          ) : !data ? (
-            // A read that failed is not a record with nothing written on it.
-            <Failed what="These notes" error={error} boxed h="16rem"
-                    onRetry={() => void refetch()} />
-          ) : notes.length === 0 ? (
-            <div className="card">
-              <h3>Nothing is written down about this land yet</h3>
-              <p className="note" style={{ marginTop: '0.375rem' }}>
-                What the village officer said, what a neighbour claims, which corner
-                floods. None of it is on any document, and it is what a dispute turns
-                on years later.
-              </p>
-              {/* The empty state opens the same drawer as the header. It used to
-                  be prose alone, which left the one screen most likely to be
-                  empty as the only hanger whose empty state asked for nothing —
-                  the reader had to go back up to the section head to act on the
-                  sentence they had just read. */}
-              <button type="button" className="btn primary" aria-haspopup="dialog"
-                      style={{ marginTop: 'var(--space-md)' }}
-                      onClick={() => setWriting(true)}>
-                <AddOutlined sx={{ fontSize: 17 }} /> Add a note
-              </button>
-            </div>
-          ) : (
-            <div className="stack">
-              {notes.map((n) => {
-                const { head: title, rest: body } = split(n.body);
-                return (
-                  <article key={n.id} className="card">
-                    <p className="eyebrow" style={{ margin: 0 }}>{ddmmyyyy(n.createdAt)}</p>
-                    <h3 style={{ marginTop: '0.25rem' }}>{title}</h3>
-                    {body && (
-                      // Filed as typed, line breaks and all: a note is prose
-                      // somebody wrote, not a field.
-                      <p style={{
-                        fontSize: '0.9375rem', lineHeight: 1.55,
-                        margin: '0.5rem 0 0', whiteSpace: 'pre-wrap',
-                      }}>
-                        {body}
-                      </p>
-                    )}
-                    <p className="note" style={{ margin: 'var(--space-sm) 0 0' }}>
-                      Filed by you
+      <div>
+        {isLoading ? (
+          <Loading h="16rem" what="these notes" />
+        ) : !data ? (
+          // A read that failed is not a property with nothing written on it.
+          <Failed what="These notes" error={error} boxed h="16rem"
+                  onRetry={() => void refetch()} />
+        ) : notes.length === 0 ? (
+          // One "Add a note" on the screen: the section head already opens
+          // the same drawer.
+          <Empty boxed h="10rem" title="No notes yet" />
+        ) : (
+          <div className="stack">
+            {notes.map((n) => {
+              const { head: title, rest: body } = split(n.body);
+              return (
+                <article key={n.id} className="card">
+                  {/* The owner's own calendar day. `createdAt` is UTC with no
+                      zone, and its first ten characters were the UTC day — the
+                      day before, for anything filed before 05:30 IST. */}
+                  <p className="eyebrow" style={{ margin: 0 }}>
+                    {fmtLocal(n.createdAt, { dateOnly: true })}
+                  </p>
+                  <h3 style={{ marginTop: '0.25rem' }}>{title}</h3>
+                  {body && (
+                    // Filed as typed, line breaks and all: a note is prose
+                    // somebody wrote, not a field.
+                    <p style={{
+                      fontSize: '0.9375rem', lineHeight: 1.55,
+                      margin: '0.5rem 0 0', whiteSpace: 'pre-wrap',
+                    }}>
+                      {body}
                     </p>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-
-          <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-            A note is yours. Filing one also writes a line in the Audit log saying a note
-            was filed, and neither that line nor the note can be removed.
-          </p>
-        </div>
-
-        <aside className="stack">
-          <Card title="Worth writing down" className="railcard">
-            <ul className="railnotes">
-              <li>Who sits on each side</li>
-              <li>What was said at a visit, and by whom</li>
-              <li>Any dispute, however small</li>
-              <li>What the crop was, season by season</li>
-            </ul>
-          </Card>
-
-          <Card title="Who can see notes" className="railcard">
-            <p className="note" style={{ margin: 0 }}>
-              You only. A note is filed under your account, and nobody you share this
-              record with — or assign to it on the People hanger — is shown it.
-            </p>
-          </Card>
-        </aside>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </div>
     </>
   );

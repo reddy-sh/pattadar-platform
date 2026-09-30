@@ -23,13 +23,15 @@ import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import SouthWestOutlined from '@mui/icons-material/SouthWestOutlined';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import PhotoCameraOutlined from '@mui/icons-material/PhotoCameraOutlined';
-import DocumentScannerOutlined from '@mui/icons-material/DocumentScannerOutlined';
 
 import { useExpenses, useSaveExpense } from '../api';
-import { Cell, Chip, Empty, Failed, Icon, Loading, csvCell, ddmmyyyy, inGroup, inr, inrFullish, num } from '../ui';
+import {
+  Cell, Chip, Empty, Failed, Icon, Loading, ddmmyyyy, downloadCsv, inGroup, inr, inrFullish,
+} from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
-import { RecordCrumbs, useRecordCtx } from './Record';
+import { useRecordCtx } from './Record';
+import { SectionHead } from './RecordHead';
 import { downloadBlob, fetchFileBlob } from '../../pages/documents/storage';
 
 const KINDS = ['Repair', 'Power bill', 'Labour', 'Seed & inputs', 'Tax / kist', 'Caretaker',
@@ -75,7 +77,7 @@ function todayIso(): string {
  * instead of being the last thing you scroll to.
  */
 export function ExpenseDrawer({
-  recordId, recordTitle, features, mode, built, wholeLabel, onClose,
+  recordId, recordTitle, features, mode, wholeLabel, onClose,
 }: {
   recordId: string;
   recordTitle: string;
@@ -133,20 +135,14 @@ export function ExpenseDrawer({
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'Money')}
       title={heading}
-      sub={income
-        ? 'Rent on file is the only tenancy this record can prove, and it is what the yield is worked out from.'
-        : "Every row can hang off a feature, which is what makes the bore's true cost knowable."}
       onClose={onClose}
       onSubmit={commit}
       busy={save.isPending}
       dirty={dirty}
       discardCopy={{
         title: income ? 'Discard this rent?' : 'Discard this expense?',
-        body: 'Nothing has been saved yet. Closing this panel loses the row you have entered.',
+        body: 'The row you entered will be lost.',
       }}
-      // The panel itself, not the first field: the drawer leads with
-      // "photograph the receipt first", which is its actual first move, and
-      // landing on the amount box would skip both that and the heading.
       initialFocus=".drawerbody"
       primary={(
         <DrawerAction
@@ -158,20 +154,6 @@ export function ExpenseDrawer({
         />
       )}
     >
-        <div className="card dashed row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
-          <span className="accent" style={{ display: 'flex' }}>
-            <DocumentScannerOutlined sx={{ fontSize: 22 }} />
-          </span>
-          <span>
-            <strong style={{ fontSize: '0.875rem' }}>Photograph the receipt first</strong>
-            <span className="note" style={{ display: 'block' }}>
-              {income ? 'Amount, date and who paid are read off it'
-                      : 'Amount, date and vendor are read off it'}
-            </span>
-          </span>
-        </div>
-        <p className="note" style={{ textAlign: 'center' }}>or fill it in</p>
-
         {/* Raw digits in the value. Rebuilding "₹18,400" from the number on
             every keystroke threw the caret to the end of the string, stalled
             backspace on the ₹ and the commas, and made an empty field
@@ -182,7 +164,7 @@ export function ExpenseDrawer({
           <label htmlFor="ex-amt">Amount</label>
           <input id="ex-amt" type="text" inputMode="numeric" value={amount} placeholder="0"
                  onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))} />
-          <span className="note">{amount ? `₹${inGroup(Number(amount))}` : 'In rupees'}</span>
+          {amount && <span className="note">₹{inGroup(Number(amount))}</span>}
         </div>
         <div className="field">
           <label htmlFor="ex-title">What it was</label>
@@ -206,7 +188,7 @@ export function ExpenseDrawer({
           <label>Category</label>
           <div className="row tight">
             {(income ? RENT_KINDS : KINDS).map((k) => (
-              <Chip key={k} active={cat === k} onClick={() => setCat(k)}>{k}</Chip>
+              <Chip key={k} wash active={cat === k} onClick={() => setCat(k)}>{k}</Chip>
             ))}
           </div>
         </div>
@@ -217,10 +199,6 @@ export function ExpenseDrawer({
             <option value="">{wholeLabel}</option>
             {features.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
           </select>
-          <span className="note">
-            {built ? 'Or the property itself, a person, or the society account.'
-                   : 'Or the whole parcel, a person, or a bill account.'}
-          </span>
         </div>
 
         {/* Money in is neither capital nor running, and it is not recoverable
@@ -233,21 +211,21 @@ export function ExpenseDrawer({
               <div className="choice">
                 <button type="button" aria-pressed={kind === 'capital'} onClick={() => setKind('capital')}>
                   Yes — capital
-                  <small>New work that lasts. Lifts your cost base.</small>
                 </button>
                 <button type="button" aria-pressed={kind === 'running'} onClick={() => setKind('running')}>
                   No — running
-                  <small>Upkeep and bills. Cost of holding it.</small>
                 </button>
               </div>
             </div>
 
+            {/* Not "from the tenant": a cost owed back is as often a
+                co-owner's half of a fence as a tenant's share of a bill, and
+                most property here has no tenant at all. */}
             <div className="switch">
               <span>
-                Recover this from the tenant
-                <span className="note" style={{ display: 'block' }}>Adds it to what the tenant owes at harvest</span>
+                Someone owes this back to you
               </span>
-              <button type="button" aria-pressed={recover} aria-label="Recover from the tenant"
+              <button type="button" aria-pressed={recover} aria-label="Someone owes this back to you"
                       onClick={() => setRecover(!recover)} />
             </div>
           </>
@@ -276,11 +254,12 @@ export function RecordExpenses() {
   const [drawer, setDrawer] = useState<'expense' | 'income' | null>(null);
   const { data, isLoading, error } = useExpenses(rec.id, year);
 
-  if (isLoading) return <main><Loading h="70vh" /></main>;
-  if (!data) return <main><Failed what="What this record has cost" error={error} boxed h="26rem" /></main>;
+  // Inside the property's frame now (Money › Expenses), so no <main> of its
+  // own: the shell draws the record, the breadcrumb and the tab strip.
+  if (isLoading) return <Loading h="40vh" what="the expenses" />;
+  if (!data) return <Failed what="The expenses" error={error} boxed h="26rem" />;
 
   const rows = data.rows.filter((r) => cat === 'all' || r.category === cat);
-  const perUnit = data.extentUnit === 'ac' ? 'an acre' : `a ${data.extentUnit}`;
   /** Nothing has ever been spent on this record — not "nothing matches the
    *  filter". The two used to share one sentence, so a brand-new record was
    *  told a category it had never chosen was hiding its rows. */
@@ -301,48 +280,48 @@ export function RecordExpenses() {
     }
   };
 
-  /** The visible list — the category filter included — as a file. The escaping
-   *  is Properties.tsx's, down to the leading-quote guard and the BOM; the two
-   *  copies want lifting into one helper before they drift. */
+  /** The visible list — the category filter included — as a file, through the
+   *  one CSV routine the Money tab's Cost sheet uses too (ui.tsx downloadCsv).
+   *  The record and the year are in the name, so a ledger cannot be mistaken
+   *  for another record's or for the properties list's own export. Silent on
+   *  success, like the Cost sheet; only a refusal is said. */
   const exportCsv = () => {
     const head = ['Date', 'What it was', 'Detail', 'On', 'Kind', 'Paid by', 'Amount (₹)',
       'Recoverable', 'Receipt'];
     const lines = rows.map((r) => [ddmmyyyy(r.spentOn), r.title, r.subtitle, r.onLabel, r.kind,
       r.paidBy, Math.round(r.amount), r.recoverable ? 'yes' : 'no',
-      r.hasReceipt ? 'filed' : 'none'].map(csvCell).join(','));
-    // The BOM makes Excel read the ₹ column as UTF-8 instead of mojibake.
-    const blob = new Blob([`﻿${[head.join(','), ...lines].join('\n')}`],
-      { type: 'text/csv;charset=utf-8' });
-    // In the document, then revoked a beat later. The anchor used to be
-    // detached and the object URL released on the very next statement: starting
-    // a download is a queued task, so releasing it in the same tick can cancel
-    // the file before it is written and the Export button looks dead — on some
-    // browsers every single time. This is the shape Properties' export and the
-    // record's own GeoJSON export settled on after hitting exactly that.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    // The record and the year, so a ledger cannot be mistaken for another
-    // record's or for the properties list's own export.
-    a.download = `expenses-${rec.id}-${data.year}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      r.hasReceipt ? 'filed' : 'none']);
+    try {
+      downloadCsv(`expenses-${rec.id}-${data.year}.csv`, [head, ...lines]);
+    } catch (cause) {
+      toast.bad('The expenses could not be exported.', cause);
+    }
   };
 
-  return (
-    <main>
-      <RecordCrumbs rec={rec} here="Expenses" />
-      <p className="eyebrow">
-        {data.isBuilt
-          ? `${num(rec.extent)} sq.ft${isLet ? ' · let to a tenant' : ''}`
-          : 'What this land costs'}
-      </p>
+  /** Who owes the money back, in the row's own words ("Half owed back by
+   *  Venkat") — the strip used to say "by tenant" for any recoverable cost. */
+  const owedNotes = data.rows.filter((r) => r.recoverable && r.recoverableNote)
+    .map((r) => r.recoverableNote);
 
-      <header className="pagehead">
-        <div className="grow"><h1>{data.isBuilt && isLet ? 'Expenses & rent' : 'Expenses'}</h1></div>
-        <div className="actions">
+  return (
+    <>
+      {/* The ledger's own section heading, inside the property's frame: the
+          record is the <h1>, and Money stays the tab you are on. */}
+      {/* One noun for the ledger, "Expenses", under Money. The extent is the
+          frame's chip and the year is the picker's, so the line under the
+          heading says only what neither does: that rent is on file, and the
+          year when there is no picker to show it. */}
+      {/* "Let to a tenant" only on a built property: money in on a parcel is a
+          harvest or a lease payment, not proof of a tenant — the rule the
+          old page-head line kept (" · let to a tenant" on built records). */}
+      <SectionHead
+        title={data.isBuilt && isLet ? 'Expenses & rent' : 'Expenses'}
+        sub={[
+          data.isBuilt && isLet && 'Let to a tenant',
+          bare && data.years.length <= 1 && data.year,
+        ].filter(Boolean).join(' · ') || undefined}
+        actions={(
+          <>
           {/* On an empty ledger a lone option is not a choice at all — it is
               the server's fallback year, not a year any row attests to. */}
           {(!bare || data.years.length > 1) && (
@@ -369,8 +348,9 @@ export function RecordExpenses() {
           <button type="button" className="btn primary" onClick={() => setDrawer('expense')}>
             <AddOutlined sx={{ fontSize: 17 }} /> Add an expense
           </button>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
       <div className="strip">
         {data.isBuilt && isLet ? (
@@ -379,16 +359,29 @@ export function RecordExpenses() {
             <Cell k="Spent" v={inr(data.spent)} />
             <Cell k="Capital · adds to cost" v={inr(data.capital)} tone="info" />
             <Cell k="Net yield on value" v={`${data.netYield.toFixed(2)}%`} />
+            {/* The same total the other shape carries, under the same guard:
+                the server sums owed_back for every record, and on a let flat
+                it used to appear in no total at all — on exactly the records
+                with a tenant to owe it. */}
+            {data.owedBack > 0 && (
+              <Cell k="Owed back" v={inr(data.owedBack)} tone="down"
+                    note={owedNotes.length === 1 ? owedNotes[0]
+                      : owedNotes.length > 1 ? `on ${owedNotes.length} rows` : undefined} />
+            )}
           </>
         ) : (
           <>
             <Cell k="Spent this year" v={inr(data.spent)} />
             <Cell k="Capital · adds to cost" v={inr(data.capital)} />
             <Cell k="Running" v={inr(data.running)} />
-            {/* Only when something is actually marked to claim back. "Owed back
-                by tenant ₹0" asserted a tenant on every record that had none. */}
+            {/* Only when something is actually marked to claim back, and
+                naming who from the row's own note. "Owed back by tenant"
+                asserted a tenant on every record — the seed's is owed by a
+                co-owner. */}
             {data.owedBack > 0 && (
-              <Cell k="Owed back by tenant" v={inr(data.owedBack)} tone="down" />
+              <Cell k="Owed back" v={inr(data.owedBack)} tone="down"
+                    note={owedNotes.length === 1 ? owedNotes[0]
+                      : owedNotes.length > 1 ? `on ${owedNotes.length} rows` : undefined} />
             )}
           </>
         )}
@@ -397,36 +390,22 @@ export function RecordExpenses() {
       {!bare && (
         <div className="row between" style={{ margin: 'var(--space-lg) 0 var(--space-md)', gap: 'var(--space-lg)' }}>
           <span className="row tight">
+            {/* Washed when pressed: a filter is not an action, and the one
+                amber fill here is "Add an expense". */}
             {data.categories.map((c) => (
-              <Chip key={c.key} active={cat === c.key} count={c.count} onClick={() => setCat(c.key)}>
+              <Chip key={c.key} wash active={cat === c.key} count={c.count} onClick={() => setCat(c.key)}>
                 {c.label}
               </Chip>
             ))}
-          </span>
-          <span className="note" style={{ textAlign: 'right', flex: '1 1 16rem', minWidth: 0 }}>
-            {data.isBuilt
-              ? 'Rows hang off the flat, its parking slot, or the society account'
-              : "Every row can hang off a feature, so the bore's true cost is knowable"}
           </span>
         </div>
       )}
 
       {bare ? (
+        // No second "Add an expense": the head's is the one way in, and a
+        // second filled button under it was a second fill in the viewport.
         <div style={{ marginTop: 'var(--space-lg)' }}>
-          <Empty
-            boxed
-            h="18rem"
-            icon="tax"
-            title="Nothing spent on this record yet"
-            action={(
-              <button type="button" className="btn primary" onClick={() => setDrawer('expense')}>
-                <AddOutlined sx={{ fontSize: 17 }} /> Add an expense
-              </button>
-            )}
-          >
-            Repairs, bills, labour and kist all land here — capital rows lift the cost base on
-            the Money tab, running rows answer what holding it costs a year.
-          </Empty>
+          <Empty boxed h="18rem" icon="tax" title="No costs recorded yet" />
         </div>
       ) : (
         <div className="card scroll-x" style={{ padding: 0 }}>
@@ -456,10 +435,11 @@ export function RecordExpenses() {
                       <Icon name={r.onIcon || 'feature'} size={14} /> {r.onLabel}
                     </span>
                   </td>
+                  {/* An outlined chip: the kind is a classification, and the
+                      status pills' colours (For sale amber, Owned green) said
+                      something about the property that a ledger row does not. */}
                   <td>
-                    <span className={`pill ${r.kind === 'capital' ? 'for_sale' : r.kind === 'income' ? 'owned' : ''}`}>
-                      {r.kind === 'capital' ? 'Capital' : r.kind === 'income' ? 'Income' : 'Running'}
-                    </span>
+                    <Chip>{r.kind === 'capital' ? 'Capital' : r.kind === 'income' ? 'Income' : 'Running'}</Chip>
                   </td>
                   <td className="muted">{r.paidBy}</td>
                   {/* inrFullish, not inr: a ledger row is the receipt, and a
@@ -494,24 +474,6 @@ export function RecordExpenses() {
         </div>
       )}
 
-      {!bare && (
-        <p className="note" style={{ marginTop: 'var(--space-md)', maxWidth: '58rem' }}>
-          {data.isBuilt && isLet ? (
-            <>
-              One ledger, two vocabularies: a parcel talks about bores, kist and labour; a flat talks
-              about society dues, tax assessments and tenants. Rent sits in the same list as money in,
-              because a property&rsquo;s cost only means something next to what it earns.
-            </>
-          ) : (
-            <>
-              Capital rows lift the cost base on the Money tab. Running rows never do — they answer
-              &ldquo;what does holding this cost me a year&rdquo;, which is {inr(data.running)}, or{' '}
-              {inr(data.perUnitRunning)} {perUnit}.
-            </>
-          )}
-        </p>
-      )}
-
       {drawer && (
         <ExpenseDrawer
           recordId={rec.id}
@@ -523,7 +485,7 @@ export function RecordExpenses() {
           onClose={() => setDrawer(null)}
         />
       )}
-    </main>
+    </>
   );
 }
 

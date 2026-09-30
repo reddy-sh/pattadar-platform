@@ -1,0 +1,63 @@
+name: Deploy University
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-university-production
+  cancel-in-progress: false
+
+jobs:
+  university:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - name: Reject obsolete release
+        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$RELEASE_SHA"
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_wrapper: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - name: Resolve University production configuration
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/terraform/envs/prod/university init -input=false
+          {
+            echo "SPA_BUCKET=$(terraform -chdir=infra/terraform/envs/prod/university output -raw university_bucket_name)"
+            echo "DISTRIBUTION_ID=$(terraform -chdir=infra/terraform/envs/prod/university output -raw university_distribution_id)"
+            echo "VITE_COGNITO_AUTHORITY=$(terraform -chdir=infra/terraform/envs/prod/university output -raw cognito_issuer)"
+            echo "VITE_COGNITO_CLIENT_ID=$(terraform -chdir=infra/terraform/envs/prod/university output -raw cognito_client_id)"
+            echo "VITE_COGNITO_DOMAIN=$(terraform -chdir=infra/terraform/envs/prod/university output -raw cognito_hosted_ui_domain)"
+            echo "VITE_COGNITO_REDIRECT_URI=https://university.pattadar.com/auth/callback"
+          } >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @pattadar/university build
+      - name: Publish University and wait for cache invalidation
+        run: bash scripts/deploy-static-site.sh apps/university/dist "$SPA_BUCKET" "$DISTRIBUTION_ID" "$RELEASE_SHA"
+      - name: Smoke test live University
+        run: |
+          set -euo pipefail
+          test "$(curl -fsSL https://university.pattadar.com/.release-sha)" = "$RELEASE_SHA"
+          for path in / /locations /locations/markapuram /states/andhra-pradesh /courses/buying-land-andhra-pradesh/lessons/buy-records; do
+            curl -fsSL --output /dev/null "https://university.pattadar.com$path"
+          done

@@ -25,19 +25,169 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { parseAreaSqYd, round2, toAcres, unitKey } from '@pattadar/core';
 
-import { useAddPaper, useRefreshW360, useSaveRecord } from '../api';
-import type { RecordCard, RecordInput } from '../api';
+import {
+  useAddNote, useAddOwner, useAddPaper, useAddTransfer, useRefreshW360,
+  useLinkPapers, useSaveRecord, useSetTransferParty,
+} from '../api';
+import type { Paper, RecordCard, RecordInput } from '../api';
 import { Dialog } from '../Dialog';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { ScanFirst } from '../ScanFirst';
 import type { DeedRead } from '../ScanFirst';
+import { INBOX_KEY, fetchReading, fileFor, markJobRead } from '../inbox';
+import type { Inbox } from '../inbox';
 import { describeReading } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { Chip, inGroup } from '../ui';
 import { RecordComplianceGuidance } from '../GovernanceGuidance';
+
+/** How the AI's reading is credited on the note it becomes. Notes have no
+ *  author column and are filed under the owner's account (the Notes tab says
+ *  "filed under your account"), so the attribution lives in the note's own
+ *  first line — which the Notes card already renders as the title. This keeps
+ *  a machine's words plainly marked as a machine's, without inventing a second
+ *  identity that could collide with a real user. */
+const AI_NOTE_TITLE = 'AI Assistant — reading of the deed';
+
+/** One owner to file on the record's ownership chain, from the deed. `role` is
+ *  the worded status ("Owner" / "Previous owner" / "Power-of-attorney holder");
+ *  `parentage` and `address` are what the deed prints beside the name — the
+ *  person information a land record must keep. `isCurrent` marks the holder of
+ *  the land now (green), everyone else previous (red). */
+export interface ReadingParty {
+  name: string;
+  role: string;
+  parentage: string;
+  address: string;
+  isCurrent: boolean;
+}
+
+/** The parentage the deed prints — S/o …, and an age when given. Reads ONLY
+ *  `parentage`/`age` and NEVER an Aadhaar/PAN/passport number (deed parties do
+ *  not carry those; they live only on the redacted identity-card reading). */
+function partyParentage(p: Record<string, unknown>): string {
+  const parentage = String(p.parentage ?? '').trim();
+  const age = String(p.age ?? '').trim();
+  return [parentage, age && `age ${age}`].filter(Boolean).join(', ');
+}
+
+/** The owners to file on the record's chain, current owner first.
+ *
+ *  For a sale/transfer deed the record names both sides. The person who RECEIVED
+ *  the land (role "buyer" / వ్రాయించుకున్నవారు, the taker) is THIS record's
+ *  current owner (isCurrent); the person who PARTED WITH it (role "seller" /
+ *  వ్రాసి ఇచ్చినవారు, the giver) is a previous owner. The owners resolver sorts
+ *  is_current first then by insertion, so returning the current owner first
+ *  keeps the chain in the right order.
+ *
+ *  A GPA "buyer" (is_gpa) is a power-holder, not a purchaser — filing them as
+ *  the current owner would name the agent as the owner, a real error in a land
+ *  record, so they are "Power-of-attorney holder" and not current.
+ *
+ *  A passbook/ROR names no parties; it names the pattadar in `owner_name`, so
+ *  that becomes the single current owner. */
+export function partiesFromReading(fields: Record<string, unknown>): ReadingParty[] {
+  const parties = Array.isArray(fields.parties) ? (fields.parties as Record<string, unknown>[]) : [];
+  if (parties.length) {
+    const out: ReadingParty[] = [];
+    const add = (p: Record<string, unknown>, role: string, isCurrent: boolean) => {
+      const name = String(p.name ?? '').trim();
+      if (name) out.push({ name, role, parentage: partyParentage(p),
+                           address: String(p.address ?? '').trim(), isCurrent });
+    };
+    // Current owner(s) first — the takers who are not GPA agents.
+    for (const p of parties) {
+      if (String(p.role ?? '').toLowerCase() === 'buyer' && !p.is_gpa) add(p, 'Owner', true);
+    }
+    // Then previous owners (givers), and any GPA holders — none current.
+    for (const p of parties) {
+      const role = String(p.role ?? '').toLowerCase();
+      if (role === 'seller') add(p, 'Previous owner', false);
+      else if (role === 'buyer' && p.is_gpa) add(p, 'Power-of-attorney holder', false);
+    }
+    if (out.length) return out;
+  }
+  // Passbook / ROR: the pattadar is the current owner, and there is no seller.
+  const ownerName = String(fields.owner_name ?? '').trim();
+  if (ownerName) {
+    return [{
+      name: ownerName, role: 'Owner', isCurrent: true,
+      parentage: String(fields.father_husband_name ?? '').trim(), address: '',
+    }];
+  }
+  return [];
+}
+
+/** The AI summary, shaped into a note body. First line is the attribution the
+ *  Notes card shows as a title; the summary and the reader's own "worth
+ *  checking" caveats follow. Nothing is truncated — the whole summary is kept.
+ *  Returns '' when there is no summary to file, so the caller adds no note. */
+export function aiNoteBody(fields: Record<string, unknown>): string {
+  const summary = String(fields.summary ?? '').trim();
+  if (!summary) return '';
+  const caveats = (Array.isArray(fields.caveats) ? fields.caveats : [])
+    .map((c) => String(c).trim())
+    .filter(Boolean);
+  const parts = [AI_NOTE_TITLE];
+  // The direction of transfer, in plain words, from the parties. A sale deed's
+  // whole meaning is who gave and who took; stating it here means the note
+  // records the succession even if someone only skims the first lines.
+  const direction = transferLine(fields);
+  if (direction) parts.push(direction);
+  parts.push(summary);
+  if (caveats.length) parts.push('Worth checking yourself:\n' + caveats.map((c) => `• ${c}`).join('\n'));
+  // Read by AI, said plainly so the note never reads as the owner's own words.
+  parts.push('Read from the uploaded document by AI — check it against the paper.');
+  return parts.join('\n\n');
+}
+
+/** A deed's own words for what kind of event it is, mapped onto the chain's
+ *  vocabulary. Anything unrecognised stays a sale, which is what the great
+ *  majority of registered conveyances are — and the kind is editable. */
+export function transferKindOf(docType: string): string {
+  const d = docType.toLowerCase();
+  if (d.includes('gift')) return 'gift';
+  if (d.includes('partition')) return 'partition';
+  if (d.includes('settlement')) return 'settlement';
+  if (d.includes('heir') || d.includes('succession')) return 'inheritance';
+  return 'sale';
+}
+
+/** "1/2" as two integers. Anything that is not a clean positive fraction is
+ *  treated as unstated — a half-read denominator must never become a share. */
+export function splitShare(share: string): [number, number] {
+  const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(share);
+  if (!m) return [0, 0];
+  const num = Number(m[1]);
+  const den = Number(m[2]);
+  if (!num || !den) return [0, 0];
+  return [num, den];
+}
+
+/** "X sold/transferred the land to Y" — the deed's direction in one line, or
+ *  '' when the parties are not both present. The verb follows the doc type so
+ *  a gift or partition does not read as a sale. */
+function transferLine(fields: Record<string, unknown>): string {
+  const parties = Array.isArray(fields.parties) ? (fields.parties as Record<string, unknown>[]) : [];
+  const nameOf = (r: string) => {
+    const p = parties.find((x) => String(x?.role ?? '').toLowerCase() === r);
+    return p ? String(p.name ?? '').trim() : '';
+  };
+  const giver = nameOf('seller');
+  const taker = nameOf('buyer');
+  if (!giver || !taker) return '';
+  const docType = String(fields.doc_type ?? '').toLowerCase();
+  const verb = docType.includes('gift') ? 'gifted the land to'
+    : docType.includes('partition') ? 'partitioned the land to'
+    : docType.includes('settlement') ? 'settled the land on'
+    : docType.includes('gpa') ? 'granted power of attorney over the land to'
+    : 'sold the land to';
+  return `${giver} ${verb} ${taker}.`;
+}
 
 const PROP_TYPES = [
   { key: 'flat', label: 'Flat' },
@@ -178,10 +328,15 @@ function MoneyField({ id, label, value, onChange }: {
   );
 }
 
-export function RecordDrawer({ card, onClose, onCreated }: {
+export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }: {
   card: RecordCard | null;          // null = add a new record
   onClose: () => void;
   onCreated?: (id: string) => void;
+  /** A reading that finished after this drawer was closed — opened from its
+   *  notice (w360/inbox.ts). The drawer opens filled from it. */
+  fromJob?: string;
+  /** Private vault document to read and file onto the property being created. */
+  sourcePaper?: Paper | null;
 }) {
   const nav = useNavigate();
   const save = useSaveRecord();
@@ -192,6 +347,17 @@ export function RecordDrawer({ card, onClose, onCreated }: {
   const saveQuiet = useSaveRecord(false, false);
   const refresh = useRefreshW360();
   const addPaper = useAddPaper();
+  const linkPapers = useLinkPapers();
+  // Filing the deed's owners and its AI summary onto the new record. Both are
+  // silent (reportError=false): a record that saved must not report a failure
+  // because a follow-on owner or note could not be filed — they are added
+  // best-effort after the record exists, the same rule fileDeed keeps. Owners
+  // go to the ownership chain (record_owners), NOT the staff list.
+  const addOwner = useAddOwner();
+  const addNote = useAddNote(false);
+  // The deed's transfer, staged unconfirmed. See fileReadingTransfer.
+  const addTransfer = useAddTransfer();
+  const setTransferParty = useSetTransferParty();
   const editing = !!card;
   /** The list hands an archived record the status 'archived' — web360.py
    *  substitutes it so one status test covers both worlds — and this form has
@@ -231,6 +397,27 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  away — the record then said it had no papers about the very document it
    *  was made from, and the summary just shown became unreachable. */
   const [scanned, setScanned] = useState<DeedRead | null>(null);
+  /** The reading behind `fromJob`, once fetched; handed to ScanFirst. */
+  const [reopened, setReopened] = useState<DeedRead | null>(null);
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!fromJob || editing) return undefined;
+    let live = true;
+    const file = fileFor(fromJob);
+    const name = file?.name
+      || qc.getQueryData<Inbox>(INBOX_KEY)?.items.find((i) => i.jobId === fromJob)?.body
+      || 'the document';
+    fetchReading(fromJob)
+      .then((reading) => { if (live) setReopened({ file, name, reading }); })
+      .catch((e: unknown) => {
+        if (!live) return;
+        setManualOpen(true);
+        setErr(e instanceof Error ? e.message : 'That reading could not be opened.');
+      });
+    void markJobRead(fromJob, qc);
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromJob]);
   const [filing, setFiling] = useState('');
   /** Set once the record exists, so a second press cannot create a duplicate
    *  when only the filing half failed. */
@@ -360,12 +547,12 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     : savedId
     ? {
       title: 'Close this notice?',
-      body: 'The record is saved. This notice is the only place that says its deed was not filed with it — closing leaves the record without that paper until you add it from Papers.',
+      body: 'The property is saved, but its deed was not filed. Add the deed later from Documents.',
       keep: 'Keep it open',
       discard: 'Close',
     }
     : {
-      title: editing ? 'Discard these changes?' : 'Discard this record?',
+      title: editing ? 'Discard these changes?' : 'Discard this property?',
       body: editing
         ? 'What you have changed here has not been saved. Closing the drawer loses it.'
         : 'Nothing has been saved yet. Closing the drawer loses everything you have entered.',
@@ -380,6 +567,13 @@ export function RecordDrawer({ card, onClose, onCreated }: {
    *  that or turn a successful save into a failure. It throws so the caller can
    *  say what happened instead of navigating away from the message. */
   async function fileDeed(recordId: string, read: DeedRead) {
+    if (read.paperId) {
+      const linked = (await linkPapers.mutateAsync({ paperIds: [read.paperId], recordIds: [recordId] })).web.linkPapers;
+      if (!linked) throw new Error('That document could not be filed under this property.');
+      return;
+    }
+    // Reopened after a reload: the bytes are gone, and the drawer said so.
+    if (!read.file) return;
     const node = await uploadToDrive(read.file);
     if (!node) throw new Error(STORAGE_OFFLINE_MSG);
     await attachPaper(recordId, read, node);
@@ -399,6 +593,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     recordId: string, read: DeedRead,
     node: Awaited<ReturnType<typeof uploadToDrive>>, survey = '',
   ) {
+    if (!read.file) throw new Error('the document itself is not in this tab any more');
     const row = describeReading(read.reading, read.file);
     const res = await addPaper.mutateAsync({
       recordId, fileRef: node.id, name: row.name,
@@ -406,7 +601,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       shelf: row.shelf, pageCount: row.pageCount,
       mimeType: node.mimeType, sizeBytes: node.sizeBytes,
     });
-    if (!res.web.addPaper) throw new Error('the record would not accept it');
+    if (!res.web.addPaper) throw new Error('the property would not accept it');
   }
 
   /** File every row of a passbook as its own record.
@@ -422,7 +617,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     // Without a khata the server skips the reuse lookup entirely and every row
     // starts a passbook of its own — twelve passbooks for one holding.
     if (!khataNo) {
-      setErr('Add the khata number before filing these together. It is what keeps every survey under one passbook — without it each row would start a passbook of its own.');
+      setErr('Add the khata number before filing these together.');
       return;
     }
     const base: RecordInput = {
@@ -474,7 +669,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
           const missing = rows.filter((r) => !done.some((d) => d.survey === r.survey));
           setErr(`Only ${done.length} of ${rows.length} records were added — Sy ${row.survey} would not save (${why}). Still to add: ${
             missing.map((r) => `Sy ${r.survey}`).join(', ')
-          }. Press Add record again to finish the rest; the ones already added will not be repeated.`);
+          }. Press Add property again to finish the rest; the ones already added will not be repeated.`);
           return;
         }
         done.push({ survey: row.survey, id });
@@ -482,7 +677,12 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       setBatchDone(done);
 
       // The paper, once, against all of them.
-      if (scanned && done.length) {
+      if (scanned && !scanned.file && done.length) {
+        for (const d of done) {
+          await fileReadingExtras(d.id, scanned.reading.fields as Record<string, unknown>);
+        }
+      }
+      if (scanned?.file && done.length) {
         setFiling('Filing the passbook…');
         let failed = 0;
         try {
@@ -491,6 +691,11 @@ export function RecordDrawer({ card, onClose, onCreated }: {
             try {
               await attachPaper(d.id, scanned, node, d.survey);
             } catch { failed += 1; }
+            // Same owner and same reading behind every row of one passbook, so
+            // each record gets the owner and the AI note too. Best-effort and
+            // separate from the paper's own failure count — a note that did not
+            // file is not a paper that did not file.
+            await fileReadingExtras(d.id, scanned.reading.fields as Record<string, unknown>);
           }
         } catch {
           failed = done.length;
@@ -510,13 +715,13 @@ export function RecordDrawer({ card, onClose, onCreated }: {
   }
 
   /** The map is the third way into this drawer: instead of reading a deed or
-   *  typing the survey number, find the plot's own shape on Village Maps and
+   *  typing the survey number, find the plot's own shape on Cadastral maps and
    *  add it from there — the same "Add to Properties" that screen already
    *  offers. Nothing here has been saved yet, so this leaves the same way
    *  Cancel does: at once, with no discard prompt. */
   const pickFromMap = () => {
     close();
-    nav('/app/villages');
+    nav('/app/maps');
   };
 
   const submit = async () => {
@@ -570,9 +775,35 @@ export function RecordDrawer({ card, onClose, onCreated }: {
         // Closing here would carry the message away with the drawer. The
         // record IS saved, so the drawer becomes a report of what happened.
         setSavedId(newId);
-        setErr(`The record was saved, but its deed could not be filed — ${
+        setErr(`The property was saved, but its deed could not be filed — ${
           e instanceof Error ? e.message : 'the file did not reach storage'
         }. You can add it from the record's Papers.`);
+        return;
+      } finally {
+        setFiling('');
+      }
+      // The owner off the deed and the AI's reading, filed onto the new
+      // record. Deliberately AFTER the deed and never allowed to fail the
+      // save: unlike a missing deed, a person or a note that did not file is
+      // not worth turning a saved record into an error the owner must read —
+      // both are re-addable by hand, and the record itself is safe.
+      await fileReadingExtras(newId, scanned.reading.fields as Record<string, unknown>);
+    }
+    // Reading a stored document is optional for creation: if the file is not
+    // readable (or has no storage bytes), keep the user's chosen source paper
+    // and still file that existing row once the property has been saved.
+    if (!editing && sourcePaper && !scanned && newId) {
+      setFiling('Filing the document…');
+      try {
+        const linked = (await linkPapers.mutateAsync({
+          paperIds: [sourcePaper.id], recordIds: [newId],
+        })).web.linkPapers;
+        if (!linked) throw new Error('The document could not be linked.');
+      } catch (e) {
+        setSavedId(newId);
+        setErr(`The property was saved, but its document could not be filed — ${
+          e instanceof Error ? e.message : 'try again from the Documents list'
+        }.`);
         return;
       } finally {
         setFiling('');
@@ -581,6 +812,117 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     if (!editing && newId && onCreated) onCreated(newId);
     else close();
   };
+
+  /** File what the reading knows that the record form does not carry: the deed's
+   *  owners onto the ownership chain, and the AI summary as a note. Only reached
+   *  when a record was just created from a reading, so it is "new records only"
+   *  by construction. Silent and best-effort — see the call site.
+   *
+   *  Owners go to record_owners (the Owners history tab), NOT the staff list:
+   *  a seller is a former owner, not a caretaker. Sequential and current-owner
+   *  first, so the chain reads current → previous in order. */
+  async function fileReadingExtras(recordId: string, fields: Record<string, unknown>) {
+    const acquiredVia = String(fields.doc_type ?? '').trim();
+    /** The owner rows, keyed by name, so the transfer below can LINK to the
+     *  person rather than adding a second node with the same name. */
+    const ownerIds = new Map<string, string>();
+    for (const party of partiesFromReading(fields)) {
+      try {
+        const res = await addOwner.mutateAsync({
+          recordId, name: party.name, parentage: party.parentage,
+          address: party.address, role: party.role, isCurrent: party.isCurrent,
+          acquiredVia: party.isCurrent ? acquiredVia : '', photoRef: '',
+        });
+        if (res.web.addOwner) ownerIds.set(party.name.trim().toLowerCase(), res.web.addOwner);
+      } catch { /* best-effort; addable from the Owners history tab */ }
+    }
+    // The reading's TRANSFER, staged. This is the claim the chain of title is
+    // made of, and it is exactly the claim the deed reader is least sure about:
+    // DEED_SYSTEM is required to caveat which party parted with the land,
+    // because repeated readings of one GPA have disagreed. So it is filed
+    // unconfirmed — the graph draws it dashed and asks a person to check the
+    // direction against the paper before it counts.
+    await fileReadingTransfer(recordId, fields, ownerIds);
+    const noteBody = aiNoteBody(fields);
+    if (noteBody) {
+      try {
+        await addNote.mutateAsync({ entityId: recordId, body: noteBody });
+      } catch { /* best-effort; the summary is still on the deed's Papers view */ }
+    }
+  }
+
+  /** Files the reading's transfer as an unconfirmed proposal.
+   *
+   *  One deed is one event, so this is ONE transfer with the sellers on the
+   *  giving side and the buyers on the receiving side — which is what lets a
+   *  deed that sold to two people draw as a split rather than as two sales.
+   *  Per-party extent and share come straight off the reading; DEED_SYSTEM is
+   *  forbidden from dividing a total itself, so a blank here means the paper
+   *  did not say, and the graph prints nothing rather than a 0.
+   *
+   *  GPA holders are deliberately NOT endpoints: holding a power of attorney is
+   *  not receiving the land, and putting them on the receiving side would claim
+   *  an agent had acquired what they were only authorised to sign for. */
+  async function fileReadingTransfer(
+    recordId: string,
+    fields: Record<string, unknown>,
+    ownerIds: Map<string, string>,
+  ) {
+    const parties = Array.isArray(fields.parties)
+      ? (fields.parties as Record<string, unknown>[]) : [];
+    const sides = parties
+      .map((p) => ({
+        side: String(p.role ?? '').toLowerCase() === 'buyer' ? 'to' as const : 'from' as const,
+        name: String(p.name ?? '').trim(),
+        parentage: partyParentage(p),
+        address: String(p.address ?? '').trim(),
+        extent: Number(p.extent ?? 0) || 0,
+        extentUnit: String(p.extent_unit ?? '').trim(),
+        share: String(p.share ?? '').trim(),
+        isGpa: !!p.is_gpa,
+      }))
+      .filter((p) => p.name && !p.isGpa
+        && ['buyer', 'seller'].includes(
+          String(parties.find((x) => String(x.name ?? '').trim() === p.name)?.role ?? '')
+            .toLowerCase()));
+    // A deed with only one side named is still worth recording; a deed with
+    // neither is not a transfer at all.
+    if (!sides.length) return;
+    try {
+      const created = await addTransfer.mutateAsync({
+        recordId,
+        kind: transferKindOf(String(fields.doc_type ?? '')),
+        deedDocumentId: '',
+        deedNo: [String(fields.document_no ?? '').trim(), String(fields.reg_year ?? '').trim()]
+          .filter(Boolean).join('/'),
+        sro: String(fields.sro ?? '').trim(),
+        registeredOn: String(fields.registration_date ?? '').trim(),
+        priorTransferId: '',
+        note: '',
+        source: 'reading',
+        verified: false,
+      });
+      const transferId = created.web.addTransfer;
+      if (!transferId) return;
+      for (const p of sides) {
+        const [num, den] = splitShare(p.share);
+        await setTransferParty.mutateAsync({
+          transferId,
+          side: p.side,
+          ownerId: ownerIds.get(p.name.toLowerCase()) ?? '',
+          name: p.name,
+          parentage: p.parentage,
+          address: p.address,
+          extent: p.side === 'to' ? p.extent : 0,
+          extentUnit: p.side === 'to' ? p.extentUnit : '',
+          shareNum: p.side === 'to' ? num : 0,
+          shareDen: p.side === 'to' ? den : 0,
+          isGpa: false,
+          partyId: '',
+        });
+      }
+    } catch { /* best-effort; the chain is editable on the People tab */ }
+  }
 
   /** Take what a deed says and offer it to the form.
    *
@@ -672,10 +1014,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
   return (
     <Drawer
       eyebrow={editing ? drawerEyebrow(card?.title ?? '', 'Details') : 'Your properties'}
-      title={editing ? `Edit ${card?.title}` : 'Add a record'}
-      sub={editing
-        ? 'Only what you change is sent, so a field this form never touched cannot be blanked by saving.'
-        : 'Read it off the deed, or fill it in by hand. Nothing is filed until you press Add record.'}
+      title={editing ? `Edit ${card?.title}` : 'Add a property'}
       onClose={close}
       busy={save.isPending || !!filing}
       dirty={dirty || !!savedId || batchDone.length > 0}
@@ -687,7 +1026,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
       primary={(
         <DrawerAction
           submit={false}
-          label={savedId || batchMade ? 'Done' : editing ? 'Save changes' : 'Add record'}
+          label={savedId || batchMade ? 'Done' : editing ? 'Save changes' : 'Add property'}
           working={filing || 'Saving…'}
           pending={save.isPending || !!filing}
           paused={save.isPaused}
@@ -698,9 +1037,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
     >
         {archived && (
           <p className="note" style={{ margin: 0 }}>
-            This record is archived. It stays out of your lists, your map and every
-            total until you unarchive it from its menu on Properties. Everything
-            else here can still be edited.
+            This property is archived.
           </p>
         )}
 
@@ -710,7 +1047,17 @@ export function RecordDrawer({ card, onClose, onCreated }: {
             record without somebody saying so. */}
         {!editing && (
           <ScanFirst manualOpen={manualOpen} onManualOpenChange={setManualOpen}
-                     onRead={applyReading} onPickFromMap={pickFromMap} />
+                     onRead={applyReading} onPickFromMap={pickFromMap} initial={reopened}
+                     sourcePaper={sourcePaper} />
+        )}
+
+        {/* Honest about what a reopened reading cannot do: the server drops
+            the bytes once a reading is done, and this tab no longer has them. */}
+        {!editing && scanned && !scanned.file && (
+          <p className="note" role="note" style={{ margin: 0 }}>
+            The document itself isn&rsquo;t attached. After saving, add it from the
+            property&rsquo;s Documents tab.
+          </p>
         )}
 
         {/* A land record that lists many rows. The question is asked once and
@@ -755,7 +1102,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
         {batchMade > 0 && (
           <div className="callout">
             <p className="scanhead">
-              Added {batchMade} {batchMade === 1 ? 'record' : 'records'} under khata {khata.trim()}
+              Added {batchMade} {batchMade === 1 ? 'property' : 'properties'} under khata {khata.trim()}
             </p>
             <p className="note" style={{ margin: 0 }}>
               {batchDone.map((d) => `Sy ${d.survey}`).join(', ')}.
@@ -772,12 +1119,12 @@ export function RecordDrawer({ card, onClose, onCreated }: {
                   <button type="button" aria-pressed={isParcel}
                           onClick={() => reclassify('agri', 'parcel')}>
                     Land parcel
-                    <small>A survey number with a khata, measured in acres.</small>
+                    <small>Survey number with a khata</small>
                   </button>
                   <button type="button" aria-pressed={!isParcel}
                           onClick={() => reclassify('flat', 'property')}>
                     Built property
-                    <small>A flat, a shop or an open plot in a town.</small>
+                    <small>Flat, shop or open plot</small>
                   </button>
                 </div>
               </div>
@@ -800,8 +1147,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
                   ))}
                 </ul>
                 <p className="note" style={{ margin: 0 }}>
-                  Everything below is shared by all {multiSurvey.all.length}. Each
-                  keeps its own extent, read off the paper.
+                  Shared by all {multiSurvey.all.length} records.
                   {' '}<button type="button" className="linkbtn"
                           onClick={() => {
                             setMultiSurvey({ ...multiSurvey, choice: 'one' });
@@ -838,7 +1184,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
               <div className="field grow">
                 <label htmlFor="rd-owner">Owner's name</label>
                 <input id="rd-owner" type="text" value={owner}
-                       onChange={(e) => setOwner(e.target.value)} placeholder="As the record reads" />
+                       onChange={(e) => setOwner(e.target.value)} placeholder="As the property reads" />
               </div>
               <div className="field" style={{ width: '8rem', flex: 'none' }}>
                 <label htmlFor="rd-khata">Khata no</label>
@@ -886,7 +1232,7 @@ export function RecordDrawer({ card, onClose, onCreated }: {
                 <div className="field grow">
                   <label>Status</label>
                   <p className="note" style={{ margin: 0 }}>
-                    Archived. Unarchive the record to give it a status again.
+                    Archived
                   </p>
                 </div>
               ) : (
@@ -934,24 +1280,6 @@ export function RecordDrawer({ card, onClose, onCreated }: {
           </>
         )}
 
-        {/* The footer is pinned by the shared shell, so it is on screen while
-            the form is still folded behind ScanFirst. A disabled primary with
-            nothing said about it is the pattern this file removed everywhere
-            else, so it says why. */}
-        {!manualOpen && (
-          <p className="note" style={{ margin: 0 }}>
-            Read the deed above, open the form to fill it in by hand, or find the plot on the map.
-          </p>
-        )}
-
-        {/* A disabled primary with nothing said about it is the pattern this
-            file removes everywhere else. */}
-        {awaitingChoice && (
-          <p className="note" style={{ margin: 0 }}>
-            Choose one of the two above first — this paper covers more than one
-            survey, so Add record cannot know what to file until you say.
-          </p>
-        )}
     </Drawer>
   );
 }
@@ -990,9 +1318,11 @@ export function ConfirmDialog({ title, body, actionLabel, danger, busy, error, o
   );
 }
 
-export function TagDialog({ count, existing, busy, error, onApply, onClose }: {
+export function TagDialog({ count, existing, busy, error, onApply, onClose, noun = ['property', 'properties'] }: {
   count: number; existing: string[]; busy?: boolean; error?: string;
   onApply: (tag: string) => void; onClose: () => void;
+  /** What is being tagged, singular and plural. Documents tags files. */
+  noun?: [string, string];
 }) {
   const [tag, setTag] = useState('');
   // Enter must respect `busy` exactly as the button does — key-repeat on a
@@ -1001,7 +1331,7 @@ export function TagDialog({ count, existing, busy, error, onApply, onClose }: {
 
   return (
     <Dialog
-      title={`Tag ${count} record${count === 1 ? '' : 's'}`}
+      title={`Tag ${count} ${count === 1 ? noun[0] : noun[1]}`}
       onClose={onClose}
       busy={busy}
       // A typed tag is typed work, so a pointer that slips onto the scrim does

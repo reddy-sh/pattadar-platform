@@ -292,7 +292,7 @@ export function PassbooksPage() {
                         <Typography
                           sx={{
                             minWidth: 0,
-                            fontWeight: 600,
+                            fontWeight: 700,
                             fontSize: 17,
                             lineHeight: 1.3,
                             display: '-webkit-box',

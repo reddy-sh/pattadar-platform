@@ -68,7 +68,10 @@ import {
 } from '../api';
 import type { TicketDeliverable, TicketDispatch, TicketView } from '../api';
 import type { MenuItem } from '../ui';
-import { Card, Crumbs, Empty, Failed, Icon, KV, Loading, Menu, PhotoImg, State, Tag, ddmmyyyy, initialsOf, inr, inrFull, plural } from '../ui';
+import {
+  Card, Crumbs, Empty, Failed, Icon, InfoTip, KV, Loading, Menu, ORDER_MOVE_FAILED, PhotoImg, State,
+  StatusChip, Tag, ddmmyyyy, initialsOf, inr, inrFull, plural,
+} from '../ui';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { AssignedResourceProof } from '../AssignedResourceProof';
@@ -78,14 +81,27 @@ import { AssignedResourceProof } from '../AssignedResourceProof';
 const SEND_FAILED =
   'That did not go out. Nothing was sent — check the number or the email and try again.';
 const ADD_FAILED =
-  'That was not recorded. Nothing was added to this job — check what you typed and try again.';
-const MOVE_FAILED =
-  'That did not go through. Nothing on this job has changed — reload the page and try again.';
+  'That was not recorded. Nothing was added to this order — check what you typed and try again.';
+/** The shared refusal (ui.tsx), so a property's Services list says the same. */
+const MOVE_FAILED = ORDER_MOVE_FAILED;
 const ACCEPT_FAILED =
   'That was not accepted. Decide on every item first, then try again.';
 
+/** Where an order came from, as a short value for the Details list.
+ *
+ *  `detail` is stored at order time, so older orders still carry the wording
+ *  of the day they were placed ("Requested from the missing papers list").
+ *  Those known sentences are read back in today's words; anything else — an
+ *  owner's own note — is shown exactly as written. */
+function sourceWord(detail: string): string {
+  const d = detail.trim();
+  if (/missing (papers|documents)/i.test(d)) return 'Missing documents';
+  if (/^ordered from the properties list$/i.test(d)) return 'Properties list';
+  return d;
+}
+
 const KIND_WORD: Record<string, string> = {
-  paper: 'A paper', photo: 'A photo',
+  paper: 'A document', photo: 'A photo',
   boundary: 'A corrected outline', feature: 'Something on the land',
 };
 const KIND_ICON: Record<string, string> = {
@@ -146,12 +162,11 @@ function movedOn(t: TicketView, action?: string): string {
  *  two different things about the same file. */
 function planLine(t: TicketView, kept: TicketDeliverable[]): string {
   if (kept.length === 0) {
-    return `Nothing is marked to keep, so nothing is added to ${t.recordTitle}. `
-      + 'The job is closed and what is set aside is released.';
+    return `Nothing is added to ${t.recordTitle}. The order closes and the held amount is refunded.`;
   }
   const where = kept.map((d) => `“${d.label}” → ${d.goesTo}`).join('; ');
   const outline = kept.some((d) => d.kind === 'boundary')
-    ? ' The outline on file is replaced — the one it replaces is kept on this job.'
+    ? ' The outline on file is replaced.'
     : '';
   return `${plural(kept.length, 'item', 'items')} ${kept.length === 1 ? 'goes' : 'go'} onto `
     + `${t.recordTitle}: ${where}.${outline}`;
@@ -194,23 +209,23 @@ function AcceptDialog({ t, kept, busy, error, onConfirm, onClose }: {
 
   return (
     <Dialog
-      title="Accept and file?" onClose={onClose} busy={busy} initialFocus={SAFE_BTN}
+      title="Accept this work?" onClose={onClose} busy={busy} initialFocus={SAFE_BTN}
       dismissable={false}
       footer={(
         <>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary" disabled={busy}
                   onClick={onConfirm}>
-            {busy ? 'Filing…' : 'Accept and file'}
+            {busy ? 'Accepting…' : 'Accept work'}
           </button>
         </>
       )}
     >
       <p className="note" style={{ margin: 0 }}>{planLine(t, kept)}</p>
       <p className="note" style={{ margin: 0 }}>
-        {inr(payout)} is recorded as owed to {t.assignee || 'the person who did the work'} and{' '}
+        {inr(payout)} is recorded as owed to {t.assignee || 'the provider'} and{' '}
         {inr(t.money.held - payout)} to Pattadar. {t.money.honesty}
-        {t.money.provider !== 'stub' && ' Payment and refund operations remain pending until the provider confirms them.'}
+        {t.money.provider !== 'stub' && ' Pending until the provider confirms.'}
       </p>
       {error && <Err>{error}</Err>}
     </Dialog>
@@ -229,7 +244,7 @@ function CancelDialog({ t, busy, error, onConfirm, onClose }: {
 
   return (
     <Dialog
-      title="Cancel this job?" onClose={onClose} busy={busy} initialFocus={SAFE_BTN}
+      title="Cancel this order?" onClose={onClose} busy={busy} initialFocus={SAFE_BTN}
       // The reason and the figure are typed work, and a pointer that slips onto
       // the dim should not throw them away — only the two buttons close this.
       dismissable={false}
@@ -238,15 +253,13 @@ function CancelDialog({ t, busy, error, onConfirm, onClose }: {
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn danger" disabled={busy}
                   onClick={() => onConfirm(why.trim(), payAnyway)}>
-            {busy ? 'Working…' : 'Cancel this job'}
+            {busy ? 'Working…' : 'Cancel this order'}
           </button>
         </>
       )}
     >
       <p className="note" style={{ margin: 0 }}>
-        {t.assignee || 'Whoever has it'} is told it is off and nothing more can come
-        back on it. Anything already filed onto {t.recordTitle} stays where it is —
-        this only closes the job. There is no undo.
+        {t.assignee || 'Whoever has it'} is told it is off. There is no undo.
       </p>
       <div className="field">
         <label htmlFor="cn-why">Why</label>
@@ -255,17 +268,17 @@ function CancelDialog({ t, busy, error, onConfirm, onClose }: {
       {t.money.held > 0 && (
         <>
           <div className="field">
-            <label htmlFor="cn-pay">Settle some of the {inr(t.money.held)} set aside</label>
+            <label htmlFor="cn-pay">Settle part of the {inr(t.money.held)} held</label>
             <input id="cn-pay" type="number" min="0" max={t.money.held} value={pay}
                    onChange={(e) => setPay(e.target.value)} />
           </div>
           <p className="note" style={{ margin: 0 }}>
             {inr(payAnyway)} settled — {inr(payAnyway * t.money.payeeShare)} to{' '}
-            {t.assignee || 'the person who did the work'},{' '}
+            {t.assignee || 'the provider'},{' '}
             {inr(payAnyway - payAnyway * t.money.payeeShare)} to Pattadar. The rest,{' '}
             {inr(t.money.held - payAnyway)}, {t.money.provider === 'stub' ? 'goes back to your wallet.' : 'is requested back to the original payment method.'}
             {!t.money.live
-              && ' Nothing is charged and nothing is sent — paying online is not switched on yet.'}
+              && ' Nothing is charged.'}
           </p>
         </>
       )}
@@ -287,7 +300,7 @@ function UnassignDialog({ t, busy, error, onConfirm, onClose }: {
 }) {
   return (
     <Dialog
-      title="Take them off this job?" onClose={onClose} busy={busy} initialFocus={SAFE_BTN}
+      title="Remove this provider?" onClose={onClose} busy={busy} initialFocus={SAFE_BTN}
       dismissable={false}
       footer={(
         <>
@@ -299,8 +312,7 @@ function UnassignDialog({ t, busy, error, onConfirm, onClose }: {
       )}
     >
       <p className="note" style={{ margin: 0 }}>
-        The job goes back to Placed and {inrFull(t.money.held)} stays set aside. It is not a
-        cancel and it releases nothing — you can put somebody else on it straight away.
+        The order goes back to Placed and {inrFull(t.money.held)} stays held.
       </p>
       {error && <Err>{error}</Err>}
     </Dialog>
@@ -456,8 +468,7 @@ function Dispatch({ d, busy, onWithdraw }: {
         {!d.revoked && (confirming ? (
           <div className="stack" style={{ marginTop: 'var(--space-sm)' }}>
             <p className="note" style={{ margin: 0 }}>
-              They are told it is off, and nothing more can come back on it. Anything they
-              already sent stays on this job.
+              They are told it is off.
             </p>
             <div className="row tight">
               <button type="button" className="btn sm danger" disabled={busy}
@@ -525,7 +536,7 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
 }) {
   const onSite = canStart ? (
     <button type="button" className="btn sm" disabled={starting} onClick={onStart}>
-      {starting ? 'Marking…' : "They're on site"}
+      {starting ? 'Marking…' : 'Mark on site'}
     </button>
   ) : null;
 
@@ -562,9 +573,9 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
                 the whole question this line answers, and there are three
                 different answers to it. */}
             <span className="note" style={{ display: 'block' }}>
-              {a.via === 'the desk' ? 'Put on it by Pattadar'
-                : a.via === 'they took it' ? 'They took this job'
-                : 'You put them on it'}
+              {a.via === 'the desk' ? 'Assigned by Pattadar'
+                : a.via === 'they took it' ? 'Accepted by the provider'
+                : 'Assigned by you'}
               {' on '}
               {a.assignedAt ? ddmmyyyy(a.assignedAt) : movedOn(t, 'assign')}
             </span>
@@ -582,15 +593,11 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
                 : <CallOutlined sx={{ fontSize: 17 }} aria-hidden />}
               {a.contact}
             </a>
-            <p className="note" style={{ margin: '0.25rem 0 0' }}>
-              {byEmail ? 'Write to them about this job.' : 'Call them about this job.'}{' '}
-              Pattadar gave them your land&rsquo;s outline and nothing else.
-            </p>
           </div>
         ) : (
           <p className="note" style={{ margin: 0 }}>
             {a.contactWhy
-              || 'Pattadar is not showing this number on this job. The desk can reach them.'}
+              || 'Number not shown on this order.'}
           </p>
         )}
 
@@ -598,7 +605,7 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
             "why has nobody turned up yet". */}
         {a.jobsOpen > 1 && (
           <p className="note" style={{ margin: 0 }}>
-            Also on {plural(a.jobsOpen - 1, 'other job', 'other jobs')}.
+            {plural(a.jobsOpen - 1, 'other open job', 'other open jobs')}
           </p>
         )}
         {t.assignedResource && <AssignedResourceProof resource={t.assignedResource} />}
@@ -617,14 +624,7 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
           <span className="note" style={{ display: 'block' }}>
             Assigned {movedOn(t, 'assign')}
           </span>
-          {/* Nothing regresses and nothing is invented: this is a name that was
-              typed into a box, so there is no number to show and no point
-              offering to ring it. Whatever it was actually sent to is on this
-              same page, under Sent out, masked. */}
-          <span className="note" style={{ display: 'block' }}>
-            You typed this name, so Pattadar has no number for them. What you sent the job
-            to is under Sent out.
-          </span>
+          <span className="note" style={{ display: 'block' }}>No number on file.</span>
         </span>
         {onSite}
       </div>
@@ -638,8 +638,7 @@ function WhoIsOnIt({ t, canStart, starting, onStart }: {
   // a picker that refuses every press is not.
   return (
     <p className="note" style={{ margin: 0 }}>
-      Nobody was ever put on this job, and it is closed now — there is nothing
-      left to hand to anybody.
+      Never assigned.
     </p>
   );
 }
@@ -703,11 +702,7 @@ function WhoCanDoThis({ t, className, error, onError }: {
   };
 
   return (
-    <Card title="Who can do this" className={className}>
-      <p className="note svc-say" style={{ marginTop: 0 }}>
-        Nobody is on this yet. Put one of the people below on it, or name somebody who has
-        worked on your records before.
-      </p>
+    <Card title="Available providers" className={className}>
 
       {/* Phase 2 gives `dispatch_state` a value; today it is '' on every job,
           so this sentence does not render yet. It is written now so that the
@@ -716,8 +711,7 @@ function WhoCanDoThis({ t, className, error, onError }: {
           problem. */}
       {ON_THE_DESK.has(t.dispatchState) && (
         <p className="note svc-say">
-          Pattadar&rsquo;s desk has this on its list to find somebody for. Putting a name on
-          it yourself takes it off that list.
+          Pattadar is assigning a provider.
         </p>
       )}
 
@@ -727,7 +721,7 @@ function WhoCanDoThis({ t, className, error, onError }: {
         <Failed what="The list of people" error={roster.error} boxed h="7rem"
                 onRetry={() => { void roster.refetch(); }} />
       ) : roster.data.length === 0 ? (
-        <p className="note">Nobody has enrolled for this kind of work yet.</p>
+        <p className="note">No providers offer this service yet.</p>
       ) : (
         <div className="card" style={{ padding: 0 }}>
           <div className="rows boxed">
@@ -739,7 +733,7 @@ function WhoCanDoThis({ t, className, error, onError }: {
                 <span className="grow">
                   <span className="row tight">
                     <strong style={{ fontSize: '0.9375rem' }}>{c.name}</strong>
-                    {c.verified && <Tag>Papers checked</Tag>}
+                    {c.verified && <Tag>Documents checked</Tag>}
                   </span>
                   <span className="note" style={{ display: 'block' }}>
                     {[c.disciplineLabels[0], c.firm, ...c.areas].filter(Boolean).join(' · ')}
@@ -751,14 +745,14 @@ function WhoCanDoThis({ t, className, error, onError }: {
                       allowed to put a busy person on their own job; what they
                       are not allowed to do is find out afterwards. */}
                   {!c.acceptsMore && (
-                    <span className="note" style={{ display: 'block' }}>
-                      Already holding {plural(c.jobsOpen, 'job', 'jobs')}.
+                    <span style={{ display: 'block', marginTop: '0.25rem' }}>
+                      <StatusChip state="warn">{plural(c.jobsOpen, 'open job', 'open jobs')}</StatusChip>
                     </span>
                   )}
                 </span>
                 <button type="button" className="btn sm" disabled={busy}
                         onClick={() => void putOn(c.id)}>
-                  {moving === c.id ? 'Putting them on it…' : 'Put them on it'}
+                  {moving === c.id ? 'Assigning…' : 'Assign'}
                 </button>
               </div>
             ))}
@@ -774,15 +768,10 @@ function WhoCanDoThis({ t, className, error, onError }: {
       ) : !people.data ? (
         <Failed what="The names you have used" error={people.error} boxed h="3rem"
                 onRetry={() => { void people.refetch(); }} />
-      ) : people.data.length === 0 ? (
-        <p className="note svc-say">
-          Nobody has worked on your records yet, so there is no name to pick. Send this
-          job out instead — Pattadar does the sending, so you can take it back.
-        </p>
-      ) : (
+      ) : people.data.length === 0 ? null : (
         <>
           <div className="field">
-            <label className="note" htmlFor="tk-assign">Or a name you have used</label>
+            <label className="note" htmlFor="tk-assign">Previous providers</label>
             <select id="tk-assign" className="input" value={picked} disabled={busy}
                     onChange={(e) => setPicked(e.target.value)}>
               <option value="">Nobody yet</option>
@@ -792,14 +781,14 @@ function WhoCanDoThis({ t, className, error, onError }: {
           <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
             <button type="button" className="btn sm" disabled={!picked || busy}
                     onClick={() => void putOnName()}>
-              {assignName.isPending ? 'Putting them on it…' : 'Put on'}
+              {assignName.isPending ? 'Assigning…' : 'Assign'}
             </button>
           </div>
           {/* Why the button is off, on screen. A disabled control fires no
               hover, so a `title=` on it cannot be read in any browser. */}
           {!picked && (
             <p className="note" style={{ margin: 'var(--space-sm) 0 0' }}>
-              Pick a name first — that is who the job goes to.
+              Choose a provider first.
             </p>
           )}
         </>
@@ -900,9 +889,8 @@ export function Ticket() {
   if (!data) {
     return (
       <main>
-        <Empty boxed h="26rem" icon="clock" title="This service is not here">
-          It was cancelled, or it belongs to someone else. Anything you set aside against it is
-          still in your wallet.
+        <Empty boxed h="26rem" icon="clock" title="This order isn't in your account">
+          It was cancelled, or it belongs to someone else.
         </Empty>
       </main>
     );
@@ -1137,7 +1125,7 @@ export function Ticket() {
   // `deliver` is a button on the dashed empty card while nothing has come
   // back; once there are items, that card is gone and the kebab is its home.
   if (can('deliver') && t.deliverables.length > 0) {
-    menu.push({ label: 'Record what came back', onClick: () => openDialog('record') });
+    menu.push({ label: 'Record submitted work', onClick: () => openDialog('record') });
   }
   if (can('dispatch')) {
     menu.push(liveDispatch
@@ -1145,19 +1133,17 @@ export function Ticket() {
       : { label: 'Send this to someone', onClick: () => { setDpPurpose('invite'); openDialog('send'); } });
   }
   if (can('unassign')) {
-    menu.push({ label: 'Take them off this job', onClick: () => openDialog('unassign') });
+    menu.push({ label: 'Remove this provider', onClick: () => openDialog('unassign') });
   }
   if (can('cancel')) {
-    menu.push({ label: 'Cancel this job', onClick: () => openDialog('cancel'), danger: true, rule: true });
+    menu.push({ label: 'Cancel this order', onClick: () => openDialog('cancel'), danger: true, rule: true });
   }
 
   const emptyCame = t.status === 'changes'
-    ? `You sent this back on ${movedOn(t, 'send_back')}. When it comes again, record it here.`
+    ? `You sent this back on ${movedOn(t, 'send_back')}.`
     : t.closed
-      ? 'Nothing was recorded against this job.'
-      : 'Nothing has come back yet. When the sketch, the photos or the report arrive, '
-        + `record them here — nothing reaches ${t.recordTitle} until you have looked at `
-        + 'them and said yes.';
+      ? 'Nothing was recorded against this order.'
+      : 'Nothing has come back yet.';
 
   // On a fresh job whose only status event is the placement, `movedOn` returns
   // the order date — which the lede already prints one line above. Saying it
@@ -1190,7 +1176,7 @@ export function Ticket() {
   const cameBlock = t.deliverables.length > 0 ? (
     <div ref={came} key="came">
       <Card
-        title="What came back"
+        title="Submitted work"
         aside={<span className="num muted">{t.deliverables.length}</span>}
         // One ring, not two. When this block is promoted the accept footer
         // inside it is already wearing the accent, and nesting a second accent
@@ -1218,7 +1204,7 @@ export function Ticket() {
               <strong className="grow">
                 Keeping {kept.length} of {t.deliverables.length} ·{' '}
                 {inr(t.money.held)} {t.money.provider === 'stub' ? 'recorded for settlement with' : 'queued for settlement with'}{' '}
-                {t.assignee || 'the person who did the work'}
+                {t.assignee || 'the provider'}
               </strong>
               {!t.money.live && <span className="pill sim">Not charged</span>}
             </div>
@@ -1228,10 +1214,10 @@ export function Ticket() {
                 disabled={pending.length > 0 || accept.isPending}
                 onClick={() => openDialog('accept')}
               >
-                Accept and file
+                Accept work
               </button>
               <button type="button" className="btn" onClick={() => toggleInline('sendback')}>
-                Send it back
+                Request changes
               </button>
             </div>
             {/* Why the button is off, in the card rather than in a `title=`. A
@@ -1241,8 +1227,8 @@ export function Ticket() {
                 what was wanted. */}
             {pending.length > 0 && (
               <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                Decide on every item first — {plural(pending.length, 'item', 'items')} still
-                waiting. An item you have not looked at is not an item you meant to file.
+                Decide on every item first. {plural(pending.length, 'item', 'items')} still
+                waiting.
               </p>
             )}
           </div>
@@ -1259,15 +1245,11 @@ export function Ticket() {
                         placeholder="They see exactly this."
                         onChange={(e) => setSbWhy(e.target.value)} />
             </div>
-            <p className="note svc-say">
-              They get your reasons on the channel this went out on, and can send new
-              work back against the same job. Everything already recorded stays on this job.
-            </p>
             <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
               <button type="button" className="btn primary"
                       disabled={!sbWhy.trim() || sendBack.isPending}
                       onClick={() => void onSendBack()}>
-                {sendBack.isPending ? 'Sending back…' : 'Send it back'}
+                {sendBack.isPending ? 'Sending…' : 'Request changes'}
               </button>
               <button type="button" className="btn" onClick={() => setInline('')}>Cancel</button>
             </div>
@@ -1276,7 +1258,7 @@ export function Ticket() {
                 dark, which is why the button waits. */}
             {!sbWhy.trim() && (
               <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                Say what is missing first. These words are all they have to work from.
+                Say what is missing first.
               </p>
             )}
           </div>
@@ -1304,19 +1286,21 @@ export function Ticket() {
     && t.money.quoted > 0 && !t.money.funded && can('dispatch');
 
   /** What this costs. Every figure here is a record of what is owed, not of
-   *  money that has moved, and the copy and the colourless pill say so. */
+   *  money that has moved. Material 3: the figures as a details list, the
+   *  payment state as a chip, and the standing explanation behind an ⓘ. */
   const moneyBlock = (
-    <Card key="money" title="What this costs"
+    <Card key="money"
+          title={<span className="pagehead-title">Cost <InfoTip label="cost">{t.money.honesty}</InfoTip></span>}
+          aside={!t.money.live ? <StatusChip state="unknown">Not charged</StatusChip> : undefined}
           className={promoted === 'money' ? 'accent' : undefined}>
-      <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{t.money.headline}</p>
-      {!t.money.live && (
-        <p style={{ margin: '0.375rem 0 0' }}>
-          <span className="pill sim">Not charged</span>
-        </p>
-      )}
-      <p className="note svc-say">{t.money.honesty}</p>
+      <KV as="dl" className="svc-rows" rows={[
+        { k: 'Price', v: t.money.quoted > 0 ? inrFull(t.money.quoted) : '—' },
+        { k: 'Held', v: t.money.held > 0 ? inrFull(t.money.held) : 'Nothing held' },
+        ...(t.money.released > 0 ? [{ k: 'Released', v: inrFull(t.money.released) }] : []),
+        ...(t.money.returned > 0 ? [{ k: 'Refunded', v: inrFull(t.money.returned) }] : []),
+      ]} />
       {t.closed && t.money.held > 0 && t.money.provider !== 'stub' && <p role="status">
-        Settlement is pending provider confirmation. Open payment status to check its progress.
+        Settlement is pending provider confirmation.
       </p>}
 
       {/* The empty ledger explains why funding matters, and is held back in
@@ -1326,14 +1310,7 @@ export function Ticket() {
           never consults `quoted` — so comparing the headline string, or
           testing `quoted === 0`, both got an unfunded job with a price wrong
           and printed the same sentence twice, two lines apart. */}
-      {t.ledger.length === 0 ? (
-        (t.money.held > 0 || t.money.released > 0 || t.money.returned > 0) && (
-          <p className="note svc-say">
-            Nothing set aside yet. A job with no money behind it is one nobody has a
-            reason to start.
-          </p>
-        )
-      ) : (
+      {t.ledger.length > 0 && (
         <div className="rows svc-rows" style={{ marginTop: 'var(--space-sm)' }}>
           {t.ledger.map((r) => (
             <div key={r.id}>
@@ -1347,10 +1324,10 @@ export function Ticket() {
               <span className="right" style={{ flex: 'none' }}>
                 <span className="num" style={{ display: 'block' }}>{inrFull(r.amount)}</span>
                 {r.simulated
-                  ? <span className="pill sim">Not charged</span>
-                  : <State state={r.status === 'failed' ? 'bad' : 'good'}>
-                      {r.status === 'failed' ? 'It did not go' : 'Settled'}
-                    </State>}
+                  ? <StatusChip state="unknown">Not charged</StatusChip>
+                  : <StatusChip state={r.status === 'failed' ? 'bad' : 'good'}>
+                      {r.status === 'failed' ? 'Failed' : 'Settled'}
+                    </StatusChip>}
               </span>
             </div>
           ))}
@@ -1376,20 +1353,17 @@ export function Ticket() {
               {checkoutHere && (
                 <Link className="btn soft" to={`/app/services/${t.id}/pay`}>
                   {t.money.funded || t.closed
-                    ? 'Payment and settlement status'
-                    : `Open checkout · ${inrFull(t.money.quoted)}`}
+                    ? 'Payment status'
+                    : `Pay ${inrFull(t.money.quoted)}`}
                 </Link>
               )}
               {setAsideHere && (
                 <button type="button" className="btn soft" disabled={fund.isPending}
                         onClick={() => void onFund()}>
-                  {fund.isPending ? 'Setting aside…' : `Set ${inrFull(t.money.quoted)} aside`}
+                  {fund.isPending ? 'Holding…' : `Hold ${inrFull(t.money.quoted)}`}
                 </button>
               )}
             </div>
-          )}
-          {!t.money.live && !paymentConfig.data.enabled && (
-            <p className="note">Adding money to the wallet is not switched on yet.</p>
           )}
         </>
       )}
@@ -1404,7 +1378,7 @@ export function Ticket() {
    *  open one nobody is on and nobody can be put on. */
   const nextBlock = promoted !== '' ? null
     : t.closed ? (t.outcomeNote ? (
-      <Card key="next" title="How it ended">
+      <Card key="next" title="Outcome">
         <p className="svc-say" style={{ margin: 0 }}>{t.outcomeNote}</p>
         {t.acceptedAt && (
           <p className="note" style={{ margin: 'var(--space-sm) 0 0' }}>
@@ -1414,9 +1388,9 @@ export function Ticket() {
       </Card>
     ) : null)
     : holder ? (
-      <Card key="next" title="What happens next">
+      <Card key="next" title="Next step">
         <p className="svc-say" style={{ margin: 0 }}>
-          {holder} has this. Nothing is needed from you.
+          Assigned to {holder}.
         </p>
       </Card>
     ) : null;
@@ -1436,18 +1410,22 @@ export function Ticket() {
           'submitted'. The ref and the record title are in the Crumbs directly
           above, so the eyebrow that printed both again is gone too; the place
           moved to the rail, where the land is the subject. */}
+      {/* Material 3 detail header: the title with its status chip, then one
+          factual meta line. The ref and property are in the breadcrumb. */}
       <header className="pagehead">
         <div className="grow">
-          <h1>{t.title}</h1>
-          <p className="lede" style={{ marginTop: '0.375rem' }}>
-            Ordered {ddmmyyyy(t.createdAt)}
-            {t.assignee && <> · with {t.assignee}</>}
-            {t.dueDate && <> · due {t.dueDate}</>}
-          </p>
-          <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-            <State state={t.statusState}>{t.statusLabel}</State>
-            {since && <span className="note">since {since}</span>}
+          <div className="pagehead-title">
+            <h1>{t.title}</h1>
+            <StatusChip state={t.statusState}>{t.statusLabel}</StatusChip>
           </div>
+          <p className="note" style={{ margin: '0.375rem 0 0' }}>
+            {[
+              `Ordered ${ddmmyyyy(t.createdAt)}`,
+              t.dueDate && `Due ${t.dueDate}`,
+              t.assignee && `Provider: ${t.assignee}`,
+              since && `Updated ${since}`,
+            ].filter(Boolean).join(' · ')}
+          </p>
         </div>
         <div className="actions">
           {menu.length > 0 && <Menu label={`Actions for ${t.ref}`} items={menu} />}
@@ -1471,35 +1449,29 @@ export function Ticket() {
           {stalled && (
             <section className="card alert">
               <h2 style={{ margin: 0, fontSize: '1rem' }}>
-                Nothing has happened for {t.quietDays} days.
+                No update in {t.quietDays} days
               </h2>
               {t.quiet ? (
                 <>
                   <p className="note svc-say">
-                    {t.assignee || 'Nobody'} has not moved this since {moved}. You can send it
-                    again, put it on somebody else, or pull the job and get what you set aside back.
+                    Last update {moved}{t.assignee ? ` · ${t.assignee}` : ''}
                   </p>
-                  {/* Three remedies, because the sentence above has promised
-                      three for the whole life of this banner and offered two.
-                      `unassign` was legal in `can` the entire time with no
-                      control anywhere on the page, so an owner with a silent
-                      surveyor could only cancel the job outright. */}
                   <div className="row tight">
                     {can('dispatch') && (
                       <button type="button" className="btn sm" onClick={sendAgain}>
-                        Send it again
+                        Resend
                       </button>
                     )}
                     {can('unassign') && (
                       <button type="button" className="btn sm"
                               onClick={() => openDialog('unassign')}>
-                        Take them off this job
+                        Remove provider
                       </button>
                     )}
                     {can('cancel') && (
                       <button type="button" className="btn sm danger"
                               onClick={() => openDialog('cancel')}>
-                        Cancel this job
+                        Cancel order
                       </button>
                     )}
                   </div>
@@ -1508,8 +1480,7 @@ export function Ticket() {
                 // No buttons on this shape: the roster is the very next block,
                 // so anything here could only scroll to a card already on screen.
                 <p className="note svc-say" style={{ marginBottom: 0 }}>
-                  Nobody has been put on this yet. Pick somebody below, or cancel it and get
-                  what you set aside back.
+                  Not assigned yet.
                 </p>
               )}
             </section>
@@ -1523,28 +1494,26 @@ export function Ticket() {
           {promoted !== 'came' && cameBlock}
           {promoted !== 'who' && rosterBlock}
 
-          <Card title="What was asked for">
-            {t.answers.length > 0 ? (
-              <KV as="dl" className="svc-rows"
-                  rows={t.answers.map((a) => ({ k: a.k, v: a.v }))} />
-            ) : t.detail ? (
-              <p className="svc-say" style={{ margin: 0 }}>{t.detail}</p>
-            ) : null}
-            <p style={{ margin: 'var(--space-sm) 0 0' }}>
-              <Link className="link" to={`/app/records/${t.recordId}`}>
-                {[t.recordTitle, t.recordPlace].filter(Boolean).join(' · ')}
-              </Link>
-            </p>
-            {/* The provenance line closes the block rather than leading it.
-                `detail` defaults to "Ordered from the properties list", which
-                says where the order came from and not what was asked for. With
-                no answers at all it is the only sentence there is, so it leads
-                above instead and this line says why the rows are missing —
-                which is not that the form predates them: an EC's three
-                catalogue fields are every one of them optional. */}
-            {t.answers.length > 0
-              ? t.detail && <p className="note svc-say">{t.detail}</p>
-              : <p className="note">No options were set on this order.</p>}
+          {/* Material 3 details list: label / value pairs, the owner's own
+              answers after the fixed facts. `detail` is where the order came
+              from, so it is a Source row, not a sentence. */}
+          <Card title="Details">
+            <KV as="dl" className="svc-rows" rows={[
+              { k: 'Order', v: <span className="mono">{t.ref}</span> },
+              {
+                k: 'Property',
+                v: (
+                  <Link className="link" to={`/app/records/${t.recordId}`}>
+                    {[t.recordTitle, t.recordPlace].filter(Boolean).join(' · ')}
+                  </Link>
+                ),
+              },
+              { k: 'Status', v: <StatusChip state={t.statusState}>{t.statusLabel}</StatusChip> },
+              { k: 'Ordered', v: ddmmyyyy(t.createdAt) },
+              ...(t.dueDate ? [{ k: 'Due', v: t.dueDate }] : []),
+              ...(t.detail ? [{ k: 'Source', v: sourceWord(t.detail) }] : []),
+              ...t.answers.map((a) => ({ k: a.k, v: a.v })),
+            ]} />
           </Card>
 
           {promoted !== 'money' && moneyBlock}
@@ -1554,26 +1523,24 @@ export function Ticket() {
               row, so it spends 87px of chrome — 24 padding, 23 of h2, 16 of
               cardhead, 24 more padding — around a 39px sentence. 62% chrome is
               the zero-state rule this module wrote down and then broke. */}
-          {t.deliverables.length === 0 && (
-            <section className="card dashed">
-              <p className="note svc-say" style={{ margin: 0 }}>{emptyCame}</p>
+          {/* Material 3: an empty section is only drawn when there is
+              something to do in it. With nothing submitted and nothing to
+              record, the order activity already says where things stand. */}
+          {t.deliverables.length === 0 && (can('deliver') || t.status === 'changes') && (
+            <Card title="Submitted work">
+              <p className="note" style={{ margin: 0 }}>{emptyCame}</p>
               {can('deliver') && (
                 <button type="button" className="btn sm"
                         style={{ marginTop: 'var(--space-sm)' }}
                         onClick={() => openDialog('record')}>
-                  Record what came back
+                  Record submitted work
                 </button>
               )}
-            </section>
+            </Card>
           )}
 
           {t.closed && t.assignedTo && (
             <Card title="Rate this service">
-              <p className="note" style={{ marginTop: 0 }}>
-                Your rating helps Pattadar monitor {t.assignedTo.name}. Members with at
-                least 100 ratings and an average below 3 stop receiving new work until
-                the company records a training decision.
-              </p>
               <div className="row tight" role="group" aria-label="Service rating">
                 {[1, 2, 3, 4, 5].map((value) => (
                   <button key={value} type="button"
@@ -1601,8 +1568,7 @@ export function Ticket() {
                 aside={messages.length > 0 ? <span className="num muted">{messages.length}</span> : undefined}>
             {messages.length === 0 ? (
               <p className="note svc-say" style={{ marginTop: 0 }}>
-                No messages yet. Updates sent from the worker link appear here with the
-                sender and time preserved.
+                No messages yet.
               </p>
             ) : (
               <div className="service-chat" role="log" aria-label="Service conversation">
@@ -1624,13 +1590,13 @@ export function Ticket() {
                 void onPostMessage();
               }}>
                 <label className="field">
-                  <span className="note">Message the person doing this work or the Pattadar desk</span>
+                  <span className="note">Message</span>
                   <textarea maxLength={4000} value={chatMessage}
                             placeholder="Ask for an update or clarify what you need"
                             onChange={(event) => setChatMessage(event.target.value)} />
                 </label>
                 <div className="row between">
-                  <span className="note">Visible only on this service and its active work link.</span>
+                  <span className="note">Visible on this order and its work link only.</span>
                   <button type="submit" className="btn sm primary"
                           disabled={!chatMessage.trim() || postMessage.isPending}>
                     <SendOutlined sx={{ fontSize: 15 }} aria-hidden />
@@ -1644,19 +1610,11 @@ export function Ticket() {
 
           {/* The trail, last and in the main column. No event is ever
               re-worded here: `headline` was composed at write time, so a 2027
-              rewording cannot re-word a 2026 event.
-
-              A job whose trail is empty says so, rather than drawing a heading
-              over a blank box. Both paths that place an order on the web write
-              a first line, so an empty trail means a row that predates them —
-              a phone-placed order, or one restored without its events — and
-              the note says which day it has instead of the trail it does not. */}
-          <Card title="Everything that happened">
+              rewording cannot re-word a 2026 event. */}
+          <Card title="Order activity">
             {timeline.length === 0 ? (
               <p className="note svc-say">
-                Nothing has been recorded against this job. It was placed on{' '}
-                {ddmmyyyy(t.createdAt)}, on a screen that did not keep a trail — anything
-                that happens from here is written down.
+                No activity yet.
               </p>
             ) : (
               <div className="rows boxed svc-rows">
@@ -1689,19 +1647,17 @@ export function Ticket() {
               card is not drawn at all — `Who can do this` in the main column is
               the whole answer. */}
           {(!nobody || t.closed) && (
-            <Card title="Who is on it">
+            <Card title="Assigned provider">
               <WhoIsOnIt t={t} canStart={can('start')} starting={start.isPending}
                          onStart={() => void onStart()} />
               {errIn('who')}
             </Card>
           )}
 
-          {t.dispatches.length === 0 ? (
-            <section className="card dashed">
-              <p className="note" style={{ margin: 0 }}>Nothing has left the building.</p>
-            </section>
-          ) : (
-            <Card title="Sent out"
+          {/* Not drawn until something has been sent: an empty rail card was
+              a sentence with a border around it. */}
+          {t.dispatches.length > 0 && (
+            <Card title="Sent to provider"
                   aside={<span className="num muted">{t.dispatches.length}</span>}>
               <div className="rows boxed">
                 {t.dispatches.map((d) => (
@@ -1717,17 +1673,17 @@ export function Ticket() {
               used to be stranded after the dialogs, outside the split, and only
               on a closed job — which is the one state in which nobody is going
               to order anything else. */}
-          <Card title="On this land">
-            <p style={{ margin: 0, fontWeight: 600 }}>{t.recordTitle}</p>
+          <Card title="Property">
+            <p style={{ margin: 0, fontWeight: 700 }}>{t.recordTitle}</p>
             {t.recordPlace && (
               <p className="note" style={{ margin: '0.125rem 0 0' }}>{t.recordPlace}</p>
             )}
             <p style={{ margin: 'var(--space-sm) 0 0' }}>
-              <Link className="link" to={`/app/records/${t.recordId}`}>Open the record ›</Link>
+              <Link className="link" to={`/app/records/${t.recordId}`}>Open property</Link>
             </p>
             <p style={{ margin: '0.25rem 0 0' }}>
               <Link className="link" to={`/app/records/${t.recordId}/services`}>
-                Everything ordered on {t.recordTitle} ›
+                All orders for this property
               </Link>
             </p>
           </Card>
@@ -1741,7 +1697,7 @@ export function Ticket() {
           read a number back from. */}
       {dialog === 'send' && (
         <Dialog
-          title="Send this to someone" onClose={closeDialog} busy={dispatch.isPending}
+          title="Share this order" onClose={closeDialog} busy={dispatch.isPending}
           wide dismissable={false} initialFocus="#dp-name"
           footer={(
             <>
@@ -1755,16 +1711,11 @@ export function Ticket() {
           )}
         >
           <p className="note" style={{ margin: 0 }}>
-            Pattadar records a revocable work link and sends it when a delivery provider
-            is configured. You can also copy it from the dispatch. They see what the job is, where the
-            land is, how big it is, what you asked for, what it pays and when it is
-            wanted by. Nothing else of yours goes with it. If delivery is not configured,
-            copy the recorded link and send it yourself.
+            They see the order, the property, your request, the fee and the due date — nothing else.
           </p>
           {dpPurpose === 'nudge' && (
             <p className="note" style={{ margin: 0 }}>
-              This one is a reminder. Their number is kept masked on this page, so type it
-              again — it goes out on the channel below.
+              This one is a reminder. Type their number again.
             </p>
           )}
           <div className="field">
@@ -1800,8 +1751,7 @@ export function Ticket() {
               pressing a bright primary button that does nothing. */}
           {!dpContact.trim() && (
             <p className="note" style={{ margin: 0 }}>
-              An email or a phone number first — Pattadar does the writing, so it needs
-              somewhere to write to.
+              An email or a phone number first.
             </p>
           )}
         </Dialog>
@@ -1814,7 +1764,7 @@ export function Ticket() {
           module keeps a block comment about. */}
       {dialog === 'record' && (
         <Dialog
-          title="Record what came back" onClose={closeDialog} busy={addDeliverable.isPending}
+          title="Record submitted work" onClose={closeDialog} busy={addDeliverable.isPending}
           wide dismissable={false} initialFocus="#dv-kind"
           footer={(
             <>
@@ -1828,14 +1778,13 @@ export function Ticket() {
           )}
         >
           <p className="note" style={{ margin: 0 }}>
-            Nothing here touches {t.recordTitle} yet. File it on the job first, look at
-            it, and add it to the record when you are happy with it.
+            Nothing here touches {t.recordTitle} yet.
           </p>
           <div className="field">
             <label htmlFor="dv-kind">What is it</label>
             <select id="dv-kind" className="input" value={dvKind}
                     onChange={(e) => setDvKind(e.target.value)}>
-              <option value="paper">A paper</option>
+              <option value="paper">A document</option>
               <option value="photo">A photo</option>
               <option value="boundary">A corrected outline</option>
               <option value="feature">Something on the land</option>
@@ -1861,7 +1810,7 @@ export function Ticket() {
               <input
                 ref={pickFile}
                 type="file" hidden
-                aria-label="The file that came back"
+                aria-label="Submitted file"
                 onChange={(e) => setDvFile(e.target.files?.[0] ?? null)}
               />
               <button type="button" className="btn sm"
@@ -1880,8 +1829,7 @@ export function Ticket() {
                         placeholder="17.123456,80.123456;17.124,80.125;…"
                         onChange={(e) => setDvRing(e.target.value)} />
               <span className="note">
-                One corner per pair, latitude then longitude, separated by
-                semicolons. Three corners is the fewest that encloses anything.
+                Latitude then longitude, separated by semicolons. At least three corners.
               </span>
             </div>
           )}
@@ -1899,8 +1847,7 @@ export function Ticket() {
               accept card gives: a disabled button fires no hover. */}
           {!dvLabel.trim() && (
             <p className="note" style={{ margin: 0 }}>
-              Give it a name first. What you call it here is what you will be reading on
-              this job in six months.
+              Give it a name first.
             </p>
           )}
         </Dialog>

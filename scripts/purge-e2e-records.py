@@ -18,6 +18,8 @@ import sys
 
 import psycopg
 
+from seed_guard import require_local_dsn
+
 DSN = os.getenv("APP_PG_DSN",
                 "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd")
 UID = sys.argv[1] if len(sys.argv) > 1 else os.getenv("DEV_USER_ID", "w360-demo")
@@ -37,6 +39,10 @@ CHILDREN = (
 
 
 def main() -> None:
+    # A purge is a delete. Same gate as the seeders: the e2e harness runs this
+    # against a local disposable database, and nothing else should.
+    require_local_dsn(DSN, "purge-e2e-records.py",
+                      "deletes an account's records and everything hanging off them")
     with psycopg.connect(DSN, autocommit=True) as conn:
         cur = conn.execute(
             "SELECT p.id FROM parcels p JOIN passbooks pb ON pb.id = p.passbook_id"

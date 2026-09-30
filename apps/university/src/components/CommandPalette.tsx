@@ -2,7 +2,8 @@ import SearchRounded from '@mui/icons-material/SearchRounded';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { campuses, courses, opportunities } from '../data/catalog';
-import { stateLandRecordProfiles } from '../data/stateLandRecords';
+import { learningPathways } from '../data/pathways';
+import { publishedStateLandRecordProfiles } from '../data/stateLandRecords';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -19,6 +20,14 @@ interface CommandEntry {
 }
 
 const entries: CommandEntry[] = [
+  ...learningPathways.map((pathway) => ({
+    id: `pathway-${pathway.id}`,
+    label: pathway.title,
+    detail: `${pathway.audience} · suggested course order`,
+    group: 'Pathways',
+    path: `/pathways#${pathway.id}`,
+  })),
+  { id: 'credentials', label: 'How certificates work', detail: 'Completion previews and reviewed credentials', group: 'Credentials', path: '/credentials' },
   ...courses.map((course) => ({
     id: course.id,
     label: course.title,
@@ -40,7 +49,7 @@ const entries: CommandEntry[] = [
     group: 'Work',
     path: '/opportunities',
   })),
-  ...stateLandRecordProfiles.map((profile) => ({
+  ...publishedStateLandRecordProfiles.map((profile) => ({
     id: `state-${profile.code}`,
     label: `${profile.name} land records`,
     detail: `${profile.primaryRecordLabel} · ${profile.localTerms.slice(0, 3).join(' · ')}`,
@@ -105,12 +114,12 @@ export function CommandPalette({ open, onOpen, onClose }: CommandPaletteProps) {
       <div className="command-dialog__panel">
         <label className="command-dialog__search" htmlFor="university-command-search">
           <SearchRounded />
-          <span className="sr-only">Search courses, state guides, locations, and work</span>
+          <span className="sr-only">Search pathways, courses, certificates, state guides, locations, and work</span>
           <input
             ref={inputRef}
             id="university-command-search"
             value={query}
-            placeholder="Search courses, states, roles, locations"
+            placeholder="Search paths, courses, states, roles"
             autoComplete="off"
             aria-controls="command-results"
             aria-activedescendant={results[selected] ? `command-${results[selected].id}` : undefined}

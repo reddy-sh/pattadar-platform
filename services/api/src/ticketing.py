@@ -376,9 +376,9 @@ ENTRIES: dict = {
     "return":  ("held",    "wallet"),
 }
 ENTRY_LABEL: dict = {
-    "top_up": "Added", "hold": "Set aside",
-    "release": "To the person who did the work",
-    "fee": "Pattadar's share", "return": "Given back",
+    "top_up": "Added", "hold": "Held",
+    "release": "Released to the provider",
+    "fee": "Pattadar fee", "return": "Refunded",
 }
 
 DEFAULT_PAYEE_SHARE: float = 0.90
@@ -641,7 +641,7 @@ def accept_plan(held: float, payee_share: float = DEFAULT_PAYEE_SHARE,
     a ticket nobody funded can still be accepted and filed.
 
     >>> accept_plan(2900.0, 0.9, "G. Srinivas", "wr-abc")
-    [{'entry': 'release', 'from_bucket': 'held', 'to_bucket': 'payout', 'amount': 2610.0, 'payee': 'G. Srinivas', 'note': 'Released on acceptance', 'idempotency_key': 'wr-abc:release:1'}, {'entry': 'fee', 'from_bucket': 'held', 'to_bucket': 'fee', 'amount': 290.0, 'payee': '', 'note': "Pattadar's share", 'idempotency_key': 'wr-abc:fee:1'}]
+    [{'entry': 'release', 'from_bucket': 'held', 'to_bucket': 'payout', 'amount': 2610.0, 'payee': 'G. Srinivas', 'note': 'Released on acceptance', 'idempotency_key': 'wr-abc:release:1'}, {'entry': 'fee', 'from_bucket': 'held', 'to_bucket': 'fee', 'amount': 290.0, 'payee': '', 'note': 'Pattadar fee', 'idempotency_key': 'wr-abc:fee:1'}]
     >>> accept_plan(0.0)
     []
     """
@@ -655,7 +655,7 @@ def accept_plan(held: float, payee_share: float = DEFAULT_PAYEE_SHARE,
                                "Released on acceptance", ticket_id))
     if split["fee"] > 0:
         rows.append(_entry_row("fee", split["fee"], "",
-                               "Pattadar's share", ticket_id))
+                               "Pattadar fee", ticket_id))
     return rows
 
 
@@ -673,9 +673,9 @@ def cancel_plan(held: float, pay_anyway: float = 0.0,
     the owner and not with a stranger.
 
     >>> cancel_plan(2900.0, 700.0, 0.9, "G. Srinivas", "wr-abc")
-    [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2200.0, 'payee': '', 'note': 'Given back on cancellation', 'idempotency_key': 'wr-abc:return:1'}, {'entry': 'release', 'from_bucket': 'held', 'to_bucket': 'payout', 'amount': 630.0, 'payee': 'G. Srinivas', 'note': 'Settled on cancellation', 'idempotency_key': 'wr-abc:release:1'}, {'entry': 'fee', 'from_bucket': 'held', 'to_bucket': 'fee', 'amount': 70.0, 'payee': '', 'note': "Pattadar's share", 'idempotency_key': 'wr-abc:fee:1'}]
+    [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2200.0, 'payee': '', 'note': 'Refunded — order cancelled', 'idempotency_key': 'wr-abc:return:1'}, {'entry': 'release', 'from_bucket': 'held', 'to_bucket': 'payout', 'amount': 630.0, 'payee': 'G. Srinivas', 'note': 'Settled on cancellation', 'idempotency_key': 'wr-abc:release:1'}, {'entry': 'fee', 'from_bucket': 'held', 'to_bucket': 'fee', 'amount': 70.0, 'payee': '', 'note': 'Pattadar fee', 'idempotency_key': 'wr-abc:fee:1'}]
     >>> cancel_plan(2900.0, 0.0, 0.9, "", "wr-abc")
-    [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2900.0, 'payee': '', 'note': 'Given back on cancellation', 'idempotency_key': 'wr-abc:return:1'}]
+    [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2900.0, 'payee': '', 'note': 'Refunded — order cancelled', 'idempotency_key': 'wr-abc:return:1'}]
     >>> cancel_plan(0.0)
     []
     """
@@ -687,14 +687,14 @@ def cancel_plan(held: float, pay_anyway: float = 0.0,
     rows = []
     if back > 0:
         rows.append(_entry_row("return", back, "",
-                               "Given back on cancellation", ticket_id))
+                               "Refunded — order cancelled", ticket_id))
     split = payee_split(settled, payee_share)
     if split["payout"] > 0:
         rows.append(_entry_row("release", split["payout"], payee,
                                "Settled on cancellation", ticket_id))
     if split["fee"] > 0:
         rows.append(_entry_row("fee", split["fee"], "",
-                               "Pattadar's share", ticket_id))
+                               "Pattadar fee", ticket_id))
     return rows
 
 
@@ -702,14 +702,14 @@ def hold_plan(quoted: float, ticket_id: str = "") -> list:
     """The one row that sets money aside for a ticket.
 
     >>> hold_plan(2900.0, "wr-abc")
-    [{'entry': 'hold', 'from_bucket': 'wallet', 'to_bucket': 'held', 'amount': 2900.0, 'payee': '', 'note': 'Set aside for this job', 'idempotency_key': 'wr-abc:hold:1'}]
+    [{'entry': 'hold', 'from_bucket': 'wallet', 'to_bucket': 'held', 'amount': 2900.0, 'payee': '', 'note': 'Held for this order', 'idempotency_key': 'wr-abc:hold:1'}]
     >>> hold_plan(0.0, "wr-abc")
     []
     """
     amount = round(max(0.0, _f(quoted)), 2)
     if amount <= 0:
         return []
-    return [_entry_row("hold", amount, "", "Set aside for this job", ticket_id)]
+    return [_entry_row("hold", amount, "", "Held for this order", ticket_id)]
 
 
 def money_headline(quoted: float, held: float, released: float,
@@ -720,51 +720,49 @@ def money_headline(quoted: float, held: float, released: float,
     stub, and under the stub nothing has moved.
 
     >>> money_headline(2900.0, 2900.0, 0.0, 0.0, "submitted", "G. Srinivas")
-    '₹2,900 set aside for this job'
+    '₹2,900 held for this order'
     >>> money_headline(2900.0, 0.0, 2610.0, 0.0, "accepted", "G. Srinivas")
     '₹2,610 recorded as owed to G. Srinivas · ₹290 to Pattadar'
     >>> money_headline(2900.0, 0.0, 0.0, 2900.0, "cancelled", "")
-    '₹2,900 given back to your wallet'
+    '₹2,900 refunded to your wallet'
     >>> money_headline(2900.0, 0.0, 0.0, 0.0, "placed", "")
-    'Nothing set aside yet'
+    'Nothing held yet'
     """
-    who = payee or "the person who did the work"
+    who = payee or "the provider"
     if held > 0:
-        return f"{inr_short(held)} set aside for this job"
+        return f"{inr_short(held)} held for this order"
     if released > 0 and returned > 0:
         return (f"{inr_short(released)} recorded as owed to {who}"
-                f" · {inr_short(returned)} given back")
+                f" · {inr_short(returned)} refunded")
     if released > 0:
         return (f"{inr_short(released)} recorded as owed to {who}"
                 f" · {inr_short(quoted - released)} to Pattadar")
     if returned > 0:
-        return f"{inr_short(returned)} given back to your wallet"
-    return "Nothing set aside yet"
+        return f"{inr_short(returned)} refunded to your wallet"
+    return "Nothing held yet"
 
 
 def money_honesty(provider: str, payee: str = "") -> str:
     """The sentence under every figure while the provider is a stub.
 
     >>> money_honesty("stub", "G. Srinivas")
-    'Recorded, not charged. Paying online is not switched on yet — settle it with G. Srinivas directly for now.'
+    'Not charged. Online payment is not switched on yet — settle with G. Srinivas directly.'
     >>> money_honesty("stub")
-    'Recorded, not charged. Paying online is not switched on yet — settle it with them directly for now.'
+    'Not charged. Online payment is not switched on yet — settle with them directly.'
     >>> money_honesty("razorpay", "G. Srinivas")
-    "We don't release it to G. Srinivas until you accept what came back."
+    'Released to G. Srinivas only after you accept the work.'
     """
     if provider.endswith("_test"):
         return "Test mode. Provider payments and payouts use test money; no bank account is charged."
     if is_live(provider):
-        return (f"We don't release it to {payee or 'them'} until you accept"
-                " what came back.")
-    return ("Recorded, not charged. Paying online is not switched on yet"
-            f" — settle it with {payee or 'them'} directly for now.")
+        return (f"Released to {payee or 'them'} only after you accept"
+                " the work.")
+    return ("Not charged. Online payment is not switched on yet"
+            f" — settle with {payee or 'them'} directly.")
 
 
 WALLET_STUB_NOTICE: str = (
-    "Payments are not switched on yet. Every figure here is a record of what a "
-    "job costs and who it is owed to. Nothing has been taken from any account, "
-    "and nothing has been sent to anyone."
+    "Payments are not switched on yet. Nothing has been taken or sent."
 )
 
 
@@ -1589,7 +1587,7 @@ def event_headline(kind: str, action: str, ctx: dict) -> str:
         if entry == "fee":
             return f"{money} to Pattadar"
         if entry == "return":
-            return f"{money} given back"
+            return f"{money} refunded"
         if entry == "top_up":
             return f"{money} added"
         return money

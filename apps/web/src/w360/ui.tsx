@@ -9,16 +9,21 @@
  * Numbers are formatted the Indian way throughout — lakh/crore short forms and
  * 2,2,3 digit grouping — because that is what the records actually say.
  */
-import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, HTMLAttributes, ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import MoreVertOutlined from '@mui/icons-material/MoreVertOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
+import SearchOutlined from '@mui/icons-material/SearchOutlined';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 
 import { useBlobFetch } from '../components/holdingCards';
 import { isStorageRef } from '../pages/documents/storage';
+import { useMediaStream } from './mediaStream';
+import { useVideoPoster } from './videoPoster';
 
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import AgricultureOutlined from '@mui/icons-material/AgricultureOutlined';
@@ -38,6 +43,7 @@ import GppGoodOutlined from '@mui/icons-material/GppGoodOutlined';
 import GrassOutlined from '@mui/icons-material/GrassOutlined';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
 import ImageOutlined from '@mui/icons-material/ImageOutlined';
+import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import MapOutlined from '@mui/icons-material/MapOutlined';
 import MenuBookOutlined from '@mui/icons-material/MenuBookOutlined';
@@ -51,6 +57,7 @@ import RouteOutlined from '@mui/icons-material/RouteOutlined';
 import SettingsInputComponentOutlined from '@mui/icons-material/SettingsInputComponentOutlined';
 import StorefrontOutlined from '@mui/icons-material/StorefrontOutlined';
 import VideocamOutlined from '@mui/icons-material/VideocamOutlined';
+import AudiotrackOutlined from '@mui/icons-material/AudiotrackOutlined';
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined';
 import WavesOutlined from '@mui/icons-material/WavesOutlined';
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined';
@@ -205,6 +212,8 @@ const ICONS: Record<string, typeof MapOutlined> = {
   // document; the 'Unsorted' chip beside it already carries the doubt,
   // and a column of question marks reads as broken rather than untriaged.
   paper: InsertDriveFileOutlined,
+  // The owner's own folders in Documents.
+  folder: FolderOutlined,
   // record kinds
   parcel: GrassOutlined,
   agri: GrassOutlined,
@@ -223,6 +232,7 @@ const ICONS: Record<string, typeof MapOutlined> = {
   shield: GppGoodOutlined,
   chevron: ChevronRightOutlined,
   video: VideocamOutlined,
+  audio: AudiotrackOutlined,
   society: ApartmentOutlined,
   parcelwide: MapOutlined,
   tax: ReceiptLongOutlined,
@@ -250,94 +260,200 @@ export function Icon({ name, size = 18, className }: { name: string; size?: numb
 export function PhotoImg(
   { fileRef, alt, thumb, fallback, kind, className }:
   { fileRef: string; alt: string; thumb?: number; fallback: ReactNode;
-    kind?: 'photo' | 'video'; className?: string },
+    kind?: 'photo' | 'video' | 'audio'; className?: string },
 ) {
-  // A clip is fetched whole, through the same authenticated read as a photo —
-  // there is no still to ask for instead: the gateway only downscales images,
-  // and `?thumb` on a video is a no-op that hands back every byte of it. So
-  // the bytes do not move until somebody asks for them. Paging onto a clip
-  // used to download the whole file into memory before anything was drawn,
-  // with no way to start watching before it had all arrived.
   const [play, setPlay] = useState(false);
-  useEffect(() => { setPlay(false); }, [fileRef]);
+  const [playerError, setPlayerError] = useState(false);
+  useEffect(() => { setPlay(false); setPlayerError(false); }, [fileRef]);
   const stored = isStorageRef(fileRef);
-  const wanted = stored && (kind !== 'video' || play);
-  const photo = useBlobFetch(wanted ? fileRef : undefined,
-                             kind === 'video' ? undefined : thumb);
+  const media = kind === 'video' || kind === 'audio';
+  // Images keep the existing authenticated blob/thumbnail/HEIC path. Native
+  // media uses an exact-file HttpOnly stream session and Range requests; it is
+  // never fetched into an application Blob. Video poster extraction creates
+  // the stream session lazily on render and reuses its pinned URL for playback.
+  const photo = useBlobFetch(stored && !media ? fileRef : undefined, thumb);
+  const video = useVideoPoster(fileRef, stored && kind === 'video');
+  const playback = useMediaStream(fileRef, stored && media && play);
+  const stream = play ? playback : (kind === 'video' ? video : playback);
 
-  // A photo that EXISTS and could not be read is not a photo that was never
-  // taken. Both used to render the caller's `fallback` — the "nothing filed
-  // here" placeholder — so an expired session or a refused object looked
-  // exactly like an empty slot, with no way to ask again. `fallback` keeps its
-  // one meaning: nothing is filed. This says the other thing.
-  if (photo.status === 'error') {
+  if (!media && photo.status === 'error') {
     return (
       <span className={`photo-failed ${className ?? ''}`.trim()} role="alert">
         <ErrorOutlineOutlined sx={{ fontSize: 16 }} aria-hidden />
-        <span>
-          {photo.httpStatus === 403
-            ? 'You do not have access to this file'
-            : 'This did not load'}
-        </span>
+        <span>{photo.httpStatus === 403 ? 'You do not have access to this file' : 'This did not load'}</span>
         <button type="button" onClick={photo.retry}>Try again</button>
       </span>
     );
   }
-  if (kind === 'video' && stored && !play) {
+  if (media && stored && !play) {
     return (
       <button type="button" className={`videostart ${className ?? ''}`.trim()}
               onClick={() => setPlay(true)}>
-        <PlayArrowOutlined sx={{ fontSize: 34 }} aria-hidden />
-        <span>{alt.trim() || 'Play this clip'}</span>
+        {kind === 'video' && video.poster && (
+          <img className="video-poster" src={video.poster} alt="" aria-hidden />
+        )}
+        <span className="video-play-label">
+          <PlayArrowOutlined sx={{ fontSize: 34 }} aria-hidden />
+          <span>{alt.trim() || (kind === 'audio' ? 'Play this recording' : 'Play this clip')}</span>
+        </span>
       </button>
     );
   }
-  if (kind === 'video' && photo.status === 'loading') {
+  if (media && stream.status === 'loading') {
     return (
       <span className={`videostart ${className ?? ''}`.trim()} role="status">
         <VideocamOutlined sx={{ fontSize: 34 }} aria-hidden />
-        <span>Loading the clip…</span>
+        <span>Opening the {kind === 'audio' ? 'recording' : 'clip'}…</span>
       </span>
     );
   }
-  if (!photo.url) return <>{fallback}</>;
-  if (kind === 'video') {
-    return <video className={className} src={photo.url} controls autoPlay aria-label={alt} />;
+  if (media && (stream.status === 'error' || playerError)) {
+    return (
+      <span className={`photo-failed ${className ?? ''}`.trim()} role="alert">
+        <ErrorOutlineOutlined sx={{ fontSize: 16 }} aria-hidden />
+        <span>{stream.message || 'This recording did not open; its codec may not be supported.'}</span>
+        <button type="button" onClick={() => { setPlayerError(false); stream.retry(); }}>Try again</button>
+      </span>
+    );
   }
+  if (media && stream.url) {
+    return kind === 'audio'
+      ? <audio className={className} src={stream.url} controls autoPlay preload="metadata"
+               onError={() => setPlayerError(true)} aria-label={alt} />
+      : <video className={className} src={stream.url} poster={video.poster || undefined}
+               controls autoPlay playsInline preload="metadata"
+               onError={() => setPlayerError(true)} aria-label={alt} />;
+  }
+  if (!photo.url) return <>{fallback}</>;
   return <img className={className} src={photo.url} alt={alt} />;
+}
+
+/** A streamed video poster for the gallery strip. It is a span because the
+ * strip's outer element is already the interactive button. */
+export function VideoThumb({ fileRef, fallback }: { fileRef: string; fallback: ReactNode }) {
+  const root = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [frameReady, setFrameReady] = useState(false);
+  useEffect(() => { setFrameReady(false); }, [fileRef]);
+  useEffect(() => {
+    const node = root.current;
+    if (!node || visible) return;
+    if (!('IntersectionObserver' in window)) { setVisible(true); return; }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '96px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visible]);
+  const video = useVideoPoster(fileRef, visible && isStorageRef(fileRef));
+  return (
+    <span ref={root} className="video-thumb" aria-hidden>
+      {video.poster ? (
+        <img src={video.poster} alt="" />
+      ) : (
+        <>
+          {video.url && (
+            <video className={`video-thumb-frame${frameReady ? ' ready' : ''}`}
+                   src={video.url} muted playsInline preload="auto" tabIndex={-1}
+                   onLoadedData={(event) => {
+                     const node = event.currentTarget;
+                     if (node.videoWidth > 0 && node.videoHeight > 0) setFrameReady(true);
+                   }}
+                   onError={() => setFrameReady(false)} />
+          )}
+          {!frameReady && fallback}
+        </>
+      )}
+      <span className="video-thumb-play"><PlayArrowOutlined sx={{ fontSize: 13 }} /></span>
+    </span>
+  );
 }
 
 // ── Text ───────────────────────────────────────────────────────────────
 
 export const Eyebrow = ({ children }: { children: ReactNode }) => <p className="eyebrow">{children}</p>;
 
-export function Crumbs({ trail }: { trail: { label: string; to?: string }[] }) {
+/** A breadcrumb trail. `props` reaches the crumb's own element — Documents
+ *  makes each folder crumb a drop target, the way a file manager's path bar
+ *  is — and the last crumb is marked as the current place. */
+export function Crumbs({ trail, label = 'Breadcrumb' }: {
+  trail: { label: string; to?: string; props?: HTMLAttributes<HTMLElement> }[];
+  label?: string;
+}) {
   return (
-    <nav className="crumbs" aria-label="Breadcrumb">
+    <nav className="crumbs" aria-label={label}>
       {trail.map((t, i) => (
         <span key={`${t.label}-${i}`} style={{ display: 'contents' }}>
           {i > 0 && <span className="sep" aria-hidden>›</span>}
-          {t.to ? <Link to={t.to}>{t.label}</Link> : <span>{t.label}</span>}
+          {t.to
+            ? <Link to={t.to} {...t.props}
+                    aria-current={i === trail.length - 1 ? 'page' : undefined}>{t.label}</Link>
+            : <span {...t.props} aria-current={i === trail.length - 1 ? 'page' : undefined}>{t.label}</span>}
         </span>
       ))}
     </nav>
   );
 }
 
+/** A page's title, and only its title (Material 3 top-level page header).
+ *
+ *  `eyebrow` stays for nested screens where it names the parent; a top-level
+ *  page should not repeat its own rail label above its title. Standing
+ *  guidance — payment terms, what a screen records — goes in `info`, behind
+ *  an ⓘ next to the title, instead of a permanent sentence under it. */
 export function PageHead({
-  eyebrow, title, children, actions,
-}: { eyebrow?: ReactNode; title: ReactNode; children?: ReactNode; actions?: ReactNode }) {
+  eyebrow, title, info, children, actions,
+}: {
+  eyebrow?: ReactNode; title: ReactNode; info?: ReactNode;
+  children?: ReactNode; actions?: ReactNode;
+}) {
   return (
     <header className="pagehead">
       <div className="grow">
         {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-        <h1>{title}</h1>
+        <div className="pagehead-title">
+          <h1>{title}</h1>
+          {info && <InfoTip label={typeof title === 'string' ? title : 'this page'}>{info}</InfoTip>}
+        </div>
         {children}
       </div>
       {actions && <div className="actions">{actions}</div>}
     </header>
   );
 }
+
+/** An ⓘ that explains the thing beside it (Material 3 plain tooltip).
+ *
+ *  Shown on hover and on keyboard focus, and toggled by a tap so it works on a
+ *  phone, which has no hover. Escape closes it. The text is always in the DOM
+ *  and linked by aria-describedby, so a screen reader hears it on focus
+ *  without the tooltip having to be open. */
+export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="infotip" data-open={open || undefined}
+          onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button type="button" className="infotip-btn" aria-label={`About ${label}`}
+              aria-describedby={id} aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+              onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
+        <InfoOutlined sx={{ fontSize: 18 }} aria-hidden />
+      </button>
+      <span role="tooltip" id={id} className="infotip-body">{children}</span>
+    </span>
+  );
+}
+
+/** A status as a chip (Material 3 assist chip, non-interactive). `state` is
+ *  the server's good | warn | bad | unknown, the same key `State` reads. */
+export const StatusChip = ({ state, children }: { state: string; children: ReactNode }) => (
+  <span className={`schip ${state || 'unknown'}`}>{children}</span>
+);
 
 export interface FacetFilterOption {
   key: string;
@@ -367,20 +483,27 @@ export interface FacetFilterChip {
 export function FacetFilter({
   groups, selected, onToggle, onClear, tally, trailing, extraChips = [],
   groupLabel, missingOptionLabel, busy = false, ariaLabel = 'Narrow the list',
+  searchPlaceholder,
 }: {
   groups: FacetFilterGroup[];
   selected: Record<string, readonly string[]>;
   onToggle: (groupKey: string, optionKey: string) => void;
   onClear: () => void;
-  tally: ReactNode;
+  /** Optional: a list with a table footer carries its count there instead. */
+  tally?: ReactNode;
   trailing?: ReactNode;
   extraChips?: FacetFilterChip[];
   groupLabel?: (groupKey: string, group?: FacetFilterGroup) => string;
   missingOptionLabel?: (groupKey: string, optionKey: string) => string;
   busy?: boolean;
   ariaLabel?: string;
+  /** Optional search inside a long chooser (for example 56 mandals). The
+   *  query filters option labels across groups; screens keep no second search
+   *  implementation of their own. */
+  searchPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [optionQuery, setOptionQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wordFor = (key: string, group?: FacetFilterGroup) =>
@@ -404,17 +527,29 @@ export function FacetFilter({
     }),
     ...extraChips,
   ];
-  const visibleGroups = groups.filter((group) => group.options.length > 0);
+  const query = optionQuery.trim().toLocaleLowerCase('en-IN');
+  const visibleGroups = groups
+    .map((group) => ({
+      ...group,
+      options: query
+        ? group.options.filter((option) => option.label.toLocaleLowerCase('en-IN').includes(query))
+        : group.options,
+    }))
+    .filter((group) => group.options.length > 0);
+  const close = () => {
+    setOpen(false);
+    setOptionQuery('');
+  };
 
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) close();
     };
     const keys = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
-      setOpen(false);
+      close();
       triggerRef.current?.focus();
     };
     window.addEventListener('pointerdown', away);
@@ -433,7 +568,7 @@ export function FacetFilter({
       <button
         ref={triggerRef} type="button" className="addfilter"
         aria-expanded={open} aria-haspopup="true"
-        onClick={() => setOpen((shown) => !shown)}
+        onClick={() => { if (open) close(); else setOpen(true); }}
       >
         + Filter
       </button>
@@ -451,11 +586,26 @@ export function FacetFilter({
       )}
 
       <span className="grow" />
-      <span className="tally" role="status">{tally}</span>
+      {tally !== undefined && <span className="tally" role="status">{tally}</span>}
       {trailing && <><span className="vrule" aria-hidden />{trailing}</>}
 
       {open && (
-        <div className="fpop" role="group" aria-label={ariaLabel}>
+        <div className={`fpop${searchPlaceholder ? ' searchable' : ''}`} role="group" aria-label={ariaLabel}>
+          {searchPlaceholder && (
+            <div className="fpop-head">
+              <SearchOutlined sx={{ fontSize: 20 }} aria-hidden />
+              <input
+                autoFocus value={optionQuery} onChange={(event) => setOptionQuery(event.target.value)}
+                placeholder={searchPlaceholder} aria-label={searchPlaceholder}
+              />
+              <button type="button" className="fpop-close" aria-label="Close filters" onClick={() => {
+                close();
+                triggerRef.current?.focus();
+              }}>
+                <CloseOutlined sx={{ fontSize: 20 }} />
+              </button>
+            </div>
+          )}
           {visibleGroups.map((group) => (
             <div className="fgrp" key={group.key}>
               <span className="eyebrow">{wordFor(group.key, group)}</span>
@@ -474,6 +624,9 @@ export function FacetFilter({
               })}
             </div>
           ))}
+          {visibleGroups.length === 0 && (
+            <p className="fpop-empty">No filter options match that search.</p>
+          )}
         </div>
       )}
     </div>
@@ -505,9 +658,15 @@ export function Chip({
   );
 }
 
-export const Tag = ({ children, alert }: { children: ReactNode; alert?: boolean }) => (
-  <span className={alert ? 'tag alert' : 'tag'}>{children}</span>
-);
+/** A tag. With `onClick` it is a button — Documents uses that to filter the
+ *  list to everything carrying the same tag — and `label` names what the
+ *  press does for a screen reader. */
+export const Tag = ({ children, alert, onClick, label }: {
+  children: ReactNode; alert?: boolean; onClick?: () => void; label?: string;
+}) => onClick
+  ? <button type="button" className={alert ? 'tag alert act' : 'tag act'} onClick={onClick}
+            aria-label={label}>{children}</button>
+  : <span className={alert ? 'tag alert' : 'tag'}>{children}</span>;
 
 /** The words the system has for a record's status and stake.
  *
@@ -535,7 +694,7 @@ export function statusWord(key: string): string {
  *  paper the owner can no longer find. */
 export const SHELF_WORD: Record<string, string> = {
   title: 'Title', revenue: 'Revenue record', map: 'Map', search: 'Search & tax',
-  identity: 'Identity', old: 'Old record', photos: 'Photos', unsorted: 'Unsorted',
+  identity: 'Identity', old: 'Old record', photos: 'Photos & video', unsorted: 'Unsorted',
 };
 
 /** One cell of a CSV, safe to hand to a spreadsheet.
@@ -550,6 +709,32 @@ export function csvCell(v: unknown): string {
   let s = String(v ?? '');
   if (/^[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Rows as a CSV file, downloaded.
+ *
+ *  The Money tab's Cost sheet and the Expenses ledger's Export each carried a
+ *  copy of this, and one of them said it would drift. Every cell goes through
+ *  csvCell; the BOM makes Excel read the ₹ column as UTF-8 rather than
+ *  mojibake. The anchor is put in the document and the object URL revoked a
+ *  beat later: starting a download is a queued task, and releasing the URL in
+ *  the same tick can cancel the file before it is written — the "dead button"
+ *  both exports once had.
+ *
+ *  Silent on success: the browser's own download is the answer (design.md §
+ *  Microinteractions stance). It throws when the browser refuses, so the
+ *  caller can say so. */
+export function downloadCsv(name: string, rows: unknown[][]): void {
+  const blob = new Blob(['\uFEFF' + rows.map((r) => r.map(csvCell).join(',')).join('\n')],
+    { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** A status word the system owns — "For sale", "Managed", "agri". */
@@ -665,6 +850,41 @@ export interface MenuItem {
   rule?: boolean;
 }
 
+/** Where a portalled list sits beside its trigger: `left` is the trigger's
+ *  RIGHT edge, `start` its left edge, and `up` opens the list above it. */
+interface ListAnchor { top: number; left: number; start: number; up: boolean }
+
+function anchorFor(r: DOMRect, height: number): ListAnchor {
+  const up = window.innerHeight - r.bottom < height;
+  return { top: up ? r.top - 4 : r.bottom + 4, left: r.right, start: r.left, up };
+}
+
+const sameAnchor = (a: ListAnchor | null, b: ListAnchor) =>
+  !!a && a.top === b.top && a.left === b.left && a.start === b.start && a.up === b.up;
+
+/** Keep a portalled list inside the window.
+ *
+ *  `Menu` and `MultiSelect` open their list LEFTWARD from the trigger's right
+ *  edge, over the page the trigger belongs to. A trigger near the left edge —
+ *  the combined view's ⋮ once its head wraps on a phone — opened the list off
+ *  the screen, and both of its items were cut off. So a list that would cross
+ *  the left edge opens rightward from the trigger's left edge instead.
+ *  Measured, not guessed: `.menu-list` is `width: max-content`, so its width is
+ *  its own labels, and a layout effect reads it before the first paint. */
+function useListStyle(
+  listRef: RefObject<HTMLDivElement | null>, pos: ListAnchor | null,
+): CSSProperties | undefined {
+  const [rightward, setRightward] = useState(false);
+  useLayoutEffect(() => {
+    const width = listRef.current?.offsetWidth ?? 0;
+    setRightward(!!pos && pos.left - width < 8);
+  }, [listRef, pos]);
+  if (!pos) return undefined;
+  return rightward
+    ? { top: pos.top, left: Math.max(8, pos.start), transform: pos.up ? 'translateY(-100%)' : undefined }
+    : { top: pos.top, left: pos.left, transform: pos.up ? 'translate(-100%, -100%)' : 'translateX(-100%)' };
+}
+
 /** A kebab menu. The list is position:fixed off the button's rect AND
  *  portalled to the app root: its anchors live inside overflow-clipped
  *  surfaces (a scroll-x table) and hover-transformed cards — a transform
@@ -693,10 +913,11 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
   /** Class for the trigger when it is not an `iconbtn` — see `trigger`. */
   triggerClassName?: string;
 }) {
-  const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null);
+  const [pos, setPos] = useState<ListAnchor | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const listStyle = useListStyle(listRef, pos);
   // Only a keyboard-opened menu grabs focus; a mouse user's pointer is
   // already where they want it, and stealing focus would scroll the page.
   const takeFocus = useRef(false);
@@ -761,11 +982,9 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
       const gone = r.bottom < 0 || r.top > window.innerHeight
         || r.right < 0 || r.left > window.innerWidth;
       if (gone) { setPos(null); return; }
-      const up = window.innerHeight - r.bottom < menuH;
-      setPos((cur) => (cur && cur.top === (up ? r.top - 4 : r.bottom + 4)
-        && cur.left === r.right && cur.up === up
-        ? cur                              // unchanged: do not re-render
-        : { top: up ? r.top - 4 : r.bottom + 4, left: r.right, up }));
+      const next = anchorFor(r, menuH);
+      // Unchanged: do not re-render.
+      setPos((cur) => (sameAnchor(cur, next) ? cur : next));
     };
     window.addEventListener('pointerdown', away);
     window.addEventListener('keydown', keys);
@@ -791,9 +1010,7 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
           if (pos) { setPos(null); return; }
           // detail is 0 for Enter/Space activation, non-zero for a real click.
           takeFocus.current = e.detail === 0;
-          const r = e.currentTarget.getBoundingClientRect();
-          const up = window.innerHeight - r.bottom < menuH;
-          setPos({ top: up ? r.top - 4 : r.bottom + 4, left: r.right, up });
+          setPos(anchorFor(e.currentTarget.getBoundingClientRect(), menuH));
         }}
       >
         {trigger ?? <MoreVertOutlined sx={{ fontSize: 18 }} />}
@@ -802,11 +1019,7 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
         /* `role="menu"` sits on the inner list, not this box. A header is not a
            menuitem, and a non-menuitem child of role="menu" is the same ARIA
            violation Shell.tsx documents fixing for its role="listbox". */
-        <div
-          ref={listRef} className="menu-list"
-          style={{ top: pos.top, left: pos.left,
-                   transform: pos.up ? 'translate(-100%, -100%)' : 'translateX(-100%)' }}
-        >
+        <div ref={listRef} className="menu-list" style={listStyle}>
           {header && <div className="menuhead">{header}</div>}
           <div role="menu" aria-label={label}>
           {items.map((it) => {
@@ -844,6 +1057,147 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
       )}
     </div>
   );
+}
+
+/** A checkbox dropdown that STAYS OPEN as you tick — the multi-select `Menu`
+ *  cannot be, because a menu closes on the item it fired.
+ *
+ *  Same portalled, position:fixed, focus-trapping machinery as `Menu` (a
+ *  transform-clipping ancestor would otherwise strand a plain absolute list),
+ *  but the items are `menuitemcheckbox` and a tick does not dismiss it. It sits
+ *  where a section's actions sit, so "which boundaries are on the map" reads as
+ *  an action on the view rather than a rail of checkboxes competing with the
+ *  data beside them. Closes on Escape, Tab, or a click away. */
+export function MultiSelect({ label, summary, options, selected, onToggle, onAll }: {
+  /** What the choice is about — "Which boundaries to show". It names the open
+   *  list, and it is read BEFORE the summary in the trigger's name. The trigger
+   *  used to be named by this alone, so a screen reader and a voice command
+   *  heard a name that did not contain the words on the button (WCAG 2.5.3). */
+  label: string;
+  /** What the trigger shows — "1 of 2 boundaries". */
+  summary: ReactNode;
+  options: { id: string; label: ReactNode; disabled?: boolean }[];
+  selected: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  /** Ticks or clears every enabled option at once. */
+  onAll: (on: boolean) => void;
+}) {
+  const [pos, setPos] = useState<ListAnchor | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const listStyle = useListStyle(listRef, pos);
+  const nameId = useId();
+  const enabled = options.filter((o) => !o.disabled);
+  const allOn = enabled.length > 0 && enabled.every((o) => selected.has(o.id));
+  const someOn = enabled.some((o) => selected.has(o.id));
+  // Header row + one row per option, roughly, so it can decide to open upward.
+  const menuH = (options.length + 1) * 40 + 16;
+
+  const place = () => {
+    const b = btnRef.current;
+    return b ? anchorFor(b.getBoundingClientRect(), menuH) : null;
+  };
+
+  useEffect(() => {
+    if (!pos) return;
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setPos(null);
+    };
+    const keys = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); setPos(null); btnRef.current?.focus(); return; }
+      if (e.key === 'Tab') { setPos(null); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const all = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role]') ?? []);
+      if (!all.length) return;
+      e.preventDefault();
+      const at = all.indexOf(document.activeElement as HTMLElement);
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      all[(at + step + all.length) % all.length].focus();
+    };
+    const follow = () => {
+      const next = place();
+      if (!next) return;
+      const b = btnRef.current!.getBoundingClientRect();
+      if (b.bottom < 0 || b.top > window.innerHeight) { setPos(null); return; }
+      setPos((cur) => (sameAnchor(cur, next) ? cur : next));
+    };
+    window.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', keys);
+    window.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
+    return () => {
+      window.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', keys);
+      window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('resize', follow);
+    };
+  }, [pos]);
+
+  return (
+    <div className="menu">
+      {/* Named "label, then what it shows": the words on the button stay in
+          its name, and the label says what they are a choice of. */}
+      <span id={`${nameId}-label`} hidden>{label}</span>
+      <button ref={btnRef} type="button" className="btn" aria-haspopup="true"
+              aria-expanded={!!pos} aria-labelledby={`${nameId}-label ${nameId}-value`}
+              onClick={() => setPos(pos ? null : place())}>
+        <span id={`${nameId}-value`}>{summary}</span>
+        <span aria-hidden style={{ opacity: 0.7 }}>⌄</span>
+      </button>
+      {pos && createPortal(
+        <div ref={listRef} className="menu-list multi"
+             role="group" aria-label={label} style={listStyle}>
+          <button type="button" role="menuitemcheckbox" aria-checked={allOn ? true : someOn ? 'mixed' : false}
+                  className="multi-all"
+                  onClick={() => onAll(!allOn)}>
+            <span className="multi-box" data-state={allOn ? 'on' : someOn ? 'mixed' : 'off'} aria-hidden />
+            All {enabled.length}
+          </button>
+          {options.map((o) => (
+            <button key={o.id} type="button" role="menuitemcheckbox"
+                    aria-checked={selected.has(o.id)} disabled={o.disabled}
+                    onClick={() => onToggle(o.id)}>
+              <span className="multi-box" data-state={selected.has(o.id) ? 'on' : 'off'} aria-hidden />
+              {o.label}
+            </button>
+          ))}
+        </div>,
+        document.querySelector('.w360') ?? document.body,
+      )}
+    </div>
+  );
+}
+
+/** The browser's own full screen, for one element: the photo stage's theater
+ *  view and the combined map's stage.
+ *
+ *  Truly full-window, past the app chrome, and Esc exits it the way people
+ *  already expect. `on` tracks the BROWSER's state rather than our intent, so
+ *  Esc or the operating system's own control keeps a toggle's label honest.
+ *  `supported` is false where a page cannot ask for it (Safari on an iPhone
+ *  allows full screen for video only), and a control that would do nothing is
+ *  not drawn. Lifted here when the map became the second screen to need it
+ *  (design.md § App-surface rules, "One component per concern"). */
+export function useFullscreen<T extends HTMLElement = HTMLDivElement>() {
+  const ref = useRef<T>(null);
+  const [on, setOn] = useState(false);
+  const supported = typeof document !== 'undefined'
+    && document.fullscreenEnabled === true
+    && typeof document.documentElement.requestFullscreen === 'function';
+  useEffect(() => {
+    const sync = () => setOn(!!ref.current && document.fullscreenElement === ref.current);
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+  const toggle = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void el.requestFullscreen?.().catch(() => {});
+  }, []);
+  return { ref, on, toggle, supported };
 }
 
 /** A single loading block — the screens never spin, they hold their shape.
@@ -945,10 +1299,7 @@ export function Failed({
     >
       <span className="blank-i"><ErrorOutlineOutlined sx={{ fontSize: 24 }} /></span>
       <p className="blank-t">{what} did not load</p>
-      <p className="note">
-        Nothing has been lost — the app could not reach the server, or the server refused
-        the read. Your records are untouched.
-      </p>
+      <p className="note">Check your connection and try again.</p>
       {why && <p className="blank-why">{why}</p>}
       <div className="row tight blank-do">
         <button type="button" className="btn sm" disabled={retrying} onClick={() => void again()}>
@@ -962,12 +1313,27 @@ export function Failed({
 /** The stage pips. It lived inside Orders.tsx as inline styles, which meant
  *  the ticket page could not have the same one without copying them. The
  *  word is not decoration: four amber dashes say nothing to a screen reader,
- *  which is why the aria-label counts them out loud. */
-export function Rail({ stage, steps, word }:
-  { stage: number; steps: string[]; word?: string }) {
+ *  which is why the aria-label counts them out loud.
+ *
+ *  `pipsOnly` is for a row that already says its status once, in a
+ *  StatusChip after the title: the word under the pips was the same status a
+ *  second time. The stage's name then goes into the accessible name instead,
+ *  so nothing a sighted reader gets from the pips is kept from anyone else. */
+export function Rail({ stage, steps, word, pipsOnly }:
+  { stage: number; steps: string[]; word?: string; pipsOnly?: boolean }) {
   const at = Math.min(Math.max(stage, 0), steps.length - 1);
+  const count = `Stage ${at + 1} of ${steps.length}`;
+  if (pipsOnly) {
+    return (
+      <span className="rail" role="img" aria-label={`${count}: ${steps[at]}`}>
+        {steps.map((s, i) => (
+          <i key={s} title={s} className={i <= at ? 'on' : undefined} />
+        ))}
+      </span>
+    );
+  }
   return (
-    <span className="rail" aria-label={`Stage ${at + 1} of ${steps.length}`}>
+    <span className="rail" aria-label={count}>
       {steps.map((s, i) => (
         <i key={s} title={s} className={i <= at ? 'on' : undefined} />
       ))}
@@ -979,3 +1345,31 @@ export function Rail({ stage, steps, word }:
 /** The four stages a work_request's `stage` integer indexes. Mirrors
  *  _STAGES in services/api/src/web360.py. */
 export const ORDER_STAGES = ['Placed', 'Assigned', 'On site', 'Delivered'];
+
+/** True while the viewport is at most `px` wide.
+ *
+ *  For the few places CSS cannot do the job — collapsing a scroller into a
+ *  button, or moving an action from a header into its overflow menu. One
+ *  listener, matchMedia rather than a resize handler. It lived privately in
+ *  OrderService.tsx; the Location tab needs the same answer, so it is here. */
+export function useNarrow(px: number): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${px}px)`).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${px}px)`);
+    const on = () => setNarrow(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [px]);
+  return narrow;
+}
+
+/** What a refused move on an order says, wherever it is refused. The same
+ *  order refused on its own page and in a property's Services list must not
+ *  sound like two different problems, so the sentence lives here rather than
+ *  as a private copy in each screen. (The desk's own screens say "job": that
+ *  is the associate's word for the same work, and Desk.tsx keeps it.) */
+export const ORDER_MOVE_FAILED =
+  'That did not go through. Nothing on this order has changed — reload the page and try again.';

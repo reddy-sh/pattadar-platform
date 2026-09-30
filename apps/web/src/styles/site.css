@@ -1,7 +1,7 @@
 /* Pattadar Bloom marketing surface.
  * Material 3-guided hierarchy, adaptive layout, accessible interaction states,
- * purposeful motion, and original Living Land Record illustration system.
- * Copy remains byte-frozen; styles are scoped to `.site` and never leak into
+ * purposeful motion, and product-shaped workflow previews.
+ * Styles are scoped to `.site` and never leak into
  * the authenticated application.
  *
  * Scope: everything lives under `.site` — this stylesheet must never leak
@@ -25,10 +25,11 @@ html:has(.site) body {
   color-scheme: dark;
   background: var(--color-paper);
   color: var(--color-ink);
-  font-family: var(--font-body);
+  /* The one face, named once for the marketing surface; everything below
+     inherits it (design.md § Typography). */
+  font-family: var(--font-sans);
   font-size: var(--text-md);
   line-height: var(--leading-body);
-  font-feature-settings: "ss01", "cv11";
   font-variant-ligatures: contextual;
 }
 
@@ -159,10 +160,8 @@ html:has(.site) body {
 
 .nav__brand {
   display: inline-block;
-  font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--text-md);
-  letter-spacing: -0.01em;
   color: var(--color-ink);
   white-space: nowrap;
   border-radius: var(--radius-sm);
@@ -184,6 +183,8 @@ html:has(.site) body {
     gap var(--dur-base) var(--ease-out),
     font-size var(--dur-base) var(--ease-out);
 }
+
+.nav__menu { display: none; }
 
 .nav[data-state="scrolled"] .nav__links {
   gap: var(--space-sm);
@@ -220,7 +221,7 @@ html:has(.site) body {
   border-radius: var(--radius-pill);
   color: var(--color-ink-2);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 700;
   transition:
     color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out);
@@ -246,7 +247,7 @@ html:has(.site) body {
   color: var(--color-ink);
   border-radius: var(--radius-pill);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
   transition:
     transform var(--dur-fast) var(--ease-out),
@@ -274,19 +275,31 @@ html:has(.site) body {
 .hero {
   position: relative;
   isolation: isolate;
-  padding: var(--space-2xl) var(--page-gutter) var(--space-3xl);
-  display: grid;
-  gap: var(--space-xl);
+  min-height: clamp(30rem, calc(100svh - 10rem), 41rem);
+  padding: clamp(2rem, 4vw, 4rem) var(--page-gutter) 2rem;
+  display: flex;
+  align-items: stretch;
   overflow: hidden;
+  background: #15271f;
+  border-bottom: var(--rule-hair) solid var(--color-rule-strong);
+}
+
+.hero__landscape {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: linear-gradient(90deg, rgba(5, 13, 10, .92), rgba(5, 13, 10, .67) 47%, rgba(5, 13, 10, .32) 78%, rgba(5, 13, 10, .62)), url('/brand/land-records-hero.jpg');
+  background-position: center;
+  background-size: cover;
 }
 
 .hero__stage {
   width: min(100%, var(--max-width));
   margin: 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(24rem, 1.08fr);
-  align-items: center;
-  gap: clamp(var(--space-xl), 5vw, var(--space-3xl));
+  grid-template-columns: minmax(0, 1.06fr) minmax(23rem, .94fr);
+  align-items: end;
+  gap: clamp(2rem, 7vw, 7rem);
 }
 
 .hero__copy {
@@ -302,37 +315,40 @@ html:has(.site) body {
   align-items: flex-start;
   text-align: left;
   margin: 0;
-  max-width: 10ch;
-  font-size: clamp(3.25rem, 5.4vw, 6rem);
+  max-width: 13ch;
+  font-size: clamp(3rem, 4.4vw, 5.4rem);
 }
-.hero__copy .hero__lead { margin: 0; }
+.hero__copy .hero__lead { margin: 0; max-width: 36rem; color: rgba(255, 255, 255, .85); }
 .hero__copy .hero__ctas { justify-content: flex-start; }
 
-.hero__stage .hero-scene {
+.hero__stage .hero-story {
   width: 100%;
+  justify-self: stretch;
 }
+
+.hero__display { color: #fff; }
+.hero__line em { color: #dcebc5; }
+.hero__rail { background: rgba(5, 13, 10, .56); border-color: rgba(255, 255, 255, .35); color: #fff; }
 
 .hero__rail {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
   padding: var(--space-2xs) var(--space-sm) var(--space-2xs) var(--space-xs);
-  background: color-mix(in oklch, var(--color-paper-2) 90%, transparent);
-  border: var(--rule-hair) solid var(--color-rule-strong);
+  background: rgba(5, 13, 10, .56);
+  border: var(--rule-hair) solid rgba(255, 255, 255, .35);
   border-radius: var(--radius-pill);
   margin: 0 auto;
   width: max-content;
   max-width: 100%;
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   letter-spacing: 0.04em;
-  color: var(--color-ink-2);
+  color: #fff;
   text-transform: uppercase;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0;
-  animation: rise var(--dur-slow) var(--ease-out) forwards;
 }
 
 .hero__rail-dot {
@@ -342,15 +358,15 @@ html:has(.site) body {
   background: var(--color-accent);
   box-shadow: 0 0 8px var(--color-accent);
   flex: 0 0 auto;
-  animation: pulse 2.4s var(--ease-in-out) infinite;
+  /* One pulse, then still: nothing on this page loops (design.md § Motion,
+     "Play once, then rest"). It used to pulse until the page closed. */
+  animation: pulse 2.4s var(--ease-in-out) 1;
 }
 
 .hero__display {
-  font-family: var(--font-display);
-  font-weight: 800;
+  font-weight: 700;
   font-size: clamp(2.5rem, 7.5vw + 0.25rem, 6.25rem);
   line-height: var(--leading-display);
-  letter-spacing: -0.045em;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -359,30 +375,26 @@ html:has(.site) body {
   max-width: 16ch;
   overflow-wrap: anywhere;
   min-width: 0;
-  color: var(--color-ink);
+  color: #fff;
 }
 
 .hero__line {
   display: block;
-  opacity: 0;
-  transform: translateY(16px);
-  animation: rise var(--dur-slow) var(--ease-out) forwards;
 }
 
-.hero__line:nth-child(1) { animation-delay: 60ms; }
-.hero__line:nth-child(2) { animation-delay: 160ms; }
-
+/* The accent phrase: the one face in 400 italic and the accent colour
+   (design.md § Typography). It was a serif at 1.14em to match the sans cap
+   height; in the same face it needs no size correction. The small padding
+   keeps the italic's overhang off the next word. */
 .hero__line em,
 .statement em {
-  font-family: var(--font-accent);
   font-style: italic;
   font-weight: 400;
-  font-size: 1.14em;
-  letter-spacing: -0.02em;
   color: var(--color-accent);
-  font-feature-settings: normal;
   padding-right: 0.06em;
 }
+
+.hero .hero__line em { color: #dcebc5; }
 
 @keyframes rise {
   to { opacity: 1; transform: translateY(0); }
@@ -393,19 +405,6 @@ html:has(.site) body {
   margin: 0 auto;
   color: var(--color-ink-2);
   font-size: var(--text-md);
-  opacity: 0;
-  animation: rise var(--dur-slow) var(--ease-out) 260ms forwards;
-}
-
-/* body-face emphasis, roman — the serif accent stays a two-slot outlier
- * (hero display em + statement em), per slop-test gate 38 */
-.hero__flip {
-  display: inline-block;
-  font-family: var(--font-body);
-  font-style: normal;
-  font-weight: 500;
-  color: var(--color-accent);
-  animation: rise var(--dur-base) var(--ease-out) both;
 }
 
 .hero__ctas {
@@ -413,63 +412,153 @@ html:has(.site) body {
   gap: var(--space-md);
   justify-content: center;
   flex-wrap: wrap;
-  opacity: 0;
-  animation: rise var(--dur-slow) var(--ease-out) 340ms forwards;
 }
 
-/* mono data strip — the trust line */
-.hero__meta {
+/* trust points — M3 assist chips under the hero buttons. Static labels, not
+ * controls: an outlined pill with a leading icon and no hover state. */
+.hero__chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  align-items: baseline;
-  gap: var(--space-lg) var(--space-2xl);
-  padding-top: var(--space-lg);
-  border-top: var(--rule-hair) solid var(--color-rule);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  width: 100%;
-  max-width: var(--max-width);
-  color: var(--color-ink-2);
+  gap: var(--space-xs);
   opacity: 0;
   animation: rise var(--dur-slow) var(--ease-out) 420ms forwards;
 }
 
-.hero__meta-cell {
+.hero__chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
   min-width: 0;
+  min-height: 32px;
+  padding: var(--space-2xs) var(--space-sm);
+  border: var(--rule-hair) solid var(--color-rule-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
 }
 
-.hero__meta-cell svg {
-  width: 15px;
-  height: 15px;
+.hero__chip svg {
+  width: 18px;
+  height: 18px;
   color: var(--color-accent);
   flex: 0 0 auto;
 }
 
-/* ── hero story · scattered proof becoming one record ─────────────
- * Motion narrative, lazily loaded behind a drawn silhouette so the hero copy
- * never waits on it and the area is never blank. See HeroStory.tsx. */
-.hero-scene {
-  width: min(100%, 48rem);
+/* Editorial record trail, over the land itself rather than a product mockup. */
+.hero-story {
+  display: grid;
+  align-content: end;
+  gap: 1.2rem;
   min-width: 0;
-  margin: 0 auto;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
+  color: #fff;
 }
 
-.hero-scene__svg {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
+.hero-story__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .55);
+  padding-bottom: .7rem;
+  text-transform: uppercase;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .08em;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .hero-scene { cursor: pointer; }
+.hero-story__records {
+  display: grid;
+  gap: .35rem;
+  min-height: 15rem;
+  align-content: center;
 }
+
+.hero-story__record {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  align-items: center;
+  min-height: 3.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .35);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .7);
+}
+
+.hero-story__record-index {
+  color: #dcebc5;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.hero-story__record-text {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .6rem;
+}
+
+.hero-story__record-text small {
+  text-transform: uppercase;
+  font-size: .68rem;
+  letter-spacing: .06em;
+}
+
+.hero-story__record-text strong {
+  font-size: clamp(.85rem, 1.15vw, 1.12rem);
+  text-align: right;
+}
+
+.hero-story__arrival {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding-top: .7rem;
+  border-top: 2px solid #dcebc5;
+  font-weight: 700;
+  font-size: 1.35rem;
+}
+
+.hero-story__arrival small { font-size: .75rem; font-weight: 400; }
+.hero-story__dot { color: var(--color-accent); }
+
+.hero-story__narration { min-height: 6rem; }
+.hero-story__narration h2 { margin: 0 0 .25rem; font-size: clamp(1.25rem, 1.7vw, 1.75rem); line-height: 1.1; }
+.hero-story__narration p { margin: 0; color: rgba(255, 255, 255, .82); font-size: .9rem; }
+
+.hero-story__note {
+  margin: -.6rem 0 0;
+  font-size: .68rem;
+  color: rgba(255, 255, 255, .62);
+}
+
+.hero-story__controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid rgba(255, 255, 255, .5);
+}
+
+.hero-story__step {
+  min-width: 0;
+  min-height: 46px;
+  padding: .5rem .2rem;
+  border: 0;
+  border-top: 3px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, .62);
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out);
+}
+
+.hero-story__step:hover,
+.hero-story__step[aria-pressed='true'] { color: #fff; }
+.hero-story__step[aria-pressed='true'] { border-top-color: #dcebc5; }
+.hero-story__step:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+.hero-story__step-number { display: block; font-size: .6rem; color: #dcebc5; }
 
 /* ── platform journey · the three-step story ──────────────────────
  * Steps on one side, the stage on the other, so the picture is always beside
@@ -478,7 +567,7 @@ html:has(.site) body {
  * step list is the accessible source of truth and never depends on motion.
  * `--journey-act` mirrors ACT_MS in PlatformJourney.tsx — keep them in step. */
 .journey {
-  --journey-act: 3400ms;
+  --journey-act: 4200ms;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
   gap: clamp(var(--space-xl), 4vw, var(--space-3xl));
@@ -523,7 +612,6 @@ html:has(.site) body {
   place-items: center;
   border: var(--rule-hair) solid var(--color-rule-strong);
   border-radius: var(--radius-pill);
-  font-family: var(--font-mono);
   font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -543,10 +631,8 @@ html:has(.site) body {
 .journey__step[data-state='told'] .journey__step-num { color: var(--color-accent-soft); }
 
 .journey__step-h {
-  font-family: var(--font-display);
   font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font-weight: 700;
   color: var(--color-ink-2);
   margin: 0 0 var(--space-2xs);
   overflow-wrap: anywhere;
@@ -604,12 +690,12 @@ html:has(.site) body {
   width: 100%;
   /* Held to roughly the height of the three steps beside it: the stage
    * illustrates the story, it does not outsize it. */
-  max-width: 28rem;
+  max-width: 34rem;
   min-width: 0;
   margin: 0;
   justify-self: end;
   overflow: hidden;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
 }
 
 .journey__svg {
@@ -628,105 +714,14 @@ html:has(.site) body {
   background: color-mix(in oklch, var(--color-paper-2) 60%, transparent);
 }
 
-/* ── spec card (the portfolio sample, calmed) ────────────────────── */
-
-.spec {
-  width: min(100%, 52rem);
-  margin: 0 auto;
-  padding: var(--space-xl);
-  background: color-mix(in oklch, var(--color-paper-2) 92%, transparent);
-  border: var(--rule-hair) solid var(--color-rule);
-  border-radius: var(--radius-lg);
-  text-align: left;
-}
-
+/* mono overline label (assistant sample, pricing section heads) */
 .overline {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-ink-3);
   margin: 0;
-}
-
-.spec__label {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-ink-3);
-  margin: var(--space-lg) 0 0;
-}
-
-.spec__figure-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  margin: var(--space-2xs) 0;
-}
-
-.spec__figure {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-2xl);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  color: var(--color-ink);
-  margin: 0;
-}
-
-.spec__delta {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--color-success);
-  margin: 0;
-}
-
-.spec__counts {
-  color: var(--color-ink-2);
-  font-size: var(--text-sm);
-  margin: 0 0 var(--space-2xs);
-}
-
-.spec__honesty {
-  color: var(--color-ink-3);
-  font-size: var(--text-sm);
-  max-width: var(--measure);
-  margin: 0 0 var(--space-lg);
-}
-
-.spec__rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
-  column-gap: var(--space-xl);
-}
-
-.spec__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-top: var(--rule-hair) solid var(--color-rule);
-}
-
-.spec__row-k {
-  color: var(--color-ink-2);
-  font-size: var(--text-sm);
-  min-width: 0;
-}
-
-.spec__row-v {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--color-ink);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 /* ── shared section shells ───────────────────────────────────────── */
@@ -760,7 +755,7 @@ html:has(.site) body {
 .section-head--tight { margin-bottom: var(--space-xl); }
 
 .section-eyebrow {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -769,16 +764,13 @@ html:has(.site) body {
 }
 
 .section-h {
-  font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--text-4xl);
   line-height: var(--leading-tight);
-  letter-spacing: -0.025em;
   color: var(--color-ink);
   margin: 0;
   max-width: 22ch;
-  /* Two-line headings at this size leave ugly widows — "An assistant that knows
-   * your / land" was one word alone on the second line. */
+  /* Balance headings so a single short word does not hang alone. */
   text-wrap: balance;
   overflow-wrap: anywhere;
   min-width: 0;
@@ -819,11 +811,10 @@ html:has(.site) body {
 }
 
 .rows__num {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-2xl);
-  font-weight: 500;
+  font-weight: 400;
   color: var(--color-accent);
-  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
@@ -835,11 +826,9 @@ html:has(.site) body {
 }
 
 .rows__label {
-  font-family: var(--font-display);
   font-size: var(--text-lg);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-ink);
-  letter-spacing: -0.015em;
   margin: 0;
   overflow-wrap: anywhere;
   min-width: 0;
@@ -852,6 +841,21 @@ html:has(.site) body {
   margin: 0;
   max-width: var(--measure);
 }
+
+.story-sources {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .5rem 1.25rem;
+  margin: 1.25rem 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+}
+
+.story-sources span { color: var(--color-ink-3); }
+.story-sources a { text-decoration: underline !important; text-underline-offset: .2em; }
+.story-sources a:hover { color: var(--color-ink); }
+.story-sources a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
 
 /* ── card grid (features · pillars · roadmap) ────────────────────── */
 
@@ -898,17 +902,8 @@ html:has(.site) body {
   color: var(--color-accent);
 }
 
-.card__num {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--color-accent);
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  margin: 0;
-}
-
 .card__type {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   color: var(--color-ink-3);
   letter-spacing: 0.08em;
@@ -918,11 +913,9 @@ html:has(.site) body {
 
 .card__h {
   margin: var(--space-xs) 0 0;
-  font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   font-size: var(--text-lg);
   line-height: 1.2;
-  letter-spacing: -0.015em;
   color: var(--color-ink);
   overflow-wrap: anywhere;
   min-width: 0;
@@ -944,13 +937,51 @@ html:has(.site) body {
 .card--tba .card__h { color: var(--color-ink-2); }
 .card--tba:hover { border-color: var(--color-rule-strong); background: transparent; }
 
-/* wide cards span 2 tracks on desktop */
+/* Capability matrix: still an even programme grid, but with a denser rhythm
+ * than the later record-pillar cards so the middle of the page does not become
+ * one long stack of identical boxes. */
+.grid--features {
+  gap: 0;
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: color-mix(in oklch, var(--color-paper-2) 68%, transparent);
+}
+
+.card--feature {
+  min-height: 17rem;
+  border: 0;
+  border-radius: 0;
+  border-right: var(--rule-hair) solid var(--color-rule);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  background: transparent;
+}
+
+.card--feature:hover {
+  transform: none;
+  background: color-mix(in oklch, var(--color-accent) 5%, transparent);
+}
+
+.card--feature .card__meta {
+  width: 2.25rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: var(--rule-hair) solid color-mix(in oklch, var(--color-accent) 35%, var(--color-rule));
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--color-accent) 7%, transparent);
+}
+
+.card--feature .card__meta svg {
+  width: 18px;
+  height: 18px;
+}
+
 @media (min-width: 60rem) {
-  .grid--bento { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .grid--bento > .card { grid-column: span 1; }
-  .grid--bento > .card--wide { grid-column: span 2; }
   .grid--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .grid--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid--features .card--feature:nth-child(4n) { border-right: 0; }
+  .grid--features .card--feature:nth-last-child(-n + 4) { border-bottom: 0; }
 }
 
 /* mono badge (Coming soon · On the roadmap) */
@@ -961,7 +992,7 @@ html:has(.site) body {
   padding: var(--space-2xs) var(--space-sm);
   border: var(--rule-hair) solid color-mix(in oklch, var(--color-accent) 40%, var(--color-rule));
   border-radius: var(--radius-pill);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -969,27 +1000,61 @@ html:has(.site) body {
   background: color-mix(in oklch, var(--color-accent) 8%, transparent);
 }
 
-/* ── ruled columns (stages) ──────────────────────────────────────── */
+/* ── stages · M3 primary tabs ────────────────────────────────────── */
 
-.cols {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.stages {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-  gap: var(--space-xl);
+  gap: var(--space-lg);
 }
 
-.cols__col {
-  border-top: var(--rule-bold) solid var(--color-rule-strong);
-  padding-top: var(--space-md);
+.stages__tabs {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  min-width: 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.cols__col .card__h { margin: 0; }
+.stages__tab {
+  flex: 1 0 auto;
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  margin-bottom: calc(-1 * var(--rule-hair));
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  font-size: var(--text-md);
+  color: var(--color-ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out);
+}
+
+.stages__tab:hover { color: var(--color-ink); }
+
+.stages__tab[aria-selected="true"] {
+  color: var(--color-ink);
+  border-bottom-color: var(--color-accent);
+}
+
+.stages__tab:focus-visible,
+.stages__panel:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.stages__panel {
+  display: grid;
+  gap: var(--space-xs);
+  max-width: var(--measure);
+  border-radius: var(--radius-sm);
+}
+
+.stages__panel-content {
+  display: grid;
+  gap: var(--space-xs);
+}
 
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
  * Pattadar University is a ruled institutional band, not another card grid. */
@@ -1041,9 +1106,9 @@ html:has(.site) body {
 .university__mark span {
   position: absolute;
   bottom: var(--space-sm);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 0.5625rem;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .university__intro .section-head { margin-bottom: var(--space-lg); }
@@ -1076,7 +1141,7 @@ html:has(.site) body {
 .university__index {
   padding-top: var(--space-xs);
   color: var(--color-ink-3);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
 }
 .university__icon {
@@ -1092,9 +1157,8 @@ html:has(.site) body {
 .university__point-copy { display: grid; gap: var(--space-2xs); min-width: 0; }
 .university__point-copy strong {
   color: var(--color-ink);
-  font-family: var(--font-display);
   font-size: var(--text-lg);
-  font-weight: 600;
+  font-weight: 700;
 }
 .university__point-copy > span {
   max-width: var(--measure);
@@ -1155,10 +1219,8 @@ html:has(.site) body {
 }
 
 .point__h {
-  font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   font-size: var(--text-lg);
-  letter-spacing: -0.015em;
   color: var(--color-ink);
   margin: 0 0 var(--space-2xs);
 }
@@ -1210,7 +1272,9 @@ html:has(.site) body {
   height: 7px;
   border-radius: 50%;
   background: var(--color-success);
-  animation: pulse 2.4s var(--ease-in-out) infinite;
+  /* One pulse, then still, like the hero's dot. A dot that pulsed forever on
+     a panel labelled "sample conversation" claimed a live service. */
+  animation: pulse 2.4s var(--ease-in-out) 1;
 }
 
 .assistant__thread {
@@ -1276,46 +1340,48 @@ html:has(.site) body {
   background: var(--color-ink-3);
 }
 
-/* "Acts, not just talks", shown: the record opens and the Files section is
- * ready. Sized to its contents and left-aligned so it reads as something the
- * last answer did, not as a footer rule across the panel. Decorative — the
- * message above it already says so in words. */
+/* The sample answer's named record, not a generic loading indicator. */
 .assistant__act {
-  width: fit-content;
+  width: min(100%, 28rem);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-md);
-  border: var(--rule-hair) solid color-mix(in oklch, var(--color-accent) 32%, var(--color-rule));
-  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
-  border-radius: var(--radius-pill);
+  padding: var(--space-sm);
+  border: var(--rule-hair) solid var(--color-rule-strong);
+  background: var(--color-paper-2);
+  border-radius: var(--radius-sm);
 }
 
-.assistant__act svg {
-  width: 18px;
-  height: 18px;
+.assistant__act-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  background: var(--color-paper-3);
+  border-radius: var(--radius-sm);
+}
+
+.assistant__act-icon svg {
+  width: 20px;
+  height: 20px;
   color: var(--color-accent);
-  flex: 0 0 auto;
 }
 
-.assistant__act .assistant__done { color: var(--color-success); }
-
-.assistant__track {
-  width: 7rem;
-  height: 4px;
-  flex: 0 0 auto;
-  border-radius: var(--radius-pill);
-  background: var(--color-paper-4);
-  overflow: hidden;
+.assistant__act-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 8rem;
+  line-height: var(--leading-snug);
 }
 
-.assistant__fill {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--color-accent);
-  transform-origin: left center;
+.assistant__act-copy strong { color: var(--color-ink); font-size: var(--text-sm); }
+.assistant__act-copy span { color: var(--color-ink-2); font-size: var(--text-xs); }
+.assistant__act-state {
+  color: var(--color-ink-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 /* ── assistant · the timeline ─────────────────────────────────────
@@ -1355,14 +1421,6 @@ html:has(.site) body {
   animation: bubble-in var(--dur-slow) var(--ease-out) 3500ms both;
 }
 
-.assistant[data-run='true'] .assistant__fill {
-  animation: assistant-open 900ms var(--ease-out) 3600ms both;
-}
-
-.assistant[data-run='true'] .assistant__done {
-  animation: assistant-arrive 300ms var(--ease-out) 4500ms both;
-}
-
 @keyframes bubble-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
@@ -1378,16 +1436,6 @@ html:has(.site) body {
 @keyframes typing-dot {
   0%, 100% { opacity: 0.4; transform: translateY(0); }
   50% { opacity: 1; transform: translateY(-3px); }
-}
-
-@keyframes assistant-open {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-
-@keyframes assistant-arrive {
-  from { opacity: 0; transform: scale(0.4); }
-  to { opacity: 1; transform: none; }
 }
 
 /* ── wallet band ─────────────────────────────────────────────────── */
@@ -1418,10 +1466,8 @@ html:has(.site) body {
 }
 
 .wallet__h {
-  font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   font-size: var(--text-xl);
-  letter-spacing: -0.015em;
   color: var(--color-ink);
   margin: 0;
 }
@@ -1430,6 +1476,44 @@ html:has(.site) body {
   color: var(--color-ink-2);
   font-size: var(--text-md);
   margin: 0;
+  max-width: var(--measure);
+}
+
+/* ── roadmap · service lane, not another feature grid ─────────────── */
+
+.roadmap__list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  border-block: var(--rule-hair) solid var(--color-rule);
+}
+
+.roadmap__item {
+  display: grid;
+  grid-template-columns: minmax(8rem, 11rem) minmax(12rem, 0.7fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-lg);
+  padding: var(--space-lg) 0;
+  border: 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  border-radius: 0;
+}
+
+.roadmap__item:last-child { border-bottom: 0; }
+
+.roadmap__item:hover {
+  transform: none;
+  background: transparent;
+}
+
+.roadmap__item .badge {
+  align-self: start;
+}
+
+.roadmap__item .card__h {
+  margin: 0;
+}
+
+.roadmap__item .card__sub {
   max-width: var(--measure);
 }
 
@@ -1453,10 +1537,8 @@ html:has(.site) body {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-md);
-  font-family: var(--font-display);
   font-size: var(--text-xl);
-  font-weight: 500;
-  letter-spacing: -0.015em;
+  font-weight: 400;
   color: var(--color-ink);
   transition: color var(--dur-fast) var(--ease-out);
 }
@@ -1477,7 +1559,7 @@ html:has(.site) body {
 }
 
 .faq__chev {
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xl);
   color: var(--color-ink-3);
   transition: transform var(--dur-base) var(--ease-out);
@@ -1511,8 +1593,7 @@ html:has(.site) body {
   gap: var(--space-xs);
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-pill);
-  font-family: var(--font-body);
-  font-weight: 600;
+  font-weight: 700;
   font-size: var(--text-md);
   white-space: nowrap;
   transition:
@@ -1522,7 +1603,6 @@ html:has(.site) body {
     box-shadow var(--dur-base) var(--ease-out);
   cursor: pointer;
   border: var(--rule-hair) solid transparent;
-  letter-spacing: -0.01em;
 }
 
 .cta--primary {
@@ -1558,6 +1638,20 @@ html:has(.site) body {
   outline-offset: 3px;
 }
 
+/* M3 text button — the secondary action beside one filled primary. */
+.cta--text {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-accent);
+}
+.cta--text:hover {
+  background: color-mix(in oklch, var(--color-accent) 8%, transparent);
+}
+.cta--text:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 .cta--lg { padding: var(--space-md) var(--space-xl); }
 
 .cta[disabled],
@@ -1573,34 +1667,65 @@ html:has(.site) body {
   padding: var(--space-4xl) var(--page-gutter) var(--space-2xl);
   border-top: var(--rule-hair) solid var(--color-rule);
   margin-top: auto;
+  background:
+    radial-gradient(circle at 18% 10%, color-mix(in oklch, var(--color-accent) 13%, transparent), transparent 34rem),
+    linear-gradient(180deg, color-mix(in oklch, var(--color-paper-2) 78%, transparent), var(--color-paper));
 }
 
 .close__inner {
   max-width: var(--max-width);
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(18rem, 0.6fr);
+  gap: var(--space-xl) var(--space-3xl);
+  align-items: end;
 }
 
 .statement {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: var(--text-3xl);
-  line-height: 1.15;
-  letter-spacing: -0.025em;
+  grid-column: 1;
+  font-weight: 400;
+  font-size: clamp(2.75rem, 5vw, 5.75rem);
+  line-height: var(--leading-tight);
   color: var(--color-ink);
-  margin: 0 0 var(--space-md);
-  max-width: 24ch;
+  margin: 0;
+  max-width: 13ch;
   overflow-wrap: anywhere;
   min-width: 0;
 }
 
 .close__lead {
+  grid-column: 1;
   color: var(--color-ink-2);
-  font-size: var(--text-md);
-  margin: 0 0 var(--space-xl);
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-lg);
   max-width: var(--measure);
 }
 
+.close .cta {
+  grid-column: 1;
+  width: max-content;
+}
+
+.close__chips {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-lg);
+  display: grid;
+  gap: var(--space-xs);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--color-paper-2) 74%, transparent);
+}
+
+.close__chips .hero__chip {
+  width: 100%;
+  background: transparent;
+}
+
 .footer__meta {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-md) var(--space-2xl);
@@ -1609,7 +1734,7 @@ html:has(.site) body {
   padding-top: var(--space-lg);
   margin-top: var(--space-3xl);
   border-top: var(--rule-hair) solid var(--color-rule);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   color: var(--color-ink-3);
   letter-spacing: 0.03em;
@@ -1688,10 +1813,8 @@ html:has(.site) body {
 .pricing-title {
   max-width: 14ch;
   margin: 0;
-  font-family: var(--font-display);
   font-size: clamp(2.75rem, 6vw, 5.5rem);
   font-weight: 700;
-  letter-spacing: -0.04em;
   line-height: 0.98;
 }
 
@@ -1755,14 +1878,13 @@ html:has(.site) body {
 .pricing-card__name,
 .pricing-addon h3 {
   margin: 0;
-  font-family: var(--font-display);
   font-size: var(--text-xl);
   line-height: var(--leading-tight);
 }
 
 .pricing-card__price {
   margin: var(--space-sm) 0 0;
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xl);
   color: var(--color-ink);
 }
@@ -1831,7 +1953,7 @@ html:has(.site) body {
 .pricing-addon dd {
   margin: 0;
   color: var(--color-ink);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1874,10 +1996,8 @@ html:has(.site) body {
 }
 
 .authCard__title {
-  font-family: var(--font-display);
   font-weight: 700;
   font-size: var(--text-2xl);
-  letter-spacing: -0.02em;
   line-height: var(--leading-tight);
   color: var(--color-ink);
   margin: 0 0 var(--space-sm);
@@ -1906,7 +2026,7 @@ html:has(.site) body {
 .site-foot {
   padding: var(--space-lg) var(--page-gutter);
   border-top: var(--rule-hair) solid var(--color-rule);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
   color: var(--color-ink-3);
   letter-spacing: 0.03em;
@@ -1927,7 +2047,27 @@ html:has(.site) body {
 /* ── responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 60rem) {
-  .nav__links { display: none; }
+  /* The eight section links keep their place on a phone, as one row under the
+     bar that scrolls sideways inside itself. Hidden, they left a phone header
+     of Pricing and Sign in with no way to any section. */
+  .nav__links {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+    justify-content: flex-start;
+    gap: var(--space-2xs);
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* Room for the 2px focus ring and its 2px offset, which a scrolling row
+       would otherwise clip. */
+    padding: var(--space-2xs);
+    font-size: var(--text-sm);
+  }
+  .nav__links::-webkit-scrollbar { display: none; }
+  .nav__links button { min-height: 44px; }
+  .nav[data-state="scrolled"] .nav__links { gap: var(--space-2xs); font-size: var(--text-sm); }
+  /* Two rows do not make a pill. */
+  .nav[data-state="scrolled"] .nav__inner { border-radius: var(--radius-lg); }
   .nav__actions { gap: var(--space-2xs); }
   .nav__pricing,
   .nav__cta { font-size: var(--text-xs); padding: var(--space-2xs) var(--space-sm); }
@@ -1938,34 +2078,15 @@ html:has(.site) body {
   .pricing-section--ruled { grid-template-columns: minmax(0, 1fr); }
 
   .hero {
-    padding: var(--space-2xl) var(--page-gutter);
-    gap: var(--space-lg);
+    padding: 2rem var(--page-gutter);
   }
   .hero__stage {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-xl);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 2rem;
   }
-  .hero__copy {
-    justify-items: center;
-    text-align: center;
-  }
-  .hero__copy .hero__rail { margin-inline: auto; }
   .hero__copy .hero__display {
-    align-items: center;
-    text-align: center;
-    margin-inline: auto;
-    max-width: 16ch;
-    font-size: clamp(2.5rem, 7.5vw + 0.25rem, 6.25rem);
-    letter-spacing: -0.035em;
-  }
-  .hero__copy .hero__lead { margin-inline: auto; }
-  .hero__copy .hero__ctas { justify-content: center; }
-  .hero__stage .hero-scene { width: min(100%, 48rem); }
-  .hero__meta {
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-md);
-    padding-top: var(--space-md);
+    max-width: 14ch;
+    font-size: clamp(2.7rem, 5vw, 4rem);
   }
 
   .section { padding: var(--space-2xl) var(--page-gutter); }
@@ -1983,6 +2104,16 @@ html:has(.site) body {
   .rows__note { grid-area: note; }
 
   .split { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+
+  .card--feature {
+    min-height: auto;
+    border-right: 0;
+  }
+
+  .roadmap__item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-sm);
+  }
 
   .university__layout {
     grid-template-columns: minmax(0, 1fr);
@@ -2002,11 +2133,86 @@ html:has(.site) body {
 
   .faq__item summary { font-size: var(--text-lg); padding: var(--space-md) 0; }
 
-  .statement { font-size: var(--text-2xl); }
+  .close__inner {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .statement,
+  .close__lead,
+  .close .cta,
+  .close__chips,
+  .footer__meta {
+    grid-column: 1;
+  }
+  .close__chips {
+    grid-row: auto;
+    padding: var(--space-md);
+  }
+  .statement { font-size: clamp(2.5rem, 11vw, 4rem); }
   .footer__meta { flex-direction: column; align-items: flex-start; gap: var(--space-sm); }
 }
 
 @media (max-width: 26rem) {
+  .nav__inner { position: relative; }
+  .nav__menu {
+    grid-column: 2;
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    color: var(--color-ink-2);
+  }
+  .nav__menu:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+  .nav__links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: var(--page-gutter);
+    right: var(--page-gutter);
+    z-index: 2;
+    flex-direction: column;
+    gap: 0;
+    padding: var(--space-xs);
+    border: var(--rule-hair) solid var(--color-rule-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-paper-2);
+    box-shadow: 0 16px 32px color-mix(in oklch, var(--color-paper) 80%, transparent);
+  }
+  .nav__links[data-open="true"] { display: flex; }
+  .nav__links button { width: 100%; text-align: left; }
+  .nav[data-state="scrolled"] { top: 0; padding: 0; }
+  .nav[data-state="scrolled"] .nav__inner {
+    max-width: none;
+    padding: var(--space-sm) var(--page-gutter);
+    border-radius: 0;
+    transform: none;
+  }
+  .hero {
+    padding-block: var(--space-xs) var(--space-2xs);
+  }
+  .hero__stage { gap: var(--space-2xs); }
+  .hero__copy { gap: var(--space-2xs); }
+  .hero__copy .hero__display { font-size: 2.5rem; }
+  .hero__copy .hero__display em { font-size: 0.95em; }
+  .hero__stage .hero-story {
+    width: 100%;
+  }
+  .hero__stage .hero-scene {
+    background: var(--color-paper);
+    border: var(--rule-hair) solid var(--color-rule-strong);
+  }
+  .hero-story__step { font-size: var(--text-xs); }
+  .hero-scene[data-act='2'] .hero-scene__caption {
+    left: var(--space-xs);
+    right: auto;
+  }
+  .hero__chips { max-width: 21rem; }
+  .hero__chip { padding-inline: var(--space-xs); }
+  #story { padding-top: var(--space-md); }
+
   .pricing-grid,
   .pricing-addons { grid-template-columns: minmax(0, 1fr); }
   .pricing-foot { align-items: flex-start; flex-direction: column; }
@@ -2018,7 +2224,6 @@ html:has(.site) body {
   }
   .rows__num { padding-top: 0; }
 
-  .spec { padding: var(--space-lg); }
   .hero__ctas .cta { padding: var(--space-sm) var(--space-lg); }
 
   .university__steps li {
@@ -2031,6 +2236,56 @@ html:has(.site) body {
   .university__cta { padding-inline: var(--space-md); font-size: var(--text-sm); }
 }
 
+@media (max-width: 44rem) {
+  .hero {
+    min-height: clamp(30rem, calc(100svh - 10rem), 42rem);
+    padding: 1.5rem var(--page-gutter) 1rem;
+  }
+  .hero__landscape { background-position: 57% center; }
+  .hero__stage {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: space-between;
+    gap: 1rem;
+  }
+  .hero__copy { gap: .8rem; }
+  .hero__copy .hero__display {
+    max-width: 14ch;
+    font-size: clamp(2.45rem, 7.2vw, 3.4rem);
+    line-height: .99;
+  }
+  .hero__copy .hero__lead { width: 100%; font-size: .9rem; max-width: 34rem; overflow-wrap: anywhere; }
+  .hero-story { gap: .5rem; }
+  .hero-story__records { display: none; }
+  .hero-story__narration { min-height: 0; }
+  .hero-story__narration h2 { font-size: 1.2rem; }
+  .hero-story__narration p { font-size: .78rem; }
+  .hero-story__note { margin-top: 0; }
+}
+
+@media (max-width: 22rem) {
+  .hero__rail { font-size: .57rem; }
+  .hero__copy .hero__display { font-size: 2.2rem; }
+  .hero-story__step { min-height: 42px; font-size: .65rem; }
+  .hero-story__step-number { display: none; }
+  .hero__chips {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: var(--space-2xs);
+  }
+  .hero__chip {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-height: 66px;
+    padding: 4px;
+    text-align: center;
+    font-size: var(--text-xs);
+    line-height: 1.1;
+  }
+  #story { padding-top: var(--space-md); }
+}
+
 /* ── reduced motion ──────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -2041,7 +2296,7 @@ html:has(.site) body {
     scroll-behavior: auto !important;
   }
 
-  .hero__rail, .hero__line, .hero__lead, .hero__ctas, .hero__meta {
+  .hero__rail, .hero__line, .hero__lead, .hero__ctas, .hero__chips {
     opacity: 1;
     transform: none;
     animation: none;
@@ -2061,8 +2316,6 @@ html:has(.site) body {
    * three seconds. `!important` because the running rules are more specific. */
   .assistant .bubble,
   .assistant .assistant__act,
-  .assistant .assistant__fill,
-  .assistant .assistant__done,
   .assistant__live {
     animation: none !important;
     opacity: 1;

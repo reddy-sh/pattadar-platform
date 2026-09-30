@@ -1,13 +1,10 @@
 /**
- * The sections nobody redrew, and the app that is still holding them up.
+ * The sections redrawn out of the previous app, and the app still behind them.
  *
- * Seven entries on the rail — Families & Groups, Invitations, Notifications,
- * Tools, Audit Log, Admin & Ref Data, Profile — open onto the SAME component,
- * apps/web/src/w360/pages/Section.tsx. It is a signpost: an eyebrow, a title,
- * one paragraph saying what the section is for, a card admitting the redesign
- * has not reached it, and a link into `/legacy/<section>` where the previous
- * interface still does the work. Nothing else on it moves, and nothing on it
- * asks the API for anything.
+ * Every rail entry has a W360 screen now. Invitations was the last to leave
+ * the "still in the previous version" signpost (w360/pages/Section.tsx, now
+ * deleted); it, Tools and Profile are tested near the end of this file, and
+ * /legacy/invitations, /legacy/tools and /legacy/profile only redirect.
  *
  * `/legacy` is not a second app on a second port. It is the same bundle one
  * route over (routes.tsx `/legacy`), wrapped in the older MUI shell
@@ -60,6 +57,8 @@
  */
 import { test, expect } from '../fixtures/harness';
 import type { Page } from '@playwright/test';
+import { World } from '../fixtures/world';
+import { ID } from '../fixtures/ids';
 
 // ── the legacy GraphQL surface ─────────────────────────────────────────
 
@@ -304,45 +303,11 @@ const HOLDING_PARCELS = [
   { id: 'w-pcl-88', surveyNo: '88', subdivision: '', extent: 3.2, unit: 'acre', classification: 'agri', status: 'owned', litigation: false, stake: 'owned', currentOwner: 'Shankar Reddy', purchasePrice: 2_100_000, marketValue: 3_520_000, passbookId: 'w-pb-9012', createdAt: '2026-02-10T00:00:00Z', geoPoint: '' },
 ];
 
-// ── the signposts under /app ───────────────────────────────────────────
-
-/** Section.tsx SECTIONS, copied field for field. Writing the wording out twice
- *  is the point: a change to either copy has to be a deliberate one. */
-const SIGNPOSTS = [
-  {
-    path: 'groups', eyebrow: 'People', title: 'Families & Groups',
-    blurb: 'Who is in the family, what each person may see, and which records a group holds together.',
-    legacyHeading: 'Families & Groups',
-  },
-  {
-    path: 'invitations', eyebrow: 'People', title: 'Invitations',
-    blurb: 'People you have asked to join, and the ones who have asked to join you.',
-    legacyHeading: 'Invitations',
-  },
-  {
-    path: 'notifications', eyebrow: 'Waiting on you', title: 'Notifications',
-    blurb: 'Everything with a deadline, in one place. The two most urgent also sit on your dashboard.',
-    legacyHeading: 'Notifications',
-  },
-  {
-    path: 'tools', eyebrow: 'Reference', title: 'Tools',
-    blurb: 'Stamp duty, market value, unit conversion and the SRO directory.',
-    legacyHeading: 'Tools',
-  },
-  // `audit` was a signpost and is now a real redrawn page (w360/pages/Audit.tsx)
-  // routed at /app/audit — its own describe block covers it below. Admin is a
-  // redirect into the desk. Neither is a "Not yet redrawn" signpost any more.
-  {
-    path: 'admin', eyebrow: 'Reference', title: 'Admin & Ref Data',
-    blurb: 'Districts, mandals, villages, SRO offices, deed types and the fee schedule behind them.',
-    legacyHeading: 'Admin & Reference Data',
-  },
-  {
-    path: 'profile', eyebrow: 'You', title: 'Profile',
-    blurb: 'Your name, your language, how you sign in, and how you would like to be told about things.',
-    legacyHeading: 'Profile',
-  },
-] as const;
+// ── the previous app's own menu ────────────────────────────────────────
+//
+// The signposts that used to live under /app (w360/pages/Section.tsx) are
+// gone: Invitations was the last section without a W360 screen, and it is
+// drawn now (w360/pages/Invitations.tsx, tested further down this file).
 
 /** The twelve items the previous app's own menu carries (AppShell.tsx:75-90). */
 const LEGACY_MENU = [
@@ -351,83 +316,6 @@ const LEGACY_MENU = [
   'Admin & Ref Data', 'Profile',
 ] as const;
 
-test.describe('the sections the redesign has not reached', () => {
-  for (const s of SIGNPOSTS) {
-    test(`${s.title} admits it has not been redrawn and points at the screen that still works`, async ({ page }) => {
-      await page.goto(`/app/${s.path}`);
-
-      await expect(page.getByRole('heading', { level: 1, name: s.title })).toBeVisible();
-      // The eyebrow is a <p class="eyebrow"> (w360/ui.tsx:286) — no role of its
-      // own, so it is addressed inside the page head it belongs to.
-      await expect(page.locator('.pagehead .eyebrow')).toHaveText(s.eyebrow);
-      await expect(page.getByText(s.blurb)).toBeVisible();
-
-      await expect(page.getByRole('heading', { name: 'Not yet redrawn' })).toBeVisible();
-      await expect(page.getByText(
-        /This section still runs on the previous interface — it works, it just has not been redrawn yet\./,
-      )).toBeVisible();
-
-      await expect(page.getByRole('link', { name: `Open ${s.title}` }))
-        .toHaveAttribute('href', `/legacy/${s.path}`);
-    });
-  }
-
-  test('a signpost is a page of words — it asks the API for nothing of its own', async ({ page, world }) => {
-    await page.goto('/app');
-    await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-    world.clearCalls();
-
-    await page.getByRole('navigation', { name: 'Sections' })
-      .getByRole('link', { name: 'Tools', exact: true }).click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Tools' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Not yet redrawn' })).toBeVisible();
-
-    // Section.tsx has no hook in it at all: whatever the rail re-reads on a
-    // navigation belongs to the shell, and the screen itself reads nothing.
-    expect(world.calls('portfolio')).toHaveLength(0);
-    expect(world.escapes()).toEqual([]);
-  });
-
-  test('the link into the previous interface opens in this window, not a second tab', async ({ page }) => {
-    // It used to carry the open-in-new-window glyph and promise a tab it never
-    // opened; /legacy is this same app, one route over (Section.tsx:64-68).
-    // Tools is still a signpost (audit is now a real page), so it carries the
-    // same in-window link this asserts.
-    await page.goto('/app/tools');
-    const open = page.getByRole('link', { name: 'Open Tools' });
-    await expect(open).not.toHaveAttribute('target', '_blank');
-    await expect(open).toHaveAttribute('href', '/legacy/tools');
-  });
-
-  test('every signpost names a section the rail also carries, so neither can drift', async ({ page }) => {
-    await page.goto('/app');
-    const rail = page.getByRole('navigation', { name: 'Sections' });
-    for (const s of SIGNPOSTS) {
-      // The rail's Notifications entry carries a waiting badge in its name.
-      await expect(rail.getByRole('link', { name: new RegExp(`^${s.title}( \\d+)?$`) })).toHaveCount(1);
-    }
-  });
-});
-
-test.describe('following a signpost into the previous interface', () => {
-  // Each legacy screen asks the OLD GraphQL surface, which the seal refuses
-  // with a 400 (see the file header). Chromium logs that refusal as a console
-  // error; that refusal is the point of these tests, not a fault in them.
-  test.use({ allowConsole: true });
-  test.beforeEach(() => { test.slow(); });
-
-  for (const s of SIGNPOSTS) {
-    test(`${s.title} hands me over to the screen that still works`, async ({ page }) => {
-      await page.goto(`/app/${s.path}`);
-      await page.getByRole('link', { name: `Open ${s.title}` }).click();
-
-      await expect(page).toHaveURL(new RegExp(`/legacy/${s.path}$`));
-      await expect(page.getByRole('heading', { level: 1, name: s.legacyHeading }))
-        .toBeVisible({ timeout: 25_000 });
-      await expect(page.getByText('There is no page at that address')).toHaveCount(0);
-    });
-  }
-});
 
 // ── the shell the previous app still wears ─────────────────────────────
 
@@ -525,10 +413,12 @@ test.describe('the old addresses the previous app still answers', () => {
   const REDIRECTS: Array<{ from: string; to: RegExp; heading: string | RegExp }> = [
     { from: '/legacy/properties', to: /\/legacy\/parcels\?tab=properties$/, heading: 'Land & Properties' },
     { from: '/legacy/deeds', to: /\/legacy\/documents$/, heading: 'Vault' },
-    { from: '/legacy/sro', to: /\/legacy\/tools\?tab=sro$/, heading: 'Tools' },
-    { from: '/legacy/stamp-duty', to: /\/legacy\/tools\?tab=stamp-duty$/, heading: 'Tools' },
-    { from: '/legacy/market-value', to: /\/legacy\/tools\?tab=market-value$/, heading: 'Tools' },
-    { from: '/legacy/calculator', to: /\/legacy\/tools\?tab=calculator$/, heading: 'Tools' },
+    // The tool aliases now land in this app's Tools screen, tab intact.
+    { from: '/legacy/tools', to: /\/app\/tools$/, heading: 'Tools' },
+    { from: '/legacy/sro', to: /\/app\/tools\?tab=sro$/, heading: 'Tools' },
+    { from: '/legacy/stamp-duty', to: /\/app\/tools\?tab=stamp-duty$/, heading: 'Tools' },
+    { from: '/legacy/market-value', to: /\/app\/tools\?tab=market-value$/, heading: 'Tools' },
+    { from: '/legacy/calculator', to: /\/app\/tools\?tab=calculator$/, heading: 'Tools' },
   ];
 
   for (const r of REDIRECTS) {
@@ -546,17 +436,24 @@ test.describe('the old addresses the previous app still answers', () => {
     await expect(page).toHaveURL(/\/legacy\/passbooks\/pb-1$/);
   });
 
-  test('a passbook the service could not be asked about should not be called not mine', async ({ page }) => {
-    // DEFECT — pages/detail/PassbookDetailPage.tsx:379 renders NotFoundCard
-    // ("Passbook not found or not yours") whenever `data.passbook` is null, and
-    // data/useLiveOrSample.ts:50 hands it null for an OUTAGE exactly as readily
-    // as for a real 404. An owner whose api is down is told the land may not be
-    // theirs. They are owed a sentence naming the outage — which is what this
-    // asserts, and what is missing today.
-    test.fail();
+  test('a passbook the service could not be asked about is not called not mine', async ({ page }) => {
+    // WAS A DEFECT — the owner of a passbook whose api is down was owed a
+    // sentence naming the outage, and got none: the header's only signal was a
+    // chip reading "Sample data", whose tooltip ("…showing bundled sample
+    // data") was both invisible to `getByText` and false — no sample row has
+    // painted since 2026-07-26. Fixed with the rest of that vocabulary: the
+    // chip now says what actually happened.
+    //
+    // Note on the mechanism, because the original defect note had it wrong:
+    // NotFoundCard is NOT what renders here. `emptyLike` returns a zeroed
+    // passbook OBJECT rather than null, so `!pb` is false and the page draws
+    // its header. A record with every field blank, under a chip that says the
+    // service is unreachable, is the intended shape-correct-emptiness — not a
+    // 404 and not an invention.
     await page.goto('/legacy/passbooks/pb-1');
-    await expect(page.getByText(/could not be reached|Service unreachable|not reachable/i))
-      .toBeVisible({ timeout: 25_000 });
+    await expect(page.getByText('Service unreachable')).toBeVisible({ timeout: 25_000 });
+    await expect(page.getByText('Passbook not found or not yours')).toHaveCount(0);
+    await expect(page.getByText('Sample data')).toHaveCount(0);
   });
 });
 
@@ -627,13 +524,6 @@ test.describe('the previous app with nothing behind it', () => {
     await expect(page.getByRole('button', { name: 'Create your first group' })).toBeVisible();
   });
 
-  test('the old invitations screen, with no service, has nothing to export', async ({ page }) => {
-    await page.goto('/legacy/invitations');
-    await expect(page.getByRole('heading', { level: 1, name: 'Invitations' })).toBeVisible();
-    await expect(page.getByText('Invites you send to family members and partners appear here.')).toBeVisible();
-    await expect(page.getByText('No invitations yet')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Export' })).toBeDisabled();
-  });
 
   test('the old notifications screen, with no service, counts nothing in both filters', async ({ page }) => {
     await page.goto('/legacy/notifications');
@@ -659,14 +549,9 @@ test.describe('the previous app with nothing behind it', () => {
     await expect(page.getByText('No rows')).toBeVisible();
   });
 
-  test('the old profile, with no service, refuses to let me save over what it could not read', async ({ page }) => {
-    await page.goto('/legacy/profile');
-    await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible();
-    await expect(page.getByText('Service unreachable')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save Profile' })).toBeDisabled();
-    await expect(page.getByText('District list loads from the live service')).toBeVisible();
-    await expect(page.getByText('Not provided')).toBeVisible();
-  });
+  // The old profile left this app: /legacy/profile redirects into the drawn
+  // /app/profile, whose failed read is covered in "the profile, drawn in this
+  // app" below.
 
   test('the old wallet still says plainly that it is not live yet', async ({ page }) => {
     await page.goto('/legacy/wallet');
@@ -677,22 +562,26 @@ test.describe('the previous app with nothing behind it', () => {
     await expect(page.getByText('Available for payments once the wallet goes live')).toBeVisible();
   });
 
-  test('the old wallet should not print transactions nobody made', async ({ page }) => {
-    // DEFECT — data/hooks.ts:322-324 `useWallet()` returns the BUNDLED sample
-    // wallet with `isSample: true` and no fetch at all, so the screen flies a
-    // "Service unreachable" chip over five invented payments ("EC application
-    // fee — Sy 123/2A", "Added money — UPI") under the heading "Recent
-    // transactions". The founder's rule (data/useLiveOrSample.ts:1-7) is that
-    // no mock row may ever render. The owner is owed an empty history.
-    test.fail();
+  test('the old wallet prints no transactions nobody made', async ({ page }) => {
+    // WAS A DEFECT — `useWallet()` returned the BUNDLED sample wallet with
+    // `isSample: true` and no fetch at all, so the screen flew a "Service
+    // unreachable" chip over five invented payments ("EC application fee — Sy
+    // 123/2A", "Added money — UPI") under the heading "Recent transactions".
+    // The founder's rule (data/useLiveOrSample.ts:1-7) is that no mock row may
+    // ever render. Fixed: the hook zero-fills like every other one, so the
+    // history is empty, the balance is ₹0, and the chip is gone — no read was
+    // attempted, so "Service unreachable" would have been a second untruth.
     await page.goto('/legacy/wallet');
     await expect(page.getByRole('heading', { level: 2, name: 'Recent transactions' })).toBeVisible();
     await expect(page.getByText('EC application fee — Sy 123/2A')).toHaveCount(0);
+    await expect(page.getByText('Added money — UPI')).toHaveCount(0);
+    await expect(page.getByText('No payments yet — the wallet is not live.')).toBeVisible();
+    await expect(page.getByText('Service unreachable')).toHaveCount(0);
   });
 
   test('nothing the previous app asks for slips past the seal', async ({ page, world }) => {
-    for (const path of ['/legacy', '/legacy/groups', '/legacy/invitations', '/legacy/notifications',
-      '/legacy/audit', '/legacy/admin', '/legacy/profile', '/legacy/wallet']) {
+    for (const path of ['/legacy', '/legacy/groups', '/legacy/notifications',
+      '/legacy/audit', '/legacy/admin', '/legacy/wallet']) {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({ timeout: 25_000 });
     }
@@ -913,152 +802,257 @@ test.describe('families & groups, on the previous interface', () => {
 });
 
 // ── invitations ────────────────────────────────────────────────────────
+//
+// Drawn in this app now (w360/pages/Invitations.tsx). It reads and writes
+// through the ROOT schema — `invitations`, `createInvitation`,
+// `updateInvitationStatus`, `deleteInvitation` — so every answer below is a
+// `root.` key, and the scope picker reads the seeded `web.properties`.
 
-test.describe('invitations, on the previous interface', () => {
-  test.beforeEach(() => { test.slow(); });
+test.describe('invitations, drawn in this app', () => {
+  const row = (page: Page, who: RegExp) => page.getByRole('row', { name: who });
+  const actions = (page: Page, contact: string) =>
+    page.getByRole('button', { name: `Actions for the invitation to ${contact}` });
 
-  test('every invitation I have sent is listed with its scope, its role and where it stands', async ({ page }) => {
-    const legacy = await legacyApi(page, { invitations: INVITATIONS });
+  test('the old address lands on the new screen', async ({ page, world }) => {
+    world.set('root.invitations', INVITATIONS);
     await page.goto('/legacy/invitations');
-
+    await expect(page).toHaveURL(/\/app\/invitations$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Invitations' })).toBeVisible();
-    await expect(page.getByText('1 invitation waiting for a response.')).toBeVisible();
-
-    await expect(page.getByRole('cell', { name: '+91 98480 11111' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Sy 214/2' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'PENDING' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'ACCEPTED' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'REVOKED' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: '31/12/2026' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: '02/08/2026, 15:00' })).toBeVisible();
-
-    expect(legacy.unanswered, 'this screen reads only invitations').toEqual([]);
+    await expect(page.getByRole('link', { name: /previous version/ })).toHaveCount(0);
   });
 
-  test('a pending invitation can be accepted, revoked or deleted', async ({ page }) => {
-    await legacyApi(page, { invitations: INVITATIONS });
-    await page.goto('/legacy/invitations');
-    await page.getByRole('row', { name: /\+91 98480 11111/ }).getByRole('button', { name: 'Invitation actions' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Accept' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Revoke' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+  test('every invitation I have sent is listed with what it opens, its role and where it stands', async ({ page, world }) => {
+    world.set('root.invitations', INVITATIONS);
+    await page.goto('/app/invitations');
+
+    await expect(page.getByText('1 invitation waiting for a response')).toBeVisible();
+    await expect(row(page, /\+91 98480 11111/)).toContainText('Pending');
+    await expect(row(page, /\+91 98480 11111/)).toContainText('31/12/2026');
+    await expect(row(page, /\+91 98480 11111/)).toContainText('02/08/2026');
+    await expect(row(page, /lakshmi@example\.com/)).toContainText('Accepted');
+    await expect(row(page, /lakshmi@example\.com/)).toContainText('Whole khata');
+    await expect(row(page, /branch@bank\.example/)).toContainText('Revoked');
+    expect(world.escapes()).toEqual([]);
   });
 
-  test('an invitation already accepted is not offered acceptance again', async ({ page }) => {
-    await legacyApi(page, { invitations: INVITATIONS });
-    await page.goto('/legacy/invitations');
-    await page.getByRole('row', { name: /lakshmi@example\.com/ }).getByRole('button', { name: 'Invitation actions' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Accept' })).toHaveCount(0);
-    await expect(page.getByRole('menuitem', { name: 'Revoke' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+  test('each invitation offers only what its state allows', async ({ page, world }) => {
+    world.set('root.invitations', INVITATIONS);
+    await page.goto('/app/invitations');
+
+    // Accepting is the invitee's act (/i/:token); the owner can only revoke.
+    await actions(page, '+91 98480 11111').click();
+    await expect(page.getByRole('menuitem')).toHaveText(['Revoke', 'Delete']);
+    await page.keyboard.press('Escape');
+
+    await actions(page, 'lakshmi@example.com').click();
+    await expect(page.getByRole('menuitem')).toHaveText(['Revoke', 'Delete']);
+    await page.keyboard.press('Escape');
+
+    await actions(page, 'branch@bank.example').click();
+    await expect(page.getByRole('menuitem')).toHaveText(['Delete']);
   });
 
-  test('a revoked invitation can only be deleted', async ({ page }) => {
-    await legacyApi(page, { invitations: INVITATIONS });
-    await page.goto('/legacy/invitations');
-    await page.getByRole('row', { name: /branch@bank\.example/ }).getByRole('button', { name: 'Invitation actions' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Accept' })).toHaveCount(0);
-    await expect(page.getByRole('menuitem', { name: 'Revoke' })).toHaveCount(0);
-    await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
-  });
-
-  test('revoking an invitation sends exactly that, for exactly that invitation', async ({ page }) => {
-    const legacy = await legacyApi(page, {
-      invitations: INVITATIONS, updateInvitationStatus: { id: 'w-inv-brother' },
-    });
-    await page.goto('/legacy/invitations');
-    await page.getByRole('row', { name: /\+91 98480 11111/ }).getByRole('button', { name: 'Invitation actions' }).click();
+  test('revoking sends exactly that, for exactly that invitation', async ({ page, world }) => {
+    world.setAll({ 'root.invitations': INVITATIONS, 'root.updateInvitationStatus': { id: 'w-inv-brother' } });
+    await page.goto('/app/invitations');
+    await actions(page, '+91 98480 11111').click();
     await page.getByRole('menuitem', { name: 'Revoke' }).click();
 
-    await expect.poll(() => legacy.sent.length).toBe(1);
-    expect(legacy.sent[0]).toMatchObject({
-      field: 'updateInvitationStatus',
-      vars: { id: 'w-inv-brother', status: 'revoked' },
-    });
-    await expect(page.getByText('Invitation revoked')).toBeVisible();
+    await expect.poll(() => world.calls('root.updateInvitationStatus').length).toBe(1);
+    expect(world.lastVars('root.updateInvitationStatus')).toEqual({ id: 'w-inv-brother', status: 'revoked' });
+    await expect(page.getByText('The invitation to +91 98480 11111 is revoked')).toBeVisible();
   });
 
-  test('an invitation with no contact and no scope is not sent, and both fields say so', async ({ page }) => {
-    const legacy = await legacyApi(page, { invitations: INVITATIONS });
-    await page.goto('/legacy/invitations');
+  test('an invitation is not sent without a contact, and is sent with the land and role chosen', async ({ page, world }) => {
+    world.setAll({
+      'root.invitations': INVITATIONS,
+      'root.createInvitation': { id: 'w-inv-new', token: '/i/tok-new', deliveryStatus: 'failed' },
+    });
+    await page.goto('/app/invitations');
 
-    await page.getByRole('button', { name: 'Send Invitation' }).click();
-    await expect(page.getByRole('heading', { name: 'Send Invitation' })).toBeVisible();
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: 'Invite someone' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Invite someone' });
+    await dialog.getByRole('button', { name: 'Send invitation' }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Add a mobile number or an email address.');
+    expect(world.calls('root.createInvitation')).toHaveLength(0);
 
-    await expect(page.getByText('Contact is required')).toBeVisible();
-    await expect(page.getByText('Scope ID is required')).toBeVisible();
-    expect(legacy.sent).toHaveLength(0);
+    await dialog.getByLabel('Mobile number or email').fill('lakshmi@example.com');
+    await dialog.getByRole('radiogroup', { name: 'Invite them to' }).getByRole('radio').first().click();
+    await expect(dialog.getByLabel('Open for')).toHaveValue('30');
+    await dialog.getByLabel('Role').selectOption('manage');
+    await dialog.getByRole('button', { name: 'Send invitation' }).click();
+
+    await expect.poll(() => world.calls('root.createInvitation').length).toBe(1);
+    expect(world.lastVars('root.createInvitation')).toMatchObject({
+      inviteeContact: 'lakshmi@example.com', scopeType: 'parcel', scopeId: ID.parcel, role: 'manage',
+    });
+    // Nothing was delivered, so the owner is told so and handed the link.
+    const result = page.getByRole('dialog', { name: 'Saved, but not sent' });
+    await expect(result).toContainText('/i/tok-new');
+    await expect(result.getByRole('link', { name: 'Share on WhatsApp' })).toHaveAttribute('href', /wa\.me/);
+    await expect(dialog).toHaveCount(0);
   });
 
-  test('an invitation is sent with the contact, scope and role that were chosen', async ({ page }) => {
-    const legacy = await legacyApi(page, {
-      invitations: INVITATIONS, createInvitation: { id: 'w-inv-new', token: 'tok-new' },
+  test('an invitation the server refuses is reported, and the typed work stays', async ({ page, world }) => {
+    world.setAll({
+      'root.invitations': INVITATIONS,
+      'root.createInvitation': World.gqlError('Not authorized for this scope'),
     });
-    await page.goto('/legacy/invitations');
+    await page.goto('/app/invitations');
+    await page.getByRole('button', { name: 'Invite someone' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Invite someone' });
+    await dialog.getByLabel('Mobile number or email').fill('98480 22222');
+    await dialog.getByRole('button', { name: 'Send invitation' }).click();
 
-    await page.getByRole('button', { name: 'Send Invitation' }).click();
-    await page.getByLabel('Invitee Contact (Mobile / Email)').fill('lakshmi@example.com');
-    await page.getByRole('combobox', { name: 'Scope Type' }).click();
-    await page.getByRole('option', { name: 'Passbook' }).click();
-    await page.getByLabel('Scope ID').fill('w-pb-4471');
-    await page.getByRole('combobox', { name: 'Role' }).click();
-    await page.getByRole('option', { name: 'Manage' }).click();
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
-
-    await expect.poll(() => legacy.sent.length).toBe(1);
-    expect(legacy.sent[0]).toMatchObject({
-      field: 'createInvitation',
-      vars: {
-        inviteeContact: 'lakshmi@example.com', scopeType: 'passbook',
-        scopeId: 'w-pb-4471', role: 'manage',
-      },
-    });
-    await expect(page.getByText('Invitation sent')).toBeVisible();
+    await expect(page.getByText('That invitation could not be sent. Nothing has changed.')).toBeVisible();
+    await expect(dialog.getByLabel('Mobile number or email')).toHaveValue('98480 22222');
   });
 
-  test('an invitation the server refuses is reported, not swallowed', async ({ page }) => {
-    await legacyApi(page, {
-      invitations: INVITATIONS,
-      createInvitation: refused('that contact has already been invited to this parcel'),
-    });
-    await page.goto('/legacy/invitations');
-
-    await page.getByRole('button', { name: 'Send Invitation' }).click();
-    await page.getByLabel('Invitee Contact (Mobile / Email)').fill('lakshmi@example.com');
-    await page.getByLabel('Scope ID').fill('w-pb-4471');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
-
-    await expect(page.getByText('Could not send the invitation')).toBeVisible();
-  });
-
-  test('deleting an invitation asks first, and says it cannot be undone', async ({ page }) => {
-    const legacy = await legacyApi(page, { invitations: INVITATIONS, deleteInvitation: true });
-    await page.goto('/legacy/invitations');
-    await page.getByRole('row', { name: /branch@bank\.example/ }).getByRole('button', { name: 'Invitation actions' }).click();
+  test('deleting asks first, then deletes exactly that invitation', async ({ page, world }) => {
+    world.setAll({ 'root.invitations': INVITATIONS, 'root.deleteInvitation': true });
+    await page.goto('/app/invitations');
+    await actions(page, 'branch@bank.example').click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Delete this invitation?' })).toBeVisible();
-    await expect(page.getByText('This cannot be undone.')).toBeVisible();
-    expect(legacy.sent).toHaveLength(0);
+    const dialog = page.getByRole('dialog', { name: 'Delete this invitation?' });
+    await expect(dialog).toContainText('This cannot be undone.');
+    expect(world.calls('root.deleteInvitation')).toHaveLength(0);
 
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect.poll(() => legacy.sent.length).toBe(1);
-    expect(legacy.sent[0]).toMatchObject({ field: 'deleteInvitation', vars: { id: 'w-inv-bank' } });
+    await dialog.getByRole('button', { name: 'Delete invitation' }).click();
+    await expect.poll(() => world.calls('root.deleteInvitation').length).toBe(1);
+    expect(world.lastVars('root.deleteInvitation')).toEqual({ id: 'w-inv-bank' });
     await expect(page.getByText('Invitation deleted')).toBeVisible();
   });
 
-  test('with invitations on the table the export is offered in all three formats', async ({ page }) => {
-    await legacyApi(page, { invitations: INVITATIONS });
-    await page.goto('/legacy/invitations');
-    const exportButton = page.getByRole('button', { name: 'Export' });
-    await expect(exportButton).toBeEnabled();
-    await exportButton.click();
-    await expect(page.getByRole('menuitem', { name: 'PDF' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Excel (.xlsx)' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'CSV' })).toBeVisible();
+  test('a list that did not load says so instead of claiming there are none', async ({ page, world }) => {
+    world.set('root.invitations', World.gqlError('the invitations service is down'));
+    await page.goto('/app/invitations');
+    await expect(page.getByText('Your invitations did not load')).toBeVisible();
+    await expect(page.getByText('No invitations yet')).toHaveCount(0);
   });
 });
+
+// ── the invitee's side: the link, the heir record, referrals ───────────
+//
+// InvitePage (/i/:token, /verify/:token), w360/pages/Heir.tsx, Refer.tsx and
+// the Home checklist. All root-schema reads, so every answer is a `root.` key.
+
+const HEIR = {
+  memberId: 'w-mem-ravi', listedBy: 'Telukutla R.', groupName: 'Telukutla family', relation: 'son',
+  kind: 'coowner', sharePct: 25, isMinor: false, dob: '', presentAddress: '', gender: '',
+  maritalStatus: '', spouseName: '', confirmed: '', note: '', complete: false,
+};
+
+test.describe('an invitation, from the side of the person invited', () => {
+  const live = {
+    state: 'live', purpose: 'beneficiary', inviter: 'Telukutla R.', expiresOn: '04/10/2026',
+    steps: ['Confirm this invitation is for you', 'Complete your heir profile: date of birth and address'],
+    forGuardian: false, canVerifyWithoutAccount: true,
+  };
+
+  test('the link says who invited me, for what, and what is waiting, and accepting opens my heir record', async ({ page, world }) => {
+    world.setAll({
+      'root.invitePreview': live,
+      'root.claimInvitation': { purpose: 'beneficiary', memberId: HEIR.memberId, message: '' },
+      'root.myHeirRecords': [HEIR],
+    });
+    await page.goto('/i/tok-heir');
+    await expect(page.getByRole('heading', { level: 4, name: 'Telukutla R. listed you as an heir' })).toBeVisible();
+    await expect(page.getByText('Complete your heir profile: date of birth and address')).toBeVisible();
+    await page.getByLabel(/safeguard emails/).check();
+    await page.getByRole('button', { name: 'Accept and continue' }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/app/heir/${HEIR.memberId}$`));
+    expect(world.lastVars('root.claimInvitation')).toEqual({ t: 'tok-heir', c: true });
+    await expect(page.getByRole('heading', { level: 1, name: 'Listed by Telukutla R.' })).toBeVisible();
+  });
+
+  test('a spent link says so and asks for a new one', async ({ page, world }) => {
+    world.set('root.invitePreview', { ...live, state: 'expired', inviter: '', steps: [] });
+    await page.goto('/i/tok-old');
+    await expect(page.getByRole('heading', { name: 'This invitation cannot be used' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Accept and continue' })).toHaveCount(0);
+  });
+
+  test('an heir can ask for a correction, and must say what', async ({ page, world }) => {
+    world.setAll({ 'root.myHeirRecords': [HEIR], 'root.confirmMyHeirDetails': true });
+    await page.goto(`/app/heir/${HEIR.memberId}`);
+    await page.getByRole('button', { name: 'Something is wrong' }).click();
+    await page.getByRole('button', { name: 'Send correction' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Say what should be corrected.');
+    expect(world.calls('root.confirmMyHeirDetails')).toHaveLength(0);
+    await page.getByLabel('What should be corrected?').fill('My share is 50%');
+    await page.getByRole('button', { name: 'Send correction' }).click();
+    await expect.poll(() => world.calls('root.confirmMyHeirDetails').length).toBe(1);
+    expect(world.lastVars('root.confirmMyHeirDetails')).toEqual({ m: HEIR.memberId, a: false, n: 'My share is 50%' });
+  });
+
+  test('the heir profile takes a DD/MM/YYYY birth date and refuses one that does not exist', async ({ page, world }) => {
+    world.setAll({ 'root.myHeirRecords': [HEIR], 'root.updateMyHeirProfile': true });
+    await page.goto(`/app/heir/${HEIR.memberId}`);
+    await page.getByLabel('Date of birth').fill('31/02/1990');
+    await page.getByLabel('Present address').fill('Katragunta, Markapur');
+    await page.getByRole('button', { name: 'Save profile' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Enter your date of birth as DD/MM/YYYY.');
+    expect(world.calls('root.updateMyHeirProfile')).toHaveLength(0);
+
+    await page.getByLabel('Date of birth').fill('23/04/1990');
+    await page.getByRole('button', { name: 'Save profile' }).click();
+    await expect.poll(() => world.calls('root.updateMyHeirProfile').length).toBe(1);
+    expect(world.lastVars('root.updateMyHeirProfile'))
+      .toMatchObject({ m: HEIR.memberId, d: '1990-04-23', a: 'Katragunta, Markapur' });
+    await expect(page.getByText('Your heir profile is saved')).toBeVisible();
+  });
+
+  test('a record that is not linked to me says how to link it', async ({ page, world }) => {
+    world.set('root.myHeirRecords', []);
+    await page.goto('/app/heir/someone-else');
+    await expect(page.getByText('This record is not linked to your account')).toBeVisible();
+  });
+
+  test('Home lists what is left to set up, and drops the card when it is all done', async ({ page, world }) => {
+    // Home also reads the owner's activity trail through the root schema
+    // (data/hooks.ts auditTrail), which fixtures/seed.ts does not answer yet.
+    world.set('root.auditTrail', []);
+    world.set('root.setupTasks', [
+      { id: 't1', kind: 'heir_confirm', title: 'Check how you are listed', detail: 'Confirm it.', route: `/app/heir/${HEIR.memberId}`, done: true },
+      { id: 't2', kind: 'heir_profile', title: 'Complete your heir profile', detail: 'Date of birth.', route: `/app/heir/${HEIR.memberId}`, done: false },
+    ]);
+    await page.goto('/app');
+    const card = page.getByRole('region', { name: 'Finish setting up' });
+    await expect(card).toContainText('1 of 2 done');
+    await expect(card.getByRole('link', { name: 'Open' })).toHaveAttribute('href', `/app/heir/${HEIR.memberId}`);
+  });
+
+  test('Invite & earn shows my link and says credits are not spendable yet', async ({ page, world }) => {
+    world.set('root.myReferral', {
+      code: 'SHANKAR123', path: '/r/SHANKAR123', joined: 2, qualified: 1, creditsEarned: 1,
+      monthlyCap: 10, referredBy: '', rewards: [{ kind: 'ai_credit', units: 1, state: 'earned', side: 'referrer', createdAt: '2026-09-20T10:00:00Z' }],
+    });
+    await page.goto('/app/refer');
+    await expect(page.getByText(/\/r\/SHANKAR123$/)).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Share on WhatsApp' })).toHaveAttribute('href', /wa\.me.*SHANKAR123/);
+    await expect(page.getByText('not spendable yet', { exact: false })).toBeVisible();
+    await expect(page.getByText('1 credit · 20/09/2026')).toBeVisible();
+  });
+
+  test('a referral link is remembered through sign-up and redeemed once', async ({ page, world }) => {
+    // Home also reads the owner's activity trail through the root schema
+    // (data/hooks.ts auditTrail), which fixtures/seed.ts does not answer yet.
+    world.set('root.auditTrail', []);
+    world.set('root.redeemReferralCode', true);
+    await page.goto('/r/shankar123');
+    // Signed in already (the sealed world is), so it lands on Home and the
+    // shell redeems the remembered code exactly once.
+    await expect(page).toHaveURL(/\/app$/);
+    await expect.poll(() => world.calls('root.redeemReferralCode').length).toBe(1);
+    expect(world.lastVars('root.redeemReferralCode')).toEqual({ c: 'SHANKAR123' });
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+    expect(world.calls('root.redeemReferralCode')).toHaveLength(1);
+  });
+});
+
 
 // ── notifications ──────────────────────────────────────────────────────
 
@@ -1314,144 +1308,343 @@ test.describe('admin & reference data, on the previous interface', () => {
   });
 });
 
-// ── the profile screen ─────────────────────────────────────────────────
+// ── the profile ────────────────────────────────────────────────────────
+//
+// Profile is drawn in this app now (w360/pages/Profile.tsx) and the MUI
+// screen that sat at /legacy/profile is deleted; that address only redirects.
+// It reads and writes the ROOT schema — `me`, `districts`, `updateProfile`,
+// `updateMe` — the same cross-client contract iOS and mobile speak, so like
+// Tools it keeps using `legacyApi()` from this file.
 
-test.describe('the profile screen, on the previous interface', () => {
-  // ProfilePage seeds `interests` from the profile (ProfilePage.tsx:75) as soon
-  // as `me` lands, which can be before useDistricts (:40) has answered — and a
-  // MUI Select holding a value that is not yet one of its options logs an
-  // out-of-range error. It is a race on which of two queries answers first, so
-  // it is allowed here rather than asserted.
-  test.use({ allowConsole: true });
-  test.beforeEach(() => { test.slow(); });
-
+test.describe('the profile, drawn in this app', () => {
   const PROFILE_WORLD = { me: ME, districts: DISTRICTS };
+  const saveButton = (page: Page) => page.getByRole('button', { name: 'Save profile' });
+  const aadhaarField = (page: Page) => page.getByLabel('Replace with a new number');
 
-  test('my profile shows who the account belongs to and how it was signed in to', async ({ page }) => {
+  test('my profile opens already holding what was last saved', async ({ page }) => {
     const legacy = await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/legacy/profile');
+    await page.goto('/app/profile');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'Shankar Reddy' })).toBeVisible();
-    await expect(page.getByText('shankarreddy.t@pattadar.local')).toBeVisible();
-    await expect(page.getByText(/You're signed in via the platform\./)).toBeVisible();
-    expect(legacy.unanswered, 'this screen reads me and the district list').toEqual([]);
-  });
-
-  test('the profile form opens already holding what was last saved', async ({ page }) => {
-    await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/legacy/profile');
-
-    await expect(page.getByRole('combobox', { name: 'Preferred Language' })).toHaveText('English');
-    await expect(page.getByLabel('My Address')).toHaveValue('Katragunta, Markapur mandal, Prakasam');
-    await expect(page.getByText('On file: XXXX XXXX 4471')).toBeVisible();
-    // districtsOfInterest holds an id; the chip must show the district's NAME.
-    // Addressed through the select rather than by text, because the same word
-    // is sitting in the address box above it.
-    await expect(page.getByRole('combobox', { name: 'Districts of Interest' }))
-      .toHaveText('Prakasam');
+    await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
+    await expect(page.getByLabel('Email for notices')).toHaveValue('shankarreddy.t@pattadar.local');
+    await expect(page.getByLabel('My address')).toHaveValue('Katragunta, Markapur mandal, Prakasam');
+    // districtsOfInterest holds an id; what is shown is the district's NAME.
+    await expect(page.getByRole('button', { name: 'Districts of interest' })).toHaveText(/1 district/);
+    await expect(page.getByText('Prakasam', { exact: true })).toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Email' })).toBeChecked();
     await expect(page.getByRole('checkbox', { name: 'SMS' })).not.toBeChecked();
+    await expect(page.getByText('XXXX XXXX 4471')).toBeVisible();
+    // Nothing typed, nothing to save — and the screen says why.
+    await expect(saveButton(page)).toBeDisabled();
+    await expect(page.getByText('Nothing has changed yet.')).toBeVisible();
+    expect(legacy.unanswered, 'this screen reads me and the district list').toEqual([]);
+    expect(legacy.sent).toEqual([]);
   });
 
-  test('an Aadhaar typed into the profile is digits only, and never longer than twelve', async ({ page }) => {
+  test('the old address carries me into the redrawn profile, not a signpost', async ({ page }) => {
     await legacyApi(page, PROFILE_WORLD);
     await page.goto('/legacy/profile');
-    const field = page.getByPlaceholder('Enter 12-digit Aadhaar to update (stored masked, never raw)');
-    await field.fill('1234-5678 9012 3456');
-    await expect(field).toHaveValue('123456789012');
+    await expect(page).toHaveURL(/\/app\/profile$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /previous version/ })).toHaveCount(0);
   });
 
-  test('saving the profile sends exactly what the form is holding', async ({ page }) => {
+  test('a login id is not shown as my name', async ({ page }) => {
+    // `me` seeds `name` with the principal id on first contact.
+    const id = `subject_${'f3'.repeat(32)}`;
+    await legacyApi(page, { ...PROFILE_WORLD, me: { ...ME, id, name: id } });
+    await page.goto('/app/profile');
+    await expect(page.getByLabel('Your name')).toHaveValue('');
+    await expect(page.getByText('No name yet')).toBeVisible();
+    await expect(page.getByText(id)).toHaveCount(0);
+  });
+
+  test('an Aadhaar typed here is digits only, and Save waits for all twelve', async ({ page }) => {
+    await legacyApi(page, PROFILE_WORLD);
+    await page.goto('/app/profile');
+    await aadhaarField(page).fill('1234-5678 9012 3456');
+    await expect(aadhaarField(page)).toHaveValue('123456789012');
+    await aadhaarField(page).fill('12345');
+    await expect(saveButton(page)).toBeDisabled();
+    await expect(page.getByText('An Aadhaar number is 12 digits.')).toBeVisible();
+  });
+
+  test('saving my preferences sends exactly what the form holds, and leaves my name alone', async ({ page }) => {
     const legacy = await legacyApi(page, {
       ...PROFILE_WORLD,
-      updateProfile: { kycRefMasked: 'XXXX XXXX 9012' },
+      updateProfile: { kycRefMasked: 'XXXX-XXXX-9012' },
     });
-    await page.goto('/legacy/profile');
+    await page.goto('/app/profile');
 
-    await page.getByRole('combobox', { name: 'Preferred Language' }).click();
-    await page.getByRole('option', { name: /Telugu/ }).click();
-    await page.getByLabel('My Address').fill('Tarlupadu, Prakasam');
+    await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
     await page.getByRole('checkbox', { name: 'SMS' }).check();
-    await page.getByPlaceholder('Enter 12-digit Aadhaar to update (stored masked, never raw)').fill('123456789012');
-    await page.getByRole('button', { name: 'Save Profile' }).click();
+    await page.getByRole('button', { name: 'Districts of interest' }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Guntur' }).click();
+    await page.keyboard.press('Escape');
+    await aadhaarField(page).fill('123456789012');
+    await saveButton(page).click();
 
-    await expect.poll(() => legacy.sent.length).toBe(1);
-    expect(legacy.sent[0]).toMatchObject({
+    await expect(page.getByText('Profile saved')).toBeVisible();
+    expect(legacy.sent).toEqual([{
       field: 'updateProfile',
       vars: {
-        l: 'te', a: 'Tarlupadu, Prakasam', n: 'email,sms',
-        k: '123456789012', m: false, d: 'w-dist-prakasam',
+        // The two stored values with no control here go back unchanged.
+        language: 'en', mfaEnabled: false,
+        address: 'Tarlupadu, Prakasam', notificationPrefs: 'email,sms',
+        districtsOfInterest: 'w-dist-prakasam,w-dist-guntur', kycRef: '123456789012',
+      },
+    }]);
+  });
+
+  test('changing my name sends my name, and nothing about my preferences', async ({ page }) => {
+    const legacy = await legacyApi(page, { ...PROFILE_WORLD, updateMe: { id: ME.id } });
+    await page.goto('/app/profile');
+    await page.getByLabel('Your name').fill('T. Shankar Reddy');
+    await saveButton(page).click();
+
+    await expect(page.getByText('Profile saved')).toBeVisible();
+    expect(legacy.sent).toEqual([{
+      field: 'updateMe',
+      vars: { name: 'T. Shankar Reddy', email: 'shankarreddy.t@pattadar.local' },
+    }]);
+  });
+
+  test('a saved Aadhaar leaves the field empty and shows only the new mask', async ({ page }) => {
+    let me: Row = { ...ME };
+    await legacyApi(page, {
+      districts: DISTRICTS,
+      me: () => me,
+      updateProfile: (vars: Row) => {
+        me = { ...me, kycRefMasked: `XXXX-XXXX-${String(vars.kycRef).slice(-4)}` };
+        return { kycRefMasked: me.kycRefMasked };
       },
     });
-    await expect(page.getByText('Profile saved')).toBeVisible();
+    await page.goto('/app/profile');
+    await aadhaarField(page).fill('123456789012');
+    await saveButton(page).click();
+
+    await expect(page.getByText('XXXX XXXX 9012')).toBeVisible();
+    await expect(aadhaarField(page)).toHaveValue('');
+    await expect(page.getByText('123456789012')).toHaveCount(0);
   });
 
-  test('a saved profile forgets the Aadhaar it was given and keeps only the mask', async ({ page }) => {
-    await legacyApi(page, { ...PROFILE_WORLD, updateProfile: { kycRefMasked: 'XXXX XXXX 9012' } });
-    await page.goto('/legacy/profile');
+  test('a profile the server refuses to save says nothing changed, and tries nothing else', async ({ page }) => {
+    const legacy = await legacyApi(page, {
+      ...PROFILE_WORLD,
+      updateProfile: refused('the profile store is down'),
+      updateMe: { id: ME.id },
+    });
+    await page.goto('/app/profile');
+    await page.getByLabel('Your name').fill('T. Shankar Reddy');
+    await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
+    await saveButton(page).click();
 
-    const field = page.getByPlaceholder('Enter 12-digit Aadhaar to update (stored masked, never raw)');
-    await field.fill('123456789012');
-    await page.getByRole('button', { name: 'Save Profile' }).click();
-
-    await expect(page.getByText('On file: XXXX XXXX 9012')).toBeVisible();
-    await expect(field).toHaveValue('');
+    await expect(page.getByRole('alert').filter({ hasText: 'Your profile could not be saved. Nothing has changed.' }))
+      .toBeVisible();
+    await expect(page.getByText('the profile store is down')).toBeVisible();
+    expect(legacy.sent.map((s) => s.field)).toEqual(['updateProfile']);
+    // What was typed is still there to try again.
+    await expect(page.getByLabel('My address')).toHaveValue('Tarlupadu, Prakasam');
   });
 
-  test('a profile the server refuses to save says so', async ({ page }) => {
+  test('a save the server answers with nothing is not called saved', async ({ page }) => {
     await legacyApi(page, { ...PROFILE_WORLD, updateProfile: null });
-    await page.goto('/legacy/profile');
-    await page.getByRole('button', { name: 'Save Profile' }).click();
-    await expect(page.getByText('Could not save the profile')).toBeVisible();
+    await page.goto('/app/profile');
+    await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
+    await saveButton(page).click();
+    await expect(page.getByText('Your profile could not be saved. Nothing has changed.')).toBeVisible();
+    await expect(page.getByText('Profile saved')).toHaveCount(0);
+  });
+
+  test('when only half a save lands, the screen says which half', async ({ page }) => {
+    await legacyApi(page, {
+      ...PROFILE_WORLD,
+      updateProfile: { kycRefMasked: ME.kycRefMasked },
+      updateMe: refused('name refused'),
+    });
+    await page.goto('/app/profile');
+    await page.getByLabel('Your name').fill('T. Shankar Reddy');
+    await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
+    await saveButton(page).click();
+    await expect(page.getByText('Your preferences were saved, but your name and email were not.')).toBeVisible();
+  });
+
+  test('a profile that did not load offers no form to save blanks over it', async ({ page }) => {
+    await legacyApi(page, { ...PROFILE_WORLD, me: refused('the account store is down') });
+    await page.goto('/app/profile');
+    await expect(page.getByText('Your profile did not load')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(saveButton(page)).toHaveCount(0);
+  });
+
+  // ── what a Google sign-in brings ──────────────────────────────────────
+  //
+  // The sealed session's ID token carries only an email. These add the two
+  // claims a Google sign-in brings — `name`, and `picture` once the pool maps
+  // it (cognito.tf) — by rewriting the stored token AFTER the harness writes
+  // it (init scripts run in registration order). Nothing in fixtures/ changes.
+  const FACE = 'https://lh3.googleusercontent.com/a/sealed-face=s96-c';
+  const PNG_1PX = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64');
+  async function googleSession(page: Page, claims: Record<string, string>) {
+    await page.addInitScript((extra) => {
+      const key = Object.keys(localStorage).find((k) => k.endsWith('.idToken'));
+      if (!key) return;
+      const [head, body, sig] = (localStorage.getItem(key) ?? '').split('.');
+      const json = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+      const next = btoa(JSON.stringify({ ...json, ...extra }))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      localStorage.setItem(key, `${head}.${next}.${sig}`);
+    }, claims);
+  }
+
+  test('with no name on the account, the Google name is offered, and Save keeps it', async ({ page }) => {
+    await googleSession(page, { name: 'Sankara Telukutla' });
+    const id = `subject_${'f3'.repeat(32)}`;
+    const legacy = await legacyApi(page, {
+      ...PROFILE_WORLD, me: { ...ME, id, name: id }, updateMe: { id },
+    });
+    await page.goto('/app/profile');
+
+    await expect(page.getByLabel('Your name')).toHaveValue('Sankara Telukutla');
+    await expect(page.getByText('From the account you signed in with. Save to keep it.')).toBeVisible();
+    await saveButton(page).click();
+    await expect(page.getByText('Profile saved')).toBeVisible();
+    expect(legacy.sent).toEqual([{
+      field: 'updateMe',
+      vars: { name: 'Sankara Telukutla', email: 'shankarreddy.t@pattadar.local' },
+    }]);
+  });
+
+  test('a name I saved is never replaced by the one Google has', async ({ page }) => {
+    await googleSession(page, { name: 'Sankara Telukutla' });
+    await legacyApi(page, PROFILE_WORLD);
+    await page.goto('/app/profile');
+    await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
+    await expect(page.getByText('From the account you signed in with.', { exact: false })).toHaveCount(0);
+    await expect(saveButton(page)).toBeDisabled();
+  });
+
+  test('the Google photo is my face on the profile and on the account button', async ({ page }) => {
+    await page.route(FACE, (route) => route.fulfill({ contentType: 'image/png', body: PNG_1PX }));
+    await googleSession(page, { name: 'Sankara Telukutla', picture: FACE });
+    await legacyApi(page, PROFILE_WORLD);
+    await page.goto('/app/profile');
+
+    const faces = page.locator(`img[src="${FACE}"]`);
+    // One in the Profile card, one inside the topbar's account button.
+    await expect(faces).toHaveCount(2);
+    await expect(page.getByRole('button', { name: /^Your account/ }).locator('img')).toHaveAttribute('src', FACE);
+    // The page address is not handed to Google with the image request.
+    await expect(faces.first()).toHaveAttribute('referrerpolicy', 'no-referrer');
+  });
+
+  test('a Google photo that will not load falls back to initials, not a broken image', async ({ page }) => {
+    // Bytes that are not an image, rather than a 404: the browser logs a 4xx
+    // as a console error, and a photo that cannot be decoded is the same
+    // failure for the screen without tripping the harness guard.
+    await page.route(FACE, (route) => route.fulfill({ contentType: 'image/png', body: 'not an image' }));
+    await googleSession(page, { name: 'Sankara Telukutla', picture: FACE });
+    await legacyApi(page, PROFILE_WORLD);
+    await page.goto('/app/profile');
+    await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
+    await expect(page.locator(`img[src="${FACE}"]`)).toHaveCount(0);
+    // The seeded portfolio greets "Shankar Reddy".
+    await expect(page.getByRole('button', { name: /^Your account/ })).toHaveText('SR');
+  });
+
+  test('a picture claim that is not an https address is never drawn', async ({ page }) => {
+    await googleSession(page, { picture: 'javascript:alert(1)' });
+    await legacyApi(page, PROFILE_WORLD);
+    await page.goto('/app/profile');
+    await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
+    await expect(page.locator('main img, header img')).toHaveCount(0);
   });
 
   test('the profile points at the one place privacy and deletion actually live', async ({ page }) => {
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/legacy/profile');
+    await page.goto('/app/profile');
     await expect(page.getByRole('link', { name: 'Privacy, export and account deletion' }))
       .toHaveAttribute('href', '/app/account');
   });
 });
 
 // ── the tools ──────────────────────────────────────────────────────────
+//
+// Tools is drawn in this app now (w360/pages/Tools.tsx) and the MUI screen
+// that used to sit at /legacy/tools is deleted. It still reads the old flat
+// reference documents — `{ sroOffices }`, `{ feeSchedule }`, `{ marketValues }`
+// and `calculateStampDuty` — so it keeps using `legacyApi()` from this file,
+// which is why these tests live here rather than in a spec of their own.
 
-test.describe('the tools the previous app still owns', () => {
+/** The duty breakup card, by its heading. The deed-type <select> carries the
+ *  same "Sale of immovable property — Sale" words as an <option>, so page-wide
+ *  text lookups would be ambiguous; the answer is asserted where it is shown. */
+const breakup = (page: Page) =>
+  page.locator('section.card').filter({ has: page.getByRole('heading', { level: 2, name: 'Duty & fee breakup' }) });
+
+test.describe('the tools, drawn in this app', () => {
   test.beforeEach(() => { test.slow(); });
 
   test('all four tools sit under one screen, and the SRO directory opens first', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/legacy/tools');
+    await page.goto('/app/tools');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Tools' })).toBeVisible();
-    await expect(page.getByText('Everyday land utilities — offices, duty, market value and area conversions.'))
+    await expect(page.getByText('SRO finder · Stamp duty · Guideline values · Area'))
       .toBeVisible();
-    for (const name of ['Find SRO', 'Stamp Duty', 'Market Value', 'Area Calculator']) {
-      await expect(page.getByRole('tab', { name })).toBeVisible();
+    for (const name of ['Find SRO', 'Stamp duty', 'Market value', 'Area calculator']) {
+      await expect(page.getByRole('tab', { name, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
+    // Not the signpost it replaced: nothing here sends you to /legacy.
+    await expect(page.getByRole('link', { name: 'Open Tools' })).toHaveCount(0);
   });
 
-  test('?tab= opens the tool the old address pointed at', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await expect(page.getByRole('tab', { name: 'Area Calculator' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('heading', { level: 2, name: 'Area Calculator' })).toBeVisible();
+  test('?tab= opens the tool the address names', async ({ page }) => {
+    await page.goto('/app/tools?tab=calculator');
+    await expect(page.getByRole('tab', { name: 'Area calculator', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
+  });
+
+  test('choosing a tool writes it into the address, so the tool can be linked', async ({ page }) => {
+    await legacyApi(page, { feeSchedule: FEES });
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Stamp duty', exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/tools\?tab=stamp-duty$/);
   });
 
   test('a ?tab= nobody wrote a tool for falls back to the SRO directory', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/legacy/tools?tab=nonsense');
+    await page.goto('/app/tools?tab=nonsense');
     await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('the old tools address carries its tab into this app', async ({ page }) => {
+    await page.goto('/legacy/tools?tab=calculator');
+    await expect(page).toHaveURL(/\/app\/tools\?tab=calculator$/);
+    await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
+  });
+
+  test('the tab strips answer the arrow keys, not only the pointer', async ({ page }) => {
+    await legacyApi(page, { sroOffices: SRO_OFFICES });
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Area calculator', exact: true }).focus();
+    await page.keyboard.press('Home');
+    await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'Find SRO' })).toBeFocused();
   });
 
   // -- Find SRO --------------------------------------------------------
 
   test('the SRO directory lists the office for every mandal it knows', async ({ page }) => {
     const legacy = await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/legacy/tools?tab=sro');
+    await page.goto('/app/tools?tab=sro');
 
-    await expect(page.getByRole('heading', { level: 2, name: 'SRO Offices' })).toBeVisible();
-    await expect(page.getByText('Find the Sub-Registrar Office for your village before you plan a registration visit.'))
+    await expect(page.getByRole('heading', { level: 2, name: 'SRO offices' })).toBeVisible();
+    await expect(page.getByText('The Sub-Registrar Office that serves your village.'))
       .toBeVisible();
     await expect(page.getByRole('cell', { name: 'Markapur', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('cell', { name: '1607' })).toBeVisible();
@@ -1461,8 +1654,8 @@ test.describe('the tools the previous app still owns', () => {
 
   test('searching the SRO directory narrows it to the district I asked for', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/legacy/tools?tab=sro');
-    await page.getByPlaceholder('Search office, district, mandal…').fill('Guntur');
+    await page.goto('/app/tools?tab=sro');
+    await page.getByRole('textbox', { name: 'Search SRO offices' }).fill('Guntur');
 
     await expect(page.getByRole('cell', { name: 'Mangalagiri', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Markapur', exact: true })).toHaveCount(0);
@@ -1470,7 +1663,7 @@ test.describe('the tools the previous app still owns', () => {
 
   test('an SRO search that matches nothing says so, and suggests what to type', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/legacy/tools?tab=sro');
+    await page.goto('/app/tools?tab=sro');
     await page.getByPlaceholder('Search office, district, mandal…').fill('Mumbai');
 
     await expect(page.getByText('No offices match')).toBeVisible();
@@ -1482,16 +1675,10 @@ test.describe('the tools the previous app still owns', () => {
     // No legacyApi here, so the old query is refused with a 400 and logged.
     test.use({ allowConsole: true });
 
-    test('an SRO directory that never loaded should not blame my search', async ({ page }) => {
-      // DEFECT — pages/ToolsPage.tsx:78-86 draws the "No offices match / Try a
-      // district or mandal name" empty state whenever `rows` is empty, which
-      // includes the case where NOTHING was typed and the directory never
-      // arrived. The owner is told their search is wrong when they have not
-      // searched. They are owed the outage, which the header chip beside it
-      // already knows about.
-      test.fail();
-      await page.goto('/legacy/tools?tab=sro');
-      await expect(page.getByText('Service unreachable')).toBeVisible();
+    test('an SRO directory that never loaded says so, and does not blame my search', async ({ page }) => {
+      await page.goto('/app/tools?tab=sro');
+      await expect(page.getByText('The office directory did not load')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
       await expect(page.getByText('No offices match')).toHaveCount(0);
     });
   });
@@ -1500,19 +1687,19 @@ test.describe('the tools the previous app still owns', () => {
 
   test('the stamp duty tool waits for a deed type and two figures before it says anything', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/legacy/tools?tab=stamp-duty');
+    await page.goto('/app/tools?tab=stamp-duty');
 
-    await expect(page.getByRole('heading', { level: 2, name: 'Stamp Duty & Fee Calculator' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Stamp duty & fee calculator' })).toBeVisible();
     await expect(page.getByText('Enter values and click Calculate')).toBeVisible();
-    await expect(page.getByText('Duty is charged on the higher of the consideration and the guideline market value.'))
+    await expect(page.getByText('Duty is on the higher of the sale price and the guideline value.'))
       .toBeVisible();
   });
 
   test('pressing Calculate with nothing chosen says exactly what is missing', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/legacy/tools?tab=stamp-duty');
+    await page.goto('/app/tools?tab=stamp-duty');
     await page.getByRole('button', { name: 'Calculate' }).click();
-    await expect(page.getByText('Pick a deed type and enter the consideration and market value.')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveText('Pick a deed type and enter the consideration and market value.');
   });
 
   test('the duty is charged on the market value when it is the higher of the two', async ({ page }) => {
@@ -1527,18 +1714,17 @@ test.describe('the tools the previous app still owns', () => {
         userCharges: 6_000, total: 456_000,
       }),
     });
-    await page.goto('/legacy/tools?tab=stamp-duty');
+    await page.goto('/app/tools?tab=stamp-duty');
 
-    await page.getByRole('combobox', { name: 'Deed Type' }).click();
-    await page.getByRole('option', { name: 'Sale of immovable property — Sale' }).click();
-    await page.getByLabel('Consideration Amount (₹)').fill('5000000');
-    await page.getByLabel('Market / Guideline Value (₹)').fill('6000000');
+    await page.getByLabel('Deed type').selectOption({ label: 'Sale of immovable property — Sale' });
+    await page.getByLabel('Consideration amount (₹)').fill('5000000');
+    await page.getByLabel('Market / guideline value (₹)').fill('6000000');
     await page.getByRole('button', { name: 'Calculate' }).click();
 
-    await expect(page.getByRole('heading', { level: 2, name: 'Duty & Fee Breakup' })).toBeVisible();
-    await expect(page.getByText('3,00,000')).toBeVisible();
-    await expect(page.getByText('4,56,000')).toBeVisible();
-    await expect(page.getByText('Online payment for stamp duty will be available in a future release.'))
+    await expect(breakup(page)).toBeVisible();
+    await expect(breakup(page).getByText('₹3,00,000')).toBeVisible();
+    await expect(breakup(page).getByText('₹4,56,000')).toBeVisible();
+    await expect(page.getByText('Online stamp-duty payment is not available yet.'))
       .toBeVisible();
 
     expect(legacy.sent).toHaveLength(0);
@@ -1547,55 +1733,48 @@ test.describe('the tools the previous app still owns', () => {
 
   test('a duty the service cannot work out is worked out on the spot instead', async ({ page }) => {
     // calculateStampDuty is left unanswered, so `gql` comes back with nothing
-    // for it and StampDutyTool.tsx:71 runs @pattadar/core calcStampDuty on the
-    // selected row's rates. 5% of the 60,00,000 basis is 3,00,000, and the four
-    // charges together are 4,56,000 — the same answer, computed here.
+    // for it and Tools.tsx runs @pattadar/core calcStampDuty on the chosen
+    // row's rates. 5% of the 60,00,000 basis is 3,00,000, and the four charges
+    // together are 4,56,000 — the same answer, computed here.
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/legacy/tools?tab=stamp-duty');
+    await page.goto('/app/tools?tab=stamp-duty');
 
-    await page.getByRole('combobox', { name: 'Deed Type' }).click();
-    await page.getByRole('option', { name: 'Sale of immovable property — Sale' }).click();
-    await page.getByLabel('Consideration Amount (₹)').fill('5000000');
-    await page.getByLabel('Market / Guideline Value (₹)').fill('6000000');
+    await page.getByLabel('Deed type').selectOption({ label: 'Sale of immovable property — Sale' });
+    await page.getByLabel('Consideration amount (₹)').fill('5000000');
+    await page.getByLabel('Market / guideline value (₹)').fill('6000000');
     await page.getByRole('button', { name: 'Calculate' }).click();
 
-    await expect(page.getByRole('heading', { level: 2, name: 'Duty & Fee Breakup' })).toBeVisible();
-    await expect(page.getByText('Sale of immovable property — Sale')).toBeVisible();
-    await expect(page.getByText('3,00,000')).toBeVisible();
-    await expect(page.getByText('4,56,000')).toBeVisible();
+    await expect(breakup(page).getByText('Sale of immovable property — Sale')).toBeVisible();
+    await expect(breakup(page).getByText('₹3,00,000')).toBeVisible();
+    await expect(breakup(page).getByText('₹4,56,000')).toBeVisible();
   });
 
   test('a gift of the same land costs a fifth of what a sale costs', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/legacy/tools?tab=stamp-duty');
+    await page.goto('/app/tools?tab=stamp-duty');
 
-    await page.getByRole('combobox', { name: 'Deed Type' }).click();
-    await page.getByRole('option', { name: 'Gift to family member — Gift' }).click();
-    await page.getByLabel('Consideration Amount (₹)').fill('0');
-    await page.getByLabel('Market / Guideline Value (₹)').fill('6000000');
+    await page.getByLabel('Deed type').selectOption({ label: 'Gift to family member — Gift' });
+    await page.getByLabel('Consideration amount (₹)').fill('0');
+    await page.getByLabel('Market / guideline value (₹)').fill('6000000');
     await page.getByRole('button', { name: 'Calculate' }).click();
 
     // 1% + 0.5% + 0.5% + 0.1% of 60,00,000 = 60,000 + 30,000 + 30,000 + 6,000.
-    await expect(page.getByText('1,26,000')).toBeVisible();
+    await expect(breakup(page).getByText('₹1,26,000')).toBeVisible();
   });
 
   test.describe('with no fee schedule behind it', () => {
     test.use({ allowConsole: true });
 
-    test('a stamp duty tool with no fee schedule should not claim to be using one', async ({ page }) => {
-      // DEFECT — pages/tools/StampDutyTool.tsx:146-150 prints "Working from the
-      // bundled fee schedule — the live service is not reachable" whenever
-      // `isSample` is set, but data/useLiveOrSample.ts:14-26 hands it an EMPTY
-      // list, not the bundled one. The deed-type picker offers nothing, its
-      // placeholder reads "(0 AP deed types)", and Calculate can never produce
-      // an answer. The owner is owed either the bundled schedule the caption
-      // promises, or a sentence saying the tool cannot run at all.
-      test.fail();
-      await page.goto('/legacy/tools?tab=stamp-duty');
-      await expect(page.getByText('Working from the bundled fee schedule — the live service is not reachable.'))
-        .toBeVisible();
-      await page.getByRole('combobox', { name: 'Deed Type' }).click();
-      await expect(page.getByRole('option')).not.toHaveCount(0);
+    test('a stamp duty tool with no fee schedule says it cannot run, rather than claim one', async ({ page }) => {
+      // WAS A DEFECT (test-fail-register 1605) — the legacy StampDutyTool
+      // printed "Working from the bundled fee schedule" over an EMPTY list:
+      // useLiveOrSample hands a failed read an empty shape, not the bundled
+      // one. The picker offered nothing and Calculate could never answer. The
+      // redrawn tool says the schedule did not load and offers a retry.
+      await page.goto('/app/tools?tab=stamp-duty');
+      await expect(page.getByText('The AP fee schedule did not load')).toBeVisible();
+      await expect(page.getByText(/bundled fee schedule/)).toHaveCount(0);
+      await expect(page.getByLabel('Deed type')).toHaveCount(0);
     });
   });
 
@@ -1603,46 +1782,40 @@ test.describe('the tools the previous app still owns', () => {
 
   test('the guideline rates are named as reference figures, not as a valuation', async ({ page }) => {
     const legacy = await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/legacy/tools?tab=market-value');
-    // The whole legacy bundle — MUI included — is served cold on a worker's
-    // first visit, and this is the first thing this test looks at.
+    await page.goto('/app/tools?tab=market-value');
     await expect(page.getByRole('heading', { level: 1, name: 'Tools' })).toBeVisible({ timeout: 25_000 });
 
     await expect(page.getByText(/These are reference guideline values published by the AP Registration/))
       .toBeVisible();
-    await expect(page.getByText('Actual market values may vary.')).toBeVisible();
+    await expect(page.getByText(/Actual market values may vary\./)).toBeVisible();
     expect(legacy.unanswered, 'this tab reads only the guideline rates').toEqual([]);
   });
 
   test('the district, mandal and village pickers narrow each other in order', async ({ page }) => {
     await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/legacy/tools?tab=market-value');
+    await page.goto('/app/tools?tab=market-value');
 
-    await page.getByRole('combobox', { name: 'District' }).click();
-    await page.getByRole('option', { name: 'Prakasam' }).click();
+    await page.getByLabel('District').selectOption({ label: 'Prakasam' });
 
-    await page.getByRole('combobox', { name: 'Mandal' }).click();
+    const mandal = page.getByLabel('Mandal');
     // Guntur's mandal has been narrowed out of the list entirely.
-    await expect(page.getByRole('option', { name: 'Markapur' })).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Tarlupadu' })).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Mangalagiri' })).toHaveCount(0);
-    await page.getByRole('option', { name: 'Markapur' }).click();
+    await expect(mandal.locator('option', { hasText: 'Markapur' })).toHaveCount(1);
+    await expect(mandal.locator('option', { hasText: 'Tarlupadu' })).toHaveCount(1);
+    await expect(mandal.locator('option', { hasText: 'Mangalagiri' })).toHaveCount(0);
+    await mandal.selectOption({ label: 'Markapur' });
 
-    await page.getByRole('combobox', { name: 'Village' }).click();
-    await expect(page.getByRole('option', { name: 'Katragunta' })).toBeVisible();
-    await expect(page.getByRole('option', { name: 'Nidamarru' })).toHaveCount(0);
+    const village = page.getByLabel('Village');
+    await expect(village.locator('option', { hasText: 'Katragunta' })).toHaveCount(1);
+    await expect(village.locator('option', { hasText: 'Nidamarru' })).toHaveCount(0);
   });
 
-  test('choosing a village puts its rates up as cards, one per classification', async ({ page }) => {
+  test('choosing a village puts its rates up, one per classification', async ({ page }) => {
     await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/legacy/tools?tab=market-value');
+    await page.goto('/app/tools?tab=market-value');
 
-    await page.getByRole('combobox', { name: 'District' }).click();
-    await page.getByRole('option', { name: 'Prakasam' }).click();
-    await page.getByRole('combobox', { name: 'Mandal' }).click();
-    await page.getByRole('option', { name: 'Markapur' }).click();
-    await page.getByRole('combobox', { name: 'Village' }).click();
-    await page.getByRole('option', { name: 'Katragunta' }).click();
+    await page.getByLabel('District').selectOption({ label: 'Prakasam' });
+    await page.getByLabel('Mandal').selectOption({ label: 'Markapur' });
+    await page.getByLabel('Village').selectOption({ label: 'Katragunta' });
 
     await expect(page.getByText('₹18,50,000').first()).toBeVisible();
     await expect(page.getByText('₹4,200').first()).toBeVisible();
@@ -1653,52 +1826,46 @@ test.describe('the tools the previous app still owns', () => {
 
   test('changing the district throws away the mandal and village that no longer apply', async ({ page }) => {
     await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/legacy/tools?tab=market-value');
+    await page.goto('/app/tools?tab=market-value');
 
-    await page.getByRole('combobox', { name: 'District' }).click();
-    await page.getByRole('option', { name: 'Prakasam' }).click();
-    await page.getByRole('combobox', { name: 'Mandal' }).click();
-    await page.getByRole('option', { name: 'Markapur' }).click();
-    await expect(page.getByRole('combobox', { name: 'Mandal' })).toHaveText('Markapur');
+    await page.getByLabel('District').selectOption({ label: 'Prakasam' });
+    await page.getByLabel('Mandal').selectOption({ label: 'Markapur' });
+    await expect(page.getByLabel('Mandal').locator('option:checked')).toHaveText('Markapur');
 
-    await page.getByRole('combobox', { name: 'District' }).click();
-    await page.getByRole('option', { name: 'Guntur' }).click();
-    await expect(page.getByRole('combobox', { name: 'Mandal' })).toHaveText('All mandals');
-    await expect(page.getByRole('combobox', { name: 'Village' })).toHaveText('All villages');
+    await page.getByLabel('District').selectOption({ label: 'Guntur' });
+    await expect(page.getByLabel('Mandal').locator('option:checked')).toHaveText('All mandals');
+    await expect(page.getByLabel('Village').locator('option:checked')).toHaveText('All villages');
   });
 
   test.describe('with no guideline rates behind it', () => {
     test.use({ allowConsole: true });
 
-    test('a market value table with no rows should not blame a selection nobody made', async ({ page }) => {
-      // DEFECT — pages/tools/MarketValueTool.tsx:155-163 prints "No guideline
-      // rates match this selection." for an EMPTY table, and the caption at
-      // :168-172 adds "Sample data — the live service is not reachable" beneath
-      // a table that is showing no sample at all. Two sentences, both untrue,
-      // for one outage. The owner is owed a single honest one.
-      test.fail();
-      await page.goto('/legacy/tools?tab=market-value');
-      await expect(page.getByText('No guideline rates match this selection.')).toBeVisible();
-      await expect(page.getByText('Sample data — the live service is not reachable.')).toHaveCount(0);
+    test('guideline rates that never loaded say so, and do not blame a selection nobody made', async ({ page }) => {
+      await page.goto('/app/tools?tab=market-value');
+      await expect(page.getByText('The guideline rates did not load')).toBeVisible();
+      await expect(page.getByText('No guideline rates match this selection.')).toHaveCount(0);
+      await expect(page.getByText(/sample data/i)).toHaveCount(0);
     });
   });
 
   // -- Area calculator -------------------------------------------------
 
   test('the area calculator needs no service at all — it is arithmetic', async ({ page, world }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await expect(page.getByRole('heading', { level: 2, name: 'Area Calculator' })).toBeVisible();
+    await page.goto('/app/tools?tab=calculator');
+    await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
     await expect(page.getByText(/Convert between Indian land units, measure a plot, estimate fencing/))
       .toBeVisible();
-    for (const name of ['Unit Converter', 'Plot Area', 'Fencing', 'Map Area']) {
-      await expect(page.getByRole('tab', { name })).toBeVisible();
+    for (const name of ['Unit converter', 'Plot area', 'Fencing', 'Map area']) {
+      await expect(page.getByRole('tab', { name, exact: true })).toBeVisible();
     }
     expect(world.escapes()).toEqual([]);
   });
 
   test('one acre converts to every unit an Andhra farmer actually uses', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await expect(page.getByText('1 Acres =')).toBeVisible();
+    await page.goto('/app/tools?tab=calculator');
+    // One acre is singular on both lines: the title used to echo the picker's
+    // plural label ("1 Acres =") over a value that said "1 Acre".
+    await expect(page.getByText('1 Acre =', { exact: true })).toBeVisible();
 
     const row = (label: string) => page.getByRole('row').filter({ hasText: new RegExp(`^${label}`) });
     await expect(row('Cents')).toContainText('100');
@@ -1711,18 +1878,17 @@ test.describe('the tools the previous app still owns', () => {
   });
 
   test('two guntas is five cents, and the converter says so in the language of the passbook', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
+    await page.goto('/app/tools?tab=calculator');
     await page.getByLabel('Amount').fill('2');
-    await page.getByRole('combobox', { name: 'Unit' }).click();
-    await page.getByRole('option', { name: 'Guntas' }).click();
+    await page.getByLabel('Unit', { exact: true }).selectOption({ label: 'Guntas' });
 
     await expect(page.getByText('2 Guntas =')).toBeVisible();
     await expect(page.getByText('5 Cents')).toBeVisible();
   });
 
   test('a hundred by fifty foot plot is eleven and a half cents, and its perimeter is offered to the fencing tool', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Plot Area' }).click();
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
     await page.getByLabel('Width').fill('50');
 
@@ -1732,11 +1898,11 @@ test.describe('the tools the previous app still owns', () => {
   });
 
   test('a triangle measured in metres is turned into acres without my converting anything', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Plot Area' }).click();
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByRole('button', { name: 'Triangle' }).click();
-    await page.getByRole('combobox', { name: 'Measured in' }).click();
-    await page.getByRole('option', { name: 'Metres' }).click();
+    await expect(page.getByRole('button', { name: 'Triangle' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByLabel('Measured in').selectOption({ label: 'Metres' });
     await page.getByLabel('Side A').fill('100');
     await page.getByLabel('Side B').fill('100');
     await page.getByLabel('Side C').fill('100');
@@ -1747,8 +1913,8 @@ test.describe('the tools the previous app still owns', () => {
   });
 
   test('an impossible triangle is worth nothing rather than a number somebody might believe', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Plot Area' }).click();
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByRole('button', { name: 'Triangle' }).click();
     await page.getByLabel('Side A').fill('10');
     await page.getByLabel('Side B').fill('10');
@@ -1757,20 +1923,20 @@ test.describe('the tools the previous app still owns', () => {
   });
 
   test('the perimeter I measured carries into the fencing estimate instead of being typed twice', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Plot Area' }).click();
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
     await page.getByLabel('Width').fill('50');
     await page.getByRole('button', { name: 'Use in Fencing →' }).click();
 
     await expect(page.getByRole('tab', { name: 'Fencing' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByLabel('Perimeter (ft)')).toHaveValue('300');
-    await expect(page.getByText('38')).toBeVisible();    // ceil(300 / 8) posts
-    await expect(page.getByText('900')).toBeVisible();   // 300 ft × 3 strands
+    await expect(page.getByText('38', { exact: true })).toBeVisible();    // ceil(300 / 8) posts
+    await expect(page.getByText('900', { exact: true })).toBeVisible();   // 300 ft × 3 strands
   });
 
   test('a fence with no prices quoted keeps quiet about the cost', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
+    await page.goto('/app/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Fencing' }).click();
     await page.getByLabel('Perimeter (ft)').fill('300');
     await expect(page.getByText('Est. cost')).toBeVisible();
@@ -1781,15 +1947,15 @@ test.describe('the tools the previous app still owns', () => {
   });
 
   test('a boundary with fewer than three corners is not an area, and says so', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Map Area' }).click();
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Map area' }).click();
     await expect(page.getByText('Add at least 3 points to compute an area.')).toBeVisible();
   });
 
   test('a boundary pasted as GeoJSON is measured in acres and in metres of fence', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Map Area' }).click();
-    await page.getByPlaceholder(/"type":"Polygon"/).fill(
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Map area' }).click();
+    await page.getByLabel('Boundary as GeoJSON').fill(
       '{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}',
     );
 
@@ -1798,9 +1964,9 @@ test.describe('the tools the previous app still owns', () => {
   });
 
   test('nonsense pasted where GeoJSON was asked for is refused rather than guessed at', async ({ page }) => {
-    await page.goto('/legacy/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Map Area' }).click();
-    await page.getByPlaceholder(/"type":"Polygon"/).fill('not json at all');
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Map area' }).click();
+    await page.getByLabel('Boundary as GeoJSON').fill('not json at all');
     await expect(page.getByText('Add at least 3 points to compute an area.')).toBeVisible();
   });
 });

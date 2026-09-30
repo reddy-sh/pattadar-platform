@@ -5,7 +5,7 @@ compatibility: Requires repository test/config/CI files. Never run live-data or 
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-16"
+  verified: "2026-09-26"
   upstream-inspiration: anthropics/webapp-testing
 ---
 
@@ -29,7 +29,10 @@ contract itself.
    destructive risk. Document intentionally manual suites/gaps.
 5. For flaky tests, reproduce and fix the race/fixture/environment; quarantine
    only with owner, evidence, expiry, and retained failure visibility.
-6. Update `verify-change` routing and run relevant local checks.
+6. Report results with the vocabulary in `references/evidence-and-status.md`:
+   PASS/FAIL/BLOCKED/NOT_RUN/SKIPPED, reconciled counts, finding classification,
+   and evidence handling. A clean exit with nothing collected is BLOCKED.
+7. Update `verify-change` routing and run relevant local checks.
 
 Do not introduce generic Playwright helpers that bypass the repository's
 purpose-built harnesses or start servers underneath `e2e-app`.

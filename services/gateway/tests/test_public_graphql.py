@@ -13,6 +13,7 @@ def allowed(query, **extra):
     'mutation { ...Verify } fragment Verify on Mutation { verifyBeneficiary(token:"t") { id } }',
     'mutation { ... on Mutation { verifyBeneficiary(token:"t") { id } } }',
     'mutation { acknowledgeInactivity(token:"t") }',
+    'query Preview($t:String!){ invitePreview(token:$t){ state purpose inviter } }',
     'mutation Ack($token:String!,$withdraw:Boolean!){ acknowledgeInactivity(token:$token,withdraw:$withdraw) }',
 ])
 def test_single_public_capability_mutation_remains_public(query):
@@ -29,6 +30,9 @@ def test_single_public_capability_mutation_remains_public(query):
     'mutation { ...Cycle } fragment Cycle on Mutation { ...Cycle }',
     'mutation { ...Missing }',
     'mutation { verifyMember(token:"t") { id } }',
+    # Claiming binds an account, so it is never anonymous.
+    'mutation { claimInvitation(token:"t") { purpose } }',
+    'query { invitePreview(token:"t") { state } myReferral { code } }',
     'mutation { verifyBeneficiary(token:"t") { id } again:verifyBeneficiary(token:"x") { id } }',
     'mutation { acknowledgeInactivity(token:"t") verifyBeneficiary(token:"x") { id } }',
     'mutation { acknowledgeInactivity(token:"t") again:acknowledgeInactivity(token:"x") }',

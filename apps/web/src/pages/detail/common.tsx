@@ -95,7 +95,7 @@ export function SectionCard({
   return (
     <Card sx={{ p: 1.75, height: '100%', ...sx }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography sx={{ fontWeight: 600, fontSize: 14 }}>{title}</Typography>
+        <Typography sx={{ fontWeight: 700, fontSize: 14 }}>{title}</Typography>
         {action}
       </Box>
       {children}
@@ -140,7 +140,7 @@ export function NotFoundCard({ what, backTo, backLabel }: { what: string; backTo
   return (
     <Card sx={{ p: 4, textAlign: 'center' }}>
       <Typography sx={{ fontSize: 40 }}>🔍</Typography>
-      <Typography sx={{ fontWeight: 600, mt: 1 }}>{what} not found or not yours</Typography>
+      <Typography sx={{ fontWeight: 700, mt: 1 }}>{what} not found or not yours</Typography>
       <Button href={backTo} sx={{ mt: 2 }}>
         ← {backLabel}
       </Button>
@@ -337,7 +337,7 @@ const heroChipSx = {
   bgcolor: 'rgb(0 0 0 / 0.65)',
   color: 'common.white',
   fontSize: 13,
-  fontWeight: 600,
+  fontWeight: 700,
   backdropFilter: 'blur(2px)',
   cursor: 'pointer',
   whiteSpace: 'nowrap',

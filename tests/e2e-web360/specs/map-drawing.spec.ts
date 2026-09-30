@@ -36,7 +36,9 @@ async function clickMap(page: Page, x: number, y: number) {
 
 test('import previews and cancels without saving, then explicitly saves and reloads', async ({ page, request, recordId }) => {
   await openMap(page, recordId);
-  const file = page.locator('input[type=file]');
+  // The boundary-file importer, picked by what it accepts: the map tab also
+  // mounts an FMB-sheet upload, and the assistant keeps a picker on <body>.
+  const file = page.locator('input[type=file][accept*="geojson"]');
   await file.setInputFiles({ name: 'my-field.geojson', mimeType: 'application/geo+json', buffer: Buffer.from(GEOJSON) });
   await expect(page.locator('.w-draft-no')).toHaveCount(4);
   await expect(page.locator('.mapsays')).toContainText('Previewing my-field.geojson');
@@ -137,6 +139,9 @@ test('drawing over a village plot adds corners and double-click does not zoom', 
   const manifest = [{ village: 'Maps fixture', file: 'maps-fixture.geojson', key: 'mapsfixture' }];
   await page.route('**/vm/index.json', (route) => route.fulfill({ json: manifest }));
   await page.route('**/vm/overview.json', (route) => route.fulfill({ json: manifest }));
+  // No mandal catalog: the screen falls back to one landing map of every
+  // outline in the index, which is the manifest this test chose.
+  await page.route('**/vm/catalog.json', (route) => route.fulfill({ json: [] }));
   await page.route('**/vm/maps-fixture.geojson', (route) => route.fulfill({ json: {
     type: 'FeatureCollection', features: [{ type: 'Feature', properties: { lp: '101', ac: '11.8' },
       geometry: JSON.parse(GEOJSON) }],

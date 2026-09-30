@@ -82,6 +82,10 @@ CREATE TABLE audit_events (id text,actor text,action text,target text,details te
 def db(isolated_postgres, monkeypatch):
     with psycopg.connect(isolated_postgres, autocommit=True) as conn:
         conn.execute(SCHEMA)
+        # The claim columns growth.py adds (accepted_by/accepted_at, linked_principal).
+        from src import growth
+        for statement in growth.DDL:
+            conn.execute(statement)
     class Pool:
         @asynccontextmanager
         async def connection(self):

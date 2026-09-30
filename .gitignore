@@ -59,6 +59,10 @@ tests/e2e-web360/results-*.json
 # Local dev state — venvs, logs, MinIO bytes, one-off SQL. Never committed.
 .local/
 
+# Local browser cookie export and generated screenshot evidence.
+/300
+/artifacts/
+
 # sdd scratch
 .superpowers/
 
@@ -75,5 +79,3 @@ tests/e2e-web360/results-*.json
 # a sweep that ran on this machine is not a fact about the repo.
 .parity/
 tests/e2e-app/results.json
-
-tests/*

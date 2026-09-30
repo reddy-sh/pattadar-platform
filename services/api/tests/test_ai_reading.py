@@ -291,6 +291,54 @@ def test_usage_line_reports_every_token_class_and_a_cost(caplog):
     assert "usd=" in line
 
 
+def test_log_usage_hands_back_the_same_numbers_it_logs():
+    """The owner's copy of the cost, so a reading can carry it to the client.
+
+    input_tokens is the WHOLE prompt (fresh + both cache classes), not the
+    uncached remainder the provider labels 'input_tokens' — the panel says
+    'read in N tokens' and that has to be the whole document."""
+    body = {"usage": {"input_tokens": 100, "output_tokens": 50,
+                      "cache_creation_input_tokens": 20,
+                      "cache_read_input_tokens": 30},
+            "stop_reason": "end_turn"}
+    out = usage.log_usage(body, endpoint="import-passbook", name="p.pdf")
+    assert out["model"] == config.IMPORT_MODEL
+    assert out["input_tokens"] == 150
+    assert out["output_tokens"] == 50
+    assert out["cache_write_tokens"] == 20
+    assert out["cache_read_tokens"] == 30
+    assert out["usd"] > 0
+
+
+def test_merge_usage_sums_two_paid_attempts_because_both_were_charged():
+    """The low-effort retry follows the first call; it does not replace it."""
+    first = {"model": "m", "input_tokens": 100, "output_tokens": 50,
+             "cache_write_tokens": 20, "cache_read_tokens": 30, "usd": 0.0010}
+    second = {"model": "m", "input_tokens": 40, "output_tokens": 10,
+              "cache_write_tokens": 0, "cache_read_tokens": 5, "usd": 0.0004}
+    merged = usage.merge_usage(first, second)
+    assert merged["input_tokens"] == 140
+    assert merged["output_tokens"] == 60
+    assert merged["cache_write_tokens"] == 20
+    assert merged["cache_read_tokens"] == 35
+    assert merged["usd"] == pytest.approx(0.0014)
+
+
+def test_a_successful_reading_carries_the_usage_back_to_the_client(monkeypatch):
+    """{fields, raw, usage} — the usage is what the info icon renders."""
+    async def ok(url, *, headers, json_body, timeout):
+        return reply('{"kind": "land"}')
+
+    monkeypatch.setattr(provider, "post_with_retry", ok)
+    out = asyncio.run(provider.vision_extract(
+        b"%PDF-1.4", "application/pdf", "deed.pdf", "SYSTEM", "extract"))
+    assert out["fields"] == {"kind": "land"}
+    # reply() reports 11 input + 7 output tokens, no cache.
+    assert out["usage"]["input_tokens"] == 11
+    assert out["usage"]["output_tokens"] == 7
+    assert out["usage"]["model"] == config.IMPORT_MODEL
+
+
 def test_the_system_prompt_is_sent_as_one_cache_marked_block():
     blocks = usage.cacheable_system("some rules")
     assert blocks == [{"type": "text", "text": "some rules",

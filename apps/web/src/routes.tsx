@@ -11,10 +11,10 @@
  * mirror the current rhub pattadar app exactly:
  *   dashboard(index) · passbooks · parcels (Land & Properties, merged) ·
  *   documents · groups (Families & Groups) · invitations · notifications ·
- *   wallet · tools · audit · profile
+ *   wallet · tools · audit · profile · help
  * Legacy routes redirect INTO that structure — /app/properties into the
  * Properties tab of Land & Properties, /app/deeds into Documents, and the
- * four old tool routes into the matching Tools tab.
+ * four old tool routes (and /legacy/tools) into the matching Tools tab.
  *
  * That rebuild is done and this file stopped changing with it. The one thing
  * that reopens it is a subsystem the rebuild did not have: "/app/desk" is the
@@ -43,6 +43,9 @@ const LandingPage = lazy(() =>
 const PricingPage = lazy(() =>
   import('./pages/pricing/PricingPage').then((m) => ({ default: m.PricingPage })),
 );
+const ThemeSamplesPage = lazy(() =>
+  import('./pages/landing/ThemeSamplesPage').then((m) => ({ default: m.ThemeSamplesPage })),
+);
 const PrivacyPage = lazy(() =>
   import('./pages/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })),
 );
@@ -57,7 +60,10 @@ const SignupPage = lazy(() =>
 const ForgotPasswordPage = lazy(() =>
   import('./pages/auth/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })),
 );
-const VerifyPage = lazy(() => import('./pages/VerifyPage').then((m) => ({ default: m.VerifyPage })));
+// One landing for every invitation link: /i/:token, and /verify/:token, which
+// is in messages already sent. /r/:code remembers a referral and goes to sign-up.
+const InvitePage = lazy(() => import('./pages/InvitePage').then((m) => ({ default: m.InvitePage })));
+const ReferralLanding = lazy(() => import('./pages/InvitePage').then((m) => ({ default: m.ReferralLanding })));
 const TrainingCertificatePage = lazy(() =>
   import('./pages/TrainingCertificatePage').then((m) => ({ default: m.TrainingCertificatePage })),
 );
@@ -71,6 +77,32 @@ const PaymentsCheckout = lazy(() => import('./pages/PaymentsCheckout').then(m=>(
 const W360Shell = lazy(() => import('./w360/Shell').then((m) => ({ default: m.Shell })));
 const W360Dashboard = lazy(() => import('./w360/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const W360Properties = lazy(() => import('./w360/pages/Properties').then((m) => ({ default: m.Properties })));
+// Combined properties: several records an owner holds as one piece of ground.
+// A separate route family from `records/:id` on purpose — a holding is not a
+// legal record and must not inherit Share / Order / Archive, which all act on
+// a parcel or property row. See CombinedProperty.tsx.
+const W360Combined = lazy(() => import('./w360/pages/Combined').then((m) => ({ default: m.Combined })));
+const W360CombinedProperty = lazy(() =>
+  import('./w360/pages/CombinedProperty').then((m) => ({ default: m.CombinedProperty })),
+);
+const W360CombinedOverview = lazy(() =>
+  import('./w360/pages/CombinedProperty').then((m) => ({ default: m.CombinedOverview })),
+);
+const W360CombinedSurveys = lazy(() =>
+  import('./w360/pages/CombinedProperty').then((m) => ({ default: m.CombinedSurveys })),
+);
+const W360CombinedFmb = lazy(() =>
+  import('./w360/pages/CombinedFmb').then((m) => ({ default: m.CombinedFmbTab })),
+);
+const W360CombinedPapers = lazy(() =>
+  import('./w360/pages/CombinedLedger').then((m) => ({ default: m.CombinedPapersTab })),
+);
+const W360CombinedExpenses = lazy(() =>
+  import('./w360/pages/CombinedLedger').then((m) => ({ default: m.CombinedExpensesTab })),
+);
+const W360CombinedServices = lazy(() =>
+  import('./w360/pages/CombinedLedger').then((m) => ({ default: m.CombinedServicesTab })),
+);
 const W360MapFind = lazy(() => import('./w360/pages/MapFind').then((m) => ({ default: m.MapFind })));
 const W360VillageMaps = lazy(() => import('./w360/pages/VillageMaps').then((m) => ({ default: m.VillageMaps })));
 const W360Record = lazy(() => import('./w360/pages/Record').then((m) => ({ default: m.Record })));
@@ -93,10 +125,16 @@ const W360RecordServices = lazy(() => import('./w360/pages/Orders').then((m) => 
 const W360RecordHistory = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.RecordHistory })));
 const W360Assigned = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.Assigned })));
 const W360Services = lazy(() => import('./w360/pages/Orders').then((m) => ({ default: m.Services })));
-const W360Section = lazy(() => import('./w360/pages/Section').then((m) => ({ default: m.Section })));
+const W360Invitations = lazy(() => import('./w360/pages/Invitations').then((m) => ({ default: m.Invitations })));
+const W360Heir = lazy(() => import('./w360/pages/Heir').then((m) => ({ default: m.Heir })));
+const W360Refer = lazy(() => import('./w360/pages/Refer').then((m) => ({ default: m.Refer })));
+const W360Help = lazy(() => import('./w360/pages/Help').then((m) => ({ default: m.Help })));
 const W360Audit = lazy(() => import('./w360/pages/Audit').then((m) => ({ default: m.Audit })));
+const W360Notifications = lazy(() => import('./w360/pages/Notifications').then((m) => ({ default: m.Notifications })));
 const W360Groups = lazy(() => import('./w360/pages/Groups').then((m) => ({ default: m.Groups })));
 const W360Ticket = lazy(() => import('./w360/pages/Ticket').then((m) => ({ default: m.Ticket })));
+const W360Tools = lazy(() => import('./w360/pages/Tools').then((m) => ({ default: m.Tools })));
+const W360Profile = lazy(() => import('./w360/pages/Profile').then((m) => ({ default: m.Profile })));
 const W360Wallet = lazy(() => import('./w360/pages/Wallet').then((m) => ({ default: m.Wallet })));
 const W360ComplianceAdmin = lazy(() =>
   import('./w360/pages/ComplianceAdmin').then((m) => ({ default: m.ComplianceAdmin })),
@@ -126,10 +164,9 @@ const W360GeographyAdmin = lazy(() =>
   import('./w360/pages/GeographyAdmin').then((m) => ({ default: m.GeographyAdmin })),
 );
 
-// Previous app shell + pages. Still routed, under /legacy, for the sections the
-// W01–W15 handover did not redraw (groups, invitations, tools, audit, admin,
-// profile) — nothing that worked has been deleted, and /legacy/wallet stays
-// reachable now that /app/wallet is its own screen.
+// Previous app shell + pages, still routed under /legacy. Every rail section
+// is drawn under /app now. Tools, Profile and Invitations went furthest: each
+// old MUI screen is deleted and its /legacy address is only a redirect below.
 const AppShell = lazy(() => import('./layout/AppShell').then((m) => ({ default: m.AppShell })));
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
@@ -146,21 +183,16 @@ const DocumentsPage = lazy(() =>
 const FamiliesGroupsPage = lazy(() =>
   import('./pages/FamiliesGroupsPage').then((m) => ({ default: m.FamiliesGroupsPage })),
 );
-const InvitationsPage = lazy(() =>
-  import('./pages/InvitationsPage').then((m) => ({ default: m.InvitationsPage })),
-);
 const NotificationsPage = lazy(() =>
   import('./pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
 );
 const WalletPage = lazy(() => import('./pages/WalletPage').then((m) => ({ default: m.WalletPage })));
-const ToolsPage = lazy(() => import('./pages/ToolsPage').then((m) => ({ default: m.ToolsPage })));
 const AuditLogPage = lazy(() =>
   import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
 );
 const AdminRefDataPage = lazy(() =>
   import('./pages/AdminRefDataPage').then((m) => ({ default: m.AdminRefDataPage })),
 );
-const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 // Record detail views (parcel 360 / property 360 / passbook record).
 const ParcelDetailPage = lazy(() =>
   import('./pages/detail/ParcelDetailPage').then((m) => ({ default: m.ParcelDetailPage })),
@@ -194,18 +226,6 @@ function suspended(Component: LazyExoticComponent<ComponentType>) {
     <ErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
         <Component />
-      </Suspense>
-    </ErrorBoundary>
-  );
-}
-
-/** Same as `suspended`, for a lazy component that takes props (the shared
- *  Section page, which is told which section it is rendering). */
-function suspendedWith<P extends object>(Component: LazyExoticComponent<ComponentType<P>>, props: P) {
-  return (
-    <ErrorBoundary>
-      <Suspense fallback={<RouteFallback />}>
-        <Component {...props} />
       </Suspense>
     </ErrorBoundary>
   );
@@ -258,7 +278,7 @@ function ToLegacyPassbook() {
  *
  *  `noindex` because CloudFront serves the SPA shell with HTTP 200, so a
  *  crawler that finds a soft-404 would otherwise index it as a real page. */
-function NotFound({ home = '/app', label = 'your dashboard' }: { home?: string; label?: string }) {
+function NotFound({ home = '/app', label = 'Home' }: { home?: string; label?: string }) {
   const { pathname } = useLocation();
   useEffect(() => {
     const m = document.createElement('meta');
@@ -270,10 +290,6 @@ function NotFound({ home = '/app', label = 'your dashboard' }: { home?: string; 
   return (
     <main style={{ padding: 'var(--space-xl)' }}>
       <h1 style={{ marginBottom: '0.5rem' }}>There is no page at that address</h1>
-      <p className="lede" style={{ maxWidth: '40rem' }}>
-        Nothing is wrong with your records — the link is wrong, or it points at a part of
-        Pattadar that has moved.
-      </p>
       <p className="note mono" style={{ margin: 'var(--space-md) 0', overflowWrap: 'anywhere' }}>
         {pathname}
       </p>
@@ -282,47 +298,67 @@ function NotFound({ home = '/app', label = 'your dashboard' }: { home?: string; 
   );
 }
 
-/** The sections no design has arrived for yet. Each renders the shared Section
- *  page and links to its still-working /legacy screen. Wallet left this list
- *  in W16: money set aside on a job has a real screen now.
- *
- *  `admin` left it with the desk. Its stub said "not yet redrawn" and pointed
- *  at /legacy/admin — a real screen, still reachable at that address — but the
- *  word Admin in this app now means the desk, and two admin-shaped entries in
- *  one rail with one of them dead is worse than either alone.
- *
- *  `groups` left it next, and for the reason the stubs are a bad answer at
- *  all: its only control was a button reading "Open Families & Groups" that
- *  navigated out of this app into /legacy/groups — same tab, different chrome,
- *  different rail, and an address bar that suddenly said /legacy. It is drawn
- *  at /app/groups now (w360/pages/Groups.tsx). /legacy/groups still exists and
- *  still works; nothing in /app points at it any more. */
-const UNDRAWN = ['invitations', 'notifications', 'tools', 'profile'] as const;
+/* There used to be an UNDRAWN list here: sections with no design yet, each
+ * rendered by a shared Section.tsx stub linking into /legacy. Wallet, admin,
+ * groups, notifications, tools, audit and profile left it one by one;
+ * invitations was the last, and the stub went with it. Every rail entry opens
+ * a screen drawn in this app now. */
+
+/** /legacy/tools and its four older aliases, carried into /app/tools with the
+ *  tab they named. The query string rides along, so a bookmarked
+ *  `/legacy/tools?tab=calculator` still opens the calculator. */
+function ToTools({ tab }: { tab?: string }) {
+  const { search } = useLocation();
+  return <Navigate to={tab ? `/app/tools?tab=${tab}` : `/app/tools${search}`} replace />;
+}
 
 export const router = createBrowserRouter([
   { path: '/', element: suspended(LandingPage) },
   { path: '/pricing', element: suspended(PricingPage) },
+  { path: '/theme-samples', element: suspended(ThemeSamplesPage) },
   { path: '/login', element: suspended(LoginPage) },
   { path: '/signup', element: suspended(SignupPage) },
   { path: '/forgot-password', element: suspended(ForgotPasswordPage) },
   { path: '/privacy', element: suspended(PrivacyPage) },
   { path: '/terms', element: suspended(TermsPage) },
   { path: '/auth/callback', element: suspended(AuthCallbackPage) },
-  { path: '/verify/:token', element: suspended(VerifyPage) },
+  { path: '/verify/:token', element: suspended(InvitePage) },
+  { path: '/i/:token', element: suspended(InvitePage) },
+  { path: '/r/:code', element: suspended(ReferralLanding) },
   { path: '/certificate/:code', element: suspended(TrainingCertificatePage) },
   { path: '/active/:token', element: suspended(ActivePage) },
   { path: '/share/:token', element: suspended(RecipientAccess) },
   { path: '/work/:token', element: suspended(RecipientAccess) },
   {
     // The current design (W01–W15). Record-first: one faceted Properties list,
-    // and every record opens a 360 with six hangers.
+    // and every record opens a 360 with nine hangers.
     path: '/app',
     element: <RequireAuth>{suspended(W360Shell)}</RequireAuth>,
     children: [
       { index: true, element: suspended(W360Dashboard) },
       { path: 'properties', element: suspended(W360Properties) },
+      // Several records held as one property. `combined/:id` is a frame with
+      // six tabs of its own, like a record — but it is an aggregate, so its
+      // members' own screens stay under `records/:id` and everything here
+      // links there rather than editing a survey in two places.
+      { path: 'combined', element: suspended(W360Combined) },
+      {
+        path: 'combined/:id',
+        element: suspended(W360CombinedProperty),
+        children: [
+          { index: true, element: suspended(W360CombinedOverview) },
+          { path: 'surveys', element: suspended(W360CombinedSurveys) },
+          { path: 'papers', element: suspended(W360CombinedPapers) },
+          { path: 'fmb', element: suspended(W360CombinedFmb) },
+          { path: 'expenses', element: suspended(W360CombinedExpenses) },
+          { path: 'services', element: suspended(W360CombinedServices) },
+        ],
+      },
       { path: 'map', element: suspended(W360MapFind) },
-      { path: 'villages', element: suspended(W360VillageMaps) },
+      { path: 'maps', element: suspended(W360VillageMaps) },
+      // Bookmarks and links sent before the cadastral naming change still land
+      // on the same screen; /app/maps is the canonical, shorter route.
+      { path: 'villages', element: <Navigate to="/app/maps" replace /> },
       { path: 'shared', element: suspended(W360Shared) },
       { path: 'assigned', element: suspended(W360Assigned) },
       { path: 'services', element: suspended(W360Services) },
@@ -386,7 +422,19 @@ export const router = createBrowserRouter([
       // centralized trail — so it left UNDRAWN the same way `groups` and
       // `admin` did. /legacy/audit stays reachable for the old export view.
       { path: 'audit', element: suspended(W360Audit) },
-      ...UNDRAWN.map((id) => ({ path: id, element: suspendedWith(W360Section, { id }) })),
+      { path: 'notifications', element: suspended(W360Notifications) },
+      // Tools: the four land utilities, drawn here; ?tab= picks the tool.
+      { path: 'tools', element: suspended(W360Tools) },
+      // Profile: name, contact, address, interests and Aadhaar, drawn here.
+      { path: 'profile', element: suspended(W360Profile) },
+      // Invitations the owner has sent: send, revoke, delete, export.
+      { path: 'invitations', element: suspended(W360Invitations) },
+      // Help & support, from the foot of the rail.
+      { path: 'help', element: suspended(W360Help) },
+      // The heir's own view of how they were listed, after claiming an invite.
+      { path: 'heir/:id', element: suspended(W360Heir) },
+      // Invite & earn: the account's referral link.
+      { path: 'refer', element: suspended(W360Refer) },
       // The old vocabulary still resolves: a bookmarked parcel or document URL
       // lands on the same thing under its new name.
       { path: 'parcels', element: <Navigate to="/app/properties?kind=parcel" replace /> },
@@ -423,20 +471,21 @@ export const router = createBrowserRouter([
       { path: 'properties/:id', element: suspended(PropertyDetailPage) },
       { path: 'documents', element: suspended(DocumentsPage) },
       { path: 'groups', element: suspended(FamiliesGroupsPage) },
-      { path: 'invitations', element: suspended(InvitationsPage) },
+      // Drawn at /app/invitations; the MUI screen is deleted.
+      { path: 'invitations', element: <Navigate to="/app/invitations" replace /> },
       { path: 'notifications', element: suspended(NotificationsPage) },
       { path: 'wallet', element: suspended(WalletPage) },
-      { path: 'tools', element: suspended(ToolsPage) },
+      { path: 'tools', element: <ToTools /> },
       { path: 'audit', element: suspended(AuditLogPage) },
       { path: 'admin', element: suspended(AdminRefDataPage) },
-      { path: 'profile', element: suspended(ProfilePage) },
+      { path: 'profile', element: <Navigate to="/app/profile" replace /> },
       // Within the legacy app, its own older aliases still resolve.
       { path: 'properties', element: <Navigate to="/legacy/parcels?tab=properties" replace /> },
       { path: 'deeds', element: <Navigate to="/legacy/documents" replace /> },
-      { path: 'sro', element: <Navigate to="/legacy/tools?tab=sro" replace /> },
-      { path: 'stamp-duty', element: <Navigate to="/legacy/tools?tab=stamp-duty" replace /> },
-      { path: 'market-value', element: <Navigate to="/legacy/tools?tab=market-value" replace /> },
-      { path: 'calculator', element: <Navigate to="/legacy/tools?tab=calculator" replace /> },
+      { path: 'sro', element: <ToTools tab="sro" /> },
+      { path: 'stamp-duty', element: <ToTools tab="stamp-duty" /> },
+      { path: 'market-value', element: <ToTools tab="market-value" /> },
+      { path: 'calculator', element: <ToTools tab="calculator" /> },
       // Unknown /legacy URLs keep the legacy shell and its nav rather than
       // falling through to the top-level page, which has neither.
       { path: '*', element: <NotFound home="/legacy" label="the previous app" /> },

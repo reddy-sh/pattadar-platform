@@ -293,7 +293,7 @@ test.describe('W09 · what is on the map, and what is not', () => {
     await expect(pinFor(page, 'Sy 88')).toHaveCount(0);
     await expect(drawnLine(page)).toContainText('3 records drawn — 1 from a survey, 2 from a pin.');
     await expect(drawnLine(page)).toContainText(
-      '1 record is not here: Sy 88 — neither surveyed nor pinned. Opening one and dropping its pin is enough.');
+      '1 record is not here: Sy 88 — no boundary and no pin.');
   });
 
   test('the count beside the list says how many matched and how many of those are on the map', async ({ page }) => {
@@ -303,12 +303,17 @@ test.describe('W09 · what is on the map, and what is not', () => {
     await expect(page.getByText('4 of 5 shown')).toBeVisible();
   });
 
-  test('a portfolio the survey has reached says so in the singular, and names nobody as missing', async ({ page }) => {
-    await openMap(page, '/app/properties?view=map&in=surveyed');
+  test('a portfolio the survey has reached says so in the singular, and names nobody as missing', async ({ page, world }) => {
+    // A portfolio of exactly one surveyed record. Sy 214/2 is the only seeded
+    // parcel with a ring, so a lone list of it is a map the survey has fully
+    // reached — set on the world rather than filtered by URL, since "surveyed"
+    // was never a server facet.
+    world.set('properties', listOf(lone(ID.parcel)));
+    await openMap(page);
 
     await expect(onMap(page)).toHaveCount(1);
     await expect(shapes(page)).toHaveCount(1);
-    await expect(drawnLine(page)).toContainText('1 record drawn — from its survey.');
+    await expect(drawnLine(page)).toContainText('1 property on the map — from its boundary.');
     await expect(drawnLine(page)).not.toContainText('not here');
   });
 
@@ -369,7 +374,7 @@ test.describe('W09 · what is on the map, and what is not', () => {
 
     await expect(onMap(page)).toHaveCount(0);
     await expect(page.getByText(
-      'None of these records knows where it is yet. A survey or a dropped pin puts one on this map.',
+      'No property here has a pin or boundary yet.',
     )).toBeVisible();
     // "0 records drawn — every one from a pin" used to be said here, under a
     // band already explaining that nothing is drawn (Properties.tsx:1159).
@@ -746,7 +751,7 @@ test.describe('W09 · picking one out of the map', () => {
     await expect(box).toBeChecked();
 
     await expect(page.getByRole('group', { name: 'Act on the selected records' }))
-      .toContainText('1 record selected');
+      .toContainText('1 property selected');
   });
 });
 
@@ -813,8 +818,8 @@ test.describe('W09 · finding one by name', () => {
     // mine". The door is asserted, not walked through — the village files live
     // outside the seal (see tests/e2e-app/specs/17-villages.spec.ts), and this
     // spec has no business opening them.
-    await expect(page.getByRole('link', { name: 'Search village maps' }))
-      .toHaveAttribute('href', '/app/villages');
+    await expect(page.getByRole('link', { name: 'Search cadastral maps' }))
+      .toHaveAttribute('href', '/app/maps');
   });
 
   /**
@@ -872,7 +877,7 @@ test.describe('W09 · finding one by name', () => {
   test('a filter that leaves nothing to draw says which filter did it, rather than drawing an empty map', async ({ page }) => {
     await page.goto(`${MAP}&kind=shop`);
 
-    await expect(page.getByRole('heading', { name: 'No records match these filters' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No properties match these filters' })).toBeVisible();
     await expect(page.getByText('The ones being held back are in Markapur.')).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
 
@@ -893,7 +898,7 @@ test.describe('W09 · the ground under the land', () => {
     await expect(sat).toHaveAttribute('aria-pressed', 'false');
     // The chip is one word either way, so what it would DO next is in its
     // hover text, and that has to turn over with the state (Properties.tsx:1073).
-    await expect(sat).toHaveAttribute('title', 'Real ground under your land');
+    await expect(sat).toHaveAttribute('title', 'Turn the imagery on');
 
     await sat.click();
 
@@ -1038,10 +1043,10 @@ test.describe('W09 · adding land from the map', () => {
     await openMap(page);
 
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await drawer.getByLabel('Survey number').fill('Sy 500');
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     await expect(page).toHaveURL(new RegExp(`/app/records/${ID.plot}/map$`));
@@ -1053,10 +1058,10 @@ test.describe('W09 · adding land from the map', () => {
     await expect(page.locator('.cards .rec')).toHaveCount(4);
 
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await drawer.getByLabel('Survey number').fill('Sy 500');
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     await expect(drawer).toHaveCount(0);
@@ -1070,8 +1075,8 @@ test.describe('W09 · nothing to draw, still drawing, and not drawing at all', (
     world.set('properties', listOf([], { total: 0 }));
     await page.goto(MAP);
 
-    await expect(page.getByText('Nothing filed yet')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Add a record' })).toBeVisible();
+    await expect(page.getByText('No properties yet')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add a property' })).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
     // Three view shapes, Export and a sort chip are furniture for rows that do
     // not exist (Properties.tsx:804).
@@ -1088,9 +1093,9 @@ test.describe('W09 · nothing to draw, still drawing, and not drawing at all', (
     }));
     await page.goto(MAP);
 
-    await expect(page.getByText('Nothing active')).toBeVisible();
+    await expect(page.getByText('All properties are archived')).toBeVisible();
     await expect(page.getByText(
-      '3 records are archived. Archived records leave the list, the map and every total until you bring them back.',
+      '3 records are archived.',
     )).toBeVisible();
     await expect(page.getByRole('button', { name: 'Show archived' })).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
@@ -1102,7 +1107,7 @@ test.describe('W09 · nothing to draw, still drawing, and not drawing at all', (
 
     await expect(page.getByRole('status', { name: 'Loading the map of your properties' })).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
-    await expect(page.getByText('Nothing filed yet')).toHaveCount(0);
+    await expect(page.getByText('No properties yet')).toHaveCount(0);
     await expect(page.getByText(/records drawn/)).toHaveCount(0);
     // The shape of a map, and not a grey line where one will be: the stand-in
     // holds the panel's own height (skeletons.tsx:174), so the page does not

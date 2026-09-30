@@ -111,7 +111,7 @@ export const APP_ROUTES = [
   '/app',
   '/app/properties',
   '/app/map',
-  '/app/villages',
+  '/app/maps',
   '/app/shared',
   '/app/assigned',
   '/app/services',
@@ -126,10 +126,9 @@ export const APP_ROUTES = [
   '/app/audit',
   '/app/admin',
   '/app/profile',
+  '/app/help',
+  '/app/refer',
 ] as const;
-
-/** The sections the redesign has not reached; each renders Section.tsx. */
-export const UNDRAWN = ['groups', 'invitations', 'notifications', 'tools', 'audit', 'admin', 'profile'] as const;
 
 /** Old URLs that must still resolve, and where each must land (routes.tsx). */
 export const REDIRECTS: Array<{ from: string; to: string | RegExp }> = [
@@ -143,10 +142,12 @@ export const REDIRECTS: Array<{ from: string; to: string | RegExp }> = [
   { from: '/app/passbooks/pb-1', to: '/legacy/passbooks/pb-1' },
   { from: '/legacy/properties', to: '/legacy/parcels?tab=properties' },
   { from: '/legacy/deeds', to: '/legacy/documents' },
-  { from: '/legacy/sro', to: '/legacy/tools?tab=sro' },
-  { from: '/legacy/stamp-duty', to: '/legacy/tools?tab=stamp-duty' },
-  { from: '/legacy/market-value', to: '/legacy/tools?tab=market-value' },
-  { from: '/legacy/calculator', to: '/legacy/tools?tab=calculator' },
+  // Tools is drawn in this app now; the old legacy addresses carry their tab in.
+  { from: '/legacy/tools', to: '/app/tools' },
+  { from: '/legacy/sro', to: '/app/tools?tab=sro' },
+  { from: '/legacy/stamp-duty', to: '/app/tools?tab=stamp-duty' },
+  { from: '/legacy/market-value', to: '/app/tools?tab=market-value' },
+  { from: '/legacy/calculator', to: '/app/tools?tab=calculator' },
 ];
 
 /** The public doors — reachable with no account at all (routes.tsx). */

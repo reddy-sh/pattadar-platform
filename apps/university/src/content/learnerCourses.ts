@@ -3,25 +3,42 @@ import { defineLesson } from './defineLesson';
 
 export const learnerCourseLessons: Record<string, LessonContent> = {
   'buy-records': defineLesson('buy-records', {
-    overview: 'Andhra Pradesh property information is spread across registration, revenue, survey, restriction, tax, and planning systems. This lesson builds a mental model for using those systems together without treating one portal result as a complete title decision.',
-    objectives: ['Explain what each major record layer is designed to show.', 'Build a dated, source-linked Andhra Pradesh property file.', 'Recognise questions that require an authority or qualified professional.'],
+    overview: 'Andhra Pradesh property information is spread across registration, revenue, survey, and restriction systems. Tax and planning records also matter when they apply to the property. Use these sources together without treating one portal result as a complete title decision.',
+    objectives: ['Explain what each major record layer can and cannot show.', 'Build a dated, source-linked Andhra Pradesh property file with applicable and not-applicable checks.', 'Recognise mismatches that require an authority or qualified professional.'],
     sections: [
-      { heading: 'Use six evidence layers', body: 'Registration records show registered instruments and indexed transactions. Revenue records such as 1-B, the Pattadar passbook, and Adangal support administration of rights, accounts, possession, or cultivation. Survey records such as FMB, RSR, village maps, and BhuNaksha describe parcel geometry and survey history. Restriction lists, tax records, and planning or RERA approvals answer separate questions. No layer replaces all the others.' },
-      { heading: 'Anchor every search to property identity', body: 'Record district, mandal, village, survey and subdivision number, stated extent, boundaries, document number and year, SRO, current claimant, and any old references. Preserve uncertain spellings and legacy numbers. A search against the wrong village, SRO, period, or subdivision can return a clean-looking but irrelevant result.' },
+      {
+        heading: 'Ask a different question of each evidence layer',
+        body: 'Start with registration, revenue, survey, and restrictions. Add tax and planning or RERA checks when the property and proposed use make them relevant. These sources can disagree or be incomplete; no single result settles title, physical boundaries, transferability, and permission to build.',
+        evidenceLayers: [
+          { name: 'Registration', question: 'Which instruments or indexed transactions appear in an Encumbrance Certificate (EC) search for the selected property, office, and period?', limit: 'An EC or registered deed alone does not establish a complete, undisputed title or reveal every unregistered interest.', referenceIds: ['ngdrs-state-links', 'india-services-ec'] },
+          { name: 'Revenue', question: 'What do the dated 1-B, Pattadar passbook, and Adangal entries say about the account, rights, and cultivation?', limit: 'Revenue entries are not substitutes for the deed chain, a boundary decision, or a qualified title opinion.', referenceIds: ['ap-land-records-service', 'ap-ror-act'] },
+          { name: 'Survey', question: 'How do the Field Measurement Book (FMB), Re-settlement Register (RSR), village map, and BhuNaksha identify and describe the parcel?', limit: 'A map view does not demarcate the legal boundary on the ground or resolve occupation.', referenceIds: ['ap-survey-records', 'ap-bhunaksha'] },
+          { name: 'Restrictions', question: 'Do current official sources flag assigned, government, dotted, or prohibited land for the exact parcel?', limit: 'A no-result search does not clear every legal restriction. Check the parcel’s own district and competent authority; the linked Kadapa publication is an example, not a statewide list.', referenceIds: ['ap-assigned-lands-act', 'ap-prohibited-properties'] },
+          { name: 'Tax, when applicable', question: 'What does the relevant local-body assessment or dues record show for this property?', limit: 'A tax account or paid receipt does not prove ownership or development permission.', referenceIds: ['ap-cdma-charter'] },
+          { name: 'Planning, when applicable', question: 'What land-use, layout, building, or project approvals are recorded by the competent authority?', limit: 'A portal entry or Real Estate Regulatory Authority (RERA) disclosure does not replace the actual approval, its conditions, or title review.', referenceIds: ['ap-dpms', 'ap-rera'] },
+        ],
+      },
+      { heading: 'Anchor every search to property identity', body: 'Record district, mandal, village, survey and subdivision number, stated extent, boundaries, document number and year, Sub-Registrar Office (SRO), current claimant, and any old references. Preserve uncertain spellings and legacy numbers. A search against the wrong village, SRO, period, or subdivision can return a clean-looking but irrelevant result.' },
+      { heading: 'Test a “freehold” or private-land claim against records', body: 'A seller may describe land as private or “freehold”. Record the exact words and who made the claim; do not treat the label as an official clearance. Ask for the registered deed chain and compare it with current 1-B, Adangal, survey identity, registration history, and restriction evidence for the same parcel. If an assignment order, government classification, dotted entry, prohibited-list match, or competing claim appears, preserve it and ask the competent authority and a qualified legal professional to resolve the status.' },
       { heading: 'Preserve provenance and time', body: 'For each result, retain the official URL or issuing office, request or certificate number, search inputs, issue or capture date, covered period, and an unaltered copy. Separate owner-supplied documents from independently obtained official records. A portal screenshot without its parameters and date is a lead, not a conclusion.' },
+      { heading: 'Try a mismatch before making a decision', body: 'Example: a current 1-B matches the seller name, but the EC covers only five years and the FMB extent differs from the deed. Mark the revenue match as one finding, the earlier EC period as missing, and the extent conflict as unresolved. Preserve each source and its date; request the missing registration history and official survey clarification, then send the title and boundary questions to qualified reviewers before a non-refundable payment. Do not average the extents or call the file clear.' },
     ],
+    practiceCase: {
+      title: 'Example Village parcel 42/2',
+      facts: ['The fictional seller is Asha Rao. A training deed marked EX-123/2012 describes survey 42/2 in Example Village as 0.80 acre.', 'A training 1-B lists Asha Rao and 0.80 acre; a training FMB extract lists 0.75 acre for 42/2.', 'The only EC search in the training file covers 2019–2024 and reports no indexed entries for its recorded inputs.', 'The buyer has not supplied an official restriction result, current tax record, or planning record. Applicability must be decided before marking a layer complete.'],
+    },
     practice: {
       title: 'Build an AP record-layer index',
-      steps: ['Create rows for registration, 1-B or passbook, Adangal, survey, restrictions, tax, and planning evidence.', 'Add official source, search parameters, issue date, property identifiers, and evidence status.', 'Mark each mismatch, missing period, unavailable service, or professional-review question without resolving it by assumption.'],
-      deliverable: 'A dated Andhra Pradesh property index that shows what each source can and cannot establish.',
+      steps: ['Use the fictional parcel above. Write its known identifiers and mark the district, mandal, boundaries, and SRO as missing rather than inventing them.', 'Create one row per evidence layer above. Record the source to check, search inputs, covered period, issue or capture date, property identifiers, and status: found, missing, unresolved, or not applicable with a reason.', 'Record the matching 1-B, limited EC period, and FMB/deed extent conflict in separate rows. State the next official request and the legal or survey question for each unresolved item.', 'Leave a result marked missing until an actual source is obtained. Do not present a training fact as an official clearance.'],
+      deliverable: 'A dated property index that keeps example inputs separate from verified evidence and shows every gap and referral.',
     },
     knowledgeCheck: {
-      prompt: 'MeeBhoomi shows a matching name and survey number. What is the strongest conclusion?',
-      options: ['It is one current revenue source to preserve and compare with registration, survey, restriction, and other evidence.', 'It guarantees marketable title and permits immediate payment.', 'It makes the registered instrument and EC unnecessary.'],
+      prompt: 'A current 1-B matches the seller, but the EC covers only five years and the FMB extent differs from the deed. What should the buyer file say?',
+      options: ['Record the revenue match, missing EC period, and unresolved extent conflict separately; seek the missing records and qualified review.', 'The matching 1-B proves clear title, so payment can proceed.', 'Average the two extents and mark the file complete.'],
       correctOption: 0,
-      explanation: 'A revenue result is useful evidence, but it does not by itself answer every title, transaction, restriction, survey, or planning question.',
+      explanation: 'A matching revenue entry is useful, but it does not close a registration gap or resolve a survey conflict.',
     },
-    referenceIds: ['ap-land-records-service', 'ap-ror-act', 'dolr-dilrmp', 'ap-bhudhaar'],
+    referenceIds: ['ngdrs-state-links', 'india-services-ec', 'ap-land-records-service', 'ap-ror-act', 'ap-survey-records', 'ap-bhunaksha', 'ap-assigned-lands-act', 'ap-prohibited-properties', 'ap-cdma-charter', 'ap-dpms', 'ap-rera'],
   }),
   'ap-ror': defineLesson('ap-ror', {
     overview: 'The Record of Rights, commonly encountered as 1-B, and the Pattadar passbook are core Andhra Pradesh revenue records. Read them as dated administrative evidence and reconcile them with the underlying transaction and survey trail.',
@@ -31,9 +48,13 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       { heading: 'Understand the record boundary', body: 'The Rights in Land framework provides for preparation, maintenance, amendment, inspection, and copies of the Record of Rights. A current 1-B or passbook can be important revenue evidence, but learners must not present it as a substitute for the registered chain, restriction review, survey reconciliation, or a qualified title opinion.' },
       { heading: 'Handle stale or conflicting entries', body: 'Compare the 1-B with the instrument, mutation history, Adangal, FMB or survey reference, tax evidence, and the person claiming authority. Record a mismatch exactly. Use the published correction or mutation service and retain the application, receipt, order, and before-and-after records rather than editing a working copy.' },
     ],
+    practiceCase: {
+      title: 'Matching names, incomplete history',
+      facts: ['Training deed EX-123/2012 and the later 1-B both name Asha Rao for Example Village survey 42/2 and state 0.80 acre.', 'The 1-B training entry gives khata EX-71, but the file has no mutation application or order and no issue date for the copy.', 'A separate FMB extract states 0.75 acre. The 1-B match does not resolve that survey difference.'],
+    },
     practice: {
       title: 'Annotate a sample 1-B',
-      steps: ['Mark jurisdiction, khata, survey, subdivision, extent, holder, rights description, source, and date.', 'Compare those fields with a fictional registered deed and list every agreement or mismatch.', 'Write the official-service question and professional-review question separately.'],
+      steps: ['Extract jurisdiction, khata, survey, subdivision, extent, holder, rights description, source, and date from the training facts; mark fields not supplied as missing.', 'Compare the given 1-B and deed fields, then note the missing mutation trail and separate FMB extent conflict.', 'Write the official-service question and professional-review question separately.'],
       deliverable: 'An annotated 1-B comparison sheet with source limits and unresolved issues.',
     },
     knowledgeCheck: {
@@ -46,15 +67,19 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
   }),
   'ap-adangal': defineLesson('ap-adangal', {
     overview: 'Adangal is a village-level revenue and cultivation record used to understand parcel, land-use, and cultivation entries for a stated period. Its value depends on the exact parcel, season or period, source, and comparison with other records.',
-    objectives: ['Locate parcel, classification, extent, irrigation, possession, and cultivation fields.', 'Explain why a cultivator entry is not automatically an ownership finding.', 'Compare Adangal with 1-B, survey, and registration evidence.'],
+    objectives: ['Identify parcel, period, classification, extent, irrigation, and cultivation information where the extract shows it.', 'Explain why a cultivator entry is not automatically an ownership finding.', 'Compare Adangal with 1-B, survey, and registration evidence.'],
     sections: [
-      { heading: 'Read the period and parcel first', body: 'Confirm village, survey and subdivision, extent, classification, assessment, water or irrigation source, crop or use entry, cultivator or enjoyment entry, and the record period. An older season may explain historical use but should not be described as the current position.' },
-      { heading: 'Separate cultivation from ownership', body: 'Cultivation, possession, and rights can be represented in different legal and administrative contexts. The Andhra Pradesh Crop Cultivator Rights Act expressly creates a cultivation-rights framework without turning the cultivation arrangement or card into ownership. Record what the field says and avoid converting it into a title conclusion.' },
+      { heading: 'Read the period and parcel first', body: 'Read the available village, survey and subdivision, extent, classification, assessment, water or irrigation source, crop or use entry, cultivator or enjoyment entry, and record-period fields. Mark a field that is not shown instead of filling it by assumption. An older season may explain historical use but should not be described as the current position.' },
+      { heading: 'Separate cultivation from ownership', body: 'An Adangal cultivator entry records information for its stated period; it is not itself a Crop Cultivator Rights Card or proof of ownership. The Andhra Pradesh Crop Cultivator Rights Act creates a separate card and agreement framework for agricultural land within its definition, which excludes government land and land assigned to the poor for agriculture. Preserve the entry and check whether an actual card or agreement exists without converting either into a title finding.' },
       { heading: 'Compare across layers', body: 'Place Adangal beside 1-B or passbook, registered instruments, FMB or RSR references, and current site observations. Differences in name, extent, classification, land use, irrigation, or subdivision should become explicit review questions. Never merge differing fields into a new unofficial record.' },
     ],
+    practiceCase: {
+      title: 'A cultivator entry beside the 1-B',
+      facts: ['A fictional Adangal entry for 2024 kharif identifies Example Village survey 42/2, 0.80 acre, and Kiran Rao as the recorded cultivator.', 'The fictional 1-B names Asha Rao as holder for 42/2 and 0.80 acre. No cultivation agreement, inspection note, or current season entry is supplied.', 'The crop, irrigation source, land classification, and issuing date are absent from the training excerpt.'],
+    },
     practice: {
       title: 'Build an Adangal comparison',
-      steps: ['Extract every parcel, period, classification, cultivation, and irrigation field from a sample.', 'Compare it with a sample 1-B and parcel visit note.', 'Label each finding as match, time-related variation, unresolved conflict, or outside learner scope.'],
+      steps: ['Extract each supplied parcel, period, cultivation, and irrigation field from the fictional case; label absent fields as missing.', 'Compare the Adangal with the 1-B and state why the two names answer different questions. Record that no visit note is supplied.', 'Label each finding as match, time-related variation, unresolved question, or outside learner scope.'],
       deliverable: 'A period-aware comparison that does not confuse cultivation with ownership.',
     },
     knowledgeCheck: {
@@ -73,9 +98,13 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       { heading: 'Read geometry with identifiers', body: 'Check village, survey and subdivision number, sheet or map reference, scale, adjoining parcels, dimensions, symbols, and north or orientation information. Preserve the certified copy or official extract and request metadata. Do not stretch a screenshot or estimate dimensions from display pixels.' },
       { heading: 'Know when the map stops', body: 'A digital parcel outline is useful for orientation and reconciliation, but it does not authorise entry or replace professional demarcation, monument recovery, subdivision approval, or resolution of a boundary dispute. Conflicting geometry, missing stones, occupation differences, or disputed access are stop-and-escalate conditions.' },
     ],
+    practiceCase: {
+      title: 'An extent conflict across survey material',
+      facts: ['The fictional deed and 1-B describe Example Village survey 42/2 as 0.80 acre; a training FMB extract for 42/2 states 0.75 acre.', 'A training RSR excerpt refers to parent survey 42, but its subdivision history and scale are not supplied.', 'A BhuNaksha screenshot has no visible capture date or scale. A fence line has been observed, but no official demarcation is in the file.'],
+    },
     practice: {
       title: 'Reconcile a parcel across survey sources',
-      steps: ['Match the survey and subdivision identity across an RSR extract, FMB copy, and BhuNaksha view.', 'List dimensions, neighbours, scale, date, and any visible differences.', 'Write a field-demarcation brief that states the unresolved question without declaring a boundary.'],
+      steps: ['Match the given survey and subdivision identifiers across the fictional RSR, FMB, and BhuNaksha facts; mark unknown links as missing.', 'List the supplied extents and mark absent dimensions, neighbours, scale, and dates as missing rather than inferring them.', 'Write a field-demarcation brief that states the unresolved extent and fence questions without declaring a boundary.'],
       deliverable: 'A survey-source comparison and a properly scoped professional referral.',
     },
     knowledgeCheck: {
@@ -90,13 +119,17 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
     overview: 'A matching name or deed is not enough when land may be assigned, government-owned, dotted, notified as prohibited, affected by an institution or proceeding, or otherwise restricted. This lesson teaches detection and escalation, never circumvention.',
     objectives: ['Recognise common Andhra Pradesh restriction categories and source types.', 'Run a parcel-specific prohibited-property review with preserved parameters.', 'Apply a stop condition when status is unclear or restricted.'],
     sections: [
-      { heading: 'Distinguish the categories', body: 'Assigned lands can carry statutory transfer restrictions. Government-property protections, endowment or Wakf interests, surplus or acquisition matters, court or authority interests, and published Section 22-A prohibited-property entries raise different questions. Dotted-land status concerns entries in the Re-settlement Register and has its own statutory process. Do not collapse these labels into one generic warning.' },
+      { heading: 'Distinguish the categories', body: 'Assigned lands can carry statutory transfer restrictions. Government-property protections, charitable or religious institution interests, surplus or acquisition matters, court or authority interests, and published Section 22-A prohibited-property entries raise different questions. Dotted-land status concerns entries in the Re-settlement Register and has its own statutory process. Do not collapse these labels into one generic warning.' },
       { heading: 'Search with exact identity and current publications', body: 'Use the official registration and district publication sources available for the relevant location. Preserve district, mandal, village, survey and subdivision, document context, search date, list or notification version, and the returned record. A no-result search is only as reliable as its inputs and coverage.' },
       { heading: 'Stop, verify, and use the lawful process', body: 'Any match, ambiguous classification, missing list, conflicting official source, assigned-land indicator, dotted entry, or government or institutional claim should pause transaction advice. Route the issue to the competent revenue or registration authority and a qualified legal professional. Never coach a learner to rename, subdivide, backdate, or structure around a restriction.' },
     ],
+    practiceCase: {
+      title: 'Five separate restriction alerts',
+      facts: ['A: An owner-supplied paper calls a parcel “assigned”; the original assignment order is absent.', 'B: An RSR excerpt labels the adjacent survey number as government poramboke; the link to the target parcel is unclear.', 'C: A target survey number is marked with dots in an undated RSR copy.', 'D: A current district Section 22-A publication lists the target subdivision, but the underlying notification is not in the file.', 'E: A claimant reports a possible endowment interest without supplying the institution record. These alerts belong to separate fictional parcels.'],
+    },
     practice: {
       title: 'Prepare a restriction-screening note',
-      steps: ['Classify five fictional alerts as assigned, government, dotted, prohibited-list, or other institutional or proceeding risk.', 'Record the exact official source, parameters, date, and result for each.', 'Write the stop action, authority question, and professional referral without recommending a workaround.'],
+      steps: ['Classify alerts A–E above as assigned, government, dotted, prohibited-list, or other institutional risk.', 'For each, name the official source and exact parcel parameters still needed. Record the date and result only if supplied; otherwise mark them missing.', 'Write the stop action, authority question, and professional referral without recommending a workaround.'],
       deliverable: 'A parcel-specific restriction log with evidence and accountable next actions.',
     },
     knowledgeCheck: {
@@ -105,28 +138,33 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       correctOption: 1,
       explanation: 'A restriction indicator is a stop condition. The course teaches lawful verification and remedy, not avoidance.',
     },
-    referenceIds: ['ap-assigned-lands-act', 'ap-prohibited-properties', 'ap-dotted-lands-act', 'ap-government-property-act', 'ap-gsws-manual'],
+    referenceIds: ['ap-assigned-lands-act', 'ap-prohibited-properties', 'ap-dotted-lands-act', 'ap-government-property-act', 'ap-endowments-act', 'ap-gsws-manual'],
   }),
   'ap-registration': defineLesson('ap-registration', {
     overview: 'The Andhra Pradesh Registration and Stamps system supports document preparation and registration services, Encumbrance Certificate searches, certified copies, market-value assistance, fees, and appointments. Each output has a defined scope and search context.',
-    objectives: ['Navigate only verified government registration entry points.', 'Record complete EC and certified-copy search parameters.', 'Explain the limits of registration, EC, and guideline market value.'],
+    objectives: ['Navigate only verified government registration entry points.', 'Record complete EC and certified-copy search parameters.', 'Compare multiple sale agreements and deeds without assuming which claim prevails.', 'Explain the limits of registration, EC, and guideline market value.'],
     sections: [
       { heading: 'Verify the portal and workflow', body: 'Start from the official Andhra Pradesh IGRS address or the national NGDRS state-link directory. A registration workflow can include document nature, property and SRO, parties, property schedule, witnesses, enclosures, market value, consideration, payment, review, and slot selection. Check every populated field before submission.' },
       { heading: 'Treat EC and certified copies as scoped evidence', body: 'An EC search reflects indexed registered transactions found for the selected property details, office, and period. Preserve those parameters and review the returned entries and no-entry wording carefully. Obtain certified copies for relevant instruments when needed. An EC is not a universal certificate that no legal claim, unregistered interest, error, or restriction exists.' },
+      { heading: 'Build a chronology when agreements conflict', body: 'If two or more people produce agreements for the same land, obtain every version and any amendment, cancellation, payment receipt, possession record, power of attorney, and later registered deed. Compare the parties, execution and registration dates, signatures, survey and subdivision, extent, boundaries, consideration, and obligations in a dated table. An agreement to sell and a sale deed are different document types. An EC may not reveal every private agreement. Preserve the conflict and seek a qualified legal review before claiming either party has title or requesting a non-refundable payment.' },
       { heading: 'Separate value, registration, and title conclusions', body: 'Official market-value assistance supports stamp and registration workflows; it is not necessarily the negotiated or appraised market price. Registration creates a formal public record for the instrument but does not cure a defective transferor right, wrong parcel identity, prohibited transaction, or missing professional review.' },
     ],
+    practiceCase: {
+      title: 'A short EC period and a second agreement',
+      facts: ['The fictional owner-supplied deed is marked EX-123/2012 for Example Village survey 42/2, 0.80 acre. Its Sub-Registrar Office and certified-copy status are not supplied.', 'The only fictional EC search covers 2019–2024 and shows no entries for its recorded inputs. No earlier period or alternate office search is in the file.', 'A second person supplies an unsigned copy labelled “sale agreement” for survey 42/2 dated 2023. The original, parties, payment proof, and any cancellation are missing.', 'The actual government market-value result, consideration, charges, and current restriction result are absent.'],
+    },
     practice: {
       title: 'Create a registration research packet',
-      steps: ['Verify the government portal and identify the applicable SRO and document context.', 'Draft EC search parameters and a certified-copy request for a fictional parcel.', 'List what the EC, certified copy, market-value result, and registered instrument each do not prove alone.'],
-      deliverable: 'A source-verified registration packet with preserved parameters and limitations.',
+      steps: ['Use the national directory to identify the government portal; mark the applicable SRO as unknown until verified.', 'Draft the missing EC period and certified-copy request using the fictional deed and parcel identifiers. Preserve the limited 2019–2024 search separately.', 'Create a dated chronology for the deed and second agreement. Record the missing original, identity, signatures, payments, and cancellation evidence without deciding which claim wins.', 'List what the EC, certified copy, market-value result, registered instrument, and agreement each do not prove alone; write a qualified-review question for the conflict.'],
+      deliverable: 'A source-verified registration packet and agreement chronology with preserved parameters, gaps, and referral.',
     },
     knowledgeCheck: {
-      prompt: 'An EC search returns no entries for the selected period. What is the safe interpretation?',
-      options: ['The selected search found no indexed entries shown for those parameters and period; inputs and other evidence still need review.', 'The property has perfect title forever.', 'No registered instrument needs to be inspected.'],
+      prompt: 'A short-period EC shows no entries, but another person produces a sale agreement for the parcel. What should the learner record?',
+      options: ['The EC result is limited to its search inputs and period; preserve the agreement, build a document chronology, and seek qualified review before a title or payment decision.', 'The no-entry EC automatically cancels the other agreement.', 'The agreement automatically defeats every registered deed.'],
       correctOption: 0,
-      explanation: 'The result is bounded by the search identity, office, period, index, and record system; it is not a complete title guarantee.',
+      explanation: 'The EC is bounded by search identity, office, period, index, and record coverage. A competing agreement must be investigated rather than assumed valid or invalid.',
     },
-    referenceIds: ['ap-registration', 'ngdrs-state-links', 'ap-registration-manual', 'india-services-ec', 'dolr-registration-faq'],
+    referenceIds: ['ap-registration', 'ngdrs-state-links', 'ap-registration-manual', 'india-services-ec', 'dolr-registration-faq', 'dolr-model-property-documents'],
   }),
   'ap-mutation': defineLesson('ap-mutation', {
     overview: 'Registration, mutation, correction, subdivision, resurvey rectification, and e-passbook issuance are related but separate workflows. A learner should identify the right service and preserve the complete before-and-after trail.',
@@ -136,9 +174,13 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       { heading: 'Follow the published service chain', body: 'Use official GSWS, MeeSeva, MeeBhoomi, or other notified government channels as applicable. Record required inputs, applicant authority, service number, receiving office, approver, payment, status, query, inspection, order, and delivery. Portal availability or names can change, so verify the current government entry point.' },
       { heading: 'Preserve the change record', body: 'Keep the pre-application record, supporting instrument or order, submitted fields, receipt, communications, deficiency requests, final order, and newly issued record. Compare all parcel and person fields after completion. A successful status message does not excuse a wrong survey number, extent, name, or classification.' },
     ],
+    practiceCase: {
+      title: 'Five separate service-routing prompts',
+      facts: ['A: A completed registered transfer is not reflected in the current revenue record.', 'B: The current revenue extract has a proven spelling typo, with no disputed identity.', 'C: A recorded parcel is to be formally divided into two survey subdivisions.', 'D: A resurvey record and earlier FMB identify different parcel geometry.', 'E: The holder requests an electronic Pattadar passbook after the underlying rights entry is verified. These prompts are separate fictional files.'],
+    },
     practice: {
       title: 'Route five record-change scenarios',
-      steps: ['Classify each scenario as mutation, correction, subdivision, resurvey rectification, passbook, or professional dispute review.', 'List the official service, evidence, authority, and stop conditions.', 'Create an audit folder structure for application through final verification.'],
+      steps: ['Classify prompts A–E above as mutation, correction, subdivision, resurvey rectification, passbook, or professional dispute review, noting where facts are still missing.', 'For each, list the official service to verify, supporting evidence, responsible authority, and stop conditions.', 'Create an audit folder structure for application through final verification.'],
       deliverable: 'A workflow decision table and reproducible change-history checklist.',
     },
     knowledgeCheck: {
@@ -157,9 +199,13 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       { heading: 'Trace the land reference', body: 'Follow parent survey numbers, subdivisions, plot numbers, village references, and stated boundaries across records. Preserve both old and new references so a reviewer can understand the chain.' },
       { heading: 'Reconcile extent carefully', body: 'Convert units only in a separate working column and keep the original value. If arithmetic, boundaries, and stated extent disagree, stop and seek survey or legal review before money changes hands.' },
     ],
+    practiceCase: {
+      title: 'Three descriptions of one fictional parcel',
+      facts: ['A training deed says “Asha Rao,” survey 42/2, and 0.80 acre in Example Village.', 'A training 1-B says “A. Rao,” survey 42/2, and 0.80 acre; no supporting identity document or mutation order is supplied.', 'A training FMB says survey 42/2 and 0.75 acre; the reason for the extent difference is not supplied.'],
+    },
     practice: {
       title: 'Complete a three-record comparison',
-      steps: ['Copy identity and parcel fields exactly from three sample records.', 'Highlight matches, explainable variations, and conflicts.', 'Write one follow-up question for each unresolved conflict.'],
+      steps: ['Copy the stated identity and parcel fields exactly from the three fictional descriptions above; leave unsupplied fields blank.', 'Highlight matches, possible variations that require proof, and the extent conflict.', 'Write one follow-up question for each unresolved identity or extent issue.'],
       deliverable: 'A comparison sheet that preserves original values and labels every mismatch.',
     },
     knowledgeCheck: {
@@ -178,9 +224,13 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       { heading: 'Use a capture sequence', body: 'Begin with approach and access, then wide parcel context, visible markers, occupation or structures, utilities, drainage, and issue-specific details. Photograph a marker in context before taking a close-up.' },
       { heading: 'Report only what you observed', body: 'Use phrases such as "visible marker" or "person present stated" and include date, time, location method, and limitations. Do not label a line as the legal boundary unless a qualified survey supports that conclusion.' },
     ],
+    practiceCase: {
+      title: 'Plan a visit without assuming access',
+      facts: ['The training request concerns Example Village survey 42/2, where the deed and FMB extents differ.', 'The claimant has offered to meet at a public road. Permission to enter the parcel, the occupant’s position, and the route to the parcel have not been confirmed.', 'A fence and a path are visible in owner-supplied photos, but neither has been tied to an official survey or documented right of access.'],
+    },
     practice: {
       title: 'Plan a mock site visit',
-      steps: ['Write the permission and safety checks.', 'Create a ten-shot capture list.', 'Prepare an observation template with a limitations field.'],
+      steps: ['Using the fictional case, write the permission, occupant, route, and safety questions that must be answered before entry.', 'Create a ten-shot capture list for a visit only if access is confirmed.', 'Prepare an observation template with a limitations field and a place to separate owner statements from what the worker actually sees.'],
       deliverable: 'A visit plan another field worker could follow without verbal instructions.',
     },
     knowledgeCheck: {
@@ -200,9 +250,13 @@ export const learnerCourseLessons: Record<string, LessonContent> = {
       { heading: 'Prepare the handoff', body: 'Give the reviewer the index, source files, comparison sheet, site note, and a short question list. Keep facts, seller statements, and learner concerns in separate fields.' },
       { heading: 'Run the buyer-specific checks', body: 'Before a non-refundable payment, inspect originals or authority-verifiable copies and route mortgages, unpaid taxes, litigation, succession, acquisition, and transfer restrictions to the competent offices and an advocate. Verify any power of attorney for authenticity, current force, non-revocation, and sufficient authority. For an applicable RERA project, compare promoter, title, sanctioned plans, approvals, promised completion, and updates. After registration, track mutation, possession, payment, document delivery, and handover evidence.' },
     ],
+    practiceCase: {
+      title: 'A buyer file with open questions',
+      facts: ['For Example Village survey 42/2, the training deed and 1-B state 0.80 acre, while the FMB states 0.75 acre. The identity support for “Asha Rao” versus “A. Rao” is missing.', 'The EC file covers only 2019–2024 despite a 2012 deed. No current parcel-specific restriction search or site permission record is supplied.', 'A 2024 Adangal lists Kiran Rao as cultivator; there is no current occupation or possession evidence. The buyer also hopes to build a residence, but no land-use or building approval has been checked.', 'The seller requests a non-refundable advance tomorrow. No advocate or survey reviewer has received the file.'],
+    },
     practice: {
       title: 'Complete a buyer readiness gate',
-      steps: ['Score a sample file using the four status labels.', 'Identify the top three unresolved risks.', 'Write the next owner and action for each risk.'],
+      steps: ['Score the fictional file above using the four status labels. Mark tax evidence according to the actual local authority and property type; do not assume an urban tax record exists.', 'Identify the top three unresolved risks and explain why the payment request is a stop condition.', 'Write the next owner and action for each risk, including official record requests, advocate review, and authorised survey review.'],
       deliverable: 'A one-page readiness summary linked to the supporting file index.',
     },
     knowledgeCheck: {

@@ -52,3 +52,39 @@ test('caller cancellation aborts an upload immediately', async () => {
   })) as typeof fetch;
   await expect(apiFetch('/upload', {method:'POST',body:new FormData(),signal:controller.signal})).rejects.toThrow('Cancelled');
 });
+
+test('a reading hands its job id to the caller and forwards the purpose header only on submit', async () => {
+  const seen: { path: string; purpose: string | null }[] = [];
+  globalThis.fetch = (async (path: string | URL | Request, init?: RequestInit) => {
+    seen.push({ path: String(path), purpose: new Headers(init?.headers).get('X-Reading-Purpose') });
+    return Response.json(seen.length === 1 ? { job: 'job-7' } : { state: 'done', fields: {} });
+  }) as typeof fetch;
+  const receipts: string[] = [];
+  await apiFetch('/api/gateway/pattadar/import-registered-document', {
+    method: 'POST', body: new FormData(),
+    headers: { 'X-Reading-Purpose': 'add-property' },
+    onReceipt: (job) => receipts.push(job),
+  });
+  expect(receipts).toEqual(['job-7']);
+  expect(seen[0].purpose).toBe('add-property');
+  expect(seen[1]).toEqual({ path: '/api/gateway/pattadar/import-status/job-7', purpose: null });
+});
+
+test('stopping the wait stops the polling without cancelling the server job', async () => {
+  const controller = new AbortController();
+  const paths: string[] = [];
+  globalThis.fetch = (async (path: string | URL | Request) => {
+    paths.push(String(path));
+    if (paths.length === 1) return Response.json({ job: 'job-8' });
+    controller.abort(new DOMException('Closed', 'AbortError'));
+    return Response.json({ state: 'running' });
+  }) as typeof fetch;
+  await expect(apiFetch('/api/gateway/pattadar/import-registered-document', {
+    method: 'POST', body: new FormData(), signal: controller.signal,
+  })).rejects.toThrow('Closed');
+  // One submit and one status check — no DELETE, no second submit.
+  expect(paths).toEqual([
+    '/api/gateway/pattadar/import-registered-document-async',
+    '/api/gateway/pattadar/import-status/job-8',
+  ]);
+});

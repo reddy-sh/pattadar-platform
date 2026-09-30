@@ -64,6 +64,31 @@ CREATE TABLE IF NOT EXISTS storage_versions (
 );
 CREATE INDEX IF NOT EXISTS storage_versions_node ON storage_versions (node_id);
 
+-- Short-lived, exact-file sessions for native audio/video elements. Browsers
+-- cannot attach the platform Bearer header to <video>/<audio> range requests,
+-- so a Bearer-authenticated POST mints one opaque cookie. Only its SHA-256 is
+-- stored. Every range request still re-runs storage authorization; this row is
+-- authentication transport, never an access grant by itself.
+CREATE TABLE IF NOT EXISTS storage_stream_sessions (
+    token_hash    BYTEA PRIMARY KEY,
+    issuer        TEXT NOT NULL,
+    subject       TEXT NOT NULL,
+    node_id       UUID NOT NULL REFERENCES storage_nodes(id) ON DELETE CASCADE,
+    version_id    UUID NOT NULL REFERENCES storage_versions(id) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at    TIMESTAMPTZ NOT NULL,
+    first_used_at TIMESTAMPTZ,
+    audit_claimed_at TIMESTAMPTZ,
+    audited_at    TIMESTAMPTZ,
+    CHECK (expires_at > created_at)
+);
+ALTER TABLE storage_stream_sessions ADD COLUMN IF NOT EXISTS audit_claimed_at TIMESTAMPTZ;
+ALTER TABLE storage_stream_sessions ADD COLUMN IF NOT EXISTS audited_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS storage_stream_sessions_expiry
+    ON storage_stream_sessions (expires_at);
+CREATE INDEX IF NOT EXISTS storage_stream_sessions_subject
+    ON storage_stream_sessions (issuer, subject);
+
 -- Sharing. A share targets a node; either a link token OR a specific grantee.
 -- (v1 exposes no share-mutation routes; the table exists for read-side parity.)
 CREATE TABLE IF NOT EXISTS storage_shares (

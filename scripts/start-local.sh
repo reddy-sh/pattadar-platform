@@ -4,17 +4,19 @@
 # metadata DB, the full token-validation pipeline — no auth bypass anywhere)
 # + web dev server (Vite, hot reload). NO deploys.
 #
-#   ./scripts/start-local.sh                  # api :8080, assistant :8081, gateway :8082, minio :9000, web :5180
-#   LOCAL_AUTH=real ./scripts/start-local.sh  # exercise the REAL hosted-UI sign-in
-#   WEB_PORT=5173 ./scripts/start-local.sh    # put web back on Vite's default port
+#   ./scripts/start-local.sh                  # api :8080, assistant :8081, gateway :8082, minio :9000, university :5181,
+#                                             # web :5173 with REAL Cognito / Google sign-in and every village map
+#   LOCAL_AUTH=mock ./scripts/start-local.sh  # skip sign-in instead (web :5180)
+#   VM_DIR=apps/web/public/vm ./scripts/start-local.sh  # only the 8-village fixture
 #   LOCAL_COGNITO=0 ./scripts/start-local.sh  # trust the real pool instead (online)
 #
-# SIGN-IN IS SKIPPED LOCALLY by default (LOCAL_AUTH=mock). The web env simply
+# SIGN-IN IS REAL by default (LOCAL_AUTH=real, Google offered on the hosted UI;
+# ids/bindings: .local/cognito-local.env). With LOCAL_AUTH=mock the web env simply
 # does not carry VITE_COGNITO_AUTHORITY, which puts AuthProvider into the mock
 # mode it has always had: you land straight in /app and the shell shows a
 # visible "Auth mocked — dev only" chip so nobody mistakes it for a session.
 #
-# Why this is the default. Local dev signs in against the PROD Cognito client,
+# Why mock exists. Local dev signs in against the PROD Cognito client,
 # whose callback allowlist holds only localhost:5173 and pattadar.com — so the
 # moment this script's port moved, every start ended on Cognito's
 # "Something went wrong" (error=redirect_mismatch). Fixing that properly is a
@@ -27,8 +29,11 @@
 # papers and photos work exactly as they do signed in. Without that it would be
 # a half-door — GraphQL answering while every shelf renders empty.
 #
-# LOCAL_AUTH=real restores the hosted UI. Pair it with WEB_PORT=5173 or it will
-# fail the allowlist again.
+# LOCAL_AUTH=real restores real Cognito sign-in. It defaults web to :5173 (the
+# loopback callback the live web client allows) and routes GraphQL through the
+# gateway, so identity comes from the token, not a Vite header. The pool/client
+# ids and a LOCAL-ONLY IDENTITY_LEGACY_BINDINGS entry (your Cognito principal ->
+# your local owner key) are read from the gitignored .local/cognito-local.env.
 #
 # Cognito is LOCAL by default: the gateway runs its unchanged validation
 # pipeline against a keypair on this laptop (services/gateway/src/
@@ -56,8 +61,32 @@ WEB_NEXT="${WEB_NEXT:-0}"
 # number is PINNED: it is the one the e2e suites default to and the one every
 # bookmark holds, and moving it once already cost an afternoon of
 # redirect_mismatch. Override per-run with WEB_PORT, never by editing this.
-WEB_PUBLIC_PORT="${WEB_PORT:-5180}"
+# real (default) = real Cognito sign-in (email/password or Google), and GraphQL
+#                  goes through the gateway so the token decides whose data you
+#                  see. Defaults web to :5173, the loopback callback the live
+#                  prod web client allows.
+# mock           = no Cognito env reaches the SPA, so sign-in is skipped.
+LOCAL_AUTH="${LOCAL_AUTH:-real}"
+if [ "$LOCAL_AUTH" = "real" ]; then
+  WEB_PUBLIC_PORT="${WEB_PORT:-5173}"
+else
+  WEB_PUBLIC_PORT="${WEB_PORT:-5180}"
+fi
 [ "$WEB_NEXT" = "1" ] && WEB_PUBLIC_PORT=5273
+# Village maps: the full build (scripts/village-map-import.py --out
+# .local/vm-build) when there is one, served under /vm/ by the Vite plugin in
+# apps/web/vite.config.ts; otherwise the 8-village fixture in public/vm.
+VM_DIR="${VM_DIR:-$PLATFORM_DIR/.local/vm-build}"
+case "$VM_DIR" in /*) ;; *) VM_DIR="$PLATFORM_DIR/$VM_DIR" ;; esac
+[ -f "$VM_DIR/catalog.json" ] || VM_DIR=""
+# Google only returns sign-ins to localhost:5173, and Vite will not drift off a
+# taken port (strictPort) — so say it now, before the whole stack comes up.
+if [ "$LOCAL_AUTH" = "real" ] && [ "$WEB_NEXT" != "1" ] \
+   && lsof -nP -iTCP:"$WEB_PUBLIC_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "port ${WEB_PUBLIC_PORT} is already in use — stop whatever is on it first"
+  echo "(Google sign-in only returns to localhost:5173), or run LOCAL_AUTH=mock."
+  exit 1
+fi
 VENV="$PLATFORM_DIR/.local/api-venv"
 ASSISTANT_VENV="$PLATFORM_DIR/.local/assistant-venv"
 GW_VENV="$PLATFORM_DIR/.local/gateway-venv"
@@ -71,6 +100,21 @@ COGNITO_USER_POOL_ID="ap-south-1_XfgAF21Z3"
 # web SPA + native iOS app clients on the same pool (gateway matches exactly
 # against this allowlist).
 COGNITO_CLIENT_ID="10okivmth1rv58ed8f2k7eq4mm,44gv48ihjlgub7h0lnvjbdmj89"
+WEB_COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID%%,*}"
+WEB_COGNITO_DOMAIN="auth.pattadar.com"
+WEB_SOCIAL_PROVIDERS="Google"
+# Local-only identity wiring for real sign-in. Empty means: a real login is its
+# own subject_ principal, with no legacy data and no admin.
+IDENTITY_LEGACY_BINDINGS=""
+ADMIN_SUBJECT_IDS=""
+# Per-laptop overrides of everything above (gitignored). This is where the
+# binding from your Cognito principal to your local owner key lives.
+COGNITO_LOCAL_ENV="$PLATFORM_DIR/.local/cognito-local.env"
+if [ -f "$COGNITO_LOCAL_ENV" ]; then
+  # shellcheck disable=SC1090
+  . "$COGNITO_LOCAL_ENV"
+fi
+[ -n "$IDENTITY_LEGACY_BINDINGS" ] || IDENTITY_LEGACY_BINDINGS='{}'
 
 # Local storage stand-ins
 MINIO_NAME="pattadar-minio"
@@ -84,9 +128,6 @@ mkdir -p "$PLATFORM_DIR/.local"
 # Local trust root (default 1): the gateway trusts this laptop keypair and
 # mints tokens itself — offline sign-in. 0 = trust the real Cognito pool.
 LOCAL_COGNITO="${LOCAL_COGNITO:-1}"
-# mock (default) = no Cognito env reaches the SPA, so sign-in is skipped.
-# real           = the hosted UI, exactly like production. Needs WEB_PORT=5173.
-LOCAL_AUTH="${LOCAL_AUTH:-mock}"
 LOCAL_AUTH_KEY="$PLATFORM_DIR/.local/local-auth-key.pem"
 GW_LOCAL_KEY=""
 if [ "$LOCAL_COGNITO" = "1" ]; then
@@ -233,13 +274,15 @@ cleanup_local_stack() {
   [ "$CLEANUP_COMPLETE" = 1 ] && return
   CLEANUP_COMPLETE=1
   echo
-  echo "» stopping api + assistant + gateway"
+  echo "» stopping api + assistant + gateway + university"
   kill "$API_PID" 2>/dev/null || true
   [ -n "${ASSISTANT_PID:-}" ] && kill "$ASSISTANT_PID" 2>/dev/null || true
   [ -n "${GW_PID:-}" ] && kill "$GW_PID" 2>/dev/null || true
+  [ -n "${UNIVERSITY_PID:-}" ] && kill "$UNIVERSITY_PID" 2>/dev/null || true
   stop_port_listeners 8080
   stop_port_listeners 8081
   stop_port_listeners 8082
+  stop_port_listeners "$UNIVERSITY_PORT"
 }
 trap cleanup_local_stack EXIT INT TERM
 
@@ -308,6 +351,8 @@ PYEOF
     AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin AWS_REGION=ap-south-1 \
     COGNITO_USER_POOL_ID="$COGNITO_USER_POOL_ID" COGNITO_CLIENT_ID="$COGNITO_CLIENT_ID" \
     LOCAL_AUTH_KEY_FILE="$GW_LOCAL_KEY" \
+    IDENTITY_LEGACY_BINDINGS="$IDENTITY_LEGACY_BINDINGS" \
+    ADMIN_SUBJECT_IDS="$ADMIN_SUBJECT_IDS" \
     API_BASE_URL="http://localhost:8080" \
     ASSISTANT_BASE_URL="http://localhost:8081" \
     "$GW_VENV/bin/uvicorn" src.main:app --host 127.0.0.1 --port 8082 --reload >"$GW_LOG" 2>&1
@@ -382,6 +427,18 @@ SQLEOF
   fi
   echo "» assistant healthy ✓ (internal public-record capability is reported separately)"
 
+# --- university (Vite: courses, learning paths) --------------------------------
+UNIVERSITY_PORT="${UNIVERSITY_PORT:-5181}"
+stop_port_listeners "$UNIVERSITY_PORT"
+sleep 0.2
+
+echo "» starting university on http://localhost:${UNIVERSITY_PORT}"
+(
+  cd "$PLATFORM_DIR"
+  UNIVERSITY_PORT="$UNIVERSITY_PORT" bun run --filter @pattadar/university dev
+) &
+UNIVERSITY_PID=$!
+
 # --- web (Vite: graphql -> :8080, storage/admin/assistant -> :8082) -----------
 cd "$PLATFORM_DIR"
 bun install
@@ -393,31 +450,45 @@ if [ "$WEB_NEXT" = "1" ]; then
   bun run --filter @pattadar/web-next dev:local
 else
   echo "» starting web on http://localhost:${WEB_PUBLIC_PORT}  (Ctrl-C stops everything)"
+  if [ -n "$VM_DIR" ]; then
+    echo "   village maps: $(grep -o '"key"' "$VM_DIR/catalog.json" | wc -l | tr -d ' ') mandals from ${VM_DIR#$PLATFORM_DIR/}"
+  else
+    echo "   village maps: 8-village fixture only (no .local/vm-build — see data/vm/README.md)"
+  fi
   if [ "$LOCAL_AUTH" = "real" ]; then
-    echo "   sign-in: REAL hosted UI (the prod pool)."
+    echo "   sign-in: REAL Cognito (pool ${COGNITO_USER_POOL_ID}); GraphQL goes through the gateway."
+    if [ "$IDENTITY_LEGACY_BINDINGS" = "{}" ]; then
+      echo "   note: no .local/cognito-local.env binding — a real login lands on its own"
+      echo "         subject_ account, not on your local owner key."
+    fi
     if [ "$WEB_PUBLIC_PORT" != "5173" ]; then
       # Said before the browser opens, because Cognito's own error page names
       # neither the port nor the fix.
-      echo "   WARNING: the prod client allows only localhost:5173 — :${WEB_PUBLIC_PORT} will fail"
-      echo "            with error=redirect_mismatch. Re-run: WEB_PORT=5173 LOCAL_AUTH=real $0"
+      echo "   WARNING: the web client allows only localhost:5173 — :${WEB_PUBLIC_PORT} will fail"
+      echo "            with error=redirect_mismatch. Re-run without WEB_PORT."
     fi
-    # REAL sign-in, exactly like pattadar.com — no mock mode.
+    # REAL sign-in, exactly like pattadar.com — no mock mode. GRAPHQL_VIA_GATEWAY
+    # stops Vite injecting a fixed x-user-id: the gateway validates the Bearer
+    # and sets identity, as it does in AWS.
     VITE_COGNITO_AUTHORITY="https://cognito-idp.ap-south-1.amazonaws.com/${COGNITO_USER_POOL_ID}" \
-    VITE_COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID%%,*}" \
-    VITE_COGNITO_DOMAIN="auth.pattadar.com" \
-    VITE_SOCIAL_PROVIDERS="Google" \
+    VITE_COGNITO_CLIENT_ID="$WEB_COGNITO_CLIENT_ID" \
+    VITE_COGNITO_DOMAIN="$WEB_COGNITO_DOMAIN" \
+    VITE_SOCIAL_PROVIDERS="$WEB_SOCIAL_PROVIDERS" \
     VITE_GATEWAY_PROXY_TARGET="http://localhost:8082" \
+    GRAPHQL_VIA_GATEWAY=1 \
+    VM_DIR="$VM_DIR" \
     WEB_PORT="${WEB_PUBLIC_PORT}" \
     bun run dev:web
   else
     echo "   sign-in: SKIPPED (LOCAL_AUTH=mock). The shell shows an 'Auth mocked' chip."
-    echo "            Use LOCAL_AUTH=real WEB_PORT=5173 to exercise the hosted UI."
+    echo "            Drop LOCAL_AUTH=mock for real Cognito / Google sign-in (web on :5173)."
     # No VITE_COGNITO_AUTHORITY: that absence IS the switch. AuthProvider's
     # mock mode signs a dev user in and mints its gateway Bearer from
     # /local-auth/token, so storage behaves as it does signed in.
     VITE_GATEWAY_PROXY_TARGET="http://localhost:8082" \
     VITE_DEV_USER_ID="${DEV_USER_ID:-shankarreddy.t}" \
     DEV_USER_ID="${DEV_USER_ID:-shankarreddy.t}" \
+    VM_DIR="$VM_DIR" \
     WEB_PORT="${WEB_PUBLIC_PORT}" \
     bun run dev:web
   fi

@@ -15,3 +15,5 @@
 Current traffic invariant: CloudFront `/api/*` → ALB → gateway; ALB direct API
 is only `/cron/inactivity-check`, protected by `CRON_SECRET`; default ALB web
 target is staged and active SPA default content comes from S3/CloudFront.
+CloudFront `/vm/*` (village maps, public reference data) reads the persistent
+village-maps bucket via OAC; its bucket policy is runtime-owned.

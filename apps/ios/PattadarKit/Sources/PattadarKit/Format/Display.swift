@@ -68,10 +68,47 @@ private let actionLabels: [String: String] = [
     "create_group": "Created a group", "delete_group": "Deleted a group",
     "add_member": "Added a member", "remove_member": "Removed a member",
     "reveal_aadhaar": "Viewed an Aadhaar number", "update_profile": "Updated your profile",
+    // audit_events_v2 names actions `area.verb`; same copy as packages/core
+    // format/audit.ts. Owners see "order", never "ticket"; no "paid" while
+    // online payment is a stub.
+    "set_pin": "Set a location", "set_boundary": "Saved a boundary",
+    // W360 — a property's own tabs; same copy as packages/core format/audit.ts.
+    "add_note": "Added a note", "delete_note": "Deleted a note",
+    "add_person": "Added someone", "update_person": "Edited someone’s details",
+    "delete_person": "Removed someone",
+    "add_owner": "Added an owner", "update_owner": "Edited an owner", "delete_owner": "Removed an owner",
+    "add_transfer": "Added a transfer", "update_transfer": "Edited a transfer",
+    "delete_transfer": "Removed a transfer",
+    "add_transfer_party": "Named someone on a transfer",
+    "update_transfer_party": "Edited someone on a transfer",
+    "remove_transfer_party": "Took someone off a transfer",
+    "link_transfer_prior": "Linked transfers in the chain",
+    "add_feature": "Added a site feature", "update_feature": "Edited a site feature",
+    "delete_feature": "Removed a site feature", "add_feature_cost": "Recorded a site feature cost",
+    "add_expense": "Recorded a cost", "delete_expense": "Removed a cost",
+    "add_paper": "Filed a document", "update_paper": "Updated a document",
+    "delete_paper": "Removed a document",
+    "add_photo": "Added a photo", "delete_photo": "Removed a photo",
+    "set_cover_photo": "Set the cover photo",
+    "add_purchase": "Recorded a purchase", "update_purchase": "Corrected a purchase",
+    "delete_purchase": "Removed a purchase", "record.corrected": "Corrected a field",
+    "service.batch_ordered": "Ordered services",
+    "service.batch_duplicate_blocked": "Stopped a duplicate order",
+    "service.duplicate_blocked": "Stopped a duplicate order",
+    "ticket.dispatched": "Sent an order to a provider",
+    "ticket.funded": "Held money for an order",
+    "ticket.accepted": "Accepted the work on an order",
+    "ticket.sent_back": "Asked for changes on an order",
+    "ticket.cancelled": "Cancelled an order",
+    "payment.captured": "Payment received",
+    "account.export": "Exported your data",
+    "account.erasure_requested": "Asked to delete your account",
+    "consent.updated": "Updated your consent",
 ]
 
 public func actionLabel(_ action: String) -> String {
-    actionLabels[action] ?? humanize(action)
+    // The dot in `area.verb` is a separator like the underscore.
+    actionLabels[action] ?? humanize(action.replacingOccurrences(of: ".", with: "_"))
 }
 
 /// Destructive actions read differently and must be coloured as such wherever

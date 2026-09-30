@@ -12,5 +12,8 @@
 | Receipt | source version, command/mode, counts, rejects, operator, timestamp |
 
 Relevant sources include `services/api/data/*.csv`, `scripts/village-map-import.py`,
-`data/vm`, generated `apps/web/public/vm`, FMB/geometry modules/tests, and the
+`data/vm` (+ `placement.json`, `sources/*.json` manifests), the fixture
+`apps/web/public/vm`, full builds in `.local/vm-build` published by
+`scripts/vm-publish.py` (`docs/runbooks/village-maps-publish.md`),
+FMB/geometry modules/tests, and the
 assistant public-record read-only corpus. Inventory actual paths before use.

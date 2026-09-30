@@ -1,5 +1,5 @@
 import type { StateLandRecordProfile, StateLearningGuide } from '../domain/types';
-import { stateLandRecordProfiles } from '../data/stateLandRecords';
+import { publishedStateLandRecordProfiles } from '../data/stateLandRecords';
 
 export const universitySiteUrl = 'https://university.pattadar.com';
 
@@ -75,8 +75,8 @@ export function buildStateDirectoryStructuredData(): Record<string, unknown>[] {
     {
       '@context': 'https://schema.org',
       '@type': 'CollectionPage',
-      name: 'India State and Union Territory Land-Record Guides',
-      description: 'Government-sourced land-record learning guides for all 28 Indian states and 8 union territories.',
+      name: 'Andhra Pradesh and Telangana Land-Record Guides',
+      description: 'Government-sourced land-record learning guides for Andhra Pradesh and Telangana.',
       url: pageUrl,
       inLanguage: 'en-IN',
       isPartOf: {
@@ -86,8 +86,8 @@ export function buildStateDirectoryStructuredData(): Record<string, unknown>[] {
       },
       mainEntity: {
         '@type': 'ItemList',
-        numberOfItems: stateLandRecordProfiles.length,
-        itemListElement: stateLandRecordProfiles.map((profile, index) => ({
+        numberOfItems: publishedStateLandRecordProfiles.length,
+        itemListElement: publishedStateLandRecordProfiles.map((profile, index) => ({
           '@type': 'ListItem',
           position: index + 1,
           name: `${profile.name} land records`,

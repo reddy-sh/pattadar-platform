@@ -43,7 +43,7 @@ test('drawer · the record add/edit drawer still works on the shared shell', asy
   await page.goto('/app/properties');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   const drawer = page.locator('aside.drawer');
-  await expect(drawer.getByRole('heading', { name: 'Add a record' })).toBeVisible();
+  await expect(drawer.getByRole('heading', { name: 'Add a property' })).toBeVisible();
   await page.screenshot({ path: '/tmp/shots/record-add.png' });
   await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
   await drawer.locator('#rd-title').fill('Sy 999');

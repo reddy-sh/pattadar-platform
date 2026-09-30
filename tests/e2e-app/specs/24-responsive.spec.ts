@@ -14,10 +14,10 @@
  *      still keyboard-reachable, modal and dismissible. Above 900px the very
  *      same button does something else entirely — it collapses the rail in
  *      place (Shell.tsx:184-187) — and that fork is asserted from both sides,
- *      including the resize that crosses it live. The rail is fifteen entries
- *      in four named groups — Your land, Shared, Money & help, Account — and
- *      one of the fifteen is not the owner's: W17 dropped "Admin & Ref Data"
- *      and hung the Pattadar desk off Money & help for a platform admin,
+ *      including the resize that crosses it live. The rail is eighteen entries
+ *      in named groups — Your portfolio, Shared, Money, Account, Operations,
+ *      and Help & resources at the foot — and one is not the owner's: W17 dropped "Admin & Ref
+ *      Data", and the Pattadar desk sits in Operations for a platform admin,
  *      which the sealed world is — so the drawer here always carries it, and
  *      the desk's own six screens are asserted below. The groups are counted
  *      here only as the links inside them: `SECTIONS` is the destinations, and
@@ -85,8 +85,8 @@ const PHONE = { width: 390, height: 844 };
 const DESK = { width: 1280, height: 900 };
 
 /** Every section the rail carries, in the order the rail draws them — which is
- *  now group by group: Your land, Shared, Money & help (the desk hangs off the
- *  end of it), Account. Written out rather than imported: if an entry is
+ *  now group by group: Your portfolio, Shared, Money, Account, and Operations
+ *  (the desk, for a platform admin only). Written out rather than imported: if an entry is
  *  dropped on the way to the phone, a list derived from the same source would
  *  drop it too.
  *
@@ -94,19 +94,24 @@ const DESK = { width: 1280, height: 900 };
  *  and /app/admin is a redirect into the desk now (routes.tsx) — and "Pattadar
  *  desk" is drawn only when `portfolio.isPlatformAdmin`. The sealed world IS an
  *  admin (fixtures/seed.ts:193), so the desk entry is in the drawer in every
- *  test in this file. Fifteen entries, grouped; not one fewer for grouping. */
+ *  test in this file. Nineteen entries, grouped; Help & resources (Tools,
+ *  Pattadar University, Help & support) is pinned to the foot of the rail. */
 const SECTIONS = [
-  'Dashboard', 'Properties', 'Maps', 'Papers',
-  'Shared with me', 'Waiting on you', 'Invitations', 'Families & Groups',
-  'Services', 'Wallet', 'Pattadar desk',
-  'Notifications', 'Tools', 'Audit Log', 'Profile',
+  'Dashboard', 'Properties', 'Combined views', 'Cadastral maps', 'Documents',
+  'Shared with me', 'Waiting on you', 'Invitations', 'Families & groups', 'Invite & earn',
+  'Services', 'Wallet',
+  // Notifications is a topbar bell beside the assistant now, not a rail entry.
+  'Profile', 'Privacy & your data', 'Activity',
+  'Pattadar desk',
+  'Tools', 'Pattadar University', 'Help & support',
 ] as const;
 
-/** The four group headings, in the order the rail stacks them. They are not
+/** The group headings, in the order the rail stacks them (Operations only
+ *  for a platform admin, which the sealed world is). They are not
  *  links and never were: each group is a `role="group"` whose accessible name
  *  is the heading (Shell.tsx), so a reader gets the grouping and `SECTIONS`
  *  above stays a list of destinations. */
-const GROUPS = ['Your land', 'Shared', 'Money & help', 'Account'] as const;
+const GROUPS = ['Your portfolio', 'Shared', 'Money', 'Account', 'Operations', 'Help & resources'] as const;
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 
@@ -262,7 +267,10 @@ test.describe('on a 390px screen', () => {
 
     for (const section of SECTIONS) {
       await expect(
-        rail(page).getByRole('link', { name: new RegExp(`^${section.replace(/[&]/g, '\\&')}( \\d+)?$`) }),
+        // A badge count, or — for Pattadar University — the new-tab warning.
+        rail(page).getByRole('link', {
+          name: new RegExp(`^${section.replace(/[&]/g, '\\&')}( \\d+| \\(opens in a new tab\\))?$`),
+        }),
         `"${section}" must be reachable from the phone drawer`,
       ).toHaveCount(1);
     }
@@ -290,26 +298,26 @@ test.describe('on a 390px screen', () => {
     await expect(rail(page).getByRole('link', { name: 'Dashboard', exact: true })).toBeFocused();
   });
 
-  test('while the drawer is shut the next Tab takes me to the search box, not through fifteen links I cannot see @phone', async ({ page }) => {
+  test('while the drawer is shut the next Tab takes me to the search box, not through nineteen links I cannot see @phone', async ({ page }) => {
     await page.goto('/app');
     await settled(page);
 
     // The number in this test's name is the thing being skipped, so it is
-    // asserted rather than left as prose. Still fifteen after W17: the rail
-    // lost "Admin & Ref Data" and gained "Pattadar desk" (Shell.tsx:543).
-    await expect(rail(page).getByRole('link')).toHaveCount(15);
+    // asserted rather than left as prose: fifteen after W17, nineteen once
+    // Help & resources, Privacy & your data and Invite & earn joined.
+    await expect(rail(page).getByRole('link')).toHaveCount(SECTIONS.length);
 
     await hamburger(page).focus();
     await page.keyboard.press('Tab');
     // Brand, then the jump box. Never a rail link — that is what `inert` buys.
     // Scoped to the topbar: the rail carries a link whose name also starts with
-    // "Pattadar" (the desk, under Money & help), and the wordmark is the one in
+    // "Pattadar" (the desk, under Operations), and the wordmark is the one in
     // the bar.
     await expect(
       page.locator('.w360 .topbar').getByRole('link', { name: /^Pattadar/ }),
     ).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect(page.getByLabel('Jump to a parcel, paper, person')).toBeFocused();
+    await expect(page.getByLabel('Jump to a property, document, person')).toBeFocused();
   });
 
   test('Escape shuts the drawer and gives me back the button I opened it with @phone', async ({ page }) => {
@@ -344,7 +352,7 @@ test.describe('on a 390px screen', () => {
     await settled(page);
     const menu = hamburger(page);
     await menu.click();
-    await rail(page).getByRole('link', { name: 'Papers', exact: true }).click();
+    await rail(page).getByRole('link', { name: 'Documents', exact: true }).click();
 
     await expect(page).toHaveURL(/\/app\/papers$/);
     await expect(menu).toHaveAttribute('aria-expanded', 'false');
@@ -582,7 +590,7 @@ test.describe('nothing takes the page sideways', () => {
 
   // The one-service screen draws a different set of blocks in each of its
   // states — a full-width roster on a job nobody is on, a three-button banner
-  // on one that has gone quiet, "How it ended" on a closed one — so fitting a
+  // on one that has gone quiet, "Outcome" on a closed one — so fitting a
   // phone is a promise each state has to keep on its own. The needsYou state
   // above is the one with deliverables in it; these are the other three.
   for (const [what, id] of [
@@ -711,7 +719,7 @@ test.describe('nothing takes the page sideways', () => {
     });
     await page.goto('/app/properties');
     await settled(page);
-    await expect(page.getByText(/Nothing in your portfolio yet|Nothing filed yet|Nothing active/)).toBeVisible();
+    await expect(page.getByText(/No properties yet|Nothing filed yet|Nothing active/)).toBeVisible();
     await fitsTheScreen(page, '/app/properties with nothing in it');
   });
 });
@@ -725,7 +733,7 @@ test.describe('what re-flows on a phone', () => {
     await page.goto('/app');
     await settled(page);
 
-    const jump = page.getByLabel('Jump to a parcel, paper, person');
+    const jump = page.getByLabel('Jump to a property, document, person');
     await expect(jump).toBeVisible();
     // w360.css:652 — "the keyboard hint means nothing to a thumb".
     await expect(page.locator('.w360 .search kbd')).toBeHidden();
@@ -742,7 +750,7 @@ test.describe('what re-flows on a phone', () => {
     await page.goto('/app');
     await settled(page);
 
-    await page.getByLabel('Jump to a parcel, paper, person').fill('katragunta');
+    await page.getByLabel('Jump to a property, document, person').fill('katragunta');
     const results = page.locator('#w360-jump-results');
     await expect(results).toBeVisible();
 
@@ -815,14 +823,14 @@ test.describe('what re-flows on a phone', () => {
 
     const tabs = page.locator('.w360 nav.tabs');
     await expect(tabs).toBeVisible();
-    for (const label of ['Papers', 'Features', 'People', 'Services', 'Money', 'Audit']) {
+    for (const label of ['Documents', 'Site features', 'People', 'Services', 'Money', 'Activity']) {
       await expect(tabs.getByRole('link', { name: new RegExp(`^${label}`) })).toHaveCount(1);
     }
 
     // The strip is the scroller (w360.css:559-564), so the page behind it is
     // not: the last hanger is reachable by scrolling the strip and the
     // document never moves.
-    const last = tabs.getByRole('link', { name: /^Audit/ });
+    const last = tabs.getByRole('link', { name: /^Activity/ });
     await last.scrollIntoViewIfNeeded();
     await expect(last).toBeInViewport();
     await fitsTheScreen(page, 'a record with its hanger strip scrolled to the end');
@@ -901,24 +909,24 @@ test.describe('what re-flows on a phone', () => {
     const order = [
       'the service name',
       'the status',
-      'Who can do this',
-      'What was asked for',
-      'What this costs',
+      'Available providers',
+      'Order details',
+      'Cost',
       'nothing has come back yet',
-      'Everything that happened',
+      'Order activity',
       'nothing has left the building',
-      'On this land',
+      'Property',
     ];
     expect(await readingOrder(page, [
       ['the service name', page.getByRole('heading', { name: 'Encumbrance certificate', level: 1 })],
       ['the status', page.locator('.w360 main .state')],
-      ['Who can do this', page.getByRole('heading', { name: 'Who can do this', level: 2 })],
-      ['What was asked for', page.getByRole('heading', { name: 'What was asked for', level: 2 })],
-      ['What this costs', page.getByRole('heading', { name: 'What this costs', level: 2 })],
+      ['Available providers', page.getByRole('heading', { name: 'Available providers', level: 2 })],
+      ['Order details', page.getByRole('heading', { name: 'Order details', level: 2 })],
+      ['Cost', page.getByRole('heading', { name: 'Cost', exact: true, level: 2 })],
       ['nothing has come back yet', page.getByText(/^Nothing has come back yet\./)],
-      ['Everything that happened', page.getByRole('heading', { name: 'Everything that happened', level: 2 })],
+      ['Order activity', page.getByRole('heading', { name: 'Order activity', level: 2 })],
       ['nothing has left the building', page.getByText('Nothing has left the building.')],
-      ['On this land', page.getByRole('heading', { name: 'On this land', level: 2 })],
+      ['Property', page.getByRole('heading', { name: 'Property', exact: true, level: 2 })],
     ]), 'the blocks do not arrive in the order the screen is built to be read in').toEqual(order);
   });
 
@@ -927,8 +935,8 @@ test.describe('what re-flows on a phone', () => {
     // the placed one, so it is the roster; the other has work sitting in it
     // unlooked-at, so it is what came back.
     for (const [id, title] of [
-      [TICKET.placed, 'Who can do this'],
-      [TICKET.needsYou, 'What came back'],
+      [TICKET.placed, 'Available providers'],
+      [TICKET.needsYou, 'Submitted work'],
     ] as const) {
       await page.goto(`/app/services/${id}`);
       await settled(page);
@@ -976,7 +984,7 @@ test.describe('what re-flows on a phone', () => {
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('Nothing has happened for 9 days.');
 
-    for (const name of ['Send it again', 'Take them off this job', 'Cancel this job']) {
+    for (const name of ['Send it again', 'Remove this provider', 'Cancel this order']) {
       const button = banner.getByRole('button', { name, exact: true });
       await expect(button, `"${name}" is not offered on a job that has gone quiet`).toBeVisible();
       const box = await button.boundingBox();
@@ -988,7 +996,7 @@ test.describe('what re-flows on a phone', () => {
     // Nothing is promoted on this one — somebody has it and it is funded — so
     // the banner is followed by the plain card that says so.
     const bannerBox = (await banner.boundingBox())!;
-    const next = (await page.getByRole('heading', { name: 'What happens next', level: 2 }).boundingBox())!;
+    const next = (await page.getByRole('heading', { name: 'Next step', level: 2 }).boundingBox())!;
     expect(Math.round(next.y), 'the banner is not the first thing in the column')
       .toBeGreaterThan(Math.round(bannerBox.y));
     await fitsTheScreen(page, `/app/services/${TICKET.quiet}`);
@@ -1195,17 +1203,17 @@ test.describe('the desk on a phone', () => {
     });
   }
 
-  test('the desk is one tap away in the phone drawer, under Money & help where it belongs @phone', async ({ page }) => {
-    // The entry is drawn only for a platform admin, and it is the last thing in
-    // the third of four groups in a drawer of fifteen — well down a list that
-    // scrolls on a 390px screen, which is the first place an entry goes
-    // missing. Asserted inside its group, so a desk that drifts into Account
-    // or back to the foot of the rail fails here rather than passing quietly.
+  test('the desk is one tap away in the phone drawer, under Operations where it belongs @phone', async ({ page }) => {
+    // The entry is drawn only for a platform admin, in its own Operations group
+    // at the foot of a drawer of fifteen — well down a list that scrolls on a
+    // 390px screen, which is the first place an entry goes missing. Asserted
+    // inside its group, so a desk that drifts back into Money or into Account
+    // fails here rather than passing quietly.
     await page.goto('/app');
     await settled(page);
     await hamburger(page).click();
 
-    const desk = rail(page).getByRole('group', { name: 'Money & help' })
+    const desk = rail(page).getByRole('group', { name: 'Operations' })
       .getByRole('link', { name: /^Pattadar desk/ });
     await desk.scrollIntoViewIfNeeded();
     await expect(desk).toBeInViewport();
@@ -1215,7 +1223,7 @@ test.describe('the desk on a phone', () => {
 
     await desk.click();
     await expect(page).toHaveURL(/\/app\/desk$/);
-    await expect(page.getByRole('heading', { name: 'Jobs waiting for somebody' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Unassigned and stalled jobs' })).toBeVisible();
   });
 
   test('the five figures over the desk stack one to a row rather than squeezing five across @phone', async ({ page }) => {
@@ -1236,7 +1244,7 @@ test.describe('the desk on a phone', () => {
       expect(Math.round(box!.x + box!.width)).toBeLessThanOrEqual(PHONE.width);
     }
     expect([...lefts], 'the desk figures are still in columns on a phone').toHaveLength(1);
-    await expect(page.getByText('Nobody on it', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Unassigned', { exact: true }).first()).toBeVisible();
   });
 
   test('every job on the desk keeps the button that puts somebody on it inside the screen @phone', async ({ page }) => {
@@ -1287,7 +1295,7 @@ test.describe('the desk on a phone', () => {
     // says so rather than offering him again, and the aside carries the one
     // control that takes him off it.
     await expect(page.getByText('On this job', { exact: true })).toBeVisible();
-    const off = page.getByRole('button', { name: 'Take them off this job' });
+    const off = page.getByRole('button', { name: 'Remove this provider' });
     await expect(off).toBeVisible();
     const box = await off.boundingBox();
     expect(Math.round(box!.x + box!.width), 'the button that takes somebody off is off the side')
@@ -1298,7 +1306,7 @@ test.describe('the desk on a phone', () => {
   test('the reason I have to type before taking somebody off a job fits a phone @phone', async ({ page }) => {
     await page.goto(`/app/desk/jobs/${TICKET.assigned}`);
     await settled(page);
-    await page.getByRole('button', { name: 'Take them off this job' }).click();
+    await page.getByRole('button', { name: 'Remove this provider' }).click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -1424,12 +1432,13 @@ test.describe('the desk on a phone', () => {
     // It is held until the four things an offer needs have been typed
     // (DeskEnrol.tsx:311-314), and the sentence saying so must be on screen with
     // it rather than wrapped off the side.
-    const add = page.getByRole('button', { name: 'Add them' });
+    const add = page.getByRole('button', { name: 'Add member' });
     await expect(add).toBeVisible();
     const box = await add.boundingBox();
     expect(Math.round(box!.x + box!.width), 'the button that files the person is off the side')
       .toBeLessThanOrEqual(PHONE.width);
-    await expect(page.getByText('A name, a number, one kind of work and one place')).toBeVisible();
+    await expect(page.getByText(
+      'Add their name, contact, full address, one kind of work and one coverage area.')).toBeVisible();
   });
 });
 
@@ -1477,7 +1486,7 @@ test.describe('what a thumb has to hit', () => {
     // DEFECT. apps/web/src/w360/w360.css:378-395 — `.btn` is
     // `padding: 0.5rem 1rem` over a 0.8125rem face, which measures ~34px tall
     // and never changes below the breakpoint. Every screen's main action is
-    // one of these: "Add" here, "Add papers" in the vault, "Accept and file"
+    // one of these: "Add" here, "Add documents" in the vault, "Accept and file"
     // on a ticket. The owner is owed a phone-width rule that lifts `.btn` to a
     // 40px minimum height (`min-height: 2.5rem`), leaving the desktop metric
     // alone — `.btn` is the same class on both, so it has to be a media rule
@@ -1496,7 +1505,7 @@ test.describe('what a thumb has to hit', () => {
     // opened to press — someone standing in an SRO office with a receipt.
     await page.goto('/app/papers');
     await settled(page);
-    const file = page.getByRole('button', { name: 'Add papers', exact: true });
+    const file = page.getByRole('button', { name: 'Add documents', exact: true });
     await expect(file).toBeVisible();
     const { w, h } = await tapSize(page, file);
     expect(h, `the primary button on Papers is ${w}×${h}px`).toBeGreaterThanOrEqual(FLOOR);

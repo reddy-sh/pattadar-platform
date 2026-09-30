@@ -97,6 +97,11 @@ export interface MapCanvasProps {
    *  single corner; this component only shows it. Since the tip is bolted to
    *  one corner of the panel it no longer needs to know what it describes. */
   tip?: string | null;
+  /** A pin placed in "Move the pin" and not saved yet. Drawn on every record,
+   *  hollow and dashed — the saved pin is drawn only where there is no ring
+   *  and no stones, so a draft on a surveyed parcel would otherwise be
+   *  invisible. */
+  draftPin?: { lat: number; lon: number } | null;
   /** Play the one-time reveal: the outline drawn corner by corner. */
   introduce?: boolean;
   /** The revenue village the record is filed in. Always pass it, whether or
@@ -344,7 +349,7 @@ export default function MapCanvas({
   place, placeWithin, onPlace, picking = false, onPick, sideLabels, activeSide = null,
   onSideClick, onCornerClick, activeCorner = null, tip, introduce = false,
   village, showVillage = false, onVillagePlot, activePlot = null,
-  findPlot = null, onVillageState,
+  findPlot = null, onVillageState, draftPin = null,
   drawing = false, editDisabled = false, draft, onDraft, still = false, ref,
 }: MapCanvasProps) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -674,9 +679,10 @@ export default function MapCanvas({
           interactive: !still,
           bubblingMouseEvents: false,
         });
-        if (m.label) {
+        // A moved stone says so in words as well as in the alarm hue.
+        if (m.label || moved) {
           const label = document.createElement('span');
-          label.textContent = `${m.seq} · ${m.label}`;
+          label.textContent = [String(m.seq), m.label, moved && 'moved'].filter(Boolean).join(' · ');
           dot.bindTooltip(label, { direction: 'top' });
         }
         dot.on('click', (e: L.LeafletMouseEvent) => {
@@ -693,6 +699,14 @@ export default function MapCanvas({
       }
     }
 
+    // The pin being placed. Not part of the framing below: the view must not
+    // jump while somebody is choosing where the land is.
+    if (draftPin && placed(draftPin)) {
+      L.circleMarker([draftPin.lat, draftPin.lon], {
+        className: 'w-mark draft', radius: 8, interactive: false,
+      }).addTo(group);
+    }
+
     // Frame the parcel once, when there is something to frame. Later renders
     // (a mark accepted, the basemap switched) must leave the view alone —
     // re-fitting would yank the map back every time the owner zoomed to a
@@ -706,7 +720,7 @@ export default function MapCanvas({
         fittedRef.current = true;
       }
     }
-  }, [ring, marks, hasRing, hasPin, pin, title, dimOutside, drawing]);
+  }, [ring, marks, hasRing, hasPin, pin, title, dimOutside, drawing, draftPin]);
 
   // Where to look, in the order this record can be trusted:
   //
@@ -739,7 +753,9 @@ export default function MapCanvas({
       // it IS the village. So where one exists it decides, and Nominatim is
       // only asked about villages we have no map for.
       if (village) {
-        const plots = await loadVillage(village);
+        // The rest of the place line settles a village name that several
+        // mandals share; unsettled, there is no map rather than a wrong one.
+        const plots = await loadVillage(village, placeWithin ?? []);
         if (dropped || drawingRef.current || pickingRef.current) return;
         if (plots && plots.length) {
           const map = mapRef.current;
@@ -837,7 +853,7 @@ export default function MapCanvas({
     if (!village || !showVillage) { setVillageCount(null); return; }
 
     let dropped = false;
-    void loadVillage(village).then((plots) => {
+    void loadVillage(village, placeWithin ?? []).then((plots) => {
       if (dropped || !plots) {
         if (!dropped) {
           setVillageCount(0);
@@ -1064,7 +1080,9 @@ export default function MapCanvas({
     // `basemap` is a dependency because the plots are drawn in a colour that
     // depends on it — leave it out and switching to imagery keeps the ink
     // outlines that are invisible on it.
-  }, [village, showVillage, activePlot, findPlot, basemap]);
+    // The place line is joined so an inline array does not re-run this on
+    // every render; it decides WHICH village a shared name means.
+  }, [village, showVillage, activePlot, findPlot, basemap, (placeWithin ?? []).join('|')]);
 
   // Side lengths, written along the boundary itself. Own layer, own effect:
   // switching metres to feet must not touch the ring or the view.
@@ -1280,50 +1298,11 @@ export default function MapCanvas({
     };
   }, [introduce, hasRing]);
 
-  // The ambient light: a scatter of points along the boundary and one soft head
-  // that travels it, once, when you arrive. Two clones of the ring's own path,
-  // so they trace the parcel exactly and cost no geometry.
-  //
-  // Its own effect, and NOT the once-ever reveal above. That reveal is a
-  // first-run explanation — it says "this line is your boundary" and saying it
-  // twice would be talking down to somebody. This is ambient light: the point
-  // of it is that it greets you every time you walk in, the way a car's
-  // headliner does. Once per landing, never a loop.
-  //
-  // pathLength="1" is set on the clones, so every dash figure in the
-  // stylesheet is a FRACTION of this parcel's own perimeter and the lap takes
-  // the same time round a 300 m boundary as a 3 km one. Without it the
-  // animation is a function of size: a smallholding flickers, an estate crawls.
-  useEffect(() => {
-    if (!hasRing) return undefined;
-    const lights: SVGPathElement[] = [];
-    const timers: number[] = [];
-    const light = () => {
-      const path = boxRef.current?.querySelector('path.w-ring') as SVGPathElement | null;
-      if (!path) return false;
-      for (const cls of ['w-ring-stars', 'w-ring-glow']) {
-        const lit = path.cloneNode(false) as SVGPathElement;
-        lit.setAttribute('class', cls);
-        lit.setAttribute('pathLength', '1');
-        lit.removeAttribute('style');
-        path.parentNode?.insertBefore(lit, path.nextSibling);
-        lights.push(lit);
-      }
-      // Taken out again when it has finished. This is a screen people keep
-      // open for a long time, and decoration that stays is furniture.
-      timers.push(window.setTimeout(() => {
-        for (const el of lights) el.remove();
-        lights.length = 0;
-      }, 3600));
-      return true;
-    };
-    const t = window.setTimeout(() => { if (!light()) timers.push(window.setTimeout(light, 220)); }, 90);
-    return () => {
-      window.clearTimeout(t);
-      for (const id of timers) window.clearTimeout(id);
-      for (const el of lights) el.remove();
-    };
-  }, [hasRing]);
+  // No ambient light. A scatter of stars and a travelling glow used to run
+  // round the ring on every visit; design.md keeps app surfaces free of
+  // decoration, and the decision of 28/09/2026 kept only the first-visit
+  // draw-on above, which explains something ("this line is your boundary")
+  // rather than greeting anyone.
 
   // Toggle the editing cursor on the ELEMENT, never through React's
   // className.
@@ -1485,11 +1464,8 @@ export default function MapCanvas({
         className="map"
         role={still ? 'img' : 'application'}
         aria-label={title ? `Map of ${title}` : 'Parcel map'}
-        aria-description={!still ? 'Arrow keys pan the map. Plus and minus zoom. Drawn corners can be dragged or moved with arrow keys.' : undefined}
+        aria-description={!still ? 'Arrow keys pan. Plus and minus zoom.' : undefined}
       />
-      {/* Panel-sized sentences do not fit a card, and the card says where the
-          record is in its own words directly below. A thumbnail that draws a
-          pin and no boundary is still not inventing one. */}
       {/* Positioned from the side's midpoint, then clamped to the panel by
           the layout effect below, so it can never leave the map. */}
       {showTip && (
@@ -1514,8 +1490,10 @@ export default function MapCanvas({
           exactly why it is worth printing: a surveyor reading "ENE" off the
           table needs to know the map is not oriented to the sheet, or to the
           direction they happen to be facing. */}
+      {/* role="img": an aria-label on a bare span is not announced by every
+          screen reader, and the "N" and the arrow are one picture. */}
       {!still && (
-        <span className="northrose" aria-label="North is up">
+        <span className="northrose" role="img" aria-label="North is up">
           <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden>
             <path d="M12 3 L15 13 L12 11 L9 13 Z" />
           </svg>
@@ -1523,30 +1501,28 @@ export default function MapCanvas({
         </span>
       )}
 
-      {/* One notice, from the component that knows what it actually drew. The
-          panel used to add its own alongside this, and the two disagreed:
-          this one said "the pin is where it was filed from" while the map was
-          showing numbered stones and no pin. */}
+      {/* The small maps' one notice about what is missing, from the component
+          that knows what it actually drew — the record front-page card and the
+          portfolio, which have no rail to say it. On the full Location panel
+          (`.plot.live`) w360.css hides it on purpose: the rail and the sub
+          line beside that map already say the same thing in more words. */}
       {!still && !drawing && !picking && !hasRing && !located && (
         <p className="nogeo">
           {offPlace
             // The record HAS coordinates; they just cannot be right. Say the
             // distance, because "somewhere near the village" is the honest
             // answer and the wrong pin is the thing worth fixing.
-            ? `${offPlace} The map is showing the village on the record instead.`
-            : anyMarks
-              ? 'No surveyed boundary on this record. The numbered stones are where they were recorded — nothing joins them, because a handful of readings is not a boundary. Order a survey and the corners are set with a GPS.'
-              : hasPin
-                ? 'No surveyed boundary on this record — the pin is where it was filed from. Order a survey and the corners are set on the ground.'
-                : 'This record has no location yet. Move the pin, or order a survey.'}
+            ? `${offPlace} Showing the village instead.`
+            : anyMarks || hasPin
+              ? 'No boundary saved on this property.'
+              : 'This record has no location yet.'}
         </p>
       )}
       {!still && tilesFailed && (
         <p className="nogeo low">
           {basemap === 'satellite'
-            ? 'Satellite imagery is unavailable here. Try Street view or zoom out.'
-            : 'Street map tiles are unavailable. Try Satellite or check your connection.'}
-          {' '}Your saved boundary and any drawing remain visible.
+            ? 'Satellite imagery is unavailable here.'
+            : 'Street map tiles are unavailable.'}
         </p>
       )}
     </>

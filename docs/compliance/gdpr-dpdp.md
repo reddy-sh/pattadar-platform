@@ -13,6 +13,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | AI reading source/result | Source bytes while queued/running; masked-only Aadhaar result and 30-minute candidate | RDS (`document_read_jobs`, `aadhaar_candidates`) | Very high | AWS, Anthropic |
 | Group/family membership | Typed groups, member roles, minor→guardian links, legal-heir flags | RDS | High (includes minors) | AWS |
 | notification_log | Channel, recipient, message, delivery status | RDS | Medium | AWS, Resend/MSG91/Meta WhatsApp |
+| Inbox and browser push | `inbox_items` (reading finished/failed, the uploaded file's name, read state; deleted after 30 days); `push_subscriptions` (browser push endpoint URL only) | RDS | Low–Medium | AWS; the browser's push service (Google/Mozilla/Microsoft/Apple) receives an **empty** push — no document name or content |
 | audit_events | Who did what, when | RDS | Medium | AWS |
 | Inactivity heartbeats | last_active timestamps, dead-man's-switch escalation state | RDS | Medium | AWS |
 | Auth data | Credentials, MFA, login history | Amazon Cognito (ap-south-1 — in-India) | High | AWS (Cognito, processor) |

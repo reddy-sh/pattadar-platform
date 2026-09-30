@@ -54,7 +54,9 @@ function splitMeta(metadata: string): { label: string; rest: string } {
   }
 }
 
-function Row({ e }: { e: AuditEventV2 }) {
+/** One event. Exported because Home's "Recent activity" draws the same row, so
+ *  the two can never describe the same event in different words. */
+export function ActivityRow({ e }: { e: AuditEventV2 }) {
   const { label, rest } = splitMeta(e.metadata);
   const security = isSecurityAction(e.action);
   const denied = e.outcome === 'denied' || e.outcome === 'failure';
@@ -91,34 +93,28 @@ export function Audit() {
           recorded yet, and the third was a claim no control backed. Overstating
           an audit surface is worse than a modest one: it is the sentence an
           auditor quotes back at you. */}
-      <PageHead eyebrow="Reference" title="Audit Log">
+      <PageHead eyebrow="Account" title="Activity">
         <p className="lede" style={{ maxWidth: '46rem' }}>
-          Changes to your records, papers filed and removed, your identity accessed, and links
-          shared — with who did it and when. Access to your data by the Pattadar desk or the
-          system shows here too.
+          Changes to your properties, documents, identity access and share links, including access
+          by Pattadar staff.
         </p>
         <p className="note" style={{ maxWidth: '46rem', marginTop: '0.5rem' }}>
-          Entries are appended, never edited: each one is sealed to the one before it, so a
-          later change to this list can be detected. Sign-ins and file downloads are not recorded
-          here yet.
+          Sign-ins and file downloads are not recorded.
         </p>
       </PageHead>
       {isLoading ? (
         <Loading h="12rem" />
       ) : events.length === 0 ? (
-        <Empty boxed title="No activity recorded yet">
-          As you add records, file papers, share links and update your details, each action is
-          logged here with who did it and when.
-        </Empty>
+        <Empty boxed title="No activity recorded yet" />
       ) : (
         <>
           <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-            {plural(events.length, 'event')} · newest first
+            {plural(events.length, 'event')} · Newest first
           </p>
           <div className="card" style={{ padding: 0 }}>
             <div className="rows boxed">
               {events.map((e) => (
-                <Row key={e.id} e={e} />
+                <ActivityRow key={e.id} e={e} />
               ))}
             </div>
           </div>

@@ -86,7 +86,7 @@ const card = (page: Page, title: string | RegExp) =>
   page.locator('section.card').filter({ has: page.getByRole('heading', { name: title }) });
 
 /** The ledger card, under either of the two titles it can wear. */
-const ledger = (page: Page) => card(page, /^(Every movement|The latest movements)$/);
+const ledger = (page: Page) => card(page, /^(Transactions|Latest transactions)$/);
 
 /** One of the four figures, named by its label.
  *
@@ -102,7 +102,7 @@ const figure = (page: Page, label: string) =>
 const rowsIn = (owner: ReturnType<typeof card>) => owner.locator('.rows.boxed > div');
 
 const jobRow = (page: Page, ref: string) =>
-  rowsIn(card(page, 'Jobs holding money')).filter({ hasText: ref });
+  rowsIn(card(page, 'Money held for orders')).filter({ hasText: ref });
 
 const movementRow = (page: Page, label: string) =>
   rowsIn(ledger(page)).filter({ hasText: label });
@@ -167,8 +167,8 @@ const RECONCILED = walletWith({
     movement({ id: 'r1', entry: 'top_up', label: 'Added', amount: 50_000, fromBucket: 'bank', toBucket: 'wallet', at: '01/09/2026' }),
     movement({ id: 'r2', entry: 'hold', label: 'Set aside', amount: 6_500, ticketId: TICKET.assigned, ticketRef: 'W-2102', at: '05/09/2026' }),
     movement({ id: 'r3', entry: 'hold', label: 'Set aside', amount: 6_500, ticketId: TICKET.closed, ticketRef: 'W-2098', at: '02/09/2026' }),
-    movement({ id: 'r4', entry: 'release', label: 'To the person who did the work', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '03/09/2026' }),
-    movement({ id: 'r5', entry: 'fee', label: "Pattadar's share", amount: 650, fromBucket: 'held', toBucket: 'fee', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '03/09/2026' }),
+    movement({ id: 'r4', entry: 'release', label: 'Released to the provider', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '03/09/2026' }),
+    movement({ id: 'r5', entry: 'fee', label: "Pattadar fee", amount: 650, fromBucket: 'held', toBucket: 'fee', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '03/09/2026' }),
   ],
 });
 
@@ -181,15 +181,14 @@ test.describe('The four figures', () => {
     await page.goto('/app/wallet');
 
     await expect(page.getByText('Money', { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'What is set aside, and what has gone' })).toBeVisible();
-    await expect(page.getByText('The surveyor, the advocate and the caretaker are paid from here.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Wallet', level: 1 })).toBeVisible();
 
     await expect(figure(page, 'Available')).toContainText('₹24,500');
     await expect(figure(page, 'Available')).toContainText('in your wallet');
-    await expect(figure(page, 'Set aside on jobs')).toContainText('₹14,200');
-    await expect(figure(page, 'Gone out')).toContainText('₹6,500');
-    await expect(figure(page, 'Gone out')).toContainText('to people and to Pattadar');
-    await expect(figure(page, 'Put in')).toContainText('₹45,000');
+    await expect(figure(page, 'Held for orders')).toContainText('₹14,200');
+    await expect(figure(page, 'Released')).toContainText('₹6,500');
+    await expect(figure(page, 'Released')).toContainText('to providers and Pattadar');
+    await expect(figure(page, 'Added')).toContainText('₹45,000');
 
     expect(world.lastVars('wallet')).toMatchObject({ limit: 60 });
   });
@@ -201,7 +200,7 @@ test.describe('The four figures', () => {
     // The whole reason this page exists: 43,500 is the money, and the owner is
     // told which ₹6,500 of it they cannot spend.
     expect(await figureValue(page, 'Available')).toBe(37_000);
-    expect(await figureValue(page, 'Set aside on jobs')).toBe(6_500);
+    expect(await figureValue(page, 'Held for orders')).toBe(6_500);
   });
 
   test('the four figures reconcile with each other, read off the screen', async ({ page, world }) => {
@@ -209,9 +208,9 @@ test.describe('The four figures', () => {
     await page.goto('/app/wallet');
 
     const available = await figureValue(page, 'Available');
-    const setAside = await figureValue(page, 'Set aside on jobs');
-    const goneOut = await figureValue(page, 'Gone out');
-    const putIn = await figureValue(page, 'Put in');
+    const setAside = await figureValue(page, 'Held for orders');
+    const goneOut = await figureValue(page, 'Released');
+    const putIn = await figureValue(page, 'Added');
 
     // What went in, less what has left, is what is here plus what is held.
     expect(putIn - goneOut).toBe(available + setAside);
@@ -225,10 +224,10 @@ test.describe('The four figures', () => {
     }));
     await page.goto('/app/wallet');
 
-    const rows = rowsIn(card(page, 'Jobs holding money'));
+    const rows = rowsIn(card(page, 'Money held for orders'));
     await expect(rows).toHaveCount(2);
     const held = await rows.locator('.num').allInnerTexts();
-    expect(held.map(rupees).reduce((a, b) => a + b, 0)).toBe(await figureValue(page, 'Set aside on jobs'));
+    expect(held.map(rupees).reduce((a, b) => a + b, 0)).toBe(await figureValue(page, 'Held for orders'));
   });
 
   test('what has gone out and what was put in are the movements listed under them', async ({ page }) => {
@@ -236,9 +235,9 @@ test.describe('The four figures', () => {
 
     // The two figures the seeded ledger can actually account for: one top-up
     // of ₹45,000 in, one payment of ₹6,500 out.
-    expect(await figureValue(page, 'Put in')).toBe(45_000);
+    expect(await figureValue(page, 'Added')).toBe(45_000);
     await expect(movementRow(page, 'Added to the wallet')).toContainText('₹45,000');
-    expect(await figureValue(page, 'Gone out')).toBe(6_500);
+    expect(await figureValue(page, 'Released')).toBe(6_500);
     await expect(movementRow(page, 'Paid to Ravi Kumar')).toContainText('₹6,500');
   });
 
@@ -246,24 +245,24 @@ test.describe('The four figures', () => {
     world.set('wallet', walletWith({ setAside: 6_500, jobs: [job()], rows: [] }));
     await page.goto('/app/wallet');
 
-    await expect(figure(page, 'Set aside on jobs')).toContainText('1 job');
-    await expect(figure(page, 'Set aside on jobs')).not.toContainText('1 jobs');
+    await expect(figure(page, 'Held for orders')).toContainText('1 order');
+    await expect(figure(page, 'Held for orders')).not.toContainText('1 orders');
   });
 
   test('five jobs are five jobs', async ({ page }) => {
     await page.goto('/app/wallet');
-    await expect(figure(page, 'Set aside on jobs')).toContainText('5 jobs');
+    await expect(figure(page, 'Held for orders')).toContainText('5 orders');
   });
 
   test('the wallet says whether it will top itself up', async ({ page, world }) => {
     world.set('wallet', walletWith({ autoTopUp: true }));
     await page.goto('/app/wallet');
-    await expect(figure(page, 'Put in')).toContainText('auto top-up on');
+    await expect(figure(page, 'Added')).toContainText('Auto top-up on');
   });
 
   test('a wallet that will not top itself up says that instead', async ({ page }) => {
     await page.goto('/app/wallet');
-    await expect(figure(page, 'Put in')).toContainText('auto top-up off');
+    await expect(figure(page, 'Added')).toContainText('Auto top-up off');
   });
 
   test('a balance is printed in whole rupees, the way somebody reconciling it writes it', async ({ page, world }) => {
@@ -310,14 +309,14 @@ test.describe('The four figures', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Jobs holding money
+// Money held for orders
 // ═══════════════════════════════════════════════════════════════════════
 
-test.describe('Jobs holding money', () => {
+test.describe('Money held for orders', () => {
   test('every job holding money is listed with what it is holding, and the card counts them', async ({ page }) => {
     await page.goto('/app/wallet');
 
-    const jobs = card(page, 'Jobs holding money');
+    const jobs = card(page, 'Money held for orders');
     await expect(jobs.locator('.cardhead .num')).toHaveText('5');
     await expect(rowsIn(jobs)).toHaveCount(5);
 
@@ -370,10 +369,9 @@ test.describe('Jobs holding money', () => {
     world.set('wallet', walletWith({ setAside: 0, jobs: [] }));
     await page.goto('/app/wallet');
 
-    const jobs = card(page, 'Jobs holding money');
+    const jobs = card(page, 'Money held for orders');
     await expect(jobs.locator('.cardhead .num')).toHaveText('0');
-    await expect(jobs).toContainText('No money is set aside on any job.');
-    await expect(jobs).toContainText('When you order a survey or a title opinion, what it costs appears here until you accept the work.');
+    await expect(jobs).toContainText('No money is held for any order.');
     await expect(rowsIn(jobs)).toHaveCount(0);
   });
 
@@ -413,8 +411,8 @@ test.describe('Jobs holding money', () => {
     }));
     await page.goto('/app/wallet');
 
-    await expect(figure(page, 'Set aside on jobs')).toContainText('₹6,500');
-    await expect(card(page, 'Jobs holding money')).not.toContainText('No money is set aside on any job');
+    await expect(figure(page, 'Held for orders')).toContainText('₹6,500');
+    await expect(card(page, 'Money held for orders')).not.toContainText('No money is held for any order');
   });
 });
 
@@ -426,7 +424,7 @@ test.describe('The ledger', () => {
   test('every movement is listed with what it was, what it was worth and when', async ({ page }) => {
     await page.goto('/app/wallet');
 
-    await expect(ledger(page)).toContainText('Every movement');
+    await expect(ledger(page)).toContainText('Transactions');
     await expect(ledger(page).locator('.cardhead .num')).toHaveText('3');
     await expect(rowsIn(ledger(page))).toHaveCount(3);
 
@@ -462,11 +460,11 @@ test.describe('The ledger', () => {
   test('a movement that really settled is allowed to say so', async ({ page, world }) => {
     world.set('wallet', walletWith({
       live: true, notice: '', provider: 'razorpay',
-      rows: [movement({ id: 'r1', entry: 'release', label: 'To the person who did the work', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay', simulated: false, status: 'settled', ticketRef: 'W-2098' })],
+      rows: [movement({ id: 'r1', entry: 'release', label: 'Released to the provider', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay', simulated: false, status: 'settled', ticketRef: 'W-2098' })],
     }));
     await page.goto('/app/wallet');
 
-    const row = movementRow(page, 'To the person who did the work');
+    const row = movementRow(page, 'Released to the provider');
     await expect(row.locator('.state.good')).toHaveText('Settled');
     await expect(row.getByText('Not charged')).toHaveCount(0);
   });
@@ -474,12 +472,12 @@ test.describe('The ledger', () => {
   test('a payment that did not go says so in its own row', async ({ page, world }) => {
     world.set('wallet', walletWith({
       live: true, notice: '', provider: 'razorpay',
-      rows: [movement({ id: 'r1', entry: 'release', label: 'To the person who did the work', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay', simulated: false, status: 'failed', ticketRef: 'W-2098' })],
+      rows: [movement({ id: 'r1', entry: 'release', label: 'Released to the provider', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay', simulated: false, status: 'failed', ticketRef: 'W-2098' })],
     }));
     await page.goto('/app/wallet');
 
-    const row = movementRow(page, 'To the person who did the work');
-    await expect(row.locator('.state.bad')).toHaveText('It did not go');
+    const row = movementRow(page, 'Released to the provider');
+    await expect(row.locator('.state.bad')).toHaveText('Failed');
     await expect(row).toContainText('₹5,850');
   });
 
@@ -495,21 +493,21 @@ test.describe('The ledger', () => {
       live: true, notice: '', provider: 'razorpay',
       jobs: [job({ held: 6_500 })],
       rows: [
-        movement({ id: 'r1', entry: 'release', label: 'To the person who did the work', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay', simulated: false, status: 'failed', ticketId: TICKET.assigned, ticketRef: 'W-2102', at: '06/09/2026' }),
+        movement({ id: 'r1', entry: 'release', label: 'Released to the provider', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay', simulated: false, status: 'failed', ticketId: TICKET.assigned, ticketRef: 'W-2102', at: '06/09/2026' }),
         movement({ id: 'r2', amount: 6_500, provider: 'razorpay', simulated: false, status: 'settled', ticketId: TICKET.assigned, ticketRef: 'W-2102', at: '05/09/2026' }),
         movement({ id: 'r3', entry: 'top_up', label: 'Added', amount: 50_000, fromBucket: 'bank', toBucket: 'wallet', provider: 'razorpay', simulated: false, status: 'settled', at: '01/09/2026' }),
       ],
     }));
     await page.goto('/app/wallet');
 
-    const bounced = movementRow(page, 'To the person who did the work');
-    await expect(bounced.locator('.state.bad')).toHaveText('It did not go');
+    const bounced = movementRow(page, 'Released to the provider');
+    await expect(bounced.locator('.state.bad')).toHaveText('Failed');
     await expect(bounced).toContainText('₹5,850');
 
     // Nothing has gone out, and the money the failed payout was for is still
     // set aside on the job it was for.
-    expect(await figureValue(page, 'Gone out')).toBe(0);
-    expect(await figureValue(page, 'Set aside on jobs')).toBe(6_500);
+    expect(await figureValue(page, 'Released')).toBe(0);
+    expect(await figureValue(page, 'Held for orders')).toBe(6_500);
     await expect(jobRow(page, 'W-2102')).toContainText('₹6,500');
   });
 
@@ -541,11 +539,11 @@ test.describe('The ledger', () => {
     // tick under a payout nobody received.
     world.set('wallet', walletWith({
       live: false, provider: 'razorpay_test',
-      rows: [movement({ id: 'r1', entry: 'release', label: 'To the person who did the work', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay_test', simulated: true, status: 'recorded', note: 'Razorpay test mode: no real money moved.', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '06/09/2026' })],
+      rows: [movement({ id: 'r1', entry: 'release', label: 'Released to the provider', amount: 5_850, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'razorpay_test', simulated: true, status: 'recorded', note: 'Razorpay test mode: no real money moved.', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '06/09/2026' })],
     }));
     await page.goto('/app/wallet');
 
-    const row = movementRow(page, 'To the person who did the work');
+    const row = movementRow(page, 'Released to the provider');
     await expect(row.getByText('Not charged')).toBeVisible();
     await expect(row.locator('.state.good')).toHaveCount(0);
     await expect(row.locator('span.note').first())
@@ -593,15 +591,14 @@ test.describe('The ledger', () => {
     await expect(movementRow(page, 'Set aside')).toContainText('₹6,500');
     await expect(movementRow(page, 'Given back')).toContainText('₹6,500');
     await expect(movementRow(page, 'Given back')).toContainText('W-2099');
-    await expect(figure(page, 'Set aside on jobs')).toContainText('₹0');
+    await expect(figure(page, 'Held for orders')).toContainText('₹0');
   });
 
   test('nothing having moved yet is said in words, not left blank', async ({ page, world }) => {
     world.set('wallet', walletWith({ rows: [] }));
     await page.goto('/app/wallet');
 
-    await expect(ledger(page)).toContainText('Nothing has moved yet.');
-    await expect(ledger(page)).toContainText('When money is set aside on a job, released to the person who did it, or given back, every movement is listed here with the date.');
+    await expect(ledger(page)).toContainText('No transactions yet.');
     await expect(rowsIn(ledger(page))).toHaveCount(0);
   });
 
@@ -612,7 +609,7 @@ test.describe('The ledger', () => {
     }));
     await page.goto('/app/wallet');
 
-    await expect(page.getByRole('heading', { name: 'Every movement' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Transactions', exact: true })).toBeVisible();
     await expect(ledger(page).locator('.cardhead .num')).toHaveText('59');
     await expect(ledger(page)).not.toContainText('Showing the latest');
   });
@@ -627,11 +624,10 @@ test.describe('The ledger', () => {
     }));
     await page.goto('/app/wallet');
 
-    await expect(page.getByRole('heading', { name: 'The latest movements' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Every movement' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Latest transactions' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Transactions', exact: true })).toHaveCount(0);
     await expect(ledger(page).locator('.cardhead .num')).toHaveCount(0);
-    await expect(ledger(page)).toContainText('Showing the latest 60 movements.');
-    await expect(ledger(page)).toContainText("Older ones are not on this screen yet; every movement made against a job is listed in full on that job's own page.");
+    await expect(ledger(page)).toContainText('Showing the latest 60 transactions.');
     await expect(rowsIn(ledger(page))).toHaveCount(60);
   });
 
@@ -696,9 +692,7 @@ test.describe('Honesty about a provider that is a stub', () => {
     // hold on every screen that shows a figure the stub recorded, so the page
     // must print what it is given rather than keep a copy of its own that can
     // drift: this test fails the day somebody hardcodes the notice.
-    const REAL = 'Payments are not switched on yet. Every figure here is a record of what a job'
-      + ' costs and who it is owed to. Nothing has been taken from any account, and nothing has'
-      + ' been sent to anyone.';
+    const REAL = 'Payments are not switched on yet. Nothing has been taken or sent.';
     world.set('wallet', walletWith({ notice: REAL }));
     await page.goto('/app/wallet');
 
@@ -719,10 +713,6 @@ test.describe('Honesty about a provider that is a stub', () => {
     const add = page.getByRole('button', { name: 'Add money' });
     await expect(add).toBeVisible();
     await expect(add).toBeDisabled();
-    // There IS a reason, and this is the whole of it — one `title` attribute
-    // (Wallet.tsx:69). Asserted verbatim because it is the evidence for the
-    // defect below: the sentence exists, and only a mouse ever sees it.
-    await expect(add).toHaveAttribute('title', 'Adding money to the wallet is not switched on yet');
 
     // The refusal must not be a card form that charges nobody. Scoped to
     // `main`: the Shell's own search box sits outside it on every screen.
@@ -748,7 +738,6 @@ test.describe('Honesty about a provider that is a stub', () => {
     await expect(page.locator('.card.dashed')).toHaveCount(0);
     const add = page.getByRole('button', { name: 'Add money' });
     await expect(add).toBeDisabled();
-    await expect(add).toHaveAttribute('title', 'Adding money to the wallet is not switched on yet');
   });
 
   // ── defect ───────────────────────────────────────────────────────────
@@ -787,9 +776,9 @@ test.describe('A wallet with nothing in it', () => {
     world.set('wallet', EMPTY);
     await page.goto('/app/wallet');
 
-    await expect(card(page, 'Jobs holding money')).toContainText('No money is set aside on any job.');
-    await expect(ledger(page)).toContainText('Nothing has moved yet.');
-    await expect(figure(page, 'Set aside on jobs')).toContainText('0 jobs');
+    await expect(card(page, 'Money held for orders')).toContainText('No money is held for any order.');
+    await expect(ledger(page)).toContainText('No transactions yet.');
+    await expect(figure(page, 'Held for orders')).toContainText('0 orders');
   });
 
   // ── defect ───────────────────────────────────────────────────────────
@@ -808,7 +797,7 @@ test.describe('A wallet with nothing in it', () => {
 
     await expect(page.locator('.blank')).toBeVisible();
     await expect(page.locator('.strip')).toHaveCount(0);
-    await expect(card(page, 'Jobs holding money')).toHaveCount(0);
+    await expect(card(page, 'Money held for orders')).toHaveCount(0);
     await expect(ledger(page)).toHaveCount(0);
   });
 });
@@ -831,8 +820,8 @@ test.describe('While the wallet is being read', () => {
     await expect(waiting.locator('.skeleton')).toBeVisible();
 
     // It must not have decided the wallet is empty, or failed, on the way.
-    await expect(page.getByText('Nothing has moved yet.')).toHaveCount(0);
-    await expect(page.getByText('No money is set aside on any job.')).toHaveCount(0);
+    await expect(page.getByText('No transactions yet.')).toHaveCount(0);
+    await expect(page.getByText('No money is held for any order.')).toHaveCount(0);
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page.locator('.strip')).toHaveCount(0);
     // And it has not drawn the one control on the screen before it knows
@@ -841,7 +830,7 @@ test.describe('While the wallet is being read', () => {
     await expect(page.locator('.card.dashed')).toHaveCount(0);
 
     // The head is drawn immediately, so the page is never a bare grey slab.
-    await expect(page.getByRole('heading', { name: 'What is set aside, and what has gone' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Wallet', level: 1 })).toBeVisible();
   });
 
   test('a slow wallet is waited for, not given up on', async ({ page, world }) => {
@@ -877,8 +866,7 @@ test.describe('When the wallet cannot be read', () => {
 
     const failed = page.getByRole('alert');
     await expect(failed).toContainText('Your wallet did not load');
-    await expect(failed).toContainText('Nothing has been lost');
-    await expect(failed).toContainText('Your records are untouched.');
+    await expect(failed).toContainText('Check your connection and try again.');
     // Printed verbatim, for whoever is being asked "what does it say?" down a
     // phone line.
     await expect(failed).toContainText('the ledger is locked for maintenance');
@@ -886,7 +874,7 @@ test.describe('When the wallet cannot be read', () => {
     // The one thing a wallet must never do on a failed read.
     await expect(page.locator('.strip')).toHaveCount(0);
     await expect(page.getByText('₹0')).toHaveCount(0);
-    await expect(page.getByText('Nothing has moved yet.')).toHaveCount(0);
+    await expect(page.getByText('No transactions yet.')).toHaveCount(0);
   });
 
   test('trying again repairs the page rather than one row of it', async ({ page, world }) => {
@@ -948,7 +936,7 @@ test('the rail takes me to the wallet and marks it as where I am', async ({ page
 
   await expect(page).toHaveURL(/\/app\/wallet$/);
   await expect(page.getByRole('link', { name: 'Wallet' })).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'What is set aside, and what has gone' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Wallet', level: 1 })).toBeVisible();
 });
 
 test.describe('On a phone', () => {
@@ -973,15 +961,15 @@ test.describe('On a phone', () => {
 
     // Every figure still legible in full — a balance is not a magnitude.
     await expect(figure(page, 'Available')).toContainText('₹24,500');
-    await expect(figure(page, 'Set aside on jobs')).toContainText('₹14,200');
-    await expect(figure(page, 'Gone out')).toContainText('₹6,500');
-    await expect(figure(page, 'Put in')).toContainText('₹45,000');
+    await expect(figure(page, 'Held for orders')).toContainText('₹14,200');
+    await expect(figure(page, 'Released')).toContainText('₹6,500');
+    await expect(figure(page, 'Added')).toContainText('₹45,000');
   });
 
   test('the jobs and the movements survive a 390px screen without taking the page sideways @phone', async ({ page }) => {
     await page.goto('/app/wallet');
 
-    await expect(rowsIn(card(page, 'Jobs holding money'))).toHaveCount(5);
+    await expect(rowsIn(card(page, 'Money held for orders'))).toHaveCount(5);
     await expect(rowsIn(ledger(page))).toHaveCount(3);
     await expect(movementRow(page, 'Paid to Ravi Kumar')).toContainText('₹6,500');
 

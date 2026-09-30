@@ -1,125 +1,112 @@
-/**
- * HeroStory — the eager shell around the hero's Motion narrative.
- *
- * This module imports no animation library. The hero is above the fold and its
- * headline, lead and CTAs must never wait on a 26 kB animation runtime, so the
- * scene is loaded lazily and this file stays tiny.
- *
- * Two details matter for people on slow connections:
- *
- *  · The fallback is a drawn card silhouette, not an empty box. If the scene
- *    chunk is slow or never arrives, the hero still looks composed and holds its
- *    exact aspect ratio, so nothing shifts and nothing looks broken.
- *
- *  · If the chunk lands late, the story is NOT replayed from the beginning —
- *    restarting an animation under someone who has already started reading is
- *    worse than never animating. The scene decides that at its own mount, using
- *    `startedAt`, and settles straight to the finished picture instead.
- *
- * Reduced motion is resolved synchronously in the first render, not in an
- * effect. Motion animates via the Web Animations API, so the CSS
- * prefers-reduced-motion guard in site.css cannot rein it in — the only reliable
- * way to honour the preference is to mount the scene already finished.
- *
- * The artwork is decorative throughout; the hero copy carries the meaning.
- */
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { SceneBoundary, prefersReducedMotion } from './sceneKit';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, LazyMotion, m } from 'motion/react';
+import { LAND_STORY } from './landingContent';
+import { prefersReducedMotion } from './sceneKit';
 
-const HeroStoryScene = lazy(() => import('./HeroStoryScene'));
-
-/** Beats run for ~3.3s; after that the story has finished telling itself. */
-const STORY_MS = 3600;
-
-/** The composed silhouette shown until (or instead of) the animated scene. */
-function HeroSceneFallback() {
-  return (
-    <svg
-      className="hero-scene__svg"
-      viewBox="0 0 960 540"
-      width={960}
-      height={540}
-      fill="none"
-      role="presentation"
-      focusable="false"
-      aria-hidden="true"
-    >
-      {/* Geometry mirrors HeroStoryScene's card exactly, so swapping in the
-        * animated scene never nudges the layout. */}
-      <rect
-        x="330"
-        y="64"
-        width="300"
-        height="372"
-        rx="20"
-        fill="var(--color-paper-2)"
-        stroke="var(--color-rule-strong)"
-        strokeWidth="2"
-      />
-      <rect x="356" y="100" width="132" height="11" rx="5.5" fill="var(--color-ink)" fillOpacity="0.9" />
-      <rect x="356" y="122" width="190" height="6" rx="3" fill="var(--color-ink-3)" />
-      {[152, 198, 244, 290, 336].map((y) => (
-        <rect
-          key={y}
-          x="356"
-          y={y}
-          width="252"
-          height="34"
-          rx="8"
-          fill="var(--color-paper-2)"
-          stroke="var(--color-rule-strong)"
-        />
-      ))}
-    </svg>
-  );
-}
+const loadDomAnimation = () => import('motion/react').then((mod) => mod.domAnimation);
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+const LAST_CHAPTER = LAND_STORY.chapters.length - 1;
 
 export function HeroStory() {
-  // Correct in the very first render, so the scene can mount already finished.
-  const [instant, setInstant] = useState(prefersReducedMotion);
-  const startedAt = useRef(Date.now());
-  const [runId, setRunId] = useState(0);
-  const [finished, setFinished] = useState(false);
+  const [chapter, setChapter] = useState(() => prefersReducedMotion() ? LAST_CHAPTER : 0);
+  const [autoplay, setAutoplay] = useState(() => !prefersReducedMotion());
+  const [reduced, setReduced] = useState(prefersReducedMotion);
 
   useEffect(() => {
     const query = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     if (!query) return;
-    const apply = () => setInstant(query.matches);
+    const apply = () => {
+      setReduced(query.matches);
+      if (query.matches) {
+        setAutoplay(false);
+        setChapter(LAST_CHAPTER);
+      }
+    };
     query.addEventListener('change', apply);
     return () => query.removeEventListener('change', apply);
   }, []);
 
-  // Track when the story is done, so replay cannot interrupt it mid-sentence.
   useEffect(() => {
-    if (instant) {
-      setFinished(true);
-      return;
-    }
-    setFinished(false);
-    const timer = setTimeout(() => setFinished(true), STORY_MS);
-    return () => clearTimeout(timer);
-  }, [instant, runId]);
+    if (!autoplay || chapter === LAST_CHAPTER) return;
+    const timer = window.setTimeout(() => setChapter((current) => current + 1), 2800);
+    return () => window.clearTimeout(timer);
+  }, [autoplay, chapter]);
 
-  const replay = useCallback(() => {
-    if (instant || !finished) return;
-    startedAt.current = Date.now();
-    setRunId((id) => id + 1);
-  }, [instant, finished]);
+  const selectChapter = (next: number) => {
+    setAutoplay(false);
+    setChapter(next);
+  };
+
+  const current = LAND_STORY.chapters[chapter];
 
   return (
-    <figure
-      className="hero-scene"
-      aria-hidden="true"
-      data-telling={!instant && !finished ? 'true' : undefined}
-      onPointerEnter={replay}
-      onPointerDown={replay}
-    >
-      <SceneBoundary fallback={<HeroSceneFallback />}>
-        <Suspense fallback={<HeroSceneFallback />}>
-          {/* runId remounts the scene, which is how a replay restarts it. */}
-          <HeroStoryScene key={runId} instant={instant} startedAt={startedAt.current} />
-        </Suspense>
-      </SceneBoundary>
-    </figure>
+    <div className="hero-story" aria-label="The land record trail">
+      <div className="hero-story__head">
+        <span>The record trail</span>
+        <span>{String(chapter + 1).padStart(2, '0')} / 04</span>
+      </div>
+      <LazyMotion features={loadDomAnimation} strict>
+        <div className="hero-story__records" aria-hidden="true">
+          {LAND_STORY.records.map((record, index) => (
+            <m.div
+              key={record.office}
+              className="hero-story__record"
+              data-record={record.office.toLowerCase()}
+              initial={false}
+              animate={{
+                opacity: chapter === LAST_CHAPTER || chapter === index ? 1 : 0.42,
+                x: chapter === LAST_CHAPTER ? 0 : index === chapter ? 0 : 14,
+              }}
+              transition={{ duration: reduced ? 0 : 0.9, ease: EASE }}
+            >
+              <span className="hero-story__record-index">0{index + 1}</span>
+              <span className="hero-story__record-text">
+                <small>{record.office}</small>
+                <strong>{record.paper}</strong>
+              </span>
+            </m.div>
+          ))}
+          <m.div
+            className="hero-story__arrival"
+            data-stage="pattadar-arrival"
+            initial={false}
+            animate={{ opacity: chapter === LAST_CHAPTER ? 1 : 0, y: chapter === LAST_CHAPTER ? 0 : 20 }}
+            transition={{ duration: reduced ? 0 : 0.9, ease: EASE }}
+          >
+            <span>Pattadar<span className="hero-story__dot">.</span></span>
+            <small>Your copies, kept together</small>
+          </m.div>
+        </div>
+        <div className="hero-story__narration" aria-live="polite">
+          <AnimatePresence mode="wait" initial={false}>
+            <m.div
+              key={chapter}
+              initial={reduced ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={reduced ? undefined : { opacity: 0, y: -8 }}
+              transition={{ duration: reduced ? 0 : 0.38, ease: EASE }}
+            >
+              <h2>{current.title}</h2>
+              <p>{current.detail}</p>
+            </m.div>
+          </AnimatePresence>
+        </div>
+      </LazyMotion>
+      <div className="hero-story__controls" role="group" aria-label="Land record story chapters">
+        {LAND_STORY.chapters.map((item, index) => (
+          <button
+            type="button"
+            key={item.label}
+            className="hero-story__step"
+            aria-pressed={chapter === index}
+            onClick={() => selectChapter(index)}
+          >
+            <span className="hero-story__step-number">0{index + 1}</span>
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <p className="hero-story__note">{LAND_STORY.note}</p>
+    </div>
   );
 }

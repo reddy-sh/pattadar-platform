@@ -153,8 +153,7 @@
     "note": [
       "apps/web/src/w360/",
       "services/api/src/web360.py",
-      "docs/specs/",
-      "apps/web-next/"
+      "docs/specs/"
     ],
     "adapt": [
       "packages/core/",

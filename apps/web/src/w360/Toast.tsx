@@ -41,16 +41,24 @@ interface Toast {
   text: string;
   /** The machine's own words, printed small under the sentence. */
   detail?: string;
+  /** One thing to do about it — "Review". */
+  action?: ToastAction;
 }
+
+export interface ToastAction { label: string; onClick: () => void }
 
 interface ToastApi {
   /** Something worked. Auto-dismisses. */
   ok: (text: string) => void;
   /** Something did not. Stays until dismissed, and carries the reason. */
   bad: (text: string, error?: unknown) => void;
+  /** Something arrived that the person may act on. Stays until dismissed or
+   *  acted on: a notice that slides away before it can be clicked has
+   *  offered a button nobody could press. */
+  notice: (text: string, action: ToastAction, detail?: string) => void;
 }
 
-const NOOP: ToastApi = { ok: () => {}, bad: () => {} };
+const NOOP: ToastApi = { ok: () => {}, bad: () => {}, notice: () => {} };
 const Ctx = createContext<ToastApi>(NOOP);
 
 export const useToast = () => useContext(Ctx);
@@ -77,12 +85,12 @@ export function ToastHost({ children }: { children: ReactNode }) {
     if (t) { clearTimeout(t); timers.current.delete(id); }
   }, []);
 
-  const push = useCallback((tone: ToastTone, text: string, detail?: string) => {
+  const push = useCallback((tone: ToastTone, text: string, detail?: string, action?: ToastAction) => {
     seq.current += 1;
     const id = seq.current;
     // Four is the most anyone reads; older ones have had their moment.
-    setList((l) => [...l.slice(-3), { id, tone, text, detail }]);
-    if (tone === 'ok') {
+    setList((l) => [...l.slice(-3), { id, tone, text, detail, action }]);
+    if (tone === 'ok' && !action) {
       timers.current.set(id, setTimeout(() => drop(id), OK_MS));
     }
   }, [drop]);
@@ -90,6 +98,7 @@ export function ToastHost({ children }: { children: ReactNode }) {
   const api = useMemo<ToastApi>(() => ({
     ok: (text) => push('ok', text),
     bad: (text, error) => push('bad', text, reasonOf(error) || undefined),
+    notice: (text, action, detail) => push('ok', text, detail, action),
   }), [push]);
 
   // Escape clears the stack — a column of unread failures should not need
@@ -127,6 +136,12 @@ export function ToastHost({ children }: { children: ReactNode }) {
               <span className="toast-t">{t.text}</span>
               {t.detail && <span className="toast-d">{t.detail}</span>}
             </span>
+            {t.action && (
+              <button type="button" className="btn sm"
+                      onClick={() => { drop(t.id); t.action?.onClick(); }}>
+                {t.action.label}
+              </button>
+            )}
             <button type="button" className="iconbtn" aria-label="Dismiss" onClick={() => drop(t.id)}>
               <CloseOutlined sx={{ fontSize: 16 }} />
             </button>

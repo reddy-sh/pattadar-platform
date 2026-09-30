@@ -2,9 +2,9 @@
   "name": "@pattadar/e2e-app",
   "version": "0.1.0",
   "private": true,
-  "description": "Scenario suite for the app on :5173. Sealed: every /api call is answered from fixtures, so it drives the founder's own dev server without reading or writing a single real row.",
+  "description": "Scenario suite for the app on :5180. Sealed: every /api call is answered from fixtures, so it drives the founder's own dev server without reading or writing a single real row.",
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test --project=app --project=phone",
     "test:app": "playwright test --project=app",
     "test:phone": "playwright test --project=phone",
     "test:live": "playwright test --project=live",

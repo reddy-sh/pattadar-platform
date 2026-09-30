@@ -10,7 +10,7 @@
  *  spec, the condition, and the sentence explaining what is actually wrong.
  *  Before it existed, every feature added through this page stayed a name with
  *  a green dot beside it — an empty card claiming everything was fine. */
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
@@ -24,30 +24,57 @@ import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import type { Feature, FeatureFieldDefinition, FeatureTypeDefinition } from '../api';
 import {
   useAddFeature, useDeleteFeature, useFeatures, useOrders, useSaveFeatureCost,
-  useUpdateFeature,
+  useServicesOffered, useUpdateFeature,
 } from '../api';
-import { Card, Chip, Failed, Icon, KV, Loading, State, ddmmyyyy, inr, plural } from '../ui';
+import type { FacetFilterGroup } from '../ui';
+import {
+  Card, Chip, Empty, FacetFilter, Failed, Icon, KV, Loading, State, ddmmyyyy, inr, plural,
+} from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { ConfirmDialog } from './PropertyActions';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { uploadToDrive } from '../../pages/documents/storage';
 
-/** The starter kit on the "Add a feature" card. Naming your own is the last
- *  chip because most land has something the list did not think of.
- *
- *  These are names, not kinds: the API reads the kind off the name, so the
- *  chip row and the free-text box cannot drift into classifying the same word
- *  two different ways. */
 /** The four things a feature's condition can be, in the owner's words rather
- *  than the database's. "Not checked" is the one that matters: it is what a
- *  feature is until somebody has stood next to it. */
+ *  than the database's — one word each, everywhere on this tab: the drawer's
+ *  chips, the card, the filter and the rail. ("Needs repair" was a second word
+ *  for Broken.) "Not checked" is the one that matters: it is what a feature is
+ *  until somebody has stood next to it, and "check" on this tab only ever
+ *  means that — a look at the thing on the ground. The paid visit is called
+ *  what the catalogue calls it, a site visit. */
 const STATES: { key: string; label: string }[] = [
   { key: 'good', label: 'Working' },
   { key: 'warn', label: 'Watch it' },
   { key: 'bad', label: 'Broken' },
   { key: 'unknown', label: 'Not checked' },
 ];
+
+/** A feature's condition key; an empty one is a feature nobody has looked at. */
+const stateOf = (f: Feature) => f.conditionState || 'unknown';
+const stateWord = (key: string) => STATES.find((s) => s.key === (key || 'unknown'))?.label ?? 'Not checked';
+
+/** The filter's two groups. The API's category facet also carries "All",
+ *  "Needs repair" and "Not checked" — condition keys dressed as categories, in
+ *  one single-select row, so a category and a condition could not be
+ *  combined. Condition is its own group now, in STATES' words. */
+const CONDITION_FACETS = new Set(['all', 'needs_repair', 'unchecked']);
+
+/** `coords` is a value that is wrong; `location` is the device refusing to
+ *  say where it is. Both print under the Location card, and only the first
+ *  marks the two boxes invalid. */
+type FieldKey = 'type' | 'name' | 'coords' | 'location' | 'amount' | 'receipt';
+
+/** A field's own message, under it, and linked to it by id. */
+function FieldError({ id, children }: { id: string; children?: string }) {
+  if (!children) return null;
+  return (
+    <p className="note" id={id} role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>
+      {children}
+    </p>
+  );
+}
 
 type FeatureAttributes = Record<string, string | number | boolean>;
 
@@ -73,9 +100,8 @@ const fieldIsVisible = (field: FeatureFieldDefinition, values: FeatureAttributes
  *  buttons explaining themselves in a title attribute, which no browser shows
  *  on a disabled control, so a well-stocked parcel put a row of dead controls
  *  on every card. A label is drawn only when this function can name the screen
- *  that answers it; the rest are dropped and the footnote under the grid says
- *  where those things happen. RecordPeople.destOf does the same for `actions`
- *  on a person.
+ *  that answers it; the rest are dropped. RecordPeople.destOf does the same
+ *  for `actions` on a person.
  *
  *  Matched on the label because the label is all the row carries, which is
  *  also why each of these lands on the screen that holds the thing rather than
@@ -97,15 +123,15 @@ function destOf(label: string, recordId: string, f: Feature): string | null {
     return `/app/records/${recordId}/expenses`;
   }
   // "Papers 1", "Lease", "Deed clause" — a subsidy sanction, the tenant's
-  // agreement, the right of way. Each is a paper filed on this record, and
-  // Papers is the record's own index tab.
+  // agreement, the right of way. Each is a document filed on this record, and
+  // Documents is the record's own index tab.
   if (/^papers\b/i.test(label) || label === 'Lease' || label === 'Deed clause') {
     return `/app/records/${recordId}`;
   }
   // "Update" and "Update count" are the pencil on this card. "Fix it", "Order
   // fencing" and "Order clearing" are work Pattadar does not book — the
   // catalogue sells records, surveys, opinions and site visits, nothing that
-  // mends a fence. The footnote says both.
+  // mends a fence — so they draw nothing.
   return null;
 }
 
@@ -166,7 +192,16 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
     id: string; name: string; mimeType: string; sizeBytes: number;
   } | null>(null);
   const [version, setVersion] = useState(feature?.version || 0);
+  /** The server's answer, for the whole form: a refusal is not about one box. */
   const [err, setErr] = useState('');
+  /** Every reason that IS about one box prints under that box. They used to
+   *  share the one alert line after Note, so "Enter both latitude and
+   *  longitude" appeared a screen away from the coordinates it was about. */
+  const [fieldErr, setFieldErr] = useState<Partial<Record<FieldKey, string>>>({});
+  const flag = (key: FieldKey, msg: string, focus: string) => {
+    setFieldErr({ [key]: msg });
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(focus)?.focus());
+  };
   const schema = types.find((item) => item.key === typeKey);
   const busy = addFeature.isPending || editFeature.isPending || saveCost.isPending;
   const dirty = feature ? (
@@ -198,11 +233,11 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
 
   const locate = () => {
     if (!navigator.geolocation) {
-      setErr('This browser cannot read the device location. Enter the coordinates instead.');
+      setFieldErr({ location: 'This browser cannot read the device location. Enter the coordinates instead.' });
       return;
     }
     setLocating(true);
-    setErr('');
+    setFieldErr((have) => ({ ...have, location: undefined }));
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLat(position.coords.latitude.toFixed(6));
@@ -212,7 +247,7 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
         setLocating(false);
       },
       () => {
-        setErr('The device location was not available. Allow location access or enter it manually.');
+        setFieldErr({ location: 'The device location was not available. Allow location access or enter it manually.' });
         setLocating(false);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
@@ -220,8 +255,20 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
   };
 
   const file = async () => {
-    if (!schema || !label.trim() || busy) return;
+    if (busy) return;
     setErr('');
+    setFieldErr({});
+    // The primary is never greyed for want of a type or a name: pressing it
+    // answers the question under the control that settles it, and puts the
+    // focus there, instead of leaving a dead button to work out.
+    if (!schema) {
+      flag('type', 'Choose what it is first.', '#fa-kinds button');
+      return;
+    }
+    if (!label.trim()) {
+      flag('name', 'Give it a name on this property.', '#fa-name');
+      return;
+    }
     const latitude = lat.trim() ? Number(lat) : 0;
     const longitude = lon.trim() ? Number(lon) : 0;
     const costAmount = Number(amount || 0);
@@ -229,23 +276,23 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
     if ((lat.trim() && !lon.trim()) || (!lat.trim() && lon.trim())
         || (lat.trim() && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90))
         || (lon.trim() && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180))) {
-      setErr('Enter both latitude and longitude using valid coordinates.');
+      flag('coords', 'Enter both latitude and longitude using valid coordinates.', '#fa-lat');
       return;
     }
     if (hasPoint && latitude === 0 && longitude === 0) {
-      setErr('The location 0, 0 is not a usable land pin.');
+      flag('coords', 'The location 0, 0 is not a usable land pin.', '#fa-lat');
       return;
     }
     if (receipt && receipt.size > MAX_UPLOAD_BYTES) {
-      setErr(`${receipt.name} is ${mb(receipt.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)}.`);
+      flag('receipt', `${receipt.name} is ${mb(receipt.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)}.`, '#fa-receipt');
       return;
     }
     if (addCost && (!Number.isFinite(costAmount) || costAmount < 0)) {
-      setErr('Enter a valid cost amount.');
+      flag('amount', 'Enter a valid cost amount.', '#fa-amount');
       return;
     }
     if (addCost && (!(costAmount > 0) && !receipt && !uploaded)) {
-      setErr('Enter a cost amount or attach the receipt before saving this cost.');
+      flag('amount', 'Enter a cost amount or attach the receipt before saving this cost.', '#fa-amount');
       return;
     }
     try {
@@ -313,15 +360,14 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
       onSaved(id);
       onClose();
     } catch {
-      setErr('That feature did not save. What you entered is still here; try again.');
+      setErr('That feature did not save. Try again.');
     }
   };
 
   return (
     <Drawer
-      eyebrow={drawerEyebrow(recordTitle, 'Features')}
+      eyebrow={drawerEyebrow(recordTitle, 'Site features')}
       title={feature ? `Edit ${feature.label}` : 'Add a feature'}
-      sub="Keep its details, exact pin, receipts and repair history together."
       onClose={onClose}
       onSubmit={() => void file()}
       busy={busy}
@@ -335,32 +381,42 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
       // first-focusable fallback would land on.
       initialFocus="#fa-kinds button"
       returnFocus={returnFocus}
+      // Enabled from the start: a missing type or name is answered under its
+      // own control when this is pressed (see `file`), never by a greyed
+      // button with no reason beside it.
       primary={(
         <DrawerAction
           label={feature ? 'Save changes' : 'Add the feature'}
           working="Saving…"
           pending={busy}
           paused={addFeature.isPaused || editFeature.isPaused || saveCost.isPaused}
-          disabled={!schema || !label.trim()}
         />
       )}
     >
+      {/* Chosen chips wash rather than fill: a choice is not an action, and
+          the drawer's one amber fill is the button that saves. */}
       <div className="field">
-        <label>What it is</label>
-        <div className="row tight" id="fa-kinds">
+        <label id="fa-kinds-l">What it is</label>
+        <div className="row tight" id="fa-kinds" role="group" aria-labelledby="fa-kinds-l"
+             aria-describedby={fieldErr.type ? 'fa-kinds-err' : undefined}>
           {types.map((item) => (
-            <Chip key={item.key} active={typeKey === item.key} onClick={() => chooseType(item)}>
+            <Chip key={item.key} wash active={typeKey === item.key}
+                  onClick={() => { chooseType(item); setFieldErr((have) => ({ ...have, type: undefined })); }}>
               {item.label}
             </Chip>
           ))}
         </div>
+        <FieldError id="fa-kinds-err">{fieldErr.type}</FieldError>
       </div>
 
       {schema && (
         <div className="field">
-          <label htmlFor="fa-name">Name on this record</label>
+          <label htmlFor="fa-name">Name on this property</label>
           <input id="fa-name" type="text" value={label} placeholder={schema.label}
+                 aria-invalid={fieldErr.name ? true : undefined}
+                 aria-describedby={fieldErr.name ? 'fa-name-err' : undefined}
                  onChange={(e) => setLabel(e.target.value)} />
+          <FieldError id="fa-name-err">{fieldErr.name}</FieldError>
         </div>
       )}
 
@@ -401,11 +457,15 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
             <div className="field">
               <label htmlFor="fa-lat">Latitude</label>
               <input id="fa-lat" inputMode="decimal" value={lat}
+                     aria-invalid={fieldErr.coords ? true : undefined}
+                     aria-describedby={fieldErr.coords || fieldErr.location ? 'fa-loc-err' : undefined}
                      onChange={(e) => { setLat(e.target.value); setPinSource('manual'); }} />
             </div>
             <div className="field">
               <label htmlFor="fa-lon">Longitude</label>
               <input id="fa-lon" inputMode="decimal" value={lon}
+                     aria-invalid={fieldErr.coords ? true : undefined}
+                     aria-describedby={fieldErr.coords || fieldErr.location ? 'fa-loc-err' : undefined}
                      onChange={(e) => { setLon(e.target.value); setPinSource('manual'); }} />
             </div>
           </div>
@@ -417,29 +477,39 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
             {(lat || lon) && (
               <button type="button" className="btn sm" onClick={() => {
                 setLat(''); setLon(''); setPinSource(''); setAccuracy(0);
+                setFieldErr((have) => ({ ...have, coords: undefined, location: undefined }));
               }}>Clear pin</button>
             )}
           </div>
           {accuracy > 0 && <span className="note">Device accuracy: about {Math.round(accuracy)} m</span>}
+          <FieldError id="fa-loc-err">{fieldErr.coords || fieldErr.location}</FieldError>
         </div>
       )}
 
-      {/* "Not checked" is pre-selected and says so. A feature nobody has looked
-          at must not start life with a green dot beside it. */}
+      {/* One input for the condition: the four chips, in the same four words
+          the card, the filter and the rail use. The typed box used to be a
+          second one — the card printed "Needs repair" from it while the rail
+          counted the chip's "Watch it" — so what is typed is now only the
+          detail under the chip's word. "Not checked" is pre-selected and says
+          so: a feature nobody has looked at must not start life with a green
+          dot beside it. */}
       <div className="field">
-        <label htmlFor="fa-cond">Condition</label>
-        <input id="fa-cond" type="text" value={condition}
-               placeholder="Working · Yield dropped · Locked"
-               onChange={(e) => setCondition(e.target.value)} />
-        <span className="row tight" style={{ marginTop: '0.25rem' }}>
+        <label id="fa-state-l">Condition</label>
+        <span className="row tight" role="group" aria-labelledby="fa-state-l">
           {STATES.map((s) => (
-            <Chip key={s.key} active={state === s.key}
+            <Chip key={s.key} wash active={state === s.key}
                   tone={s.key === 'bad' ? 'alert' : undefined}
                   onClick={() => setState(s.key)}>
               {s.label}
             </Chip>
           ))}
         </span>
+      </div>
+      <div className="field">
+        <label htmlFor="fa-cond">Condition detail</label>
+        <input id="fa-cond" type="text" value={condition}
+               placeholder="Yield dropped · Locked"
+               onChange={(e) => setCondition(e.target.value)} />
       </div>
 
       {schema && (
@@ -462,7 +532,10 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
                 <div className="field">
                   <label htmlFor="fa-amount">Amount (₹)</label>
                   <input id="fa-amount" type="number" min="0" step="0.01" value={amount}
+                         aria-invalid={fieldErr.amount ? true : undefined}
+                         aria-describedby={fieldErr.amount ? 'fa-amount-err' : undefined}
                          onChange={(e) => setAmount(e.target.value)} />
+                  <FieldError id="fa-amount-err">{fieldErr.amount}</FieldError>
                 </div>
               </div>
               <div className="field">
@@ -495,10 +568,17 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
               <div className="field">
                 <label htmlFor="fa-receipt">Receipt</label>
                 <input id="fa-receipt" type="file" accept="image/*,application/pdf"
-                       onChange={(e) => { setReceipt(e.target.files?.[0] || null); setUploaded(null); }} />
+                       aria-invalid={fieldErr.receipt ? true : undefined}
+                       aria-describedby={fieldErr.receipt ? 'fa-receipt-err' : undefined}
+                       onChange={(e) => {
+                         setReceipt(e.target.files?.[0] || null);
+                         setUploaded(null);
+                         setFieldErr((have) => ({ ...have, receipt: undefined }));
+                       }} />
                 <span className="note">
                   {receipt ? `${receipt.name} · ${mb(receipt.size)}` : `Photo or PDF, up to ${mb(MAX_UPLOAD_BYTES)}`}
                 </span>
+                <FieldError id="fa-receipt-err">{fieldErr.receipt}</FieldError>
               </div>
             </>
           )}
@@ -519,10 +599,13 @@ function FeatureDrawer({ recordId, recordTitle, types, feature, onClose, onSaved
   );
 }
 
+type FeatureFilters = { category: string[]; condition: string[] };
+const noFilters = (): FeatureFilters => ({ category: [], condition: [] });
+
 export function RecordFeatures() {
   const rec = useRecordCtx();
   const { data, isLoading, error, refetch } = useFeatures(rec.id);
-  const [cat, setCat] = useState('all');
+  const [sel, setSel] = useState<FeatureFilters>(noFilters);
   const delFeature = useDeleteFeature();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Feature | null>(null);
@@ -530,22 +613,21 @@ export function RecordFeatures() {
   const {
     data: orders, isPending: ordersPending, error: ordersError, refetch: refetchOrders,
   } = useOrders(rec.id);
+  // The visit's price is the catalogue's, not a number typed into this file:
+  // the same query (and cache entry) the Documents tab reads its prices from.
+  const offers = useServicesOffered('', '', true, rec.id);
+  const visitPrice = offers.data?.find((o) => o.key === 'site_visit')?.price ?? 0;
   const editTriggers = useRef(new Map<string, HTMLButtonElement>());
   const editReturnFocus = useRef<HTMLButtonElement>(null);
   const removeTriggers = useRef(new Map<string, HTMLButtonElement>());
   const addTrigger = useRef<HTMLButtonElement>(null);
   // One highlight, addressed by a feature's id: the card the drawer just filed.
-  // It used to also take the literal 'add', for the dashed card the header
-  // button scrolled to — there is no such card to point at now.
   const [flash, setFlash] = useState('');
-  // Every write on this page used to fail into silence. The shared mutation
-  // hook raises a toast when one throws, but a refused write does not throw —
-  // this API answers a refusal with a falsy value — so the reason is kept
-  // here, beside the control that asked for it. The delete's reason carries
-  // the id of the card it belongs to: `delFeature` is one instance shared by
-  // every card, and an unattributed message would print on all of them.
-  // Filing's own reason went with the form, into the drawer.
-  const [delErr, setDelErr] = useState<{ id: string; msg: string } | null>(null);
+  // A refused write does not throw — this API answers a refusal with a falsy
+  // value — so the delete's reason is kept here and printed inside the
+  // confirmation that asked for it, which holds open until the answer comes.
+  // Filing's own reasons live in the drawer, under their fields.
+  const [delErr, setDelErr] = useState('');
 
   const restoreRowFocus = (buttons: Map<string, HTMLButtonElement>, id: string) => {
     requestAnimationFrame(() => buttons.get(id)?.focus());
@@ -553,26 +635,34 @@ export function RecordFeatures() {
 
   /** Ring the card the drawer just filed. The grid is sorted worst-condition
    *  first, so a new feature does not necessarily land at the end of it — this
-   *  is what says which one is yours. Dropping the category filter first,
-   *  because a feature filed while a filter is on may not be in the filtered
-   *  set at all, and a flash on a card nobody can see says nothing. */
+   *  is what says which one is yours. Dropping the filters first, because a
+   *  feature filed while a filter is on may not be in the filtered set at all,
+   *  and a flash on a card nobody can see says nothing. */
   const filed = (id: string) => {
-    setCat('all');
+    setSel(noFilters());
     setFlash(id);
     window.setTimeout(() => setFlash((f) => (f === id ? '' : f)), 1600);
   };
 
-  /** Remove a feature, with the confirm row held open until it is gone.
+  const confirmFeature = data?.features.find((f) => f.id === confirmId);
+  const closeRemove = () => {
+    const id = confirmId;
+    setDelErr('');
+    setConfirmId('');
+    restoreRowFocus(removeTriggers.current, id);
+  };
+
+  /** Remove a feature, with the confirmation held open until it is gone.
    *
-   *  Closing the row first was worse than saying nothing: the row shut, the
-   *  card stayed exactly where it was, and there was no longer a control to
-   *  press — which reads as "Remove does not work". */
+   *  Closing it first was worse than saying nothing: the card stayed exactly
+   *  where it was and there was no longer a control to press — which reads as
+   *  "Remove does not work". */
   const remove = async (id: string) => {
-    setDelErr(null);
+    setDelErr('');
     try {
       const res = await delFeature.mutateAsync({ featureId: id });
       if (!res.web.deleteFeature) {
-        setDelErr({ id, msg: 'That feature could not be removed. Reload the page and try again.' });
+        setDelErr('That feature could not be removed. Reload the page and try again.');
         return;
       }
       setConfirmId('');
@@ -580,12 +670,12 @@ export function RecordFeatures() {
       // one control on this screen that is always there.
       requestAnimationFrame(() => addTrigger.current?.focus());
     } catch {
-      setDelErr({ id, msg: 'That feature could not be removed. It is still filed here.' });
+      setDelErr('That feature could not be removed. It is still filed here.');
     }
   };
 
-  /** Where "Ask for a check" goes: into the order flow, at its first step,
-   *  carrying the two things this screen already knows.
+  /** Where "Ask for a site visit" goes: into the order flow, at its first
+   *  step, carrying the two things this screen already knows.
    *
    *  This page used to file the ₹1,200 site visit itself, from a confirm
    *  dialog — one tap, no review of what was being bought, no receipt to come
@@ -618,40 +708,78 @@ export function RecordFeatures() {
   // out failed. Either way the duplicate guard below cannot be trusted, so the
   // control has to be inert rather than hopeful — see the comment on it.
   const ordersUnknown = ordersPending || !orders || !!ordersError;
-  // A chip the server no longer offers cannot be un-pressed: fix the last
-  // broken feature and "Needs repair" disappears from the row while `cat`
-  // still holds its key — the grid then empties with nothing on screen saying
-  // a filter is on. A selection the data no longer offers is not a filter.
-  const options = (data?.categories ?? []).filter((c) => c.count > 0);
-  const active = options.some((o) => o.key === cat) ? cat : 'all';
 
-  const shown = (data?.features ?? []).filter((f) => (
-    active === 'all' ? true
-      : active === 'needs_repair' ? f.conditionState === 'bad'
-        : active === 'unchecked' ? f.conditionState === 'unknown'
-          : f.category === active));
+  const features = useMemo(() => data?.features ?? [], [data]);
+  // The two filter groups, counted off the features themselves so an option
+  // can never promise more cards than it shows. The category words are the
+  // API's; the condition words are STATES'. An option with nothing in it is a
+  // filter that leads nowhere, so none is drawn.
+  const groups = useMemo<FacetFilterGroup[]>(() => {
+    const catLabel = new Map((data?.categories ?? [])
+      .filter((c) => !CONDITION_FACETS.has(c.key)).map((c) => [c.key, c.label]));
+    const count = (keyOf: (f: Feature) => string) => {
+      const n = new Map<string, number>();
+      features.forEach((f) => n.set(keyOf(f), (n.get(keyOf(f)) ?? 0) + 1));
+      return n;
+    };
+    const byCat = count((f) => f.category);
+    const byState = count(stateOf);
+    return [
+      {
+        key: 'category', label: 'Category',
+        options: [...byCat].map(([key, c]) => ({
+          key, count: c, label: catLabel.get(key) ?? key.replace(/^./, (x) => x.toUpperCase()),
+        })),
+      },
+      {
+        key: 'condition', label: 'Condition',
+        options: STATES.filter((s) => byState.has(s.key))
+          .map((s) => ({ key: s.key, label: s.label, count: byState.get(s.key) ?? 0 })),
+      },
+    ];
+  }, [data, features]);
+  // A selection the data no longer offers is not a filter: fix the last
+  // broken feature and "Broken" leaves the options, so it leaves the
+  // selection too, rather than emptying the grid with nothing to un-press.
+  const offered = (group: keyof FeatureFilters, key: string) =>
+    groups.find((g) => g.key === group)?.options.some((o) => o.key === key) ?? false;
+  const active: FeatureFilters = {
+    category: sel.category.filter((k) => offered('category', k)),
+    condition: sel.condition.filter((k) => offered('condition', k)),
+  };
+  const narrowed = active.category.length > 0 || active.condition.length > 0;
+  const toggle = (group: string, key: string) => {
+    const g = group as keyof FeatureFilters;
+    setSel((have) => ({
+      ...have,
+      [g]: have[g].includes(key) ? have[g].filter((k) => k !== key) : [...have[g], key],
+    }));
+  };
 
-  // "2 features · 1 not checked · worst condition first". The sort order is
-  // part of the sentence because it is the reason the first card is the first
-  // card — it used to be asserted in a note off to the right of the chips.
-  const unchecked = (data?.features ?? []).filter((f) => f.conditionState === 'unknown').length;
+  const shown = features.filter((f) => (
+    (active.category.length === 0 || active.category.includes(f.category))
+    && (active.condition.length === 0 || active.condition.includes(stateOf(f)))));
+
+  // Each fact once. The sub is the total; the condition counts and the date
+  // somebody was last on the ground are the rail's Condition card, and the
+  // filter's options carry their own counts. (It used to say the total, the
+  // broken count, the not-checked count and the walk date here as well, so
+  // one tab told the same three facts two and three times.) The order —
+  // worst condition first — is what the grid is, and is said at the top of
+  // this file rather than on screen.
+  //
   // A feature with no coordinates cannot be walked to, and one with no photo
-  // cannot be checked from a desk. Counted off the features rather than the
+  // cannot be looked at from a desk. Counted off the features rather than the
   // record: the parcel having a pin says nothing about where the bore is.
-  const unpinned = (data?.features ?? []).filter((f) => !f.lat && !f.lon).length;
-  const unphotographed = (data?.features ?? []).filter((f) => f.photoCount === 0).length;
-  const featuresSub = data && [
-    plural(data.total, 'feature'),
-    data.needsRepair > 0 && `${data.needsRepair} need${data.needsRepair === 1 ? 's' : ''} repair`,
-    unchecked > 0 && `${unchecked} not checked`,
-    'worst condition first',
-    data.walkedOn && `walked ${ddmmyyyy(data.walkedOn)}${data.walkedBy ? ` by ${data.walkedBy}` : ''}`,
-  ].filter(Boolean).join(' · ');
+  const unpinned = features.filter((f) => !f.lat && !f.lon).length;
+  const unphotographed = features.filter((f) => f.photoCount === 0).length;
+  const featuresSub = data && plural(data.total, 'site feature');
+  const hasRail = !!data && features.length > 0;
 
   return (
     <>
       <SectionHead
-        title="What is on this land"
+        title="Site features"
         sub={featuresSub}
         actions={(
           <>
@@ -669,19 +797,25 @@ export function RecordFeatures() {
               on Enter, and on a middle-click into a new tab. So the inert state
               is a real disabled <button>, which the browser refuses for us.
               While the read is still running the label says so itself; once it
-              has failed, the sentence under this header says so. */}
+              has failed, the sentence under this header says so.
+
+              Named for the catalogue's service, a site visit, with the
+              catalogue's price once it has loaded: "check" on this tab is the
+              look somebody takes at a feature, not a thing you buy. */}
           {checkOrdered ? (
             <Link className="btn" to={`/app/records/${rec.id}/services`}>
-              <ChecklistOutlined sx={{ fontSize: 16 }} /> Open ordered check
+              <ChecklistOutlined sx={{ fontSize: 16 }} /> Open the site visit order
             </Link>
           ) : ordersUnknown ? (
             <button type="button" className="btn" disabled>
               <ChecklistOutlined sx={{ fontSize: 16 }} />
-              {ordersPending ? 'Checking orders…' : `Ask for a check · ${inr(1200)}`}
+              {ordersPending ? 'Looking up your orders…'
+                : `Ask for a site visit${visitPrice ? ` · ${inr(visitPrice)}` : ''}`}
             </button>
           ) : (
             <Link className="btn" to={orderCheck}>
-              <ChecklistOutlined sx={{ fontSize: 16 }} /> Ask for a check · {inr(1200)}
+              <ChecklistOutlined sx={{ fontSize: 16 }} /> Ask for a site visit
+              {visitPrice > 0 && <> · {inr(visitPrice)}</>}
             </Link>
           )}
           {/* Opens the drawer, like every other "add a thing" on this record.
@@ -725,52 +859,69 @@ export function RecordFeatures() {
         />
       )}
 
-      <div className="split">
+      {confirmFeature && (
+        <ConfirmDialog
+          title={`Remove ${confirmFeature.label}?`}
+          // What delete_feature actually does (web360.py): the feature row is
+          // deleted; photos keep their feature_id and costs stay in the ledger.
+          body={'Its details, condition and pin are deleted and cannot be brought back.'
+            + ' Photos of it stay in Media, and its costs stay in Money.'}
+          actionLabel="Remove"
+          danger
+          busy={delFeature.isPending}
+          error={delErr}
+          onConfirm={() => void remove(confirmFeature.id)}
+          onClose={closeRemove}
+        />
+      )}
+
+      {/* No rail while there is nothing for it to count — empty, loading or
+          failed — so the one column is the whole width instead of a blank
+          22rem gutter beside it. */}
+      <div className={`split${hasRail ? '' : ' no-rail'}`}>
         <div>
           {ordersError && !orders && (
             <p className="note" role="alert"
                style={{ color: 'var(--w-danger)', marginTop: 'var(--space-sm)' }}>
-              Existing orders could not be checked, so another paid visit is disabled.
+              {/* Says why "Ask for a site visit" is greyed: without the orders
+                  there is no telling whether one is already running, and a
+                  second visit costs money. */}
+              Your existing orders did not load, so a site visit cannot be ordered yet.
               {' '}<button type="button" className="linkbtn" onClick={() => void refetchOrders()}>Try again</button>
             </p>
           )}
 
-          {/* The sort order and the per-feature promise moved into the heading's
-              own line, so this row is now only the filters it always was. */}
-          <div className="row between" style={{ margin: '0 0 var(--space-md)', gap: 'var(--space-lg)' }}>
-            <span className="row tight">
-              {/* A chip for a category with nothing in it is a filter that leads
-                  nowhere — and a red "Needs repair 0" reads as an alarm. Which is
-                  why the pressed chip is read from `active` and not from `cat`:
-                  the one the server has stopped offering is not on screen to be
-                  pressed again. */}
-              {options.map((c) => (
-                <Chip key={c.key} active={active === c.key} count={c.count}
-                      tone={c.key === 'needs_repair' ? 'alert' : undefined}
-                      onClick={() => setCat(c.key)}>
-                  {c.label}
-                </Chip>
-              ))}
-            </span>
-            <span className="note" style={{ textAlign: 'right', flex: '1 1 16rem', minWidth: 0 }}>
-              Every one carries its own pin and its own photos
-            </span>
-          </div>
+          {/* The one filter surface list pages share, with the categories and
+              the conditions as two groups that combine, washed rather than
+              filled, and a tally only while it is narrowing. */}
+          {data && features.length > 0 && (
+            <FacetFilter
+              groups={groups}
+              selected={active}
+              onToggle={toggle}
+              onClear={() => setSel(noFilters())}
+              tally={narrowed ? `${shown.length} of ${features.length} shown` : undefined}
+              ariaLabel="Filter site features"
+            />
+          )}
 
-          {/* One of three, never two at once. The skeleton used to sit above a
-              fully live "Add a feature" card, which filed features into a list
-              nobody could see yet; and a failed read drew that same card alone,
-              which is a page claiming this land has nothing on it. Filing against
-              a record that would not load is not a safe offer. */}
+          {/* One of four, never two at once. Filing against a record that
+              would not load is not a safe offer, so a failed read draws no way
+              in; and a record with nothing on it says so in a sentence, with
+              no second "Add a feature" (the header's is the one flow). */}
           {isLoading ? (
-            <Loading h="20rem" />
+            <Loading h="20rem" what="site features" />
           ) : failed ? (
-            <Failed what="What is on this land" error={error} boxed h="20rem"
+            <Failed what="Site features" error={error} boxed h="20rem"
                     onRetry={() => void refetch()} />
+          ) : features.length === 0 ? (
+            <Empty boxed h="16rem" icon="feature" title="No site features recorded yet" />
+          ) : shown.length === 0 ? (
+            <Empty boxed h="12rem" icon="search" title="No site features match these filters" />
           ) : (
-          /* Four across on a laptop, as drawn. A feature card carries a spec line,
-             a condition, a note, coordinates and two actions — squeezed narrower
-             than this, every one of those wraps. */
+          /* Two across beside the rail at 1512, one on a phone. A feature card
+             carries a spec line, a condition, a note, coordinates and two
+             actions — squeezed narrower than 21rem, every one of those wraps. */
           <>
           <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 21rem), 1fr))' }}>
             {shown.map((f) => (
@@ -799,13 +950,13 @@ export function RecordFeatures() {
                     </div>
 
                     {/* A dot with no word beside it says nothing at all — and a
-                        green one says something false. Until somebody looks, the
-                        card says that in as many words. */}
-                    <State state={f.conditionState || 'unknown'}>
-                      {f.condition
-                        || STATES.find((s) => s.key === (f.conditionState || 'unknown'))?.label
-                        || 'Not checked yet'}
-                    </State>
+                        green one says something false. The word is always the
+                        chip's (STATES), so the card, the filter and the rail
+                        count the same thing; what was typed is its detail. */}
+                    <State state={stateOf(f)}>{stateWord(stateOf(f))}</State>
+                    {f.condition && f.condition !== stateWord(stateOf(f)) && (
+                      <p className="note" style={{ margin: 0 }}>{f.condition}</p>
+                    )}
                     {f.note && <p className="note" style={{ color: 'var(--w-ink-2)' }}>{f.note}</p>}
 
                     <div className="row between" style={{ flexWrap: 'nowrap' }}>
@@ -844,100 +995,42 @@ export function RecordFeatures() {
                           a screen of its own — a bill history, the lease, this
                           feature's photos. A label is drawn only where destOf can
                           name that screen; the rest were disabled buttons whose
-                          reason lived in a title attribute no browser renders, and
-                          the footnote under the grid says where they happen. */}
+                          reason lived in a title attribute no browser renders. */}
                       {f.actions.map((a) => {
                         const to = destOf(a, rec.id, f);
                         return to ? <Link key={a} className="btn sm" to={to}>{a}</Link> : null;
                       })}
                       <span className="grow" />
-                      {/* Edit in place, and remove behind a second tap — a feature is
-                          what a photo and a repair history hang off, so one stray click
-                          should not take it. */}
-                      {confirmId === f.id ? (
-                        <>
-                          {/* `delFeature` is one mutation shared by every card, so
-                              the pending state has to be matched to the card that
-                              started it — otherwise one Remove greys out all of
-                              them. */}
-                          <button type="button" className="btn sm danger"
-                                  disabled={delFeature.isPending
-                                    && delFeature.variables?.featureId === f.id}
-                                  onClick={() => void remove(f.id)}>
-                            {delFeature.isPending && delFeature.variables?.featureId === f.id
-                              ? 'Removing…' : 'Remove'}
-                          </button>
-                          <button type="button" className="btn sm" onClick={() => {
-                            setConfirmId('');
-                            restoreRowFocus(removeTriggers.current, f.id);
-                          }}>Keep</button>
-                        </>
-                      ) : (
-                        <>
-                          <button ref={(node) => { if (node) editTriggers.current.set(f.id, node); }}
-                                  type="button" className="iconbtn" aria-label={`Edit ${f.label}`}
-                                  onClick={(event) => {
-                                    editReturnFocus.current = event.currentTarget;
-                                    setConfirmId('');
-                                    setEditing(f);
-                                  }}
-                                  style={{ border: 0, background: 'none' }}>
-                            <EditOutlined sx={{ fontSize: 16 }} />
-                          </button>
-                          <button ref={(node) => { if (node) removeTriggers.current.set(f.id, node); }}
-                                  type="button" className="iconbtn" aria-label={`Remove ${f.label}`}
-                                  onClick={() => { setDelErr(null); setConfirmId(f.id); }}
-                                  style={{ border: 0, background: 'none' }}>
-                            <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
-                          </button>
-                        </>
-                      )}
+                      {/* Edit in place, and remove behind the shared confirmation
+                          naming the feature — a feature is what a photo and a
+                          repair history hang off, so one stray click should not
+                          take it. No inline border/background on these: the
+                          module's .iconbtn already draws none, and the inline
+                          override was what cancelled its hover wash. */}
+                      <button ref={(node) => { if (node) editTriggers.current.set(f.id, node); }}
+                              type="button" className="iconbtn" aria-label={`Edit ${f.label}`}
+                              onClick={(event) => {
+                                editReturnFocus.current = event.currentTarget;
+                                setConfirmId('');
+                                setEditing(f);
+                              }}>
+                        <EditOutlined sx={{ fontSize: 16 }} />
+                      </button>
+                      <button ref={(node) => { if (node) removeTriggers.current.set(f.id, node); }}
+                              type="button" className="iconbtn" aria-label={`Remove ${f.label}`}
+                              aria-haspopup="dialog"
+                              onClick={() => { setDelErr(''); setConfirmId(f.id); }}>
+                        <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
+                      </button>
                     </div>
-
-                    {/* Named to this card, because the message belongs to the one
-                        feature that would not go. */}
-                    {delErr?.id === f.id && (
-                      <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{delErr.msg}</p>
-                    )}
                 </>
               </article>
             ))}
 
-            {/* The invitation stays at the end of the grid, where the list it
-                joins can be seen — a record with nothing on it needs the
-                shortest path from here to a filed feature. What changed is that
-                it is one control opening the drawer rather than a live form: the
-                chip row here filed a feature on a single press, under a bare
-                name, before anyone had said what condition it was in. */}
-            <button type="button" className="card dashed addcard" aria-haspopup="dialog"
-                    onClick={() => setAdding(true)}>
-              <h3 className="row tight accent">
-                <AddOutlined sx={{ fontSize: 18 }} /> Add a feature
-              </h3>
-              <p className="note">
-                A bore, a fence, a shed. It becomes a pin, a photo slot and a repair history.
-              </p>
-            </button>
+            {/* No dashed "Add a feature" card at the end of the grid any more:
+                the section head already opens the same drawer, and one flow
+                belongs on the screen once (design-system-governance, step 4). */}
           </div>
-
-          {/* Where the dropped action labels actually happen. Said once, under the
-              grid, rather than drawn a dozen times as buttons that refuse — the
-              people list footnotes its own dropped labels the same way. It goes
-              with the cards: on a record whose only card is "Add a feature" there
-              is nothing on screen for any of these sentences to be about. */}
-          {(data?.features.length ?? 0) > 0 && (
-          <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-            Changing what a feature is, or the condition it is in, is the pencil on its own
-            card. A power bill, the income a feature earns and what a repair cost are rows in
-            this record&rsquo;s{' '}
-            <Link className="accent" to={`/app/records/${rec.id}/expenses`}>ledger</Link>, each
-            hanging off the feature it was spent on, and a lease, a sanction order or a deed
-            clause is filed on the{' '}
-            <Link className="accent" to={`/app/records/${rec.id}`}>Papers</Link> tab. Pattadar
-            books a site visit — Ask for a check, at the top of this page — but does not
-            arrange a repair, a fencing crew or a silt clearing yet.
-          </p>
-          )}
           </>
           )}
         </div>
@@ -947,51 +1040,45 @@ export function RecordFeatures() {
               A record can hold twelve features and still be unknown ground:
               the condition on a card is somebody's last look at it, and
               "Not checked" is the row that says how much of this is memory. */}
-          {data && data.total > 0 && (
+          {hasRail && (
             <Card title="Condition" className="railcard">
               <KV rows={STATES.map((s) => ({
                 k: s.label,
                 v: (
                   <span className="num">
-                    {data.features.filter((f) => (f.conditionState || 'unknown') === s.key).length}
+                    {features.filter((f) => stateOf(f) === s.key).length}
                   </span>
                 ),
               }))} />
               {/* Named as a date rather than a count, because the question an
-                  owner is really asking is how old the answer above is. */}
+                  owner is really asking is how old the answer above is. The
+                  one place the date is said. */}
               <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
                 {data.walkedOn
                   ? `Last checked on the ground ${ddmmyyyy(data.walkedOn)}`
                     + `${data.walkedBy ? ` by ${data.walkedBy}` : ''}.`
-                  : 'Nothing here has been checked on the ground yet — every condition'
-                    + ' above is from memory.'}
+                  : 'Not checked on the ground yet.'}
               </p>
             </Card>
           )}
 
           {/* The two things that turn a condition from a claim into something a
               stranger can verify. Both are counts out of the same total, so the
-              card says how far off the record is rather than only that it is. */}
-          {data && data.total > 0 && (unpinned > 0 || unphotographed > 0) && (
-            <Card title="Not filled in yet" className="railcard">
+              card says how far off the record is rather than only that it is.
+              No buttons: a feature's pin is set in its own Edit drawer, and
+              the tab strip already reaches Location and Media. */}
+          {hasRail && (unpinned > 0 || unphotographed > 0) && (
+            <Card title="Missing details" className="railcard">
               <ul className="railnotes">
                 {unpinned > 0 && (
-                  <li>{data.total - unpinned} of {plural(data.total, 'feature')} pinned</li>
+                  <li>{features.length - unpinned} of {plural(features.length, 'site feature')} pinned</li>
                 )}
                 {unphotographed > 0 && (
                   <li>
-                    {data.total - unphotographed} of {plural(data.total, 'feature')} photographed
+                    {features.length - unphotographed} of {plural(features.length, 'site feature')} photographed
                   </li>
                 )}
               </ul>
-              <p className="note" style={{ margin: 'var(--space-sm) 0 0' }}>
-                A pin sends a checker to the right spot. A dated photograph is what makes
-                the condition above checkable by somebody who was not there.
-              </p>
-              <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-                <Link className="btn sm" to={`/app/records/${rec.id}/map`}>Location</Link>
-                <Link className="btn sm" to={`/app/records/${rec.id}/photos`}>Media</Link>
-              </div>
             </Card>
           )}
         </aside>

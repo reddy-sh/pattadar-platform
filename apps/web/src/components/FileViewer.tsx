@@ -169,7 +169,7 @@ export function FileViewerHost() {
           flexShrink: 0,
         }}
       >
-        <Typography noWrap sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} title={name}>
+        <Typography noWrap sx={{ fontWeight: 700, flex: 1, minWidth: 0 }} title={name}>
           {name}
         </Typography>
         {many && (
@@ -208,7 +208,7 @@ export function FileViewerHost() {
         {cur.state === 'error' && (
           <Box sx={{ textAlign: 'center', px: 3 }}>
             <Typography sx={{ fontSize: 40 }}>⚠️</Typography>
-            <Typography sx={{ fontWeight: 600, mt: 1 }}>Could not load this file</Typography>
+            <Typography sx={{ fontWeight: 700, mt: 1 }}>Could not load this file</Typography>
             <Typography variant="body2" sx={{ opacity: 0.7, mt: 0.5 }}>
               Files are stored on the cloud gateway — this preview may only be available on pattadar.com.
             </Typography>
@@ -233,7 +233,7 @@ export function FileViewerHost() {
         {cur.state === 'ready' && cur.kind === 'other' && (
           <Box sx={{ textAlign: 'center', px: 3 }}>
             <Typography sx={{ fontSize: 40 }}>📄</Typography>
-            <Typography sx={{ fontWeight: 600, mt: 1 }}>{name}</Typography>
+            <Typography sx={{ fontWeight: 700, mt: 1 }}>{name}</Typography>
             <Typography variant="body2" sx={{ opacity: 0.7, mt: 0.5, mb: 2 }}>
               This file type has no inline preview — download to view.
             </Typography>

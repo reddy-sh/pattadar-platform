@@ -1,0 +1,261 @@
+<!doctype html>
+<!--
+  heuristic-ux-audit board template. Read references/board-format.md first.
+
+  Copy to .local/ux-audits/<yyyy-mm-dd>-<slug>/board.html, replace every
+  double-brace placeholder, delete the blocks you do not use, and replace this
+  comment with one line naming the page, revision and date. The placeholder
+  check in board-format.md must print nothing before rendering.
+
+  The tokens link resolves only from three folders below the repository root
+  (.local/ux-audits/<slug>/ or docs/ux-audits/<slug>/). The fallbacks are
+  design.md's documented approximations so a moved board still renders;
+  tokens.css wins whenever it loads. System fonts only. No script and no
+  external loads.
+-->
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<title>{{Page}} · heuristic UX audit · {{DD/MM/YYYY}}</title>
+<link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+<style>
+  /* ── Board chrome: the page around the two screens, not product colour ── */
+  :root {
+    --b-page: #f3f0eb;
+    --b-card: #fbfaf7;
+    --b-line: #e1dbd3;
+    --b-ink: #1f1a17;
+    --b-ink-2: #5b534e;
+    --b-warn: #aa5910;   /* design.md light-scheme primary; white text on it is 5.07:1 */
+    --b-mark: #c62828;
+    --b-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --b-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  html { background: var(--b-page); }
+  body { margin: 0; padding: 40px; font-family: var(--b-sans); color: var(--b-ink); }
+  .board { width: 1960px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; align-items: start; }
+  .panel__label { margin: 0 0 12px; font-size: 20px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; }
+  .card { background: var(--b-card); border: 1px solid var(--b-line); border-radius: 24px; padding: 28px; }
+
+  /* ── Notes: the text half of each panel ─────────────────────────────── */
+  .notes { margin-top: 28px; font-size: 16px; line-height: 1.5; }
+  .notes h3 { margin: 22px 0 10px; font-size: 18px; }
+  .notes h3:first-child { margin-top: 0; }
+  .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+  .findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .findings li { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 8px; }
+  .findings .n { grid-row: span 2; }
+  .ev { font-family: var(--b-mono); font-size: 12.5px; color: var(--b-ink-2); overflow-wrap: anywhere; }
+  .drift { margin: 18px 0 0; color: var(--b-warn); }
+  .drift + .drift { margin-top: 8px; }
+  .refs { font-family: var(--b-mono); font-size: 13px; color: var(--b-ink-2); margin-right: 6px; }
+  .tag { display: inline-block; margin-left: 6px; padding: 0 8px; border: 1px solid; border-radius: 999px; font-family: var(--b-mono); font-size: 11.5px; line-height: 20px; white-space: nowrap; vertical-align: 1px; }
+  .tag.is-authority { color: var(--b-ink-2); border-color: var(--b-line); }
+  .tag.is-reddy { color: var(--b-warn); border-color: currentColor; }
+  .guard-h, .guard { color: var(--b-warn); }
+  .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 28px; padding-top: 14px; border-top: 1px solid var(--b-line); font-family: var(--b-mono); font-size: 13px; color: var(--b-ink-2); }
+  .unverified { grid-column: 1 / -1; margin: -26px 0 0; font-size: 14px; color: var(--b-ink-2); }
+
+  /* ── Markers: a finding's number, in the screen's gutter or inline ──── */
+  .n, .pin { display: inline-grid; place-items: center; border-radius: 50%; background: var(--b-mark); color: #fff; font-family: var(--b-sans); font-weight: 700; }
+  .n { width: 24px; height: 24px; font-size: 13px; }
+  .pin { width: 16px; height: 16px; margin-right: 4px; font-size: 9.5px; vertical-align: -3px; }
+  [data-marker] { position: relative; }
+  [data-marker]::before { content: attr(data-marker); position: absolute; left: -40px; top: 2px; width: 22px; height: 22px; border-radius: 50%; background: var(--b-mark); color: #fff; font: 700 12px/22px var(--b-sans); text-align: center; }
+  [data-reddy] { position: relative; }
+  [data-reddy]::after { content: "needs Reddy"; position: absolute; right: 0; top: min(10px, calc(50% - 8px)); padding: 0 7px; border-radius: 999px; background: var(--b-warn); color: #fff; font: 600 9.5px/17px var(--b-mono); }
+
+  /* ── Screen looks: bloom-dark (marketing, content, auth) and wire-light (/app/*) ── */
+  .bloom-dark {
+    --s-bg: var(--color-paper, #0d0504);
+    --s-surface: var(--color-paper-2, #170c09);
+    --s-surface-2: var(--color-paper-3, #241714);
+    --s-ink: var(--color-ink, #f3ede7);
+    --s-ink-2: var(--color-ink-2, #bfb5ae);
+    --s-ink-3: var(--color-ink-3, #827873);
+    --s-rule: var(--color-rule, #312622);
+    --s-rule-strong: var(--color-rule-strong, #54433e);
+    --s-accent: var(--color-accent, #fe860f);
+    --s-on-accent: var(--color-accent-ink, #180600);
+  }
+  .wire-light {
+    --s-bg: #ffffff; --s-surface: #f6f6f6; --s-surface-2: #e9e9e9;
+    --s-ink: #1a1a1a; --s-ink-2: #4a4a4a; --s-ink-3: #6e6e6e;
+    --s-rule: #dcdcdc; --s-rule-strong: #9a9a9a;
+    --s-accent: #1a1a1a; --s-on-accent: #ffffff;
+  }
+
+  /* ── Schematic primitives: emphasis and structure only ──────────────── */
+  .screen { position: relative; overflow: hidden; padding: 16px 24px 22px 52px; border-radius: 14px; background: var(--s-bg); color: var(--s-ink); font-family: var(--b-sans); font-size: 12px; line-height: 1.45; }
+  .screen.wire-light { border: 1px solid var(--b-line); }
+  .screen p { margin: 0; }
+  .s-nav { display: flex; align-items: center; gap: 14px; padding: 6px 0 12px; border-bottom: 1px solid var(--s-rule); }
+  .s-brand { font-size: 15px; font-weight: 700; }
+  .s-brand b { color: var(--s-accent); }
+  .s-links { flex: 1; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: 11px; color: var(--s-ink-2); }
+  .s-actions { display: flex; align-items: center; gap: 8px; }
+  .s-btn { display: inline-flex; align-items: center; min-height: 24px; padding: 0 12px; border: 1px solid transparent; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .s-btn.is-filled { background: var(--s-accent); color: var(--s-on-accent); }
+  .s-btn.is-outlined { border-color: var(--s-rule-strong); color: var(--s-ink); }
+  .s-btn.is-text { padding: 0 6px; color: var(--s-accent); }
+  .s-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; padding: 14px 0; border-bottom: 1px solid var(--s-rule); }
+  .s-section { padding: 11px 0; border-bottom: 1px solid var(--s-rule); }
+  .s-section:last-child { border-bottom: 0; padding-bottom: 0; }
+  .s-eyebrow { font-family: var(--b-sans); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-ink-3); }
+  .screen .s-h1 { margin: 6px 0; font-size: 26px; font-weight: 700; line-height: 1.05; }
+  .s-h1 em { display: block; font-style: italic; font-weight: 400; color: var(--s-accent); }
+  .s-h2 { font-size: 14px; font-weight: 700; }
+  .s-lead { max-width: 48ch; color: var(--s-ink-2); }
+  .s-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .s-note { font-family: var(--b-mono); font-size: 9.5px; color: var(--s-ink-3); white-space: nowrap; }
+  .s-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+  .s-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .s-chip { display: inline-flex; align-items: center; min-height: 20px; padding: 0 9px; border: 1px solid var(--s-rule-strong); border-radius: 8px; font-size: 10px; color: var(--s-ink-2); }
+  .s-chip.is-selected { background: var(--s-surface-2); border-color: var(--s-ink-2); color: var(--s-ink); }
+  .s-badge { display: inline-block; padding: 0 7px; border: 1px solid var(--s-rule-strong); border-radius: 999px; font-family: var(--b-mono); font-size: 9px; line-height: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--s-accent); vertical-align: 2px; }
+  .s-media { display: grid; place-items: center; min-height: 120px; border: 1px solid var(--s-rule-strong); border-radius: 10px; background: var(--s-surface); font-size: 10px; color: var(--s-ink-3); text-align: center; }
+  .s-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+  .s-card { min-height: 32px; padding: 7px 10px; border: 1px solid var(--s-rule); border-radius: 8px; background: var(--s-surface); font-size: 10.5px; color: var(--s-ink-2); }
+  .s-card.is-wide { grid-column: span 2; }
+  .s-card.is-tba { background: transparent; border-style: dashed; }
+  .s-tabs { display: flex; margin-top: 8px; border-bottom: 1px solid var(--s-rule); }
+  .s-tab { margin-bottom: -1px; padding: 6px 12px; border-bottom: 2px solid transparent; font-size: 11px; color: var(--s-ink-2); }
+  .s-tab.is-active { border-bottom-color: var(--s-accent); color: var(--s-ink); font-weight: 700; }
+  .s-steps { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; }
+  .s-step { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--s-ink-2); }
+  .s-step i { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--s-accent); color: var(--s-on-accent); font-size: 9px; font-style: normal; font-weight: 700; }
+  .s-list { margin-top: 6px; }
+  .s-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--s-rule); font-size: 10.5px; color: var(--s-ink-2); }
+  .s-band { padding: 10px 12px; border: 1px solid var(--s-rule); border-radius: 8px; background: var(--s-surface); }
+  .s-stat { font-family: var(--b-mono); font-size: 16px; color: var(--s-ink); }
+  .s-shell { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 16px; }
+  .s-rail { display: grid; align-content: start; gap: 4px; padding-right: 10px; border-right: 1px solid var(--s-rule); font-size: 10.5px; color: var(--s-ink-2); }
+  .s-rail .s-eyebrow { margin-top: 8px; }
+  .s-rail .is-active { color: var(--s-ink); font-weight: 700; }
+  .s-lines { display: grid; gap: 5px; margin-top: 6px; }
+  .s-lines span { display: block; height: 6px; border-radius: 3px; background: var(--s-surface-2); }
+  .s-lines span:nth-child(2) { width: 82%; }
+  .s-lines span:nth-child(3) { width: 64%; }
+</style>
+</head>
+<body>
+<main class="board">
+
+  <!-- ══ CURRENT ══════════════════════════════════════════════════════════ -->
+  <section aria-labelledby="current-h">
+    <h2 class="panel__label" id="current-h">Current</h2>
+    <div class="card">
+      <div class="screen bloom-dark" aria-hidden="true">
+        <div class="s-nav" data-marker="1">
+          <span class="s-brand">{{Brand}}<b>.</b></span>
+          <span class="s-links"><span>{{Link}}</span><span>{{Link}}</span><span>{{Link}}</span><span>{{Link}}</span></span>
+          <span class="s-actions"><span class="s-btn is-text">{{Text action}}</span><span class="s-btn is-outlined">{{Outlined action}}</span></span>
+        </div>
+        <div class="s-hero" data-marker="2">
+          <div>
+            <p class="s-eyebrow">{{Eyebrow}}</p>
+            <p class="s-h1">{{Headline, verbatim}}<em>{{accent line}}</em></p>
+            <p class="s-lead">{{Lead, verbatim or a structural note}}</p>
+            <div class="s-cta"><span class="s-btn is-filled">{{Primary}}</span><span class="s-btn is-outlined">{{Secondary}}</span></div>
+            <div class="s-chips"><span class="s-chip">{{Assist chip}}</span><span class="s-chip">{{Assist chip}}</span></div>
+          </div>
+          <div class="s-media">{{Scene or media, by name}}</div>
+        </div>
+        <div class="s-section" data-marker="3">
+          <div class="s-row"><div><p class="s-eyebrow">{{Eyebrow}}</p><p class="s-h2">{{Section title}}</p></div><span class="s-note">{{structural note}}</span></div>
+          <div class="s-grid" style="--cols: 4"><div class="s-card is-wide">{{Wide card}}</div><div class="s-card">{{Card}}</div><div class="s-card">{{Card}}</div><div class="s-card">{{Card}}</div><div class="s-card is-wide">{{Wide card}}</div><div class="s-card">{{Card}}</div></div>
+        </div>
+        <div class="s-section" data-marker="4">
+          <div class="s-row"><p class="s-h2">{{Section title}}</p><span class="s-note">{{structural note}}</span></div>
+          <div class="s-steps"><span class="s-step"><i>1</i>{{Step}}</span><span class="s-step"><i>2</i>{{Step}}</span><span class="s-step"><i>3</i>{{Step}}</span></div>
+        </div>
+        <div class="s-section">
+          <div class="s-row"><p class="s-h2">{{Section title}} <span class="s-badge">{{Status}}</span></p><span class="s-note">{{structural note}}</span></div>
+          <div class="s-band">{{Band content}}</div>
+        </div>
+        <div class="s-section">
+          <p class="s-h2">{{Section title}}</p>
+          <div class="s-list"><div><span>{{Row}}</span><span class="s-note">{{meta}}</span></div><div><span>{{Row}}</span><span class="s-note">{{meta}}</span></div></div>
+        </div>
+      </div>
+      <div class="notes">
+        <h3>What is not Google-like</h3>
+        <ol class="findings">
+          <li><span class="n">1</span><span>{{One countable sentence: a number and what was counted.}}</span><span class="ev">{{source label}} · {{file:line}}</span></li>
+          <li><span class="n">2</span><span>{{One countable sentence.}}</span><span class="ev">{{source label}} · {{file:line}}</span></li>
+          <li><span class="n">3</span><span>{{One countable sentence.}}</span><span class="ev">{{source label}} · {{evidence/shot.png, region}}</span></li>
+          <li><span class="n">4</span><span>{{One countable sentence.}}</span><span class="ev">{{source label}} · {{file:line}}</span></li>
+        </ol>
+        <p class="drift"><b>Drift:</b> {{what design.md, a spec or a comment says}} ({{where}}), but {{what the code does}} ({{file:line}}).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ STANDARD ═════════════════════════════════════════════════════════ -->
+  <section aria-labelledby="standard-h">
+    <h2 class="panel__label" id="standard-h">{{Google / Material 3 style}}</h2>
+    <div class="card">
+      <div class="screen bloom-dark" aria-hidden="true">
+        <div class="s-nav">
+          <span class="s-brand">{{Brand}}<b>.</b></span>
+          <span class="s-links"><span>{{Link}}</span><span>{{Link}}</span></span>
+          <span class="s-actions"><span class="s-btn is-text">{{Text action}}</span><span class="s-btn is-outlined">{{Outlined action}}</span></span>
+        </div>
+        <div class="s-hero">
+          <div>
+            <p class="s-h1">{{Headline, verbatim}}<em>{{accent line}}</em></p>
+            <p class="s-lead">{{Lead}}</p>
+            <div class="s-cta"><span class="s-btn is-filled">{{Primary}}</span><span class="s-btn is-text">{{Secondary}}</span></div>
+            <div class="s-chips"><span class="s-chip">{{Assist chip}}</span><span class="s-chip">{{Assist chip}}</span></div>
+          </div>
+          <div class="s-media">{{Scene or media, by name}}</div>
+        </div>
+        <div class="s-section">
+          <p class="s-h2">{{Section title}}</p>
+          <div class="s-grid" style="--cols: 4"><div class="s-card">{{Card}}</div><div class="s-card">{{Card}}</div><div class="s-card">{{Card}}</div><div class="s-card">{{Card}}</div></div>
+        </div>
+        <div class="s-section" data-reddy>
+          <p class="s-h2">{{Section title}}</p>
+          <div class="s-tabs"><span class="s-tab is-active">{{Tab}}</span><span class="s-tab">{{Tab}}</span><span class="s-tab">{{Tab}}</span></div>
+        </div>
+        <div class="s-section">
+          <p class="s-h2">{{Section title}}</p>
+          <div class="s-grid" style="--cols: 4"><div class="s-card is-tba">{{Card}} <span class="s-badge">{{Status}}</span></div><div class="s-card is-tba">{{Card}}</div><div class="s-card is-tba">{{Card}}</div><div class="s-card is-tba">{{Card}}</div></div>
+        </div>
+      </div>
+      <div class="notes">
+        <h3>What changes</h3>
+        <ul>
+          <li><span class="refs">1</span>{{Smallest change that meets the rule.}}<span class="tag is-authority">within authority</span></li>
+          <li><span class="refs">2, 3</span>{{Change.}}<span class="tag is-reddy">Reddy's decision</span></li>
+        </ul>
+        <h3>Already meets the standard</h3>
+        <ul>
+          <li>{{What stays, and the rule it already meets.}}</li>
+        </ul>
+        <h3>Same rules on every section</h3>
+        <ul>
+          <li>{{A rule that can be checked on any section.}}</li>
+        </ul>
+        <h3 class="guard-h">Guardrails</h3>
+        <ul class="guard">
+          <li>{{Identity kept: Bloom and the design.md macrostructure.}}</li>
+          <li>{{Needs Reddy: each item and the file or design.md section it would amend.}}</li>
+          <li>{{Possible within current authority: the items that touch no frozen copy or rule.}}</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer class="meta">
+    <span>{{Page}} · {{route}}</span>
+    <span>Widths: {{1512 and 390}}</span>
+    <span>Evidence: {{sealed capture | user screenshot, revision unknown | source only, not rendered}}</span>
+    <span>Revision {{short SHA}}</span>
+    <span>{{DD/MM/YYYY}}</span>
+    <span>Standard: design.md (Material 3 principles in Bloom)</span>
+  </footer>
+  <p class="unverified">Not verified: {{states, widths and accessibility proof not obtained}}</p>
+</main>
+</body>
+</html>

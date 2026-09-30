@@ -1,6 +1,7 @@
 /**
  * Families & Groups data layer — co-located queries/mutations for part 2 of
- * the rebuild (FamiliesGroupsPage / InvitationsPage / NotificationsPage).
+ * the rebuild (FamiliesGroupsPage / NotificationsPage). The invitation
+ * writes below are also used by the W360 screen (w360/invitationsData.ts).
  *
  * Field selections and mutation shapes are copied verbatim from the rhub
  * pattadar app (family/UnifiedFamilyView.tsx, family/GroupsListView.tsx,
@@ -11,12 +12,11 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   sampleGroups,
-  sampleInvitations,
   sampleMembers,
   sampleNotifications,
   samplePassbooks,
 } from '@pattadar/core';
-import type { Group, Invitation, NotificationEntry } from '@pattadar/core';
+import type { Group, NotificationEntry } from '@pattadar/core';
 import { gql } from '../../api/client';
 import { emptyLike, liveQueryOptions } from '../../data/useLiveOrSample';
 
@@ -97,6 +97,9 @@ export const relMeta = (r: string) =>
 // ---------------------------------------------------------------------------
 
 export interface GroupMember {
+  /** The heir's own answer after claiming their invitation: '' | agreed | disputed. */
+  heirConfirmed?: string;
+  heirNote?: string;
   id: string;
   ownerUserId: string;
   name: string;
@@ -176,7 +179,7 @@ export const MEMBER_FIELDS =
   'id ownerUserId name relation gender dob phone email bio photo groupId role isSelf ' +
   'fatherId motherId spouseId isBeneficiary sharePct kind status inviteStatus inviteToken ' +
   'phoneVerified emailVerified inactivityEmailConsent parcelId presentAddress aadhaarMasked isMinor guardianName ' +
-  'guardianContact maritalStatus spouseName spouseContact spouseStatus createdAt';
+  'guardianContact maritalStatus spouseName spouseContact spouseStatus createdAt heirConfirmed heirNote';
 
 export const GROUP_FIELDS =
   'id ownerUserId type name description myRole memberCount landCount totalExtent totalShare createdAt';
@@ -334,19 +337,6 @@ export function useGroupActivity(groupId: string) {
         )
       ).groupActivity ?? [],
     [],
-  );
-}
-
-export function useInvitationsList() {
-  return useFamLive<Invitation[]>(
-    'invitations',
-    async () =>
-      (
-        await gql<{ invitations: Invitation[] }>(
-          `query { invitations { id scopeType scopeId role inviteeContact token expiry status createdAt } }`,
-        )
-      ).invitations ?? [],
-    sampleInvitations,
   );
 }
 

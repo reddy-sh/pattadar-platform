@@ -224,56 +224,22 @@ async function configuredSocials(baseURL: string): Promise<string[]> {
     .filter((label): label is string => Boolean(label));
 }
 
-// ── the landing page's frozen copy (pages/landing/landingContent.ts) ───
+// ── the landing page's product copy (pages/landing/landingContent.ts) ───
 
-const HERO_LINE_1 = "Your family's land records,";
-const HERO_LINE_2 = 'in one secure place';
-const HERO_LEAD_PREFIX = 'Pattadar helps Andhra Pradesh land-owners manage';
-const HERO_LEAD_SUFFIX = '— securely, and in plain language the whole family can understand.';
-const FLIP_WORDS = ['parcels', 'passbooks', 'registered deeds', 'documents', 'family'];
+const HERO_LINE_1 = 'One piece of land.';
+const HERO_LINE_2 = 'Many places to look.';
+const HERO_LEAD = 'Revenue entries, survey maps and registered deeds tell different parts of the story. Pattadar helps your family keep its copies together; official records stay with the state.';
 
 /** Each primary-nav entry and the heading the section it names carries. */
 const NAV_SECTIONS: Array<[label: string, heading: string]> = [
-  ['About', 'How Pattadar evolved'],
+  ['About', 'Why one property has many records'],
   ['Features', 'What you can do'],
-  ['Pattadar AI', 'An assistant that knows your land'],
+  ['Pattadar AI', 'An assistant for your records'],
   ['How it works', 'How Pattadar works'],
-  ['6 Pillars', 'The 6 pillars of your land record'],
+  ['Land records', 'What to keep with a property'],
   ['Services', "Services we're building next"],
   ['FAQ', 'Asked by families like yours'],
 ];
-
-/** The rotating word has no role and no label of its own — it is an <em>
- *  inside the hero's lead sentence (LandingPage.tsx:98) — so the class it
- *  is styled by is the only handle on it. */
-const FLIP = '.hero__flip';
-
-/**
- * Does the rotating word move on within `ms`?
- *
- * A web-first wait on the DOM, not a sleep: it returns the moment the word
- * changes, and only spends the whole budget when the answer is "no". That is
- * what makes it usable in both directions — the rotation test asserts true,
- * the paused tests assert false.
- */
-function wordChangesWithin(page: Page, ms: number): Promise<boolean> {
-  return page
-    .locator(FLIP)
-    .textContent()
-    .then((was) =>
-      page
-        .waitForFunction(
-          ([selector, before]) =>
-            (document.querySelector(selector as string)?.textContent ?? '').trim() !== before,
-          [FLIP, (was ?? '').trim()],
-          { timeout: ms, polling: 200 },
-        )
-        .then(
-          () => true,
-          () => false,
-        ),
-    );
-}
 
 // ── nothing leaves for AWS ─────────────────────────────────────────────
 
@@ -286,103 +252,258 @@ test.beforeEach(async ({ page }) => {
 // ═══ the front page ════════════════════════════════════════════════════
 
 test.describe('the front page', () => {
-  test('says what Pattadar is, in the words the copy freeze fixed', async ({ page }) => {
+  test('says what Pattadar is in concrete terms', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1, name: /Your family.s land records/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /One piece of land/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(HERO_LINE_1);
     await expect(page.getByRole('heading', { level: 1 })).toContainText(HERO_LINE_2);
-    await expect(page.getByText('Land · Records · Family')).toBeVisible();
+    await expect(page.getByText('India · Andhra Pradesh · Telangana')).toBeVisible();
     await expect(page.getByRole('banner').getByText('Pattadar.', { exact: true })).toBeVisible();
+    await expect(page.locator('.hero__lead')).toHaveText(HERO_LEAD);
   });
 
-  test('promises only what the founder will defend: encryption, masked Aadhaar, your data', async ({ page }) => {
+  test('states specific protections without a storage-region promise', async ({ page }) => {
     await page.goto('/');
     for (const claim of [
-      'Encrypted at rest, stored in India',
-      'Aadhaar numbers always masked',
-      'You control your data',
+      'Encrypted storage',
+      'Aadhaar field masked',
+      'You choose access',
     ]) {
-      await expect(page.getByText(claim)).toBeVisible();
+      await expect(page.locator('.site').getByText(claim)).toBeVisible();
     }
   });
 
-  test('the sample portfolio admits it is a sample, and that market value is not knowable', async ({ page }) => {
+  test('the front page shows no invented portfolio figures', async ({ page }) => {
+    // The "Land portfolio · sample" card was removed on 27/09/2026 (design.md
+    // § Copy freeze). Its invented rupee total and survey numbers must not
+    // come back as an unlabelled figure either.
     await page.goto('/');
-    const sample = page.getByRole('region', { name: 'Land portfolio · sample' });
-    await expect(sample).toBeVisible();
-    await expect(sample.getByText('₹2,84,50,000')).toBeVisible();
-    await expect(sample.getByText('12 parcels · 3 passbooks · 2 properties')).toBeVisible();
-    // The honesty note is the whole reason these numbers are allowed on a
-    // marketing page at all (landingContent.ts PRODUCT_FRAME.honesty).
-    await expect(
-      sample.getByText('True market value is hard to know in India', { exact: false }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Land portfolio · sample' })).toHaveCount(0);
+    await expect(page.getByText('₹2,84,50,000')).toHaveCount(0);
+    await expect(page.getByText('12 parcels · 3 passbooks · 2 properties')).toHaveCount(0);
   });
 
-  test('the rotating word names all five things Pattadar keeps, not just the first', async ({ page }) => {
-    await page.goto('/');
-    const seen = new Set<string>();
-    await expect
-      .poll(
-        async () => {
-          seen.add(((await page.locator(FLIP).textContent()) ?? '').trim());
-          return seen.size;
-        },
-        { timeout: 25_000, intervals: [200] },
-      )
-      .toBe(FLIP_WORDS.length);
-    expect([...seen].sort()).toEqual([...FLIP_WORDS].sort());
-  });
-
-  test('the rotating word holds still while the pointer is on it', async ({ page }) => {
-    await page.goto('/');
-    // The control: it does rotate, and it rotates inside the budget the
-    // assertion below spends. Without this, a word that had simply stopped
-    // moving would pass the pause test for the wrong reason.
-    expect(await wordChangesWithin(page, 6_000), 'the word never rotated at all').toBe(true);
-    await page.locator(FLIP).hover();
-    expect(
-      await wordChangesWithin(page, 6_000),
-      'WCAG 2.2.2: the word moved on while somebody was reading it',
-    ).toBe(false);
-  });
-
-  test('a visitor who asks for less motion gets a sentence that sits still', async ({ browser }) => {
-    // Its own context rather than test.use, so the reduced-motion branch of
-    // FlipWord (LandingPage.tsx:91) is the only thing that differs from the
-    // test above it.
+  test('a visitor who asks for less motion gets the same readable lead', async ({ browser }) => {
     const context = await browser.newContext({ reducedMotion: 'reduce' });
     const page = await context.newPage();
     await page.route(OFF_SITE, (route) => route.abort('failed'));
     await page.goto('/');
-    await expect(page.locator(FLIP)).toHaveText(FLIP_WORDS[0]);
-    expect(await wordChangesWithin(page, 5_000)).toBe(false);
-    await expect(page.locator('.hero__lead')).toHaveText(
-      `${HERO_LEAD_PREFIX} ${FLIP_WORDS[0]} ${HERO_LEAD_SUFFIX}`,
-    );
+    await expect(page.locator('.hero__lead')).toHaveText(HERO_LEAD);
+    await expect(page.locator('.hero-story__narration')).toContainText('Keep the copies in one place.');
+    await expect(page.getByRole('group', { name: 'Land record story chapters' }).getByRole('button', { name: /Pattadar/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.hero-story__note')).toHaveText('Illustrative landscape and record trail');
     await context.close();
   });
 
-  /** Every way in, and where each one lives. LandingPage.tsx routes all four
-   *  through startSignIn, which must never leave pattadar.com. */
-  const WAYS_IN: Array<[where: string, button: string]> = [
-    ['banner', 'Sign in'],
-    ['region', 'Get started'],
-    ['region', 'Sign in'],
-    ['contentinfo', 'Get started free'],
+  test('the hero shows the land and the distinct record sources, not an app mockup', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.hero__landscape')).toHaveCSS('background-image', /land-records-hero\.jpg/);
+    await expect(page.locator('.hero-story__record')).toHaveCount(3);
+    await expect(page.locator('.hero-story__record-text').nth(0)).toContainText('1-B / Adangal');
+    await expect(page.locator('.hero-story__record-text').nth(1)).toContainText('FMB / village map');
+    await expect(page.locator('.hero-story__record-text').nth(2)).toContainText('Registered deed');
+    await expect(page.locator('.hero-scene__svg')).toHaveCount(0);
+  });
+
+  test('the context links to the official record sources', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#story a[href="https://dolr.gov.in/en/programmes-schemes/dilrmp-2/"]')).toBeVisible();
+    await expect(page.locator('#story a[href="https://meebhoomi.ap.gov.in/"]')).toBeVisible();
+    await expect(page.locator('#story a[href="https://bhubharati.telangana.gov.in/"]')).toBeVisible();
+  });
+
+  test('the record trail settles on Pattadar’s limited role', async ({ page }) => {
+    await page.goto('/');
+    const chapters = page.getByRole('group', { name: 'Land record story chapters' });
+    await expect(chapters.getByRole('button', { name: /Pattadar/ })).toHaveAttribute('aria-pressed', 'true', { timeout: 12000 });
+    await expect(page.locator('.hero-story__narration')).toContainText('Organise the papers you have');
+    await expect(page.locator('.hero__lead')).toContainText('official records stay with the state');
+  });
+
+  test('the record chapters can be selected and stop autoplay', async ({ page }) => {
+    await page.goto('/');
+    const chapters = page.getByRole('group', { name: 'Land record story chapters' });
+    await chapters.getByRole('button', { name: /Survey/ }).click();
+    await expect(page.locator('.hero-story__narration')).toContainText('The shape is in another.');
+    await page.waitForTimeout(3100);
+    await expect(chapters.getByRole('button', { name: /Survey/ })).toHaveAttribute('aria-pressed', 'true');
+    await chapters.getByRole('button', { name: /Deed/ }).click();
+    await expect(page.locator('.hero-story__narration')).toContainText('The transaction has its own trail.');
+    await chapters.getByRole('button', { name: /Pattadar/ }).click();
+    await expect(page.locator('[data-stage="pattadar-arrival"]')).toContainText('Your copies, kept together');
+  });
+
+  test('record chapters change instantly under reduced motion', async ({ browser }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    const page = await context.newPage();
+    await page.goto('/');
+    const chapters = page.getByRole('group', { name: 'Land record story chapters' });
+    await expect(chapters.getByRole('button', { name: /Pattadar/ })).toHaveAttribute('aria-pressed', 'true');
+    await chapters.getByRole('button', { name: /Revenue/ }).click();
+    await expect(page.locator('.hero-story__narration')).toContainText('The name is in one record.');
+    await context.close();
+  });
+
+  test('the journey shows each product workflow when its step is selected', async ({ page }) => {
+    await page.goto('/');
+    const journey = page.locator('#how');
+    await journey.scrollIntoViewIfNeeded();
+    const steps = journey.locator('.journey__step-btn');
+    const inviteReveal = journey.locator('[data-stage="invite-reveal"]');
+    const documentsReveal = journey.locator('[data-stage="organised-reveal"]');
+
+    await steps.nth(1).click();
+    await expect.poll(async () => Number.parseFloat(await inviteReveal.getAttribute('width') ?? '0')).toBeGreaterThan(500);
+    await expect(steps.nth(1)).toHaveAttribute('aria-pressed', 'true');
+
+    await steps.nth(2).click();
+    await expect.poll(async () => Number.parseFloat(await documentsReveal.getAttribute('width') ?? '0')).toBeGreaterThan(500);
+    await expect(steps.nth(2)).toHaveAttribute('aria-pressed', 'true');
+
+    await steps.nth(0).click();
+    await expect.poll(async () => Number.parseFloat(await inviteReveal.getAttribute('width') ?? '510')).toBeLessThan(1);
+    await expect.poll(async () => Number.parseFloat(await documentsReveal.getAttribute('width') ?? '510')).toBeLessThan(1);
+  });
+
+  test('skipping a journey step still shows each product view in order', async ({ page }) => {
+    await page.goto('/');
+    const journey = page.locator('#how');
+    await journey.scrollIntoViewIfNeeded();
+    const steps = journey.locator('.journey__step-btn');
+    await steps.nth(0).click();
+    await expect.poll(async () => journey.locator('[data-stage="invite-reveal"]').evaluate(
+      (rect) => Number.parseFloat(rect.getAttribute('width') ?? '0'),
+    )).toBeLessThan(1);
+
+    const sampling = journey.evaluate(async (root) => {
+      const invite = root.querySelector('[data-stage="invite-reveal"]');
+      const organised = root.querySelector('[data-stage="organised-reveal"]');
+      return new Promise<Array<[number, number]>>((resolve) => {
+        const samples: Array<[number, number]> = [];
+        const started = performance.now();
+        const sample = () => {
+          samples.push([
+            Number.parseFloat(invite?.getAttribute('width') ?? '0'),
+            Number.parseFloat(organised?.getAttribute('width') ?? '0'),
+          ]);
+          if (performance.now() - started >= 1500) resolve(samples);
+          else requestAnimationFrame(sample);
+        };
+        sample();
+      });
+    });
+    await steps.nth(2).click();
+    const samples = await sampling;
+    expect(samples.some(([invite, organised]) => invite > 20 && invite < 490 && organised < 1)).toBe(true);
+    expect(samples.some(([invite, organised]) => invite > 509 && organised > 20 && organised < 490)).toBe(true);
+    expect(samples.every(([invite, organised]) => organised < 1 || invite > 509)).toBe(true);
+
+    await steps.nth(0).click();
+    await steps.nth(1).click();
+    await expect.poll(async () => journey.locator('[data-stage="invite-reveal"]').evaluate(
+      (rect) => Number.parseFloat(rect.getAttribute('width') ?? '0'),
+    )).toBeGreaterThan(509);
+    await expect.poll(async () => journey.locator('[data-stage="organised-reveal"]').evaluate(
+      (rect) => Number.parseFloat(rect.getAttribute('width') ?? '0'),
+    )).toBeLessThan(1);
+    await expect(steps.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('a narrow phone can open and use the section menu', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await page.goto('/');
+    await expect(page.getByRole('group', { name: 'Land record story chapters' }).getByRole('button', { name: /Pattadar/ })).toBeVisible();
+    await expect.poll(async () => page.locator('#story .section-eyebrow').evaluate(
+      (label) => label.getBoundingClientRect().top,
+    )).toBeLessThan(700);
+    const menu = page.getByRole('button', { name: 'Sections' });
+    await expect(menu).toBeVisible();
+    await menu.click();
+    await expect(menu).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Land records' }).click();
+    await expect(menu).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('heading', { name: 'What to keep with a property' })).toBeInViewport();
+  });
+
+  test('the hero leaves the next section visible at 375px', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/');
+    await expect(page.locator('.hero-story__narration')).toBeVisible();
+    await expect.poll(async () => page.locator('#story .section-eyebrow').evaluate(
+      (label) => label.getBoundingClientRect().top,
+    )).toBeLessThan(812);
+    await expect.poll(async () => page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    )).toBe(0);
+  });
+
+  /** Every way in, where each one lives, and where it goes. "Sign in" is for
+   *  somebody with an account (startSignIn → /login); "Get started" is for
+   *  somebody without one (startSignUp → /signup, the page Pricing's "Create
+   *  an account" opens). Neither may ever leave pattadar.com. */
+  const WAYS_IN: Array<[where: string, button: string, url: RegExp, heading: string]> = [
+    ['banner', 'Sign in', /\/login$/, 'Sign in'],
+    ['region', 'Get started', /\/signup$/, 'Create your account'],
+    ['region', 'Sign in', /\/login$/, 'Sign in'],
+    ['contentinfo', 'Create an account', /\/signup$/, 'Create your account'],
   ];
 
-  for (const [where, button] of WAYS_IN) {
-    test(`the ${where === 'region' ? 'hero' : where} "${button}" button opens our own sign-in page, never somebody else's`, async ({ page }) => {
+  for (const [where, button, url, heading] of WAYS_IN) {
+    test(`the ${where === 'region' ? 'hero' : where} "${button}" button opens our own "${heading}" page, never somebody else's`, async ({ page }) => {
       await page.goto('/');
       const scope =
         where === 'region'
-          ? page.getByRole('region', { name: /Your family.s land records/ })
+          ? page.getByRole('region', { name: /One piece of land/ })
           : page.getByRole(where as 'banner' | 'contentinfo');
       await scope.getByRole('button', { name: button, exact: true }).click();
-      await expect(page).toHaveURL(/\/login$/);
-      await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible();
+      await expect(page).toHaveURL(url);
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
     });
   }
+
+  test('the three stages are tabs: one answer at a time, reachable by arrow keys', async ({ page }) => {
+    await page.goto('/');
+    const tabs = page.getByRole('tablist', { name: 'With you at every stage' });
+    const before = tabs.getByRole('tab', { name: 'Before buying or selling' });
+    const during = tabs.getByRole('tab', { name: 'During the transaction' });
+    const after = tabs.getByRole('tab', { name: 'After the transaction' });
+    const panel = page.getByRole('tabpanel');
+
+    await expect(before).toHaveAttribute('aria-selected', 'true');
+    await expect(panel).toContainText('Stage 1');
+    await expect(panel).toContainText('get discrepancies checked before you commit');
+    await expect(page.getByText('The registrar confirms the official requirements', { exact: false })).toHaveCount(0);
+
+    await during.click();
+    await expect(during).toHaveAttribute('aria-selected', 'true');
+    await expect(before).toHaveAttribute('aria-selected', 'false');
+    await expect(panel).toContainText('Stage 2');
+    await expect(panel).toContainText('The registrar confirms the official requirements');
+
+    await page.keyboard.press('ArrowRight');
+    await expect(after).toBeFocused();
+    await expect(after).toHaveAttribute('aria-selected', 'true');
+    await expect(panel).toContainText('Stage 3');
+    // Wraps: the last tab's right is the first tab.
+    await page.keyboard.press('ArrowRight');
+    await expect(before).toBeFocused();
+    await expect(panel).toContainText('Stage 1');
+    await page.keyboard.press('End');
+    await expect(after).toBeFocused();
+  });
+
+  test('stage tabs change instantly for visitors who prefer reduced motion', async ({ browser }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    const page = await context.newPage();
+    await page.goto('/');
+    await page.getByRole('tab', { name: 'During the transaction' }).click();
+    const panel = page.getByRole('tabpanel');
+    await expect(panel).toContainText('Stage 2');
+    await expect(panel.locator('.stages__panel-content')).toHaveCSS('opacity', '1');
+    await expect(panel.locator('.stages__panel-content')).toHaveCSS('transform', 'none');
+    await context.close();
+  });
 
   test('the primary nav jumps to every section it names, and each one is really there', async ({ page }) => {
     await page.goto('/');
@@ -399,11 +520,11 @@ test.describe('the front page', () => {
   test('an FAQ answer stays folded away until it is asked for', async ({ page }) => {
     await page.goto('/');
     const question = page.getByText('Is my Aadhaar number safe here?');
-    const answer = page.getByText('Aadhaar numbers are always shown masked', { exact: false });
+    const answer = page.getByText('Pattadar shows saved Aadhaar numbers masked', { exact: false });
     await expect(answer).toBeHidden();
     await question.click();
     await expect(answer).toBeVisible();
-    await expect(answer).toContainText('Pattadar does not perform any Aadhaar authentication');
+    await expect(answer).toContainText('Pattadar does not perform Aadhaar authentication');
   });
 
   test('the front page says plainly that it is not a government website', async ({ page }) => {
@@ -448,9 +569,9 @@ test.describe('the front page', () => {
   test('@phone the front page fits a phone, and keeps every way in', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1, name: /Your family.s land records/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /One piece of land/ })).toBeVisible();
     await expect(
-      page.getByRole('region', { name: /Your family.s land records/ }).getByRole('button', { name: 'Get started' }),
+      page.getByRole('region', { name: /One piece of land/ }).getByRole('button', { name: 'Get started' }),
     ).toBeVisible();
     await expect(page.getByRole('banner').getByRole('button', { name: 'Sign in' })).toBeVisible();
     await expect(page.getByRole('banner').getByRole('link', { name: 'Pricing' })).toBeVisible();
@@ -868,7 +989,7 @@ test.describe('the social sign-in return', () => {
     await page.goto('/auth/callback');
     await page.getByRole('button', { name: 'Back to home' }).click();
     await expect(page).toHaveURL(/localhost:\d+\/$/);
-    await expect(page.getByRole('heading', { level: 1, name: /Your family.s land records/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /One piece of land/ })).toBeVisible();
   });
 
   test('a callback explains itself in words a customer wrote, not the ones a library did', async ({ page }) => {
@@ -1246,7 +1367,7 @@ test.describe('the frame around the auth pages', () => {
       await page.goto(path);
       await page.getByRole('banner').getByRole('link', { name: 'Pattadar' }).click();
       await expect(page).toHaveURL(/localhost:\d+\/$/);
-      await expect(page.getByRole('heading', { level: 1, name: /Your family.s land records/ })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: /One piece of land/ })).toBeVisible();
     });
   }
 
@@ -1457,7 +1578,6 @@ test.describe('an address that matches nothing', () => {
   test('names the address that failed and offers the front page', async ({ page }) => {
     await page.goto('/not-a-real-page');
     await expect(page.getByRole('heading', { name: 'There is no page at that address' })).toBeVisible();
-    await expect(page.getByText('Nothing is wrong with your records', { exact: false })).toBeVisible();
     await expect(page.getByText('/not-a-real-page')).toBeVisible();
     await page.getByRole('link', { name: 'Go to the front page' }).click();
     await expect(page).toHaveURL(/localhost:\d+\/$/);

@@ -30,6 +30,8 @@ BASE = [
     """CREATE TABLE documents (id TEXT PRIMARY KEY,owner_user_id TEXT,record_id TEXT DEFAULT '',
         parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '',reading_id TEXT DEFAULT '')""",
     "CREATE TABLE registered_documents (id TEXT PRIMARY KEY,owner_user_id TEXT,parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '')",
+    "CREATE TABLE document_record_links (id TEXT PRIMARY KEY,owner_user_id TEXT,"
+    "document_id TEXT,record_id TEXT,created_at TEXT DEFAULT '')",
     "CREATE TABLE share_links (id TEXT PRIMARY KEY,document_id TEXT)",
     "CREATE TABLE document_versions (id TEXT PRIMARY KEY,document_id TEXT)",
     "CREATE TABLE record_tags (id TEXT PRIMARY KEY,entity_id TEXT)",
@@ -47,6 +49,13 @@ BASE = [
     "CREATE TABLE service_batches (id TEXT PRIMARY KEY,owner_user_id TEXT,record_id TEXT)",
     "CREATE TABLE boundary_marks (id TEXT PRIMARY KEY,record_id TEXT)",
     "CREATE TABLE record_people (id TEXT PRIMARY KEY,record_id TEXT)",
+    # The ownership chain and the title-provenance graph are swept with the
+    # record too, so the happy path needs them present.
+    "CREATE TABLE record_owners (id TEXT PRIMARY KEY,record_id TEXT)",
+    "CREATE TABLE record_transfers (id TEXT PRIMARY KEY,owner_user_id TEXT,record_id TEXT,"
+    "prior_transfer_id TEXT DEFAULT '')",
+    "CREATE TABLE record_transfer_parties (id TEXT PRIMARY KEY,owner_user_id TEXT,"
+    "transfer_id TEXT)",
     "CREATE TABLE people_payments (id TEXT PRIMARY KEY,record_id TEXT)",
     "CREATE TABLE purchase_lots (id TEXT PRIMARY KEY,record_id TEXT)",
     "CREATE TABLE capital_costs (id TEXT PRIMARY KEY,record_id TEXT)",
@@ -123,6 +132,16 @@ def test_history_and_corrections_survive_the_mutable_table_being_rewritten():
             hist = await q.record_history(conn_uid, "record-a")
             assert [e.action for e in hist].count("record.corrected") == 2
             assert "Pin moved" in [e.detail for e in hist]
+            # Who acted is said in words, never as the identity key.
+            assert {e.by for e in hist} == {"You"}
+            # A correction's old and new values are fields, not the JSON its
+            # legacy line was stored as.
+            fixes = [e for e in hist if e.action == "record.corrected"]
+            assert {(e.field, e.was, e.now) for e in fixes} == {
+                ("Village", "Katragunta", "Katraguntla"),
+                ("District", "Guntur", "Palnadu")}
+            assert {e.detail for e in fixes} == {""}
+            assert {(e.field, e.was, e.now) for e in hist if e.action == "set_pin"} == {("", "", "")}
             corr = await q.corrections(conn_uid, "record-a")
             assert {(c.field, c.was, c.now) for c in corr} == {
                 ("Village", "Katragunta", "Katraguntla"),
@@ -146,6 +165,123 @@ def test_history_and_corrections_survive_the_mutable_table_being_rewritten():
 
             # Another owner's record is still nobody else's history.
             assert await q.record_history(conn_uid, "record-b") == []
+    asyncio.run(run())
+
+
+def test_history_names_the_desk_by_kind_and_never_by_its_principal():
+    async def run():
+        async with database() as pool:
+            a.bind(pool)
+            async with pool.connection() as conn:
+                await a.record(
+                    conn, action="set_boundary", actor_principal="desk-staff-7",
+                    affected_owner="owner-a", resource_id="record-a",
+                    actor_kind=a.ACTOR_ADMIN)
+            await _drain()
+            hist = await w.WebQuery().record_history("owner-a", "record-a")
+            assert [(e.action, e.by) for e in hist] == [("set_boundary", "Pattadar desk")]
+            assert "desk-staff-7" not in {e.by for e in hist}
+    asyncio.run(run())
+
+
+def test_actor_word_says_who_acted_without_the_key():
+    assert w._actor_word("owner-a", "owner-a", "owner") == "You"
+    assert w._actor_word("owner-a", "desk-7", "admin") == "Pattadar desk"
+    assert w._actor_word("owner-a", "system", "system") == "System"
+    assert w._actor_word("owner-a", "someone", "recipient") == "A recipient"
+    assert w._actor_word("owner-a", "owner-b", "owner") == "Another account"
+    assert w._actor_word("owner-a", "x", "") == "Someone"
+
+
+def test_lot_date_stores_day_month_year():
+    assert w._lot_date("2019-07-18") == "18/07/2019"
+    assert w._lot_date(" 18/07/2019 ") == "18/07/2019"
+    assert w._lot_date("") == ""
+
+
+def test_boundary_captions_say_saved_never_surveyed():
+    assert w._boundary_caption("", True, "Katragunta") == "Boundary saved · Katragunta"
+    assert w._boundary_caption("", True, "") == "Boundary saved"
+    assert w._map_caption("", "parcel", True) == "Boundary saved over the survey plot"
+
+
+def test_a_purchase_lot_can_be_corrected_by_its_owner_only():
+    async def run():
+        async with database() as pool:
+            a.bind(pool)
+            mutation = w.WebMutation()
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "ALTER TABLE purchase_lots ADD COLUMN owner_user_id TEXT,"
+                    " ADD COLUMN bought_on TEXT DEFAULT '', ADD COLUMN extent DOUBLE PRECISION DEFAULT 0,"
+                    " ADD COLUMN extent_unit TEXT DEFAULT 'ac', ADD COLUMN rate DOUBLE PRECISION DEFAULT 0,"
+                    " ADD COLUMN paid DOUBLE PRECISION DEFAULT 0, ADD COLUMN govt_value DOUBLE PRECISION DEFAULT 0,"
+                    " ADD COLUMN seller TEXT DEFAULT '', ADD COLUMN deed_no TEXT DEFAULT '',"
+                    " ADD COLUMN sro TEXT DEFAULT '', ADD COLUMN sort INT DEFAULT 1")
+                await conn.execute(
+                    "INSERT INTO purchase_lots (id,record_id,owner_user_id,paid,extent)"
+                    " VALUES ('lot-a','record-a','owner-a',1000,1)")
+
+            assert await mutation.update_purchase(
+                "owner-a", "lot-a", "2019-07-18", 1850000, 4.3, "ac", 1200000,
+                "A seller", "4412/1998", "Markapur") is True
+            # Somebody else's lot id changes nothing, and neither does a negative price.
+            assert await mutation.update_purchase("owner-b", "lot-a", "", 1, 1) is False
+            assert await mutation.update_purchase("owner-a", "lot-a", "", -5, 1) is False
+
+            async with pool.connection() as conn:
+                lot = await (await conn.execute("SELECT * FROM purchase_lots WHERE id='lot-a'")).fetchone()
+            assert (lot["bought_on"], lot["paid"], lot["extent"], lot["govt_value"]) == (
+                "18/07/2019", 1850000, 4.3, 1200000)
+            assert round(lot["rate"]) == round(1850000 / 4.3)
+            assert (lot["seller"], lot["deed_no"], lot["sro"], lot["sort"]) == (
+                "A seller", "4412/1998", "Markapur", 1)
+    asyncio.run(run())
+
+
+def test_features_read_an_unlooked_feature_as_unknown_and_the_walk_as_the_owners_own():
+    async def run():
+        async with database() as pool:
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "ALTER TABLE land_features ADD COLUMN owner_user_id TEXT,"
+                    " ADD COLUMN label TEXT DEFAULT '', ADD COLUMN sort INT DEFAULT 0,"
+                    " ADD COLUMN type_key TEXT DEFAULT '', ADD COLUMN attributes TEXT DEFAULT '{}',"
+                    " ADD COLUMN geometry TEXT DEFAULT '{}', ADD COLUMN spec TEXT DEFAULT '',"
+                    " ADD COLUMN icon TEXT DEFAULT '', ADD COLUMN category TEXT DEFAULT '',"
+                    " ADD COLUMN condition TEXT DEFAULT '', ADD COLUMN condition_state TEXT DEFAULT '',"
+                    " ADD COLUMN note TEXT DEFAULT '', ADD COLUMN lat DOUBLE PRECISION DEFAULT 0,"
+                    " ADD COLUMN lon DOUBLE PRECISION DEFAULT 0, ADD COLUMN pin_label TEXT DEFAULT '',"
+                    " ADD COLUMN actions TEXT DEFAULT '[]', ADD COLUMN schema_version INT DEFAULT 1,"
+                    " ADD COLUMN version INT DEFAULT 1")
+                await conn.execute(
+                    "ALTER TABLE land_expenses ADD COLUMN owner_user_id TEXT,"
+                    " ADD COLUMN feature_id TEXT DEFAULT '', ADD COLUMN amount DOUBLE PRECISION DEFAULT 0,"
+                    " ADD COLUMN has_receipt BOOLEAN DEFAULT false, ADD COLUMN kind TEXT DEFAULT ''")
+                await conn.execute(
+                    "ALTER TABLE parcel_photos ADD COLUMN owner_user_id TEXT,"
+                    " ADD COLUMN feature_id TEXT DEFAULT '', ADD COLUMN captured_at TEXT DEFAULT '',"
+                    " ADD COLUMN captured_by TEXT DEFAULT ''")
+                await conn.execute(
+                    "INSERT INTO land_features (id,entity_id,owner_user_id,label,category,condition_state)"
+                    " VALUES ('f-a','record-a','owner-a','Bore','water','')")
+                # Somebody else's photograph filed under the same record id.
+                await conn.execute(
+                    "INSERT INTO parcel_photos (id,parcel_id,owner_user_id,captured_at,captured_by)"
+                    " VALUES ('ph-x','record-a','owner-b','2026-09-01T10:00:00Z','Stranger')")
+
+            got = await w.WebQuery().features("owner-a", "record-a")
+            # Nobody has looked at it: unknown, never a green "good".
+            assert [f.condition_state for f in got.features] == ["unknown"]
+            # And a stranger's capture date and name are not this owner's walk.
+            assert (got.walked_on, got.walked_by) == ("", "")
+
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO parcel_photos (id,parcel_id,owner_user_id,captured_at,captured_by)"
+                    " VALUES ('ph-a','record-a','owner-a','2026-08-12T09:00:00Z','Ramesh')")
+            got = await w.WebQuery().features("owner-a", "record-a")
+            assert (got.walked_on, got.walked_by) == ("2026-08-12", "Ramesh")
     asyncio.run(run())
 
 

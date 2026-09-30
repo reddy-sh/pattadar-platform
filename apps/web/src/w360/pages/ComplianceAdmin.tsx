@@ -6,6 +6,7 @@ import EditOutlined from '@mui/icons-material/EditOutlined';
 import GavelOutlined from '@mui/icons-material/GavelOutlined';
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import ImageOutlined from '@mui/icons-material/ImageOutlined';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import LaunchOutlined from '@mui/icons-material/LaunchOutlined';
 import LockOutlined from '@mui/icons-material/LockOutlined';
 import PrivacyTipOutlined from '@mui/icons-material/PrivacyTipOutlined';
@@ -14,6 +15,7 @@ import PublishOutlined from '@mui/icons-material/PublishOutlined';
 import {
   parseGovernanceDocument,
   useArchiveGovernancePolicy,
+  useGeographyReference,
   useGovernanceAdminPolicies,
   useGovernanceAdminPolicy,
   useGovernancePolicyHistory,
@@ -21,10 +23,13 @@ import {
   usePublishGovernancePolicy,
   useSaveGovernancePolicy,
   useServicesOffered,
+  type GeographyRow,
   type GovernanceDocument,
+  type GovernancePolicy,
   type GovernanceServiceVisual,
 } from '../api';
-import { Card, FacetFilter, Failed, Loading, Pill } from '../ui';
+import { Card, FacetFilter, Failed, Loading, Pill, plural } from '../ui';
+import { Drawer } from '../Drawer';
 import { ServiceVisual, serviceVisualSrc } from '../ServiceVisual';
 
 type View = 'records' | 'buyer' | 'seller' | 'services' | 'visuals' | 'workforce' | 'sharing' | 'sources' | 'manage';
@@ -49,6 +54,83 @@ const code = (value: string, fallback = '*') => {
   return out || fallback;
 };
 
+/** Distinct, counted values one level of the scope hierarchy holds among the
+ *  configured policies, restricted to those matching every concrete code in
+ *  `parent`. Drives the scope FacetFilter's cascade: a group is empty (and so
+ *  hidden by FacetFilter itself) until its parent level is chosen. */
+function scopeOptions(
+  rows: GovernancePolicy[], level: 'stateCode' | 'districtCode' | 'mandalCode' | 'villageCode',
+  parent: Partial<Record<'stateCode' | 'districtCode' | 'mandalCode', string>>,
+) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (Object.entries(parent).some(([key, value]) => row[key as keyof GovernancePolicy] !== value)) continue;
+    const value = row[level];
+    if (!value || value === '*') continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, count]) => ({ key, label: key.replaceAll('_', ' '), count }));
+}
+
+/** A code is a storage key, not a sentence — nobody should ever read a bare
+ *  '*' off this screen. This turns a state/district/mandal/village code
+ *  quartet into the phrase an admin would actually say out loud. */
+function scopeLabel(state: string, district: string, mandal: string, village: string): string {
+  if (state === '*') return 'All states and union territories';
+  const parts = [state === 'AP' ? 'Andhra Pradesh' : state.replaceAll('_', ' ')];
+  if (district !== '*') parts.push(district.replaceAll('_', ' '));
+  if (mandal !== '*') parts.push(mandal.replaceAll('_', ' '));
+  if (village !== '*') parts.push(village.replaceAll('_', ' '));
+  return parts.join(', ');
+}
+
+/** One level of a new scope's address. A dropdown sourced from the
+ *  government reference list (states.states/districtsByState/…) whenever
+ *  that list actually has rows for the chosen parent — typing a code by hand
+ *  is the fallback for a level the LGD sync hasn't reached yet (villages,
+ *  today; a newly split district tomorrow), not the default. CRUD at any
+ *  level must not dead-end just because the reference import is behind. */
+function ScopeLevelField({
+  id, label, options, selectedId, codeValue, loading, disabled, placeholder, deriveCode, onChangeLevel,
+}: {
+  id: string; label: string; options: GeographyRow[]; selectedId: string; codeValue: string;
+  loading: boolean; disabled: boolean; placeholder: string;
+  deriveCode: (row: GeographyRow) => string;
+  onChangeLevel: (nextCode: string, refId: string) => void;
+}) {
+  if (loading || disabled || options.length > 0) {
+    return (
+      <div className="field">
+        <label htmlFor={id}>{label}</label>
+        <select id={id} value={selectedId} disabled={disabled || loading}
+                onChange={(e) => {
+                  const row = options.find((o) => o.id === e.target.value);
+                  onChangeLevel(row ? deriveCode(row) : '*', row?.id ?? '');
+                }}>
+          <option value="">
+            {loading ? 'Loading…' : disabled ? `Choose the level above first`
+              : `Choose a ${label.toLowerCase()}…`}
+          </option>
+          {options.map((option) => (
+            <option key={option.id} value={option.id}>{option.name}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} value={codeValue === '*' ? '' : codeValue} maxLength={80}
+             placeholder={placeholder}
+             onChange={(e) => onChangeLevel(code(e.target.value || '*'), '')} />
+      <small className="note">No official {label.toLowerCase()} list loaded.</small>
+    </div>
+  );
+}
+
 function GuideList({ document, kind }: { document: GovernanceDocument; kind: 'buyer' | 'seller' }) {
   const guide = document.guides.find((item) => item.key === kind);
   if (!guide) return null;
@@ -68,8 +150,11 @@ export function ComplianceAdmin() {
   const allowed = !!portfolio.data?.isSuperAdmin;
   const [stateCode, setStateCode] = useState('*');
   const [districtCode, setDistrictCode] = useState('*');
-  const scopeKey = `IN/${code(stateCode)}/${code(districtCode)}`;
-  const policy = useGovernanceAdminPolicy('IN', code(stateCode), code(districtCode), allowed);
+  const [mandalCode, setMandalCode] = useState('*');
+  const [villageCode, setVillageCode] = useState('*');
+  const scopeKey = `IN/${code(stateCode)}/${code(districtCode)}/${code(mandalCode)}/${code(villageCode)}`;
+  const policy = useGovernanceAdminPolicy(
+    'IN', code(stateCode), code(districtCode), code(mandalCode), code(villageCode), allowed);
   const policies = useGovernanceAdminPolicies('IN', allowed);
   const history = useGovernancePolicyHistory(scopeKey, allowed);
   const offers = useServicesOffered('', '', allowed);
@@ -82,6 +167,13 @@ export function ComplianceAdmin() {
   const [visualReason, setVisualReason] = useState('');
   const [visualError, setVisualError] = useState('');
   const [editing, setEditing] = useState(false);
+  const [addingScope, setAddingScope] = useState(false);
+  const [namingOpen, setNamingOpen] = useState(false);
+  const [refStateId, setRefStateId] = useState('');
+  const [refDistrictId, setRefDistrictId] = useState('');
+  const [refMandalId, setRefMandalId] = useState('');
+  const [refVillageId, setRefVillageId] = useState('');
+  const geography = useGeographyReference(refStateId, refDistrictId, refMandalId, addingScope);
   const [draft, setDraft] = useState('');
   const [reason, setReason] = useState('');
   const [manageError, setManageError] = useState('');
@@ -110,13 +202,50 @@ export function ComplianceAdmin() {
     ])));
   }, [document, offers.data, visualEditing]);
 
-  const chooseScope = (key: string) => {
-    const [, state = '*', district = '*'] = key.split('/');
-    setStateCode(state);
-    setDistrictCode(district);
-    setEditing(false);
-    setReason('');
-    setManageError('');
+  /** State, district, mandal and village are set independently: choosing one
+   *  resets only the levels below it, and each carries its own override,
+   *  revision and history without touching a sibling or parent scope. */
+  const toggleScope = (group: string, value: string) => {
+    setEditing(false); setReason(''); setManageError(''); setAddingScope(false);
+    if (group === 'state') {
+      setStateCode((current) => code(current) === value ? '*' : value);
+      setDistrictCode('*'); setMandalCode('*'); setVillageCode('*');
+    } else if (group === 'district') {
+      setDistrictCode((current) => code(current) === value ? '*' : value);
+      setMandalCode('*'); setVillageCode('*');
+    } else if (group === 'mandal') {
+      setMandalCode((current) => code(current) === value ? '*' : value);
+      setVillageCode('*');
+    } else {
+      setVillageCode((current) => code(current) === value ? '*' : value);
+    }
+  };
+
+  const clearScope = () => {
+    setStateCode('*'); setDistrictCode('*'); setMandalCode('*'); setVillageCode('*');
+    setEditing(false); setReason(''); setManageError(''); setAddingScope(false);
+  };
+
+  /** Same independence rule as toggleScope, for the reference-data pickers in
+   *  the new-scope panel: picking (or clearing, or typing past a gap in the
+   *  reference list) one level resets only what is below it, and remembers
+   *  the reference row id so the next level's dropdown knows whose children
+   *  to ask for. */
+  const setScopeLevel = (level: 'state' | 'district' | 'mandal' | 'village', nextCode: string, refId: string) => {
+    setEditing(false); setReason(''); setManageError('');
+    if (level === 'state') {
+      setRefStateId(refId); setRefDistrictId(''); setRefMandalId(''); setRefVillageId('');
+      setStateCode(nextCode); setDistrictCode('*'); setMandalCode('*'); setVillageCode('*');
+    } else if (level === 'district') {
+      setRefDistrictId(refId); setRefMandalId(''); setRefVillageId('');
+      setDistrictCode(nextCode); setMandalCode('*'); setVillageCode('*');
+    } else if (level === 'mandal') {
+      setRefMandalId(refId); setRefVillageId('');
+      setMandalCode(nextCode); setVillageCode('*');
+    } else {
+      setRefVillageId(refId);
+      setVillageCode(nextCode);
+    }
   };
 
   const beginOverride = () => {
@@ -125,6 +254,8 @@ export function ComplianceAdmin() {
     next.jurisdiction.countryCode = 'IN';
     next.jurisdiction.stateCode = code(stateCode);
     next.jurisdiction.districtCode = code(districtCode);
+    next.jurisdiction.mandalCode = code(mandalCode);
+    next.jurisdiction.villageCode = code(villageCode);
     if (code(stateCode) === '*') {
       next.jurisdiction.stateName = 'All states and union territories';
       next.jurisdiction.districtName = 'All districts';
@@ -137,6 +268,10 @@ export function ComplianceAdmin() {
       next.jurisdiction.districtName = code(districtCode) === '*'
         ? 'All districts' : code(districtCode).replaceAll('_', ' ');
     }
+    next.jurisdiction.mandalName = code(mandalCode) === '*'
+      ? 'All mandals' : code(mandalCode).replaceAll('_', ' ');
+    next.jurisdiction.villageName = code(villageCode) === '*'
+      ? 'All villages' : code(villageCode).replaceAll('_', ' ');
     setDraft(JSON.stringify(next, null, 2));
     setEditing(true);
     setView('manage');
@@ -152,6 +287,7 @@ export function ComplianceAdmin() {
     try {
       const result = await save.mutateAsync({
         countryCode: 'IN', stateCode: code(stateCode), districtCode: code(districtCode),
+        mandalCode: code(mandalCode), villageCode: code(villageCode),
         document: draft, reason: reason.trim(),
         expectedRevision: exact ? (policy.data?.revision ?? 0) : 0,
       });
@@ -221,6 +357,7 @@ export function ComplianceAdmin() {
     try {
       const result = await save.mutateAsync({
         countryCode: 'IN', stateCode: code(stateCode), districtCode: code(districtCode),
+        mandalCode: code(mandalCode), villageCode: code(villageCode),
         document: JSON.stringify(next), reason: visualReason.trim(),
         expectedRevision: exact ? (policy.data?.revision ?? 0) : 0,
       });
@@ -259,13 +396,23 @@ export function ComplianceAdmin() {
   );
   const visualCategories = [...new Set((offers.data ?? []).map((offer) => offer.group))];
 
+  const scopeRows = policies.data ?? [];
+  const stateOptions = scopeOptions(scopeRows, 'stateCode', {});
+  const districtOptions = code(stateCode) === '*' ? []
+    : scopeOptions(scopeRows, 'districtCode', { stateCode: code(stateCode) });
+  const mandalOptions = code(districtCode) === '*' ? []
+    : scopeOptions(scopeRows, 'mandalCode', { stateCode: code(stateCode), districtCode: code(districtCode) });
+  const villageOptions = code(mandalCode) === '*' ? []
+    : scopeOptions(scopeRows, 'villageCode', {
+      stateCode: code(stateCode), districtCode: code(districtCode), mandalCode: code(mandalCode),
+    });
+
   return (
     <main className="compliance-admin">
       <header className="compliance-titlebar">
         <div>
           <p className="eyebrow">Administration · Governance</p>
           <h1>Compliance rules</h1>
-          <p className="lede">Published guidance for records, service requests and secure sharing.</p>
         </div>
         <div className="row tight compliance-status">
           <Pill kind={policy.data.status === 'published' ? 'owned' : 'managed'}>{policy.data.status}</Pill>
@@ -274,53 +421,103 @@ export function ComplianceAdmin() {
       </header>
 
       <section className="compliance-scope" aria-label="Policy jurisdiction">
-        <div className="field">
-          <label htmlFor="gov-country">Country</label>
-          <select id="gov-country" value="IN" aria-readonly="true" onChange={() => {}}>
-            <option value="IN">India</option>
-          </select>
-        </div>
-        <div className="field">
-          <label htmlFor="gov-state">State code</label>
-          <input id="gov-state" value={stateCode} maxLength={16}
-                 onChange={(e) => { setStateCode(code(e.target.value)); setDistrictCode('*'); setEditing(false); }} />
-        </div>
-        <div className="field">
-          <label htmlFor="gov-district">District code</label>
-          <input id="gov-district" value={districtCode} maxLength={80}
-                 disabled={code(stateCode) === '*'}
-                 onChange={(e) => { setDistrictCode(code(e.target.value)); setEditing(false); }} />
-        </div>
         <div className="compliance-review">
           <span className="eyebrow">Effective scope</span>
-          <strong>{policy.data.scopeKey}</strong>
-          <small>{exact ? 'Exact policy' : `Inherited by ${scopeKey}`}</small>
+          <strong>{scopeLabel(code(stateCode), code(districtCode), code(mandalCode), code(villageCode))}</strong>
+          <small>
+            {exact ? 'This scope has its own policy.' : `Inherited from ${scopeLabel(
+              policy.data.stateCode, policy.data.districtCode, policy.data.mandalCode, policy.data.villageCode,
+            )}.`}
+          </small>
         </div>
+
+        <FacetFilter
+          groups={[
+            { key: 'state', label: 'State', options: stateOptions },
+            { key: 'district', label: 'District', options: districtOptions },
+            { key: 'mandal', label: 'Mandal', options: mandalOptions },
+            { key: 'village', label: 'Village', options: villageOptions },
+          ]}
+          selected={{
+            state: code(stateCode) !== '*' ? [code(stateCode)] : [],
+            district: code(districtCode) !== '*' ? [code(districtCode)] : [],
+            mandal: code(mandalCode) !== '*' ? [code(mandalCode)] : [],
+            village: code(villageCode) !== '*' ? [code(villageCode)] : [],
+          }}
+          onToggle={toggleScope}
+          onClear={clearScope}
+          tally={plural(scopeRows.length, 'configured scope')}
+          trailing={(
+            <button type="button" className="btn sm" onClick={() => setAddingScope((value) => {
+              const next = !value;
+              if (next) {
+                setRefStateId(''); setRefDistrictId(''); setRefMandalId(''); setRefVillageId('');
+              }
+              return next;
+            })}>
+              <AddOutlined sx={{ fontSize: 15 }} /> {addingScope ? 'Cancel new scope' : 'New scope'}
+            </button>
+          )}
+          ariaLabel="Browse configured compliance policy scopes"
+        />
+
+        {addingScope && (
+          <div className="compliance-new-scope" aria-label="Create a new policy scope">
+            <ScopeLevelField id="gov-state" label="State" placeholder="e.g. AP"
+                             options={geography.data?.states ?? []} selectedId={refStateId}
+                             codeValue={stateCode} loading={geography.isLoading} disabled={false}
+                             deriveCode={(row) => code(row.code || row.name)}
+                             onChangeLevel={(next, refId) => setScopeLevel('state', next, refId)} />
+            <ScopeLevelField id="gov-district" label="District" placeholder="e.g. GUNTUR"
+                             options={geography.data?.districts ?? []} selectedId={refDistrictId}
+                             codeValue={districtCode} loading={geography.isLoading} disabled={!refStateId}
+                             deriveCode={(row) => code(row.name)}
+                             onChangeLevel={(next, refId) => setScopeLevel('district', next, refId)} />
+            <ScopeLevelField id="gov-mandal" label="Mandal" placeholder="e.g. TENALI"
+                             options={geography.data?.mandals ?? []} selectedId={refMandalId}
+                             codeValue={mandalCode} loading={geography.isLoading} disabled={!refDistrictId}
+                             deriveCode={(row) => code(row.name)}
+                             onChangeLevel={(next, refId) => setScopeLevel('mandal', next, refId)} />
+            <ScopeLevelField id="gov-village" label="Village" placeholder="e.g. KOTTAPALEM"
+                             options={geography.data?.villages ?? []} selectedId={refVillageId}
+                             codeValue={villageCode} loading={geography.isLoading} disabled={!refMandalId}
+                             deriveCode={(row) => code(row.name)}
+                             onChangeLevel={(next, refId) => setScopeLevel('village', next, refId)} />
+            <button type="button" className="btn primary sm" disabled={code(stateCode) === '*'}
+                    onClick={() => { beginOverride(); setAddingScope(false); }}>
+              {exact ? 'Create new revision' : `Create ${scopeLabel(
+                code(stateCode), code(districtCode), code(mandalCode), code(villageCode),
+              )} override`}
+            </button>
+          </div>
+        )}
       </section>
 
-      <div className="compliance-scope-list" aria-label="Configured policy scopes">
-        {(policies.data ?? []).map((item) => (
-          <button key={item.scopeKey} type="button" className="chip"
-                  aria-pressed={scopeKey === item.scopeKey}
-                  onClick={() => chooseScope(item.scopeKey)}>
-            {item.scopeKey} · r{item.revision} · {item.status}
-          </button>
-        ))}
-        {!exact && (
-          <button type="button" className="btn sm" onClick={beginOverride}>
-            <AddOutlined sx={{ fontSize: 15 }} /> Create {scopeKey} override
-          </button>
-        )}
+      <div className="compliance-naming-trigger">
+        <button type="button" className="btn sm" onClick={() => setNamingOpen(true)}>
+          <InfoOutlined sx={{ fontSize: 15 }} /> Government naming for this scope
+        </button>
       </div>
 
-      <section className="compliance-terms" aria-label="Government terminology">
-        <span className="eyebrow">Government naming</span>
-        <div className="compliance-term-grid">
-          {Object.entries(document.jurisdiction.localTerms).map(([key, value]) => (
-            <div key={key}><span>{key.replace(/([A-Z])/g, ' $1')}</span><strong>{value}</strong></div>
-          ))}
-        </div>
-      </section>
+      {namingOpen && (
+        <Drawer
+          title="Government naming"
+          sub={scopeLabel(
+            document.jurisdiction.stateCode, document.jurisdiction.districtCode,
+            document.jurisdiction.mandalCode ?? '*', document.jurisdiction.villageCode ?? '*',
+          )}
+          onClose={() => setNamingOpen(false)}
+        >
+          <dl className="compliance-naming-list">
+            {Object.entries(document.jurisdiction.localTerms).map(([key, value]) => (
+              <div key={key}>
+                <dt>{key.replace(/([A-Z])/g, ' $1')}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </Drawer>
+      )}
 
       <nav className="compliance-tabs" aria-label="Compliance policy views">
         {VIEWS.map((item) => (
@@ -378,10 +575,6 @@ export function ComplianceAdmin() {
             <div>
               <p className="eyebrow"><ImageOutlined sx={{ fontSize: 15 }} /> Service visual language</p>
               <h2>Show the work before asking people to read it</h2>
-              <p className="note">
-                Each image explains one service without personal data or government marks. Mappings
-                inherit by country, state and district with the rest of this policy.
-              </p>
             </div>
             {!visualEditing && (
               <button type="button" className="btn" onClick={() => {
@@ -625,15 +818,29 @@ export function ComplianceAdmin() {
 
           <div className="compliance-history">
             <p className="eyebrow"><HistoryOutlined sx={{ fontSize: 15 }} /> Change history</p>
+            {/* villageCode is the only level with no levels below it — every
+                wider scope has a wildcard tail, and that's exactly when the
+                server cascades. Naming which levels are included would have
+                to change with how many are still wildcarded, so this says
+                only what's true at every depth: everything under the scope. */}
+            {code(villageCode) === '*' && (
+              <p className="note">Includes changes under {scopeKey}.</p>
+            )}
             {(history.data ?? []).map((event) => (
               <div key={event.id}>
                 <span><strong>{event.action}</strong><small>{event.detail}</small></span>
-                <span className="note">r{event.revision} · {event.actor} · {event.createdAt}</span>
+                <span className="note">
+                  r{event.revision} · {event.actor} · {event.createdAt}
+                  {event.scopeKey !== scopeKey && <> · {event.scopeKey}</>}
+                </span>
                 <span className="mono note">{event.sourceDigest.slice(0, 10)}</span>
               </div>
             ))}
             {!history.isLoading && (history.data?.length ?? 0) === 0 && (
-              <p className="note">No changes have been recorded for {scopeKey}.</p>
+              <p className="note">
+                No changes have been recorded for {scopeKey}
+                {code(villageCode) === '*' ? ' or anything under it.' : '.'}
+              </p>
             )}
           </div>
         </section>

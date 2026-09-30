@@ -217,6 +217,15 @@ def village_key(name: str) -> str:
     return re.sub(r"(.)\1+", r"\1", out)
 
 
+def map_key(state: str, district: str, mandal: str, village: str) -> str:
+    """The Python twin of mapKey() in packages/core: where a shipped village
+    map lives, `state/district/mandal/village`, each segment folded. The
+    village name alone is not an address (MYLAVARAM is in two Prakasam-era
+    mandals), and a key with a level missing is not one either — ''."""
+    parts = [village_key(p) for p in (state, district, mandal, village)]
+    return "/".join(parts) if all(parts) else ""
+
+
 # ── One file, read into plots and floating labels ─────────────────────
 
 class Source:

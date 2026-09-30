@@ -105,6 +105,11 @@ check('CL-547 a UUID is never shown', eventEntity('delete_group', '75fc1d4d-1c31
 
 // ── CL-547: the backend records WHAT it deleted, read before the delete ─────
 const api = code('services/api/src/main.py');
+const aiSrc = [
+  code('services/api/src/ai_reading/operations.py'),
+  code('services/api/src/ai_reading/providers/anthropic.py'),
+  code('services/api/src/ai_reading/prompts.py'),
+].join('\n');
 for (const [mutation, table] of [
   ['delete_passbook', 'passbooks'],
   ['delete_parcel', 'parcels'],
@@ -359,8 +364,8 @@ check(
 );
 check(
   'the classifier endpoint persists nothing',
-  /async def classify_parcel_photo/.test(api) &&
-    !/INSERT INTO/.test(api.split('async def classify_parcel_photo')[1]?.split('@app.post')[0] ?? ''),
+  /async def classify_parcel_photo/.test(aiSrc) &&
+    !/INSERT INTO/.test(aiSrc.split('async def classify_parcel_photo')[1]?.split('async def ')[0] ?? ''),
   'an Aadhaar must not be stored in order to discover it should not be stored',
 );
 check('CL-603 the suggested category pre-selects', /setCategory\(suggestedCategory\(verdict\)\)/.test(photoUi));
@@ -523,10 +528,10 @@ check(
 // ── A failure names itself ───────────────────────────────────────────────
 check(
   'AI failures never interpolate a bare exception',
-  !/AI call failed: \$\{e\}/.test(api) && !/"error": "AI call failed"/.test(api),
+  !/AI call failed: \$\{e\}/.test(aiSrc) && !/"error": "AI call failed"/.test(aiSrc),
   'httpx.ReadError has an empty str() — the user read "AI call failed:" and nothing else',
 );
-check('AI failures go through one message builder', /_ai_failure_message\(/.test(api));
+check('AI failures go through one message builder', /failure_message\(/.test(aiSrc));
 
 // ── An unconfigured build can configure itself ───────────────────────────
 const offline = code('apps/mobile/src/components/OfflineBanner.tsx');
@@ -833,11 +838,11 @@ check(
 // pyramid: headline, scannable facts, then short paragraphs.
 check(
   'the reader is asked for a headline and key points',
-  /HEADLINE — one line, max 90 characters/.test(apiSrc) && /KEY_POINTS —/.test(apiSrc),
+  /HEADLINE — one line, max 90 characters/.test(aiSrc) && /KEY_POINTS —/.test(aiSrc),
 );
 check(
   'the reader is asked for paragraphs, not a wall of text',
-  /separated by a blank line/.test(apiSrc) && /never a single wall of/.test(apiSrc),
+  /separated by a blank line/.test(aiSrc) && /never a single wall of/.test(aiSrc),
 );
 check(
   'the screen renders the headline above the prose',
@@ -856,26 +861,26 @@ check('the screen renders the key points', /keyPoints\.map\(/.test(docDetail));
 // It cannot be made deterministic, so it is always flagged instead.
 check(
   'the transfer direction is always a caveat',
-  /ALWAYS include, as the FIRST caveat, one line naming who you took as the person/.test(apiSrc),
+  /ALWAYS include, as the FIRST caveat, one line naming who you took as the person/.test(aiSrc),
 );
 check(
   'the GPA role mapping is pinned, not guessed',
-  /A GPA HAS NO SELLER AND NO BUYER/.test(apiSrc) && /takes role \\"seller\\"/.test(apiSrc),
+  /A GPA HAS NO SELLER AND NO BUYER/.test(aiSrc) && /takes role \\"seller\\"/.test(aiSrc),
 );
 check(
   'the narrative may not contradict the parties list',
-  /THE NARRATIVE MUST AGREE WITH `parties`/.test(apiSrc),
+  /THE NARRATIVE MUST AGREE WITH `parties`/.test(aiSrc),
   'a headline naming the buyer as seller inverts ownership',
 );
 // Thinking is billed against max_tokens; on a 14 MB deed it alone exceeded the
 // old 8000 ceiling and the JSON was cut off mid-object.
 check(
   'the token ceiling leaves room for reasoning AND the answer',
-  !/"max_tokens": 8000/.test(apiSrc) && /"max_tokens": 16000/.test(apiSrc),
+  !/"max_tokens": 8000/.test(aiSrc) && /"max_tokens": 16000/.test(aiSrc),
 );
 check(
   'running out of room retries before failing',
-  /retrying with lower effort/.test(apiSrc),
+  /retrying with lower effort/.test(aiSrc),
 );
 
 // ── A plausibility check that does not gate the write is decoration ──────
@@ -960,6 +965,72 @@ check(
   'the Swift tests read the vectors rather than a copy',
   existsSync(join(ROOT, 'apps/ios/PattadarKit/Tests/PattadarKitTests/Vectors')),
   'a second copy of the vectors defeats the whole mechanism',
+);
+
+// ── Web360 tab height and scroll ownership ───────────────────────────────
+// Every active record/combined tab declares its layout contract at the frame.
+// The runtime geometry is browser-tested; these guards stop the structural
+// regressions that caused it: guessed viewport subtraction, nested main
+// landmarks, a clipped mobile stack, or a heading trapped in one split column.
+const recordFrame = code('apps/web/src/w360/pages/Record.tsx');
+const combinedFrame = code('apps/web/src/w360/pages/CombinedProperty.tsx');
+const ownerChain = code('apps/web/src/w360/pages/OwnerChain.tsx');
+const boundaryTab = code('apps/web/src/w360/pages/RecordBoundary.tsx');
+const moneyTab = code('apps/web/src/w360/pages/RecordMoney.tsx');
+const papersTab = code('apps/web/src/w360/pages/RecordPapers.tsx');
+const webCss = code('apps/web/src/w360/w360.css');
+const recordTabBlock = code('apps/web/src/w360/pages/RecordHead.tsx')
+  .split('export const TABS')[1]?.split('= [')[1]?.split('];')[0] ?? '';
+const combinedTabBlock = combinedFrame
+  .split('export const COMBINED_TABS')[1]?.split('= [')[1]?.split('];')[0] ?? '';
+
+check(
+  'record tabs declare document, viewport, or split-instrument layout',
+  /data-tab-layout=\{layout\}/.test(recordFrame)
+    && /tab\.to === 'map' \? 'split-instrument'/.test(recordFrame)
+    && /tab\.to === 'photos' \|\| tab\.to === 'people' \? 'viewport' : 'document'/.test(recordFrame),
+);
+check(
+  'combined tabs declare the same layout contract',
+  /data-tab-layout=\{layout\}/.test(combinedFrame)
+    && /tab\?\.to === 'fmb' \? 'split-instrument' : 'document'/.test(combinedFrame),
+);
+check(
+  'the active tab inventories stay complete',
+  (recordTabBlock.match(/\bto:/g) ?? []).length === 9
+    && (combinedTabBlock.match(/\bto:/g) ?? []).length === 6,
+  'there must be nine Record tabs and six Combined tabs',
+);
+check(
+  'People chain fills the viewport without a duplicate deed list',
+  !/useViewportHeight|window\.innerHeight\s*-|viewportHeight\s*-|ownerchain-deeds/.test(ownerChain)
+    && !/ownerchain-deeds/.test(webCss)
+    && /--chain-content-height/.test(ownerChain)
+    && /people-owners\.chain > \.ownerchain/.test(webCss)
+    && /flex: 1 1 20rem/.test(webCss),
+);
+check(
+  'tab instruments use frame flex space, never guessed header subtraction',
+  !/calc\(100v(?:h|dvh) - (?:13|26|28)rem\)/.test(webCss)
+    && /main\[data-tab-layout='viewport'\] > \.lightbox/.test(webCss)
+    && /main\[data-tab-layout='split-instrument'\] > \.split/.test(webCss),
+);
+check(
+  'record tabs never nest another main landmark while loading',
+  !/<main>[\s\S]{0,80}<Loading/.test(boundaryTab)
+    && !/<main>[\s\S]{0,80}<Failed/.test(boundaryTab)
+    && !/<main>[\s\S]{0,80}<Loading/.test(moneyTab)
+    && !/<main>[\s\S]{0,80}<Failed/.test(moneyTab),
+);
+check(
+  'Papers heading precedes its two-column split',
+  papersTab.indexOf('<SectionHead') >= 0
+    && papersTab.indexOf('<SectionHead') < papersTab.indexOf('className={`split'),
+);
+check(
+  'Media comparison returns to document flow on narrow screens',
+  /@media \(max-width: 900px\)[\s\S]{0,180}\.w360 \.media-compare \{[\s\S]{0,140}height: auto;[\s\S]{0,80}overflow: visible;/.test(webCss),
+  'a fixed-height overflow-hidden parent clips the second comparison pane',
 );
 
 console.log(failures === 0 ? 'UX GUARDS PASS' : `UX GUARDS FAILED (${failures})`);

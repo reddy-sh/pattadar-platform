@@ -15,7 +15,7 @@ export function LoadFailed({ what, onRetry }: { what: string; onRetry: () => voi
       <EmptyState
         icon={<CloudOffOutlinedIcon />}
         title={`${what} could not be loaded`}
-        description="Nothing has been lost — the app could not reach the server. Your records are untouched."
+        description="Check your connection and try again."
         action={
           <Button variant="contained" onClick={onRetry}>
             Try again

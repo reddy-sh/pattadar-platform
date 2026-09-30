@@ -79,3 +79,12 @@ output "github_deploy_role_arn" {
 output "github_governance_role_arn" {
   value = module.persistent.github_governance_role_arn
 }
+output "village_maps_bucket_name" {
+  value = module.persistent.village_maps_bucket_name
+}
+output "village_maps_bucket_arn" {
+  value = module.persistent.village_maps_bucket_arn
+}
+output "village_maps_bucket_regional_domain_name" {
+  value = module.persistent.village_maps_bucket_regional_domain_name
+}

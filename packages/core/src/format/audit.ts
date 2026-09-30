@@ -32,8 +32,10 @@ const ACTION_LABELS: Record<string, string> = {
   reclassify_document: 'Changed a document type',
   create_property: 'Added a property',
   delete_property: 'Deleted a property',
-  archive_record: 'Archived a record',
-  tag_record: 'Tagged a record',
+  // Owners count properties; "record" is for the members of a combined view
+  // (design.md § App vocabulary).
+  archive_record: 'Archived a property',
+  tag_record: 'Tagged a property',
   create_group: 'Created a group',
   delete_group: 'Deleted a group',
   add_member: 'Added a member',
@@ -57,13 +59,74 @@ const ACTION_LABELS: Record<string, string> = {
   parcel_from_document: 'Created a parcel from a document',
   delete_notification: 'Dismissed a notification',
   add_parcel: 'Added a parcel',
+  set_pin: 'Set a location',
+  set_boundary: 'Saved a boundary',
+  // W360 — what a property's own tabs write (services/api web360.py `_audit`).
+  // The property's Activity tab and Account → Activity both word events from
+  // this one table. Verb first, then "a"/"an" and the noun, so
+  // countedActionLabel can count a burst ("Added 3 site features"); a label
+  // with no article after the verb counts as "×3" instead.
+  add_person: 'Added someone',
+  update_person: "Edited someone's details",
+  delete_person: 'Removed someone',
+  add_owner: 'Added an owner',
+  update_owner: 'Edited an owner',
+  delete_owner: 'Removed an owner',
+  add_transfer: 'Added a transfer',
+  update_transfer: 'Edited a transfer',
+  delete_transfer: 'Removed a transfer',
+  add_transfer_party: 'Named someone on a transfer',
+  update_transfer_party: 'Edited someone on a transfer',
+  remove_transfer_party: 'Took someone off a transfer',
+  link_transfer_prior: 'Linked transfers in the chain',
+  add_feature: 'Added a site feature',
+  update_feature: 'Edited a site feature',
+  delete_feature: 'Removed a site feature',
+  add_feature_cost: 'Recorded a site feature cost',
+  add_expense: 'Recorded a cost',
+  delete_expense: 'Removed a cost',
+  add_paper: 'Filed a document',
+  update_paper: 'Updated a document',
+  delete_paper: 'Removed a document',
+  add_photo: 'Added a photo',
+  delete_photo: 'Removed a photo',
+  set_cover_photo: 'Set the cover photo',
+  add_purchase: 'Recorded a purchase',
+  update_purchase: 'Corrected a purchase',
+  delete_purchase: 'Removed a purchase',
+  'record.corrected': 'Corrected a field',
+  create_combined_property: 'Created a combined view',
+  update_combined_property: 'Edited a combined view',
+  delete_combined_property: 'Deleted a combined view',
+  set_combined_members: 'Changed who is in a combined view',
+  add_combined_expense: 'Recorded a combined view cost',
+  delete_combined_expense: 'Removed a combined view cost',
+  add_joint_fmb: 'Filed a joint FMB',
+  // audit_events_v2 names its actions `area.verb`. Owners see "order", never
+  // "ticket" or "job" (design.md, App vocabulary). Money verbs follow the
+  // wallet's own words — Held, Released — and never say "paid" while online
+  // payment is a stub.
+  'service.batch_ordered': 'Ordered services',
+  'service.batch_duplicate_blocked': 'Stopped a duplicate order',
+  'service.duplicate_blocked': 'Stopped a duplicate order',
+  'ticket.dispatched': 'Sent an order to a provider',
+  'ticket.funded': 'Held money for an order',
+  'ticket.accepted': 'Accepted the work on an order',
+  'ticket.sent_back': 'Asked for changes on an order',
+  'ticket.cancelled': 'Cancelled an order',
+  'payment.captured': 'Payment received',
+  'account.export': 'Exported your data',
+  'account.erasure_requested': 'Asked to delete your account',
+  'consent.updated': 'Updated your consent',
 };
 
 export function actionLabel(action: string): string {
   return (
     ACTION_LABELS[action] ||
     String(action || '')
-      .replace(/_/g, ' ')
+      // `service.batch_ordered` must not reach the screen as "Service.batch
+      // ordered": the dot is a separator like the underscore.
+      .replace(/[_.]/g, ' ')
       .replace(/^\w/, (c) => c.toUpperCase())
   );
 }

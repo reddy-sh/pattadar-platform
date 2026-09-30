@@ -1,4 +1,4 @@
-"""Conservative AST policy for single-purpose public capability mutations."""
+"""Conservative AST policy for single-purpose public capability operations."""
 import json
 
 from graphql import parse
@@ -19,7 +19,9 @@ def is_public_verification(body: bytes) -> bool:
         operations = [n for n in document.definitions if isinstance(n, OperationDefinitionNode)]
         # A public credential can execute one mutation. Reject batches and
         # multiple operation documents rather than guessing which gets run.
-        if len(operations) != 1 or operations[0].operation != OperationType.MUTATION:
+        # The one public query is the invitation preview, which returns only
+        # who invited you and for what (growth.preview).
+        if len(operations) != 1 or operations[0].operation not in (OperationType.MUTATION, OperationType.QUERY):
             return False
         operation = operations[0]
         requested = payload.get("operationName")
@@ -52,7 +54,8 @@ def is_public_verification(body: bytes) -> bool:
                     raise ValueError("More than one root field")
             return fields
 
-        public_roots = {"verifyBeneficiary", "acknowledgeInactivity"}
+        public_roots = ({"invitePreview"} if operation.operation == OperationType.QUERY
+                        else {"verifyBeneficiary", "acknowledgeInactivity"})
         fields = roots(operation.selection_set)
         return len(fields) == 1 and fields[0] in public_roots
     except (ValueError, TypeError, RecursionError):

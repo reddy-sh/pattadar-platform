@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { courses, campuses } from '../src/data/catalog';
 import { stateLearningGuideByCode } from '../src/data/stateGuideContent';
-import { stateLandRecordProfiles } from '../src/data/stateLandRecords';
+import { publishedStateLandRecordProfiles } from '../src/data/stateLandRecords';
 import {
   buildStateDirectoryStructuredData,
   buildStateGuideStructuredData,
@@ -44,8 +44,8 @@ function metadata(title: string, description: string, path: string, structuredDa
   ].join('\n    ');
 }
 
-function renderStateSnapshot(code: (typeof stateLandRecordProfiles)[number]['code']): string {
-  const profile = stateLandRecordProfiles.find((item) => item.code === code)!;
+function renderStateSnapshot(code: (typeof publishedStateLandRecordProfiles)[number]['code']): string {
+  const profile = publishedStateLandRecordProfiles.find((item) => item.code === code)!;
   const guide = stateLearningGuideByCode(code);
   return `<div id="root">
     <main class="page-shell state-guide-page seo-snapshot">
@@ -84,9 +84,9 @@ function renderStateSnapshot(code: (typeof stateLandRecordProfiles)[number]['cod
 function renderDirectorySnapshot(): string {
   return `<div id="root">
     <main class="page-shell state-directory-page seo-snapshot">
-      <h1>India state and union territory land-record guides</h1>
-      <p>Government-sourced learning guides for all 28 Indian states and 8 union territories.</p>
-      <ul>${stateLandRecordProfiles.map((profile) => `<li><a href="/states/${escapeHtml(profile.slug)}">${escapeHtml(profile.name)} land records</a> - ${escapeHtml(profile.primaryRecordLabel)}</li>`).join('')}</ul>
+      <h1>Andhra Pradesh and Telangana land-record guides</h1>
+      <p>Government-sourced learning guides for the two reviewed launch states.</p>
+      <ul>${publishedStateLandRecordProfiles.map((profile) => `<li><a href="/states/${escapeHtml(profile.slug)}">${escapeHtml(profile.name)} land records</a> - ${escapeHtml(profile.primaryRecordLabel)}</li>`).join('')}</ul>
     </main>
   </div>`;
 }
@@ -114,13 +114,16 @@ async function write(relativePath: string, content: string) {
 
 const sitemapEntries = [
   { path: '/', lastmod: '2026-09-20' },
+  { path: '/pathways', lastmod: '2026-09-29' },
+  { path: '/credentials', lastmod: '2026-09-29' },
   { path: '/states', lastmod: '2026-09-20' },
+  { path: '/locations', lastmod: '2026-09-30' },
   { path: '/learn', lastmod: '2026-09-20' },
   { path: '/opportunities', lastmod: '2026-09-20' },
   { path: '/compliance', lastmod: '2026-09-20' },
   ...courses.map((course) => ({ path: `/courses/${course.slug}`, lastmod: '2026-09-20' })),
-  ...campuses.map((campus) => ({ path: `/locations/${campus.slug}`, lastmod: '2026-09-20' })),
-  ...stateLandRecordProfiles.map((profile) => ({ path: `/states/${profile.slug}`, lastmod: profile.reviewedOn })),
+  ...campuses.map((campus) => ({ path: `/locations/${campus.slug}`, lastmod: campus.slug === 'markapuram' ? '2026-09-30' : '2026-09-20' })),
+  ...publishedStateLandRecordProfiles.map((profile) => ({ path: `/states/${profile.slug}`, lastmod: profile.reviewedOn })),
 ];
 
 const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -141,12 +144,12 @@ const llms = `# Pattadar University
 
 Pattadar University is an educational property and land-record literacy product for India.
 
-## State and union territory guides
+## Reviewed state guides
 
-The jurisdiction library covers all 28 states and 8 union territories. Each guide explains local record names, official access, mutation, survey and map use, registration boundaries, evidence limits, and source-review status. External references are restricted to government domains.
+The initial jurisdiction library covers Andhra Pradesh and Telangana. Each reviewed guide explains local record names, official access, mutation, survey and map use, registration boundaries, evidence limits, and source-review status. External references are restricted to government domains.
 
-- [India jurisdiction library](${universitySiteUrl}/states)
-${stateLandRecordProfiles.map((profile) => `- [${profile.name} land records](${universitySiteUrl}/states/${profile.slug})`).join('\n')}
+- [Reviewed jurisdiction library](${universitySiteUrl}/states)
+${publishedStateLandRecordProfiles.map((profile) => `- [${profile.name} land records](${universitySiteUrl}/states/${profile.slug})`).join('\n')}
 
 ## Important boundary
 
@@ -162,8 +165,8 @@ await Promise.all([
 
 if (isDistribution) {
   const template = await readFile(resolve(outputDirectory, 'index.html'), 'utf8');
-  const directoryTitle = 'India Land Records by State and Union Territory | Pattadar University';
-  const directoryDescription = 'Official land-record guides for all 28 Indian states and 8 union territories, including local record names, mutation, maps, registration, and evidence limits.';
+  const directoryTitle = 'Andhra Pradesh and Telangana Land Records | Pattadar University';
+  const directoryDescription = 'Government-sourced land-record learning guides for Andhra Pradesh and Telangana, including revenue records, mutation, maps, registration, and evidence limits.';
 
   await write(
     'states/index.html',
@@ -177,7 +180,7 @@ if (isDistribution) {
     ),
   );
 
-  await Promise.all(stateLandRecordProfiles.map(async (profile) => {
+  await Promise.all(publishedStateLandRecordProfiles.map(async (profile) => {
     const guide = stateLearningGuideByCode(profile.code);
     await write(
       `states/${profile.slug}/index.html`,

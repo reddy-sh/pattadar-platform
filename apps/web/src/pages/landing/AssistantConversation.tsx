@@ -26,9 +26,8 @@
  * COPY IS BYTE-FROZEN — strings come from landingContent.ts.
  */
 import { useEffect, useRef, useState } from 'react';
-import DriveFolderUploadOutlinedIcon from '@mui/icons-material/DriveFolderUploadOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import { AI } from './landingContent';
 import { prefersReducedMotion } from './sceneKit';
 
@@ -81,15 +80,16 @@ export function AssistantConversation() {
         ))}
       </div>
 
-      {/* "Acts, not just talks" — the last answer promises to open the record
-       * and ready the Files section, so the opening is shown. Decorative: the
-       * message above it has already said so in words. */}
+      {/* The sample answer opens the named record, not a generic progress bar. */}
       <div className="assistant__act" aria-hidden="true">
-        <DriveFolderUploadOutlinedIcon />
-        <span className="assistant__track">
-          <span className="assistant__fill" />
+        <span className="assistant__act-icon">
+          <DescriptionOutlinedIcon />
         </span>
-        <TaskAltOutlinedIcon className="assistant__done" />
+        <span className="assistant__act-copy">
+          <strong>{AI.openedRecord.title}</strong>
+          <span>{AI.openedRecord.detail}</span>
+        </span>
+        <span className="assistant__act-state">{AI.openedRecord.state}</span>
       </div>
     </div>
   );

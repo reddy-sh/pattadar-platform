@@ -149,7 +149,7 @@ const modal = (page: Pg) => page.locator('[role="dialog"], .dialog');
  * The words a screen may not say while the payments provider is a stub.
  *
  * "charged" is stripped out of the honest sentences first, deliberately: the
- * copy this rule exists to protect is "Recorded, not charged", and a regex
+ * copy this rule exists to protect is "Not charged", and a regex
  * that forbids the word outright fails the page that tells the truth and
  * passes the page that says nothing at all.
  */
@@ -185,7 +185,7 @@ test.describe('W360 · a ticket tracks itself', () => {
     // depends on twice over, so that a change made in the name of the ticket
     // page cannot quietly remove the panel it expands.
     await page.goto(`/app/records/${PARCEL}/services`);
-    await page.getByRole('button', { name: 'Track order' }).first().click();
+    await page.getByRole('button', { name: 'Track' }).first().click();
     await expect(page.getByRole('button', { name: 'Hide' })).toBeVisible();
   });
 
@@ -197,7 +197,7 @@ test.describe('W360 · a ticket tracks itself', () => {
     // say it, so first() rather than a count.
     await expect(page.getByText('G. Srinivas').first()).toBeVisible();
 
-    const trail = page.locator('.card').filter({ hasText: 'Everything that happened' }).first();
+    const trail = page.locator('.card').filter({ hasText: 'Order activity' }).first();
     await expect(trail).toContainText('You put G. Srinivas on it');
     await expect(trail).toContainText('Work came back');
 
@@ -214,7 +214,7 @@ test.describe('W360 · a ticket tracks itself', () => {
 
     await expect(page.getByText(/Nothing has happened for \d+ days/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send it again' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Cancel this job' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel this order' }).first()).toBeVisible();
     expect(errors).toEqual([]);
   });
 });
@@ -236,7 +236,7 @@ test.describe.serial('W360 · sending a ticket out', () => {
     const errors = await watchConsole(page);
     await page.goto(`/app/tickets/${ticket.id}`);
 
-    await page.getByRole('button', { name: 'Send this to someone' }).click();
+    await page.getByRole('button', { name: 'Share this order' }).click();
     await page.getByLabel('Their name').fill('E2E Surveyor');
     await page.getByLabel('Email or phone').fill('surveyor@example.com');
     await page.getByLabel('Send it by').selectOption('email');
@@ -437,7 +437,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
     await page.goto(`/app/tickets/${T2101}`);
 
     // The headline and the empty ledger both say it; the headline is first.
-    await expect(page.getByText('Nothing set aside yet').first()).toBeVisible();
+    await expect(page.getByText('Nothing held yet').first()).toBeVisible();
     // Enabled, and it really writes. A disabled control here would make the
     // whole prototype untestable, and an honest "Not charged" row is more
     // truthful than a button that lies about being clickable.
@@ -450,7 +450,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
     await page.goto(`/app/tickets/${T2101}`);
     await page.getByRole('button', { name: /^Set ₹1,180 aside$/ }).click();
 
-    await expect(page.getByText('₹1,180 set aside for this job')).toBeVisible();
+    await expect(page.getByText('₹1,180 held for this order')).toBeVisible();
     await expect(page.getByText('Not charged').first()).toBeVisible();
     await assertNoChargeClaimed(page);
 
@@ -488,7 +488,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
     await expect(page.getByText('Payments are not switched on yet.')).toBeVisible();
 
     const strip = page.locator('.strip');
-    await expect(strip.locator('div').filter({ hasText: /Set aside on jobs/i }).first())
+    await expect(strip.locator('div').filter({ hasText: /Held for orders/i }).first())
       .toContainText('₹8,600');
     await expect(strip.locator('div').filter({ hasText: /Gone out/i }).first())
       .toContainText('₹1,150');
@@ -537,7 +537,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
     await page.goto(`/app/tickets/${ticket.id}`);
 
     await page.getByRole('button', { name: /^Set ₹2,900 aside$/ }).click();
-    await expect(page.getByText('₹2,900 set aside for this job')).toBeVisible();
+    await expect(page.getByText('₹2,900 held for this order')).toBeVisible();
     await assertNoChargeClaimed(page);
 
     // Email, WhatsApp and SMS in turn. The channel is a choice the owner
@@ -549,7 +549,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
       ['E2E Caretaker', '+919848055512', 'sms', '+91 98••• ••512'],
     ];
     for (const [name, contact, channel, masked] of sends) {
-      await page.getByRole('button', { name: 'Send this to someone' }).click();
+      await page.getByRole('button', { name: 'Share this order' }).click();
       await page.getByLabel('Their name').fill(name);
       await page.getByLabel('Email or phone').fill(contact);
       await page.getByLabel('Send it by').selectOption(channel);
@@ -764,10 +764,10 @@ test.describe.serial('W360 · a job that goes wrong gives the money back', () =>
     await page.goto(`/app/tickets/${t.id}`);
     // Cancelling is behind the kebab, not on the page: closing a job somebody
     // is working on is not a thing to have under the cursor by accident.
-    await fromKebab(page, t.ref, 'Cancel this job');
+    await fromKebab(page, t.ref, 'Cancel this order');
     const dialog = modal(page);
     await dialog.getByLabel('Why').fill('E2E unsigned and undated');
-    await dialog.getByRole('button', { name: 'Cancel this job' }).click();
+    await dialog.getByRole('button', { name: 'Cancel this order' }).click();
 
     await expect(page.getByText('Cancelled').first()).toBeVisible();
     await assertNoChargeClaimed(page);

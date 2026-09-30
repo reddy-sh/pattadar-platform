@@ -6,16 +6,18 @@ export function Footer() {
       <div className="page-shell site-footer__inner">
         <div>
           <strong className="site-footer__wordmark">Pattadar University</strong>
-          <p>Property learning, verified skills, and supervised work paths.</p>
+          <p>Property learning and supervised skills paths.</p>
         </div>
         <div className="site-footer__links">
           <Link to="/">Course catalog</Link>
+          <Link to="/pathways">Learning pathways</Link>
+          <Link to="/credentials">Certificates</Link>
           <Link to="/compliance">Training coverage</Link>
           <Link to="/states">State guides</Link>
           <Link to="/opportunities">Work paths</Link>
-          <Link to="/locations/hyderabad">Learning centres</Link>
+          <Link to="/locations">Learning hubs</Link>
         </div>
-        <p className="site-footer__legal">Pattadar credentials are industry learning records unless a course explicitly identifies an external authority.</p>
+        <p className="site-footer__legal">Completion downloads are previews. Verified credentials require review and issuance.</p>
       </div>
     </footer>
   );

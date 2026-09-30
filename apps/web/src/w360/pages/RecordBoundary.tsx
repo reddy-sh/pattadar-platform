@@ -7,7 +7,7 @@
  *
  *  The map supports either streets or satellite imagery, with measurements
  *  independent of the chosen basemap. */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import GpsFixedOutlined from '@mui/icons-material/GpsFixedOutlined';
@@ -19,19 +19,24 @@ import OpenInNewOutlined from '@mui/icons-material/OpenInNewOutlined';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import StraightenOutlined from '@mui/icons-material/StraightenOutlined';
 import MyLocationOutlined from '@mui/icons-material/MyLocationOutlined';
+import FitScreenOutlined from '@mui/icons-material/FitScreenOutlined';
 import FullscreenOutlined from '@mui/icons-material/FullscreenOutlined';
 import {
-  checkLocation, compassPoint, formatDistance, formatExtent, haversineKm, mapsAppFor,
+  checkLocation, compassPoint, formatDistance, haversineKm, mapsAppFor,
   mapsAppName, mapsLink, parseBoundaryFile, placeCandidates, ringAreaSqM, ringCentroid,
   ringPerimM, ringSides, cornerLabel, LENGTH_FT, SQ_M_PER_ACRE, toBoundaryGeoJson,
-  boundaryFileName,
+  boundaryFileName, ringFromFmbGeometry,
 } from '@pattadar/core';
 
 import {
   useBoundary, useAcceptMark, useAddMark, useDeleteMark, useSetPin, useSetBoundary,
-  useUpdateMark, useMarksFromBoundary, useMoveMark,
+  useUpdateMark, useMarksFromBoundary, useMoveMark, useAddPaper,
 } from '../api';
-import { Card, Failed, KV, Loading, Menu, coords, num, pairs } from '../ui';
+import { Card, Failed, KV, Loading, Menu, StatusChip, coords, num, pairs, useNarrow } from '../ui';
+import { BoundaryMeasurementsCard } from '../BoundaryMeasurementsCard';
+import { ConfirmDialog } from './PropertyActions';
+import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
+import { getFmbState, runFmbUpload, subscribeFmb } from '../fmbUpload';
 import { MapCanvas } from '../MapCanvasLazy';
 import type { Basemap, MapHandle } from '../MapCanvasLazy';
 import { useRecordCtx } from './Record';
@@ -76,6 +81,16 @@ export function RecordBoundary() {
   const [naming, setNaming] = useState<
     { at?: [number, number]; id?: string; label: string; detail: string } | null>(null);
   const saveRing = useSetBoundary();
+  const filePaper = useAddPaper(false);
+  const fmbInput = useRef<HTMLInputElement>(null);
+  // The FMB run lives OUTSIDE this component (fmbUpload.ts), keyed by record,
+  // so its progress survives leaving and returning to this tab and its paid
+  // read is never cancelled by an unmount. This subscribes to that state.
+  const fmbSub = useCallback((fn: () => void) => subscribeFmb(rec.id, fn), [rec.id]);
+  const fmbSnap = useCallback(() => getFmbState(rec.id), [rec.id]);
+  const fmb = useSyncExternalStore(fmbSub, fmbSnap, fmbSnap);
+  // A completed reading is turned into a boundary draft exactly once.
+  const fmbApplied = useRef<unknown>(null);
   // One editing mode at a time: arming two ways to interpret a map click is
   // how you end up placing a pin while trying to drop a corner.
   const [mode, setMode] = useState<'idle' | 'pin' | 'draw' | 'mark' | 'move-mark'>('idle');
@@ -101,6 +116,18 @@ export function RecordBoundary() {
   const draftAcres = useMemo(
     () => (draft.length >= 3 ? ringAreaSqM(draft) / SQ_M_PER_ACRE : 0), [draft]);
 
+  /** "Move the pin" places a draft first, the way drawing does, and "Save
+   *  pin" in the edit bar writes it. One click on the map used to move the
+   *  record's pin at once, with nothing to confirm and nothing to undo. */
+  const [pinDraft, setPinDraft] = useState<[number, number] | null>(null);
+  /** A write that replaces saved geometry, asked about first: withdrawing the
+   *  boundary, or adopting a village-map plot over one already saved. */
+  const [asking, setAsking] = useState<null | { kind: 'remove' } | {
+    kind: 'replace'; lp: string; ring: Array<[number, number]>;
+  }>(null);
+  /** On a phone the tools fold behind one "Changes the record" button. */
+  const [toolsOpen, setToolsOpen] = useState(false);
+
   const stopEditing = () => {
     pendingRead.current += 1;
     setBusy('');
@@ -108,6 +135,7 @@ export function RecordBoundary() {
     setDraft([]);
     setDraftSource('');
     setMovingMark(null);
+    setPinDraft(null);
   };
   useEffect(() => () => { pendingRead.current += 1; }, [rec.id]);
 
@@ -123,7 +151,7 @@ export function RecordBoundary() {
         if (currentRecord.current !== rec.id) return;
         const result = (res as { web?: { addMark?: string; updateMark?: boolean } })?.web;
         if (!(naming.id ? result?.updateMark : result?.addMark)) {
-          setPinErr('That mark could not be saved to this record.');
+          setPinErr('That mark could not be saved to this property.');
           return;
         }
         setNaming(null);
@@ -175,24 +203,26 @@ export function RecordBoundary() {
   };
   const deleteMark = (markId: string) => {
     if (remove.isPending) return;
-    setPinErr('');
+    setKillErr('');
     remove.mutate({ markId }, {
       onSuccess: (res) => {
-        if (!res.web.deleteMark) setPinErr('That mark could not be deleted.');
+        if (!res.web.deleteMark) setKillErr('That mark could not be deleted. It is still on this property.');
         else setKilling(null);
       },
-      onError: (e) => setPinErr(
-        e instanceof Error ? e.message : 'That mark could not be deleted.'),
+      onError: (e) => setKillErr(
+        e instanceof Error ? e.message : 'That mark could not be deleted. It is still on this property.'),
     });
   };
   /** The mark that has been asked about but not yet destroyed.
    *
    *  A mark is a stone somebody walked to, noted and photographed, and the
    *  delete sat directly on a kebab item — one mis-tap and it was gone, with
-   *  no undo and nothing to say so. Every other destructive action on these
-   *  screens asks first; this is the photo gallery's inline Yes/Keep pair,
-   *  which is the lightest of them and the right weight for a row. */
+   *  no undo and nothing to say so. It asks in the shared confirmation now,
+   *  the same one every other removal on the property uses (it was an inline
+   *  "Yes, delete it" / "Keep it" pair, a fourth wording for one question),
+   *  and the dialog holds its own answer until the server gives one. */
   const [killing, setKilling] = useState<string | null>(null);
+  const [killErr, setKillErr] = useState('');
 
   const [copied, setCopied] = useState(false);
 
@@ -214,10 +244,12 @@ export function RecordBoundary() {
     );
   };
 
-  const saveDraft = (pts: Array<[number, number]>, note: string) => {
+  /** `onDone` hears whether the save landed, so a confirmation that started it
+   *  can stay open until the server answers and close only on a true one. */
+  const saveDraft = (pts: Array<[number, number]>, note: string, onDone?: (ok: boolean) => void) => {
     if (saveRing.isPending) return;
     const checked = pts.length ? checkBoundaryDraft(pts) : { ring: [], error: '' };
-    if (checked.error) { setPinErr(checked.error); return; }
+    if (checked.error) { setPinErr(checked.error); onDone?.(false); return; }
     setPinErr('');
     setBusy(note);
     saveRing.mutate(
@@ -229,7 +261,12 @@ export function RecordBoundary() {
           // The mutation answers false when the record is not the caller's or
           // the ring is not land; a silent no-op would look like a save.
           const ok = (res as { web?: { setBoundary?: boolean } })?.web?.setBoundary;
-          if (ok !== true) { setPinErr('That boundary could not be saved to this record.'); return; }
+          if (ok !== true) {
+            setPinErr('That boundary could not be saved to this property.');
+            onDone?.(false);
+            return;
+          }
+          onDone?.(true);
           setPlot(null);
           setPinnedSide(null);
           setPinnedCorner(null);
@@ -257,6 +294,7 @@ export function RecordBoundary() {
           if (currentRecord.current !== rec.id) return;
           setBusy('');
           setPinErr(e instanceof Error ? e.message : 'The boundary did not save. Try again.');
+          onDone?.(false);
         },
       },
     );
@@ -290,7 +328,63 @@ export function RecordBoundary() {
       if (request === pendingRead.current) setBusy('');
     }
   };
+
+  /** Upload an FMB / survey sheet (a PDF or a photograph of the paper).
+   *
+   *  The actual work — hash, reject a duplicate, upload, file in Papers, read —
+   *  runs in the record-keyed store (fmbUpload.ts), NOT here, so it survives
+   *  leaving this tab and its paid read is never cancelled by an unmount. This
+   *  only validates the pick and hands the file to that runner; the effect
+   *  below turns a finished reading into a boundary draft.
+   *
+   *  Deliberately separate from readFile (KML/GeoJSON): those are text the
+   *  client parses; an FMB is a document the reader has to look at. */
+  const uploadFmb = (file: File | undefined) => {
+    if (!file || saveRing.isPending || fmb.busy) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setPinErr(`${file.name} is ${mb(file.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)}.`);
+      return;
+    }
+    setPinErr('');
+    void runFmbUpload(rec.id, file, (node) => filePaper.mutateAsync({
+      recordId: rec.id, fileRef: node.id, name: node.name || 'FMB sheet',
+      subtitle: 'FMB / survey sheet', shelf: 'map', pageCount: 0,
+      mimeType: node.mimeType, sizeBytes: node.sizeBytes,
+    }).then(() => undefined));
+  };
+
+  // When the durable FMB run finishes, turn its reading into a boundary draft
+  // (once), or surface its message. Runs whenever this tab is showing the
+  // finished result — including on remount, so a read completed while the owner
+  // was on another tab is reflected the moment they come back.
+  useEffect(() => {
+    if (fmb.busy) return;
+    if (fmb.message) { setPinErr(fmb.message); return; }
+    if (!fmb.reading || fmbApplied.current === fmb.reading) return;
+    fmbApplied.current = fmb.reading;
+    const ring = pairs(ringFromFmbGeometry(fmb.reading.geometry));
+    if (ring.length >= 3) {
+      const checked = checkBoundaryDraft(ring);
+      if (checked.error) { setPinErr(checked.error); return; }
+      setDraft(checked.ring);
+      setDraftSource('FMB sheet');
+      setImportPreview((v) => v + 1);
+      setMode('draw');
+      setPlot(null);
+      setVillageOn(false);
+      setPinnedSide(null);
+      setPinnedCorner(null);
+    } else {
+      setPinErr(
+        'The FMB is filed in Documents, but no survey corners could be read from it.');
+    }
+  }, [fmb.busy, fmb.reading, fmb.message]);
+
   const [satellite, setSatellite] = useState(true);
+  /** At ≤640px the head keeps only the one primary and its overflow menu:
+   *  Order a survey and Upload FMB move into the menu, where the head's three
+   *  buttons wrapped onto two rows above a map that then started lower. */
+  const narrow = useNarrow(640);
   // On by default. The lengths and the corner letters ARE the useful view of
   // a boundary — a bare outline on imagery tells you where the land is but
   // nothing about it — so the screen opens showing them rather than making
@@ -458,7 +552,9 @@ export function RecordBoundary() {
     // Three bands, because one sentence cannot cover 2% and 900%. Drift is
     // normal; a tenfold difference is a mistake, and calling that "worth a
     // look" would be the screen refusing to say what it can plainly see.
-    return { diff, pct, band: off <= 5 ? 'close' : off <= 25 ? 'check' : 'wrong' };
+    const band: 'close' | 'check' | 'wrong' = off <= 5
+      ? 'close' : off <= 25 ? 'check' : 'wrong';
+    return { diff, pct, band };
   }, [measure, rec.extent, rec.extentUnit]);
 
   /** The tip that opens on the selected side. Plain HTML rather than React:
@@ -645,8 +741,8 @@ export function RecordBoundary() {
     beginDrawing();
   }, [params, isLoading, data]);
 
-  if (isLoading) return <main><Loading h="70vh" what="this boundary" /></main>;
-  if (!data) return <main><Failed what="This boundary" error={error} boxed h="26rem" /></main>;
+  if (isLoading) return <Loading h="70vh" what="this boundary" />;
+  if (!data) return <Failed what="This boundary" error={error} boxed h="26rem" />;
 
   // The sketch is drawn in its own 0..1 space; marks sit on its corners in order.
 
@@ -659,6 +755,23 @@ export function RecordBoundary() {
 
   const editing = mode !== 'idle';
   const showMeasurements = measuring && surveyed && !editing;
+  /** Into the order flow at its survey step (see the comment on the head's
+   *  link, which the phone menu shares). */
+  const surveyOrder = `/app/records/${rec.id}/order?service=survey&step=pick&why=boundary`;
+  /** Why the tools, or the view chips, cannot be pressed right now — said in
+   *  text under the map, because a disabled control's title tooltip is
+   *  something touch never shows. '' when nothing is locked, or when the edit
+   *  bar is already saying what is happening. */
+  const lockedChips = [village && 'Village map', surveyed && 'Measure']
+    .filter((w): w is string => !!w);
+  const lockWhy = naming
+    ? 'Name the new mark in Boundary marks, or cancel it, to use the other tools.'
+    : saving && !busy
+      ? 'Saving — the tools come back when it is done.'
+      : editing && lockedChips.length
+        ? `${lockedChips.join(' and ')} ${lockedChips.length > 1 ? 'come' : 'comes'}`
+          + ' back when you finish or cancel.'
+        : '';
   const basemap: Basemap = satellite ? 'satellite' : 'street';
 
   const savePinAt = (lat: number, lon: number) => {
@@ -670,7 +783,7 @@ export function RecordBoundary() {
       onSuccess: (res) => {
         if (currentRecord.current !== rec.id) return;
         if ((res as { web?: { setPin?: boolean } })?.web?.setPin !== true) {
-          setPinErr('That pin could not be saved to this record.');
+          setPinErr('That pin could not be saved to this property.');
           return;
         }
         stopEditing();
@@ -686,35 +799,27 @@ export function RecordBoundary() {
   return (
     <>
       <SectionHead
-        title="Where this land is"
-        /* What the record knows about its own location, in the order it gets
-           known: a pin someone stood on, the corners around it, and the
-           village that is true even when neither of those exists. The place
-           line and the status pill moved up to the record header, which is
-           chrome on every hanger now — this screen used to restate both
-           because it was the only one that had them. */
+        title="Location & boundary"
+        /* What the record knows about its own location, broadest first: the
+           village that is true even when nothing else is, the boundary saved
+           around the land, and a pin someone stood on. "Saved", not
+           "surveyed": a drawn boundary is not an official survey. The place
+           line and the status pill live in the record header. */
         sub={(
           <>
             {[
-              pinned ? 'pin placed' : 'no pin',
-              surveyed ? 'boundary drawn' : 'no boundary',
-              rec.village ? 'village known' : 'village not recorded',
+              rec.village ? 'Village recorded' : 'Village not recorded',
+              surveyed ? 'Boundary saved' : 'No boundary',
+              pinned ? 'Pin set' : 'Pin not set',
             ].join(' · ')}
             {/* How a parcel is named out loud, for whoever opens a shared /map
                 link or is standing in a field deciding whether this is the
-                right one. */}
-            {[
-              rec.khataNo && `Khata ${rec.khataNo}`,
-              rec.extentDetail || `${num(rec.extent, 2)} ${rec.extentUnit}`,
-              rec.ownerName,
-            ].filter(Boolean).length > 0 && (
+                right one. Not the extent: that is told once on this tab, as
+                "On record" in Measurements (and in the frame's chip). */}
+            {[rec.khataNo && `Khata ${rec.khataNo}`, rec.ownerName].filter(Boolean).length > 0 && (
               <>
                 <br />
-                {[
-                  rec.khataNo && `Khata ${rec.khataNo}`,
-                  rec.extentDetail || `${num(rec.extent, 2)} ${rec.extentUnit}`,
-                  rec.ownerName,
-                ].filter(Boolean).join(' · ')}
+                {[rec.khataNo && `Khata ${rec.khataNo}`, rec.ownerName].filter(Boolean).join(' · ')}
               </>
             )}
           </>
@@ -731,6 +836,16 @@ export function RecordBoundary() {
             hidden
             onChange={(e) => { void readFile(e.target.files?.[0]); e.target.value = ''; }}
           />
+          {/* The FMB picker — a PDF or a photograph of the survey sheet. It is
+              filed in Papers and read for its corners; separate from the KML
+              picker above because it takes a document, not a coordinate file. */}
+          <input
+            ref={fmbInput}
+            type="file"
+            accept="application/pdf,image/*"
+            hidden
+            onChange={(e) => { void uploadFmb(e.target.files?.[0]); e.target.value = ''; }}
+          />
           {/* Into the order flow, not the old free-text /request?kind=survey
               form: a survey asked for from the map is the same catalogue order
               as one placed from Properties, and it has to be priced, reviewed
@@ -738,29 +853,40 @@ export function RecordBoundary() {
               this route knows that the flow does not — it writes "Asked for
               from the boundary screen" onto the order, so whoever picks it up
               knows the owner was looking at their own land when they asked. */}
-          <Link className="btn" to={`/app/records/${rec.id}/order?service=survey&step=pick&why=boundary`}>
-            <StraightenOutlined sx={{ fontSize: 16 }} /> Order a survey
-          </Link>
+          {!narrow && (
+            <Link className="btn" to={surveyOrder}>
+              <StraightenOutlined sx={{ fontSize: 16 }} /> Order a survey
+            </Link>
+          )}
 
-          {/* One primary, and it is the thing a record without a boundary
-              actually needs: the corner file a surveyor sent. The rest are
-              one-off errands — they belong behind the overflow rather than in
-              a row of seven that wraps onto two lines.
-
-              It read "File the FMB sheet" until it was held against the accept
-              list directly above. The picker takes a KML or a GeoJSON and
-              nothing else, so an owner holding the sheet in the form the survey
-              office issues it — a scan, a photograph — opened this and found
-              their own document greyed out, and forcing one through said only
-              that the file could not be read. The label now names the file the
-              picker will actually take; the paper itself is filed on the
-              record's Papers tab, which the sheet card below says out loud on
-              the records that have no sheet. */}
-          <button type="button" className="btn primary" disabled={!!busy || saving}
+          {/* Two pickers, each named for the file it takes and nothing else.
+              "Upload FMB" takes the sheet as the survey office issues it — a
+              PDF or a photograph — files it on this property's Documents tab
+              and reads its corners. "Import KML / GeoJSON" takes a coordinate
+              file a surveyor sent, and it is the one primary: it is what a
+              record without a boundary most often needs. It reads the same
+              words wherever it appears (it used to be "Import replacement
+              boundary" on the sheet card), and it steps down to outlined while
+              an edit is open, so the edit bar's own Save is the one fill. On a
+              phone "Upload FMB" and "Order a survey" move into the menu. */}
+          {!narrow && (
+            <button type="button" className="btn" disabled={!!busy || saving || fmb.busy}
+                    onClick={() => fmbInput.current?.click()}>
+              <UploadFileOutlined sx={{ fontSize: 16 }} /> {fmb.busy ? 'Reading FMB…' : 'Upload FMB'}
+            </button>
+          )}
+          <button type="button" className={editing ? 'btn' : 'btn primary'} disabled={!!busy || saving}
                   onClick={() => fileRef.current?.click()}>
             <UploadFileOutlined sx={{ fontSize: 16 }} /> Import KML / GeoJSON
           </button>
           <Menu label="More for this map" items={[
+            ...(narrow ? [
+              { label: 'Order a survey', onClick: () => nav(surveyOrder) },
+              {
+                label: fmb.busy ? 'Reading FMB…' : 'Upload FMB',
+                onClick: () => { if (!busy && !saving && !fmb.busy) fmbInput.current?.click(); },
+              },
+            ] : []),
             ...(surveyed ? [{
               label: 'Export GeoJSON',
               // Down, because it leaves the app. The pair of these is the one
@@ -812,15 +938,18 @@ export function RecordBoundary() {
               about. Up here the layers are chips and the tools are a panel
               that says out loud which of them write. */}
           <div className="maptools" onClick={(e) => e.stopPropagation()}>
-            <span className="row tight">
-              <button type="button" className="chip"
+            {/* View chips, washed when pressed: they change what you see, not
+                the record, so none of them takes the amber fill. On a phone
+                they scroll sideways in one row (`.mapchips`). */}
+            <span className="row tight mapchips">
+              <button type="button" className="chip wash"
                       aria-pressed={satellite}
                       title={satellite ? 'Show the street map' : 'Show satellite imagery'}
                       onClick={() => setSatellite((on) => !on)}>
                 Satellite
               </button>
               {village && (
-                <button type="button" className="chip" aria-pressed={villageOn}
+                <button type="button" className="chip wash" aria-pressed={villageOn}
                         disabled={editing}
                         title={editing ? 'Finish editing to choose a village plot' : `Every survey plot in ${village}`}
                         onClick={() => {
@@ -836,8 +965,10 @@ export function RecordBoundary() {
                   Village map
                 </button>
               )}
+              {/* The one control that shows and hides the measurements: the
+                  card no longer carries a × of its own. */}
               {surveyed && (
-                <button type="button" className="chip" aria-pressed={measuring}
+                <button type="button" className="chip wash" aria-pressed={measuring}
                         disabled={editing}
                         title={measuring
                           ? 'Hide measurements' : 'Show boundary measurements'}
@@ -854,7 +985,18 @@ export function RecordBoundary() {
                 Measure is deliberately NOT in here — it changes what you see
                 and nothing else, and a group headed "changes the record" has
                 to be true of every row in it. */}
-            <div className={`tools${mode === 'idle' ? '' : ' armed'}`}>
+            {/* On a phone the panel folds behind this one button, which is
+                hidden above 640px (`.tools-toggle`): three rows of tools, the
+                chips and the north rose all took the top of a 390px map. */}
+            {mode === 'idle' && (
+              <button type="button" className="btn sm tools-toggle"
+                      aria-expanded={toolsOpen} aria-controls="w360-maptools"
+                      onClick={() => setToolsOpen((open) => !open)}>
+                Changes the record
+              </button>
+            )}
+            <div id="w360-maptools"
+                 className={`tools${mode === 'idle' ? '' : ' armed'}${mode === 'idle' && !toolsOpen ? ' folded' : ''}`}>
               {/* Armed, the panel shrinks to the tool that is armed. It stands
                   on the map, and the next thing to happen is a click on the
                   map — a full menu sitting over the corner you meant to place
@@ -876,11 +1018,14 @@ export function RecordBoundary() {
               <button type="button" className={mode === 'pin' ? 'on' : ''}
                       aria-pressed={mode === 'pin'}
                       disabled={saving || !!busy || !!naming}
-                      onClick={() => { setPinErr(''); setDraft([]);
-                                       setPlot(null);
-                                       setMode((m) => (m === 'pin' ? 'idle' : 'pin')); }}>
+                      onClick={() => {
+                        if (mode === 'pin') { stopEditing(); return; }
+                        setPinErr(''); setDraft([]); setPinDraft(null);
+                        setPlot(null);
+                        setMode('pin');
+                      }}>
                 <GpsFixedOutlined sx={{ fontSize: 16 }} />
-                {setPin.isPending ? 'Saving…' : mode === 'pin' ? 'Click the map — or cancel' : 'Move the pin'}
+                {setPin.isPending ? 'Saving…' : mode === 'pin' ? 'Placing the pin — or cancel' : 'Move the pin'}
               </button>
               <button type="button" className={mode === 'draw' ? 'on' : ''}
                       aria-pressed={mode === 'draw'}
@@ -907,19 +1052,23 @@ export function RecordBoundary() {
             {pinErr && (
               <p className="nogeo low" role="alert" style={{ color: 'var(--w-danger)' }}>{pinErr}</p>
             )}
-            <p className="hint">
-              {mode === 'mark'
-                ? 'Click where the stone is. It is numbered in the order marks were added, and nothing is overwritten.'
-                : mode === 'move-mark'
-                ? `Click the corrected location for ${movingMark?.label || 'this mark'}. Its previous position is kept.`
-                : mode === 'pin'
-                ? 'Click where the land actually is — or use your current location if you are standing on it.'
-                : mode === 'draw'
-                  ? draftSource
-                    ? `Previewing ${draftSource}. Check the outline, then save it to this record.`
-                    : 'Click each corner in order. Drag a corner to adjust it, then save the outline.'
-                  : 'Add a named boundary mark, or choose “Move this mark” from its menu to correct its position.'}
-            </p>
+            {/* Why something cannot be pressed, in words (see `lockWhy`). */}
+            {lockWhy && <p className="note maplock" role="status">{lockWhy}</p>}
+            {mode !== 'idle' && (
+              <p className="hint">
+                {mode === 'mark'
+                  ? 'Click where the stone is.'
+                  : mode === 'move-mark'
+                  ? `Click the corrected location for ${movingMark?.label || 'this mark'}.`
+                  : mode === 'pin'
+                  ? (pinDraft
+                    ? 'Pin placed. Save it, or click again to move it.'
+                    : 'Click where the land is.')
+                  : draftSource
+                    ? `Previewing ${draftSource}.`
+                    : 'Click each corner in order.'}
+              </p>
+            )}
 
             {mode === 'draw' && draft.length >= 3 && draftCheck.error && (
               <p className="note" role="status" style={{ color: 'var(--w-danger)' }}>{draftCheck.error}</p>
@@ -946,7 +1095,10 @@ export function RecordBoundary() {
                             navigator.geolocation.getCurrentPosition(
                               (pos) => {
                                 if (request !== pendingRead.current) return;
-                                savePinAt(pos.coords.latitude, pos.coords.longitude);
+                                // A draft like a click on the map: the owner
+                                // sees where it lands, then saves it.
+                                setBusy('');
+                                setPinDraft([pos.coords.latitude, pos.coords.longitude]);
                               },
                               // Denied, unavailable, or timed out — all three are
                               // ordinary, and none of them should look like a bug.
@@ -962,6 +1114,13 @@ export function RecordBoundary() {
                             );
                           }}>
                     <MyLocationOutlined sx={{ fontSize: 15 }} /> Use my current location
+                  </button>
+                )}
+                {mode === 'pin' && (
+                  <button type="button" className="btn primary sm"
+                          disabled={!pinDraft || saving || !!busy}
+                          onClick={() => { if (pinDraft) savePinAt(pinDraft[0], pinDraft[1]); }}>
+                    {setPin.isPending ? 'Saving…' : 'Save pin'}
                   </button>
                 )}
 
@@ -989,11 +1148,13 @@ export function RecordBoundary() {
                       {saveRing.isPending ? 'Saving…' : 'Save boundary'}
                     </button>
                     {/* Withdrawing a wrong outline has to be as easy as drawing
-                        one, or the map fills up with shapes nobody trusts. */}
+                        one, or the map fills up with shapes nobody trusts —
+                        but it replaces saved geometry with nothing, and there
+                        is no undo, so it asks first. */}
                     {surveyed && (
-                      <button type="button" className="btn sm danger"
+                      <button type="button" className="btn sm danger" aria-haspopup="dialog"
                               disabled={saving || !!busy}
-                              onClick={() => saveDraft([], 'Removing the boundary…')}>
+                              onClick={() => setAsking({ kind: 'remove' })}>
                         Remove saved boundary
                       </button>
                     )}
@@ -1074,8 +1235,10 @@ export function RecordBoundary() {
                 setNaming({ at: [lat, lon], label: '', detail: '' });
                 return;
               }
-              if (mode === 'pin') savePinAt(lat, lon);
+              // A draft, never a write: "Save pin" in the edit bar saves it.
+              if (mode === 'pin') { setPinErr(''); setPinDraft([lat, lon]); }
             }}
+            draftPin={mode === 'pin' && pinDraft ? { lat: pinDraft[0], lon: pinDraft[1] } : null}
             basemap={basemap}
             activeMarkId={activeMark}
             onMarkClick={setActiveMark}
@@ -1123,20 +1286,26 @@ export function RecordBoundary() {
                 <span className="note">
                   {plot.ac ? `${plot.ac} ac on the village map` : 'extent not stated'}
                   {rec.extentUnit === 'ac' && rec.extent
-                    ? ` · ${num(rec.extent, 2)} ac on this record`
+                    ? ` · ${num(rec.extent, 2)} ac on this property`
                     : ''}
                 </span>
                 {plot.ac && rec.extentUnit === 'ac' && rec.extent > 0
                   && Math.abs(Number(plot.ac) - rec.extent) / rec.extent > 0.1 && (
                   <span className="note" style={{ display: 'block', color: 'var(--w-danger)' }}>
-                    That is a different size from what this record says it owns.
+                    Size differs from this property.
                   </span>
                 )}
               </div>
               <div className="row tight">
+                {/* With no boundary saved, adopting the plot replaces
+                    nothing, so it saves at once. Over a saved one it asks:
+                    that outline is gone once the plot is taken. */}
                 <button type="button" className="btn primary sm"
+                        aria-haspopup={surveyed ? 'dialog' : undefined}
                         disabled={saveRing.isPending}
-                        onClick={() => saveDraft(plot.ring, `Taking plot ${plot.lp}…`)}>
+                        onClick={() => (surveyed
+                          ? setAsking({ kind: 'replace', lp: plot.lp, ring: plot.ring })
+                          : saveDraft(plot.ring, `Taking plot ${plot.lp}…`))}>
                   {saveRing.isPending
                     ? 'Saving…'
                     : surveyed ? 'Replace the boundary with this plot' : 'This is my land'}
@@ -1165,9 +1334,9 @@ export function RecordBoundary() {
           {shownPlace && !surveyed && (
             <p className="nogeo low">
               {!pinned
-                ? `The map is showing ${shownPlace.label} — not this ${noun}. Nothing on this record says where within it the land sits.`
+                ? `Showing ${shownPlace.label}, not this ${noun}.`
                 : shownPlace.suspect
-                  || `The map is showing ${shownPlace.label}; this record's pin falls outside it.`}
+                  || `The pin falls outside ${shownPlace.label}.`}
             </p>
           )}
           <div className="zoom">
@@ -1175,157 +1344,77 @@ export function RecordBoundary() {
                     onClick={() => mapRef.current?.zoomIn()}>+</button>
             <button type="button" aria-label="Zoom out"
                     onClick={() => mapRef.current?.zoomOut()}>−</button>
+            {/* Its own glyph: it shared "Use my current location"'s, and the
+                two do different things — this fits the property in view, that
+                one reads where the device is. */}
             <button type="button" aria-label="Recentre"
                     onClick={() => mapRef.current?.fit()}>
-              <MyLocationOutlined sx={{ fontSize: 15 }} />
+              <FitScreenOutlined sx={{ fontSize: 15 }} aria-hidden />
             </button>
           </div>
         </div>
 
         <aside className="stack">
           {showMeasurements && measure && (
-            <Card
-              title="Measurements"
-              aside={
-                <span className="row tight">
-                  <span className="segmented" role="group" aria-label="Length unit">
-                    {(['m', 'ft'] as const).map((u) => (
-                      <button key={u} type="button" aria-pressed={lengthUnit === u}
-                              onClick={() => setLengthUnit(u)}>
-                        {u === 'm' ? 'Metres' : 'Feet'}
-                      </button>
-                    ))}
-                  </span>
-                  {/* Measurements are on by default now, so the way OUT has to
-                      be on the thing itself. The header toggle is a filled
-                      button, which reads as an action to take rather than a
-                      state to leave — fine when you switched it on yourself,
-                      useless when you never did. */}
-                  <button type="button" className="cardx" aria-label="Hide measurements"
-                          title="Hide measurements"
-                          onClick={() => { setMeasuring(false); pickSide(null); pickCorner(null); }}>
-                    ×
-                  </button>
-                </span>
-              }
-            >
-              <KV
-                rows={[
-                  { k: 'Sides', v: String(measure.sides.length) },
-                  { k: 'Around', v: measure.len(measure.perimM) },
-                  // Areas do not convert. Acres and guntas is how land is
-                  // spoken about here, whatever the sides are measured in.
-                  // Whole guntas. formatAcresGuntas keeps two decimals, which
-                  // is right for an extent read off a passbook and wrong for
-                  // one measured off imagery — 0.54 of a gunta is 24 m².
-                  { k: 'Area', v: measure.acres < 1 / 40
-                    ? `${num(measure.acres * SQ_M_PER_ACRE, 0)} m²`
-                    : formatExtent(Math.round(measure.acres * 40) / 40, 'acres-guntas') },
-                  { k: 'On record', v: rec.extentDetail || `${num(rec.extent, 2)} ${rec.extentUnit}` },
-                ]}
-              />
-              <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                Approximate measurements from the saved outline.
-              </p>
-              {vsRecorded && (
-                <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                  {vsRecorded.band === 'close'
-                    ? `Within ${Math.abs(vsRecorded.pct).toFixed(1)}% of the extent on record — as close as a traced boundary gets.`
-                    : vsRecorded.band === 'check'
-                      ? `${Math.abs(vsRecorded.pct).toFixed(1)}% ${vsRecorded.diff > 0 ? 'larger' : 'smaller'} than the extent on record. A traced outline drifts by a few percent, so this is worth a look rather than an alarm.`
-                      : `${Math.abs(vsRecorded.pct).toFixed(0)}% ${vsRecorded.diff > 0 ? 'larger' : 'smaller'} than the extent on record. That is far too big a gap to be tracing error — either this outline is not the parcel, or the recorded extent is wrong.`}
-                </p>
+            <BoundaryMeasurementsCard
+              sides={measure.sides}
+              perimeterM={measure.perimM}
+              areaAc={measure.acres}
+              onRecord={rec.extentDetail || `${num(rec.extent, 2)} ${rec.extentUnit}`}
+              lengthUnit={lengthUnit}
+              onLengthUnit={setLengthUnit}
+              comparison={vsRecorded}
+              rowProps={(_, i) => ({
+                className: pinnedSide === i || keyFocus === i ? 'lit' : undefined,
+                onMouseEnter: () => setHoverSide(i),
+                onMouseLeave: () => setHoverSide(null),
+              })}
+              renderSideLabel={(_, i, label) => (
+                <button type="button"
+                        ref={(el) => { sideBtns.current[i] = el; }}
+                        aria-pressed={pinnedSide === i}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          background: 'none', border: 0, padding: 0,
+                          font: 'inherit', color: 'inherit', cursor: 'pointer',
+                          ...(keyFocus === i
+                            ? {
+                              outline: '2px solid var(--color-focus)',
+                              outlineOffset: '-2px',
+                            }
+                            : null),
+                        }}
+                        onMouseDown={() => { pointer.current = true; }}
+                        onFocus={() => {
+                          setHoverSide(i);
+                          if (!pointer.current) setKeyFocus(i);
+                        }}
+                        onBlur={() => { setHoverSide(null); setKeyFocus(null); }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Escape') return;
+                          if (pinnedSide == null && pinnedCorner == null) return;
+                          e.preventDefault();
+                          dropPin();
+                        }}
+                        onClick={() => {
+                          const byKey = !pointer.current;
+                          pointer.current = false;
+                          if (pinnedSide === i) { pickSide(null); return; }
+                          toTip.current = byKey;
+                          pickSide(i);
+                        }}>
+                  {label}
+                </button>
               )}
-
-              <table className="sidetable" style={{ marginTop: 'var(--space-md)' }}>
-                <thead>
-                  <tr><th>Side</th><th>Length</th><th>Direction</th></tr>
-                </thead>
-                <tbody>
-                  {measure.sides.map((side, i) => (
-                    <tr key={`${side.from}-${side.to}`}
-                        className={pinnedSide === i || keyFocus === i ? 'lit' : undefined}
-                        onMouseEnter={() => setHoverSide(i)}
-                        onMouseLeave={() => setHoverSide(null)}>
-                      {/* A real button in the first cell, not a clickable row.
-                          The <tr> carried the click, so the screen's central
-                          interaction — light the side, open the tip, copy both
-                          corners to read down a phone to a surveyor — was
-                          mouse-only: Tab skipped every row and Enter did
-                          nothing. role="button" on the <tr> was not the way
-                          out: inside a table it replaces the row role and cuts
-                          the three cells off from their column headers, which
-                          costs a screen-reader user the Side / Length /
-                          Direction reading they came for. A <button> answers
-                          Enter and Space on its own. */}
-                      <td className="num">
-                        <button type="button"
-                                ref={(el) => { sideBtns.current[i] = el; }}
-                                aria-pressed={pinnedSide === i}
-                                style={{
-                                  display: 'block', width: '100%', textAlign: 'left',
-                                  background: 'none', border: 0, padding: 0,
-                                  font: 'inherit', color: 'inherit', cursor: 'pointer',
-                                  ...(keyFocus === i
-                                    ? {
-                                      outline: '2px solid var(--color-focus)',
-                                      outlineOffset: '-2px',
-                                    }
-                                    : null),
-                                }}
-                                onMouseDown={() => { pointer.current = true; }}
-                                onFocus={() => {
-                                  // Focus previews the side the way hover does,
-                                  // so tabbing down the table walks the
-                                  // boundary on the map.
-                                  setHoverSide(i);
-                                  if (!pointer.current) setKeyFocus(i);
-                                }}
-                                onBlur={() => { setHoverSide(null); setKeyFocus(null); }}
-                                onKeyDown={(e) => {
-                                  if (e.key !== 'Escape') return;
-                                  if (pinnedSide == null && pinnedCorner == null) return;
-                                  e.preventDefault();
-                                  dropPin();
-                                }}
-                                onClick={() => {
-                                  const byKey = !pointer.current;
-                                  pointer.current = false;
-                                  if (pinnedSide === i) { pickSide(null); return; }
-                                  toTip.current = byKey;
-                                  pickSide(i);
-                                }}>
-                          {cornerLabel(side.from - 1)} → {cornerLabel(side.to - 1)}
-                        </button>
-                      </td>
-                      <td className="num">{measure.len(side.metres)}</td>
-                      {/* A compass point, not a decimal bearing: a traced side
-                          carries a degree or two of error, so 47.3° would be
-                          precision this screen has not earned. */}
-                      <td className="num">{compassPoint(side.bearing)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
+            />
           )}
 
-          {/* First in the rail while the record has no pin, because until it
-              has one every other card here is describing an absence. Three
-              routes, in the order of how much they are worth: standing on the
-              land beats dropping a pin from a desk, and both beat guessing.
-              It leaves once a pin exists — advice about how to do the thing
-              that is already done is clutter. */}
-          {!pinned && (
-            <Card title="How a pin is placed" className="railcard">
-              <ul className="railnotes railsteps">
-                <li>Stand on the land and drop the pin from your phone.</li>
-                <li>Or drop it on the map from anywhere, then correct it later.</li>
-                <li>Or order a boundary check and a checker pins it for you.</li>
-              </ul>
-            </Card>
-          )}
-
+          {/* The pin is told once: the sub line says "Pin not set", so an
+              unset pin draws no rows here — it used to be said four times in
+              three wordings ("not set", "Not set on site", "unverified"). Who
+              set a pin, and how precisely, are facts about a pin that exists.
+              With neither a boundary nor a pin the card has nothing to say. */}
+          {((surveyed && centre) || pinned) && (
           <Card title="Location" className="railcard">
             <KV
               rows={[
@@ -1335,16 +1424,17 @@ export function RecordBoundary() {
                 // coords() guards the unset case: 0,0 printed as "0.0000,
                 // 0.0000" reads as a real place, and it is in the Gulf of
                 // Guinea. W03's location card has always used this helper.
-                { k: 'Pin', v: coords(data.lat, data.lon) || 'not set' },
-                { k: 'Set by', v: data.setBy, highlight: true },
-                { k: 'Accuracy', v: data.accuracy },
+                ...(pinned ? [
+                  { k: 'Pin', v: pinned },
+                  { k: 'Set by', v: data.setBy, highlight: true },
+                  { k: 'Accuracy', v: data.accuracy },
+                ] : []),
               ]}
             />
             {pinVsRing && (
               <>
                 <p className="note" style={{ marginTop: 'var(--space-sm)', color: 'var(--w-danger)' }}>
-                  The pin is {formatDistance(pinVsRing.distanceKm)} from the boundary
-                  drawn on this record. One of the two is wrong.
+                  The pin is {formatDistance(pinVsRing.distanceKm)} from the boundary.
                 </p>
                 <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
                   <button type="button" className="btn sm"
@@ -1359,6 +1449,7 @@ export function RecordBoundary() {
               </>
             )}
           </Card>
+          )}
 
           {/* No "Add a mark" here any more: the tool lives on the map with the
               other three that write, and one mode with two switches is how
@@ -1437,18 +1528,14 @@ export function RecordBoundary() {
             {strayMarks.length > 0 && centre && (
               <p className="note" style={{ color: 'var(--w-danger)', marginBottom: 'var(--space-sm)' }}>
                 {strayMarks.length === marks.length
-                  ? `None of these ${marks.length} stones is near the boundary on this record — the nearest is `
-                  : `${strayMarks.length} of these ${marks.length} stones ${strayMarks.length === 1 ? 'is' : 'are'} not near the boundary — the nearest of them is `}
+                  ? `None of these ${marks.length} stones is near the boundary. Nearest: `
+                  : `${strayMarks.length} of ${marks.length} stones ${strayMarks.length === 1 ? 'is' : 'are'} not near the boundary. Nearest: `}
                 {formatDistance(Math.min(...strayMarks.map((m) =>
-                  haversineKm({ latitude: m.lat, longitude: m.lon }, centre))))} away,
-                so {strayMarks.length === 1 ? 'it is' : 'they are'} off the map you are looking at.
+                  haversineKm({ latitude: m.lat, longitude: m.lon }, centre))))}.
               </p>
             )}
             {marks.length === 0 && (
-              <p className="note">
-                No marks recorded. A mark is a numbered corner with its own photos and its
-                own history — add one, or order a survey and the surveyor sets them.
-              </p>
+              <p className="note">No marks recorded.</p>
             )}
             <div className="rows">
               {marks.map((m) => {
@@ -1468,8 +1555,12 @@ export function RecordBoundary() {
                         {m.seq}
                       </span>
                       <span className="grow">
-                        <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', color: moved ? 'var(--w-danger)' : undefined }}>
-                          {m.label}
+                        <span className="row tight">
+                          <span style={{ fontWeight: 700, fontSize: '0.875rem', color: moved ? 'var(--w-danger)' : undefined }}>
+                            {m.label}
+                          </span>
+                          {/* In a word, not only in red. */}
+                          {moved && <StatusChip state="bad">Moved</StatusChip>}
                         </span>
                         <span className="note" style={{ display: 'block' }}>{m.detail}</span>
                       </span>
@@ -1511,36 +1602,16 @@ export function RecordBoundary() {
                         // pictures — a promise the data cannot keep. The
                         // gallery is one item below, named for what it is.
                         {
-                          label: "Open the record's photos",
+                          label: "Open this property's photos",
                           onClick: () => nav(`/app/records/${rec.id}/photos`),
                         },
                         {
                           label: removing === m.id ? 'Deleting…' : 'Delete this mark',
                           danger: true,
-                          onClick: () => { setPinErr(''); setKilling(m.id); },
+                          onClick: () => { setKillErr(''); setKilling(m.id); },
                         },
                       ]} />
                     </div>
-
-                    {killing === m.id && (
-                      <div style={{ marginTop: 'var(--space-sm)', paddingLeft: '2rem' }}>
-                        <p className="note">
-                          Delete {m.label || `mark ${m.seq}`}? The stone's position, who noted
-                          it and when all go with it, and there is no undo. Its old positions
-                          stay in History — the FMB sheet it came from is never edited.
-                        </p>
-                        <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-                          <button type="button" className="btn sm danger"
-                                  disabled={removing === m.id}
-                                  onClick={() => deleteMark(m.id)}>
-                            {removing === m.id ? 'Deleting…' : 'Yes, delete it'}
-                          </button>
-                          <button type="button" className="btn sm" onClick={() => setKilling(null)}>
-                            Keep it
-                          </button>
-                        </div>
-                      </div>
-                    )}
 
                     {moved && (
                       <>
@@ -1553,23 +1624,19 @@ export function RecordBoundary() {
                               likely to want a photograph of. */}
                           <button type="button" className="btn sm"
                                   onClick={() => nav(`/app/records/${rec.id}/photos`)}>
-                            Open the record's photos
+                            Open this property's photos
                           </button>
                           <button type="button" className="btn sm"
                                   disabled={accepting === m.id}
                                   onClick={() => acceptMark(m.id)}>
                             {accepting === m.id ? 'Accepting…' : 'Accept new position'}
                           </button>
-                          <button type="button" className="btn sm danger"
+                          <button type="button" className="btn sm danger" aria-haspopup="dialog"
                                   disabled={removing === m.id}
-                                  onClick={() => { setPinErr(''); setKilling(m.id); }}>
-                            {removing === m.id ? 'Deleting…' : 'Delete mark'}
+                                  onClick={() => { setKillErr(''); setKilling(m.id); }}>
+                            {removing === m.id ? 'Deleting…' : 'Delete this mark'}
                           </button>
                         </div>
-                        <p className="note" style={{ marginTop: 'var(--space-sm)', paddingLeft: '2rem' }}>
-                          Deleting a mark keeps the old position in History — the FMB sheet it came
-                          from is never edited.
-                        </p>
                       </>
                     )}
                   </div>
@@ -1583,29 +1650,78 @@ export function RecordBoundary() {
               no file is a button that can only disappoint. */}
           {!data.sheetTitle && (
             <Card title="FMB sheet" className="railcard">
-              <p className="note">
-                No FMB or survey sheet is filed against this record, so there is
-                nothing to open. Upload the KML a surveyor sent you and its
-                corners become this parcel&rsquo;s boundary. The sheet itself —
-                a scan or a photograph of the paper — is filed on this
-                record&rsquo;s Papers tab, and nothing here reads one.
-              </p>
-              {/* The button said "Upload FMB / KML" over a picker that takes
-                  neither an FMB scan nor a photograph of one. It offers what it
-                  opens; "Replace from KML" on the filed-sheet card below has
-                  always been honest and is the wording copied here. */}
+              <p className="note">No FMB or survey sheet filed yet.</p>
+              {fmb.busy && (
+                <p className="note" role="status" style={{ marginTop: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span className="spin" aria-hidden />
+                  {fmb.stage || 'Reading the FMB…'}
+                </p>
+              )}
+              {/* The same three ways in, with the same words and the same
+                  (outlined) emphasis as everywhere else on this tab: the head
+                  carries the one filled "Import KML / GeoJSON", and "Upload
+                  FMB" is outlined there too. */}
               <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-                <button type="button" className="btn primary sm" disabled={!!busy || saving}
+                <button type="button" className="btn sm" disabled={!!busy || saving || fmb.busy}
+                        onClick={() => fmbInput.current?.click()}>
+                  <UploadFileOutlined sx={{ fontSize: 15 }} /> {fmb.busy ? 'Reading FMB…' : 'Upload FMB'}
+                </button>
+                <button type="button" className="btn sm" disabled={!!busy || saving || fmb.busy}
                         onClick={() => fileRef.current?.click()}>
                   <UploadFileOutlined sx={{ fontSize: 15 }} /> Import KML / GeoJSON
                 </button>
-                <button type="button" className="btn sm" disabled={!!busy || saving}
+                <button type="button" className="btn sm" disabled={!!busy || saving || fmb.busy}
                         onClick={beginDrawing}>
-                  Draw it instead
+                  Draw boundary
                 </button>
               </div>
             </Card>
           )}
+
+          {/* Removals and replacements of saved geometry ask first, in the
+              shared confirmation — the same one every other removal on the
+              property uses. Each holds open until the server answers. */}
+          {asking && (
+            <ConfirmDialog
+              title={asking.kind === 'remove' ? 'Remove the saved boundary?' : 'Replace the saved boundary?'}
+              // What set_boundary does (web360.py): only the outline column
+              // changes; the marks, the pin and the documents stay.
+              body={asking.kind === 'remove'
+                ? `The outline comes off this ${noun}. Its boundary marks, pin and documents stay. There is no undo.`
+                : `Plot ${asking.lp} from the village map becomes this ${noun}'s boundary. The outline saved now is replaced and cannot be brought back.`}
+              actionLabel={asking.kind === 'remove' ? 'Remove' : 'Replace'}
+              danger={asking.kind === 'remove'}
+              busy={saveRing.isPending}
+              error={pinErr}
+              onConfirm={() => {
+                const next = asking;
+                // Open until the server answers: a refusal is printed in this
+                // dialog (pinErr) and the outline on screen is still the saved
+                // one; only a save that landed closes it.
+                const done = (ok: boolean) => { if (ok) setAsking(null); };
+                if (next.kind === 'remove') saveDraft([], 'Removing the boundary…', done);
+                else saveDraft(next.ring, `Taking plot ${next.lp}…`, done);
+              }}
+              onClose={() => { setPinErr(''); setAsking(null); }}
+            />
+          )}
+
+          {killing && (() => {
+            const m = marks.find((x) => x.id === killing);
+            if (!m) return null;
+            return (
+              <ConfirmDialog
+                title={`Delete ${m.label || `mark ${m.seq}`}?`}
+                body="The mark and its position come off this property. There is no undo."
+                actionLabel="Delete"
+                danger
+                busy={removing === m.id}
+                error={killErr}
+                onConfirm={() => deleteMark(m.id)}
+                onClose={() => { setKillErr(''); setKilling(null); }}
+              />
+            );
+          })()}
 
           {data.sheetTitle && (
             <Card>
@@ -1623,13 +1739,12 @@ export function RecordBoundary() {
                 <Link className="btn sm" to={`/app/papers/${data.sheetId}`}>Open sheet</Link>
                 <button type="button" className="btn sm" disabled={!!busy || saving}
                         onClick={() => fileRef.current?.click()}>
-                  Import replacement boundary
+                  <UploadFileOutlined sx={{ fontSize: 15 }} /> Import KML / GeoJSON
                 </button>
               </div>
               {!surveyed && (
                 <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                  The sheet is filed but its corners have never been placed on the
-                  ground, which is why there is no boundary drawn.
+                  No boundary drawn from this sheet yet.
                 </p>
               )}
             </Card>

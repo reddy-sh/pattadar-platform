@@ -37,6 +37,20 @@ or accepts those IDs from a recipient. The generic API proxy rejects the entire
 `no-store` and `no-referrer`; arbitrary uploaded files download with a sandbox
 policy. PDF/raster previews are browser-local blobs.
 
+Audio/video playback is a separate same-origin media path, not a presigned S3
+GET. A Bearer-authenticated request mints a short-lived cookie bound to one
+storage node and immutable version; the raw secret is HttpOnly and only its hash
+is stored. Native media elements use HTTP Range through the gateway. Every range
+rechecks the active owner/share grant, so revocation denies the next range
+request (bytes already buffered by the browser cannot be recalled). Stream
+sessions cannot authorize images, papers, another node, or a replacement
+version. The first authorized body request claims the session and writes one
+`download_document` audit event before bytes are offered; metadata/seek ranges
+do not create duplicate ledger lines. This records an authorized stream attempt,
+not proof that every byte reached the browser. Sign-out best-effort deletes all
+outstanding sessions for the immutable issuer/subject before clearing the
+Bearer; rows also expire after 15 minutes.
+
 The new API schema additions are bootstrapped idempotently: `share_links`
 token/scope/manifest fields, `ticket_dispatches.manifest`, and
 `service_order_intents` for owner-scoped order retries. Historical log-only shares

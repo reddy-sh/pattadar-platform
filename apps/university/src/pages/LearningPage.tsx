@@ -27,7 +27,7 @@ export function LearningPage() {
       <header className="page-heading">
         <span className="context-line">Personal learning record</span>
         <h1>My learning</h1>
-        <p>Continue modules, download enrolled course guides, and retrieve completed credentials.</p>
+        <p>Continue modules, download enrolled course guides, and retrieve completion previews.</p>
       </header>
       {!isReady ? <div className="loading-block" role="status">Loading learning record…</div> : null}
       {isReady && rows.length === 0 ? (

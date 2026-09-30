@@ -1,17 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-// Self-hosted Bloom type stack (design.md at repo root) — founder rule:
-// nothing loads from third-party URLs. Vite bundles the woff2 files as
-// local assets. Subset weights only — do not import full families.
-import '@fontsource/inter-tight/600.css';
-import '@fontsource/inter-tight/700.css';
-import '@fontsource/inter-tight/800.css';
+// The one face (design.md § Typography): Atkinson Hyperlegible 400 and 700,
+// and 400 italic for the hero and statement accents. Self-hosted — founder
+// rule: nothing loads from third-party URLs; Vite bundles the woff2 files as
+// local assets. scripts/typography-tests.ts refuses any other font package.
 import '@fontsource/atkinson-hyperlegible/400.css';
 import '@fontsource/atkinson-hyperlegible/700.css';
-import '@fontsource/jetbrains-mono/400.css';
-import '@fontsource/jetbrains-mono/500.css';
-import '@fontsource/instrument-serif/400.css';
-import '@fontsource/instrument-serif/400-italic.css';
+import '@fontsource/atkinson-hyperlegible/400-italic.css';
 // Bloom design tokens — inert custom properties consumed by site.css and
 // referenced (as hex conversions) by theme.ts.
 import './styles/tokens.css';

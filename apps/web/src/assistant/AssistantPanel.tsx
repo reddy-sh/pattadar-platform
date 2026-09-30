@@ -94,7 +94,7 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
         <Box
           key={`${keyBase}-${index}`}
           component="code"
-          sx={{ fontFamily: 'monospace', fontSize: '0.85em', px: 0.5, borderRadius: 0.5, bgcolor: 'action.hover' }}
+          sx={{ fontSize: '0.85em', px: 0.5, borderRadius: 0.5, bgcolor: 'action.hover' }}
         >
           {part.slice(1, -1)}
         </Box>,
@@ -568,7 +568,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
               {unavailable ? (
                 <Box sx={{ textAlign: 'center', mt: 6, px: 2 }}>
                   <SmartToyOutlinedIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Assistant is temporarily unavailable</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Assistant is temporarily unavailable</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Your records are safe. Please try again shortly.</Typography>
                   <Button sx={{ mt: 1.5 }} onClick={() => void retryAssistant()}>Try again</Button>
                 </Box>
@@ -577,7 +577,7 @@ export function AssistantPanel({ open, onClose }: AssistantPanelProps) {
               ) : empty ? (
                 <Box sx={{ textAlign: 'center', mt: 6, px: 2 }}>
                   <SmartToyOutlinedIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Hello! I'm your Pattadar assistant.</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Hello! I'm your Pattadar assistant.</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                     Ask about land, documents, family holdings, or a file you upload. Questions outside Pattadar are declined.
                   </Typography>

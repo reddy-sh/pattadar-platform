@@ -54,7 +54,7 @@ function FencePlan({ ring, dropped }: {
   return (
     <svg className="fs-plan"
          viewBox={`${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`}
-         role="img" aria-label="The fence, drawn to scale">
+         role="img" aria-label="Fence plan">
       {pts.map((p, i) => {
         const a = at(p);
         const b = at(pts[(i + 1) % pts.length]);
@@ -262,11 +262,6 @@ export function FenceStudio({
         <p className="note">
           {plural(kept.length, 'side')} of {plural(sides.length, 'side')} ·{' '}
           <strong>{num(plan.perimeter, 1)} m</strong> to fence.
-          {dropped.size > 0 && ' The rest is left open.'}
-        </p>
-        <p className="note">
-          Click a side on the map, or a row here, to leave it out — most fences
-          go round part of a boundary, not all of it.
         </p>
         <div className="rows fs-sides">
           {sides.map((m, i) => {
@@ -346,20 +341,20 @@ export function FenceStudio({
             <tr>
               <th>Corner posts</th>
               <td className="num">{num(plan.cornerPosts)}</td>
-              <td className="note">one at every corner — a fence turns there</td>
+              <td className="note" />
             </tr>
             <tr>
               <th>Line posts</th>
               <td className="num">{num(plan.linePosts)}</td>
               <td className="note">
-                every {Number(spacing) || 0} m at most, along the sides
+                every {Number(spacing) || 0} m
               </td>
             </tr>
             {gatePosts > 0 && (
               <tr>
                 <th>Gate posts</th>
                 <td className="num">{num(gatePosts)}</td>
-                <td className="note">two to a gate</td>
+                <td className="note" />
               </tr>
             )}
             <tr className="fs-sum">
@@ -379,7 +374,7 @@ export function FenceStudio({
               <tr>
                 <th>Rolls</th>
                 <td className="num">{num(rolls)}</td>
-                <td className="note">of {num(rollLength)} m — what you buy</td>
+                <td className="note">of {num(rollLength)} m</td>
               </tr>
             )}
             {wireCost > 0 && (
@@ -428,7 +423,7 @@ export function FenceStudio({
                       disabled={ask.isPending || openOrders.isLoading || !!openOrders.error}
                       onClick={() => void raise()}>
                 {ask.isPending ? 'Asking…' : openOrders.isLoading ? 'Checking requests…'
-                  : `Ask for this on ${recordTitle ?? 'the record'}`}
+                  : `Ask for this on ${recordTitle ?? 'the property'}`}
               </button>
             )}
             <button type="button" className="btn sm" onClick={() => window.print()}>
@@ -437,27 +432,20 @@ export function FenceStudio({
           </div>
         ) : (
           <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-            Print takes this to a supplier. To raise it as work, this plot has to
-            be one of your records first — file it, and the request can hang off it.
+            File this plot as a property to raise it as work.
           </p>
         )}
         {openOrders.error && recordId && (
           <p className="note" style={{ color: 'var(--w-danger)' }}>
-            Existing requests could not be checked, so a new one cannot be raised yet.
+            Existing requests could not be checked.
           </p>
         )}
         {asked && <p className="note" style={{ color: 'var(--w-danger)' }}>{asked}</p>}
 
         {total <= 0 && (
-          <p className="note">
-            Put your own rates in above and it prices itself. Nothing here is a
-            market rate — a post costs what your supplier charges.
-          </p>
+          <p className="note">Enter your rates to price it.</p>
         )}
-        <p className="note">
-          Materials only. Labour, corner bracing, cartage and the gate&rsquo;s own
-          fittings are not in it.
-        </p>
+        <p className="note">Materials only, excluding labour.</p>
       </section>
     </div>
   );
@@ -567,10 +555,7 @@ export function FenceStudio({
       )}
 
       <p className="fs-sheet-foot">
-        Materials only — labour, corner bracing, cartage and the gate&rsquo;s own
-        fittings are not in it. Lengths are measured off the survey
-        department&rsquo;s shape file. Rates are the ones entered above and are
-        not quotes.
+        Materials only, excluding labour. Rates are not quotes.
       </p>
     </section>
   );

@@ -30,6 +30,8 @@ import sys
 
 import psycopg
 
+from seed_guard import require_local_dsn
+
 DSN = os.getenv("APP_PG_DSN",
                 "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd")
 P = "demo-"
@@ -809,6 +811,9 @@ def seed(conn, uid: str, only: str = "") -> None:
 
 
 def main() -> None:
+    # This one also writes base fields onto records that were empty, so a wrong
+    # DSN corrupts real records rather than merely adding removable ones.
+    require_local_dsn(DSN, "seed-demo-data.py")
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     # --only <prefix>: fill ONLY records whose id starts with it. Ownership is

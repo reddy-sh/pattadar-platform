@@ -170,7 +170,6 @@ test.describe('W09 · the kits other people sent me', () => {
     // The rail says what the section is before a single kit is opened.
     const rail = page.locator('aside[aria-label="Shared with me"]');
     await expect(rail.getByRole('heading', { name: 'Shared with me' })).toBeVisible();
-    await expect(rail.getByText('Kept out of your portfolio. Nothing here counts toward your acres.')).toBeVisible();
 
     const live = railRow(page, /Sy 96\/3/);
     await expect(live).toBeVisible();
@@ -258,7 +257,7 @@ test.describe('W09 · the kits other people sent me', () => {
     // The whole bargain of this screen, under the list rather than buried in
     // the kit: it is counted, and nothing goes back the other way.
     await expect(page.locator('aside[aria-label="Shared with me"]')
-      .getByText('A kit is read-only and belongs to whoever sent it. Opening it may be counted;'))
+      .getByText('The sender can see when you open this.'))
       .toBeVisible();
   });
 
@@ -266,10 +265,9 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('Shared for sale')).toBeVisible();
-    await expect(page.getByText('Read-only · not your record')).toBeVisible();
+    await expect(page.getByText('For sale', { exact: true })).toBeVisible();
+    await expect(page.getByText('Read-only · Not your property')).toBeVisible();
     await expect(page.getByText('Gopal Reddy is selling 4 acres 2 guntas of wet land at Samalkot')).toBeVisible();
-    await expect(page.getByText('A kit asks nothing of you. Leave it alone and it lapses on its own.')).toBeVisible();
   });
 
   test('a kit sends the sender no reply, no note, no order and no offer — and says so instead of drawing buttons that would', async ({ page, world }) => {
@@ -281,15 +279,12 @@ test.describe('W09 · the kits other people sent me', () => {
     for (const dead of [/Message/i, /Make an offer/i, /Not interested/i, /Ask for more time/i, /Check it independently/i]) {
       await expect(page.getByRole('button', { name: dead })).toHaveCount(0);
     }
-    await expect(page.getByText('A kit carries no reply channel. To reach Gopal Reddy or ask for longer,')).toBeVisible();
-    await expect(page.getByText('An offer is made between you and the seller. Pattadar does not carry one,')).toBeVisible();
   });
 
   test('a kit carries no map, no gallery, no features and no notebook, and says so once rather than in four empty tabs', async ({ page, world }) => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('there is no interactive map, photo gallery, feature list or')).toBeVisible();
     // The badges that used to promise eighteen photos and fourteen features.
     for (const tab of ['My private notes', 'Photos', 'Features', 'Map']) {
       await expect(page.getByRole('tab', { name: tab })).toHaveCount(0);
@@ -327,22 +322,18 @@ test.describe('W09 · the kits other people sent me', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
     await expect(page.getByText(/^Sent by/)).toHaveCount(0);
     await expect(page.getByText('A kit carries no reply channel')).toHaveCount(0);
-    // And the sentence that names the sender degrades rather than saying
-    // "does not send offers or notes to ." (Shared.tsx:395).
-    await expect(page.getByText('this screen does not send offers or notes to the sender.')).toBeVisible();
   });
 
   test('the kit opens on what the seller gave me, each paper on its shelf with what is wrong with it', async ({ page, world }) => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    const gave = page.locator('section.card', { has: page.getByRole('heading', { name: 'What they gave you' }) });
-    await expect(gave.getByText('watermarked · no download')).toBeVisible();
+    const gave = page.locator('section.card', { has: page.getByRole('heading', { name: 'Shared documents' }) });
+    await expect(gave.getByText('Watermarked · No download')).toBeVisible();
     await expect(gave.getByText('Sale deed 2214 of 2016')).toBeVisible();
     await expect(gave.getByText('Title deeds · 14 pages')).toBeVisible();
     await expect(gave.getByText('Searches · stops 3 years short')).toBeVisible();
     await expect(gave.getByText('Map sheets · no date or location stamp')).toBeVisible();
-    await expect(gave.getByText('Read by AI, filed on the same eight shelves as your own vault')).toBeVisible();
   });
 
   test('a paper that falls short is toned as a warning and one that is missing as a loss, not as a tick', async ({ page, world }) => {
@@ -352,7 +343,7 @@ test.describe('W09 · the kits other people sent me', () => {
     // The verdict is an unlabelled MUI glyph and a tone class — there is no
     // text and no aria on it, so the class is the only thing that tells the
     // three apart. Nothing better exists to reach for.
-    const rows = page.locator('section.card', { has: page.getByRole('heading', { name: 'What they gave you' }) }).locator('.rows > div');
+    const rows = page.locator('section.card', { has: page.getByRole('heading', { name: 'Shared documents' }) }).locator('.rows > div');
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0).locator('span.up')).toHaveCount(1);
     await expect(rows.nth(1).locator('span.accent')).toHaveCount(2);   // the tone on the note, and on the glyph
@@ -377,7 +368,7 @@ test.describe('W09 · the kits other people sent me', () => {
     // The row has to be on screen before the tone on it can be counted —
     // `toHaveCount(0)` is satisfied by a screen that has not drawn yet.
     await expect(page.getByText('the seller could not produce the original')).toBeVisible();
-    const row = page.locator('section.card', { has: page.getByRole('heading', { name: 'What they gave you' }) }).locator('.rows > div').first();
+    const row = page.locator('section.card', { has: page.getByRole('heading', { name: 'Shared documents' }) }).locator('.rows > div').first();
     await expect(row.locator('span.up')).toHaveCount(0);
   });
 
@@ -399,7 +390,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await expect(page.getByText('Sale deed 2214 of 2016')).toBeVisible();
     // The shelf line of the only row. There is no role on it — it is a span
     // inside a div, and the card's other notes sit outside `.rows`.
-    const shelfLine = page.locator('section.card', { has: page.getByRole('heading', { name: 'What they gave you' }) })
+    const shelfLine = page.locator('section.card', { has: page.getByRole('heading', { name: 'Shared documents' }) })
       .locator('.rows > div span.note');
     await expect(shelfLine).toHaveText('Title deeds');
   });
@@ -408,21 +399,16 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [kit({ items: [], listLine: 'no papers' })]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('The seller sent no papers')).toBeVisible();
-    await expect(page.getByText('This kit is a listing, not a file — nothing in it has a document behind it.')).toBeVisible();
-    // The sentence about AI filing onto eight shelves is about a filing that
-    // did not happen, so it is not printed over nothing.
-    await expect(page.getByText('Read by AI, filed on the same eight shelves')).toHaveCount(0);
-    // And "If you buy it" stops promising that 0 papers move into the vault.
-    await expect(page.getByText('Nothing is attached to this kit to move into your vault')).toBeVisible();
+    await expect(page.getByText('No documents were shared')).toBeVisible();
+    // "Before you buy" does not promise that 0 documents move into Documents.
+    await expect(page.getByText(/move into your Documents/)).toHaveCount(0);
   });
 
   test('what nobody has confirmed is priced line by line, with the total on the button', async ({ page, world }) => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    const checks = page.locator('section.card', { has: page.getByRole('heading', { name: 'What nobody has confirmed' }) });
-    await expect(checks.getByText('These are the 2 things a buyer regrets not checking.')).toBeVisible();
+    const checks = page.locator('section.card', { has: page.getByRole('heading', { name: 'Not independently checked' }) });
     await expect(checks.getByText('Fresh EC')).toBeVisible();
     await expect(checks.getByText('From the SRO, thirty years')).toBeVisible();
     await expect(checks.getByText('₹1,200')).toBeVisible();
@@ -437,8 +423,6 @@ test.describe('W09 · the kits other people sent me', () => {
 
     const order = page.getByRole('button', { name: /^Order all/ });
     await expect(order).toBeDisabled();
-    await expect(page.getByText('Not open yet: a check is ordered against a property that is already')).toBeVisible();
-    await expect(page.getByText('When it opens: ordered in your name. The seller is not told.')).toBeVisible();
 
     // Nothing was sent. `orderService` takes record ids and refuses anything
     // that is not one of your own records, and a kit is never one.
@@ -450,7 +434,6 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('Checks you can order today are the ones on your own land')).toBeVisible();
     const own = page.getByRole('link', { name: 'Order a check on your own land' });
     await expect(own).toHaveAttribute('href', '/app/order');
 
@@ -461,7 +444,7 @@ test.describe('W09 · the kits other people sent me', () => {
     // here to one except by choosing it.
     await own.click();
     await expect(page).toHaveURL(/\/app\/order$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Which land is this for?' }))
+    await expect(page.getByRole('heading', { level: 1, name: 'Choose the property' }))
       .toBeVisible({ timeout: 20_000 });
   });
 
@@ -472,7 +455,6 @@ test.describe('W09 · the kits other people sent me', () => {
     })]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('This is the one thing a buyer regrets not checking.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Order it · ₹1,200' })).toBeVisible();
   });
 
@@ -480,7 +462,7 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [kit({ checks: [], checksTotal: 0 })]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('Nobody has listed anything to check on this kit yet, so nothing in it')).toBeVisible();
+    await expect(page.getByText('Only the sender has confirmed these.')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Order all/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Order it/ })).toHaveCount(0);
     await expect(page.getByText('These are the 0 things')).toHaveCount(0);
@@ -524,7 +506,7 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('Its 3 papers move into your vault as the record’s starting history')).toBeVisible();
+    await expect(page.getByText('Its 3 documents move into your Documents')).toBeVisible();
   });
 
   test('a kit carrying one paper says that one paper moves, not "1 papers move"', async ({ page, world }) => {
@@ -533,7 +515,7 @@ test.describe('W09 · the kits other people sent me', () => {
     })]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('Its 1 paper moves into your vault')).toBeVisible();
+    await expect(page.getByText('Its 1 document moves into your Documents')).toBeVisible();
   });
 
   test('the asked price is printed beside the stamp-duty calculator, because the calculator opens blank', async ({ page, world }) => {
@@ -541,10 +523,10 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     const calc = page.getByRole('link', { name: 'Work out stamp duty' });
-    await expect(calc).toHaveAttribute('href', '/legacy/tools?tab=stamp-duty');
+    await expect(calc).toHaveAttribute('href', '/app/tools?tab=stamp-duty');
     await expect(calc).toHaveAttribute('target', '_blank');
     await expect(calc).toHaveAttribute('rel', /noopener/);
-    await expect(page.getByText('The calculator opens blank. This kit is asked at ₹92,00,000.')).toBeVisible();
+    await expect(page.getByText('Asked at ₹92,00,000.')).toBeVisible();
   });
 
   test('a kit with no asked price on it does not print one', async ({ page, world }) => {
@@ -552,7 +534,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     await expect(page.getByRole('link', { name: 'Work out stamp duty' })).toBeVisible();
-    await expect(page.getByText('This kit is asked at')).toHaveCount(0);
+    await expect(page.getByText('Asked at')).toHaveCount(0);
     await expect(page.getByText('₹0')).toHaveCount(0);
   });
 
@@ -563,10 +545,9 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     await expect(page.getByText(/^Share expired/)).toBeVisible();
-    await expect(page.getByText('This share expired on 2026-07-01. Its contents')).toBeVisible();
-    await expect(page.getByText('ask the sender to share it again before relying on them.')).toBeVisible();
-    // "If you buy it" is gone: there is nothing to buy through a dead share.
-    await expect(page.getByRole('heading', { name: 'If you buy it' })).toHaveCount(0);
+    await expect(page.getByText('This share expired on 2026-07-01.')).toBeVisible();
+    // "Before you buy" is gone: there is nothing to buy through a dead share.
+    await expect(page.getByRole('heading', { name: 'Before you buy' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Work out stamp duty' })).toHaveCount(0);
   });
 
@@ -577,7 +558,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     await expect(page.getByText(/^Share expired/)).toBeVisible();
-    await expect(page.getByText('This share expired. Its contents remain read-only here; ask the sender'))
+    await expect(page.getByText('This share expired.', { exact: true }))
       .toBeVisible();
     await expect(page.getByText('This share expired on')).toHaveCount(0);
   });
@@ -586,8 +567,8 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [lapsed()]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('The seller sent no papers')).toBeVisible();
-    await expect(page.getByText('Nobody has listed anything to check on this kit yet')).toBeVisible();
+    await expect(page.getByText('No documents were shared')).toBeVisible();
+    await expect(page.getByText('Only the sender has confirmed these.')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Order/ })).toHaveCount(0);
   });
 
@@ -665,9 +646,9 @@ test.describe('W09 · the kits other people sent me', () => {
     world.set('sharedKit', World.never());
     await page.goto(SHARED);
 
-    await expect(page.getByText('Loading this kit…')).toBeVisible();
+    await expect(page.getByText('Loading this share…')).toBeVisible();
     await expect(railRow(page, /Sy 88/)).toBeVisible();
-    await expect(page.getByText('This kit is no longer available')).toHaveCount(0);
+    await expect(page.getByText('This share is no longer available')).toHaveCount(0);
   });
 
   test('nothing shared with me is a sentence in the middle of the screen, not an empty rail', async ({ page, world }) => {
@@ -676,7 +657,6 @@ test.describe('W09 · the kits other people sent me', () => {
 
     await expect(page.getByRole('heading', { name: 'Shared with me' })).toBeVisible();
     await expect(page.getByText('Nothing has been shared with you')).toBeVisible();
-    await expect(page.getByText('When someone sends you a kit — the papers and the price behind a property they')).toBeVisible();
     // The 18rem column of filters over nothing is gone, and so is the kit read
     // that could never resolve because there was no id to enable it with.
     await expect(page.locator('aside[aria-label="Shared with me"]')).toHaveCount(0);
@@ -689,8 +669,8 @@ test.describe('W09 · the kits other people sent me', () => {
     world.set('sharedKit', null);
     await page.goto(SHARED);
 
-    await expect(page.getByText('This kit is no longer available')).toBeVisible();
-    await expect(page.getByText('Whoever sent it has withdrawn it. Nothing you did removed it, and')).toBeVisible();
+    await expect(page.getByText('This share is no longer available')).toBeVisible();
+    await expect(page.getByText('Whoever sent it has withdrawn it.')).toBeVisible();
     await expect(railRow(page, /Sy 96\/3/)).toBeVisible();
     await expect(railRow(page, /Sy 88/)).toBeVisible();
   });
@@ -708,7 +688,7 @@ test.describe('W09 · when the reads fail', () => {
 
     await expect(page.getByRole('heading', { name: 'Shared with me' })).toBeVisible();
     await expect(page.getByRole('alert')).toContainText('Shared with me did not load');
-    await expect(page.getByRole('alert')).toContainText('Nothing has been lost');
+    await expect(page.getByRole('alert')).toContainText('Check your connection and try again.');
     await expect(page.getByRole('alert')).toContainText('the share store is down');
     await expect(page.getByText('Nothing has been shared with you')).toHaveCount(0);
   });
@@ -747,7 +727,7 @@ test.describe('W09 · when the reads fail', () => {
     world.set('sharedKit', World.gqlError('that kit could not be read'));
     await page.goto(SHARED);
 
-    await expect(page.getByRole('alert')).toContainText('This kit did not load');
+    await expect(page.getByRole('alert')).toContainText('This share did not load');
     await expect(page.getByRole('alert')).toContainText('that kit could not be read');
     await expect(railRow(page, /Sy 96\/3/)).toBeVisible();
 
@@ -755,21 +735,21 @@ test.describe('W09 · when the reads fail', () => {
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect.poll(() => world.calls('sharedKit').length).toBeGreaterThan(before);
     // It failed again, and the screen is still here saying so.
-    await expect(page.getByRole('alert')).toContainText('This kit did not load');
+    await expect(page.getByRole('alert')).toContainText('This share did not load');
   });
 
   test('a kit that fails and then answers draws the kit, with nothing of the failure left on screen', async ({ page, world }) => {
     world.set('sharedKits', [kit()]);
     world.set('sharedKit', World.gqlError('the read timed out'));
     await page.goto(SHARED);
-    await expect(page.getByRole('alert')).toContainText('This kit did not load');
+    await expect(page.getByRole('alert')).toContainText('This share did not load');
 
     // The server comes back between the failure and the retry.
     world.set('sharedKit', kit());
     await page.getByRole('button', { name: 'Try again' }).click();
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
-    await expect(page.getByText('This kit did not load')).toHaveCount(0);
+    await expect(page.getByText('This share did not load')).toHaveCount(0);
   });
 
   test('a kit I am already reading stays on screen when the list behind it stops refreshing', async ({ page, world, consoleErrors }) => {
@@ -788,7 +768,7 @@ test.describe('W09 · when the reads fail', () => {
     await page.clock.resume();
     await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
 
-    await expect(page.getByText('The list could not refresh. The kit already on screen is still available;'))
+    await expect(page.getByText('The list could not refresh.'))
       .toBeVisible();
     // Announced, not just printed — the user is reading the middle of the
     // screen when this appears at the top of it.
@@ -924,7 +904,7 @@ test.describe('the door a recipient is given · /share/:token', () => {
     await page.goto(`/share/${TOKEN.record}`);
 
     await expect(page.getByRole('heading', { name: 'Sy 214/2 — papers for the sale' })).toBeVisible();
-    await expect(page.getByText('Available until 01/10/2026. The owner may revoke this link at any time.')).toBeVisible();
+    await expect(page.getByText('Available until 01/10/2026.')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Selected files' })).toBeVisible();
     await expect(page.getByText('Sale deed 4412 of 1998.pdf')).toBeVisible();
 
@@ -1345,7 +1325,6 @@ test.describe('the door a worker is given · /work/:token', () => {
     await expect(page.getByRole('button', { name: 'Mark work started' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Accept this job' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Send work or an update' })).toBeVisible();
-    await expect(page.getByText('The owner reviews submitted files before accepting the work.')).toBeVisible();
     // Nothing is sent until there is a title on it.
     await expect(page.getByRole('button', { name: 'Send to owner' })).toBeDisabled();
   });

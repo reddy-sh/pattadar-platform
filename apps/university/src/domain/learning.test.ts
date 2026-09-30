@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { lessonContentByModuleId, missingContentModuleIds } from '../content';
 import { campuses, courses, opportunities, universityStates } from '../data/catalog';
+import { learningPathways } from '../data/pathways';
 import {
   complianceCoverage,
   guidanceComplianceKeys,
@@ -10,7 +11,7 @@ import {
 } from '../data/complianceCoverage';
 import { isGovernmentReferenceUrl, officialReferenceById, officialReferences } from '../data/officialReferences';
 import { stateLearningGuides } from '../data/stateGuideContent';
-import { indiaLandRecordSources, stateLandRecordProfiles } from '../data/stateLandRecords';
+import { indiaLandRecordSources, publishedStateLandRecordProfiles, stateLandRecordProfiles } from '../data/stateLandRecords';
 import { buildStateGuideStructuredData } from '../seo/stateSeo';
 import { defaultDiscoveryFilters, filterCoursesByDiscovery, filterOpportunitiesByDiscovery } from './discovery';
 import { answerTutor, createEnrollment, progressFor, searchCourses, toggleModule } from './learning';
@@ -32,7 +33,7 @@ const course: Course = {
   imageAlt: 'Test course image.',
   jurisdictionScope: 'state-specific',
   stateCodes: ['AP'],
-  locationSlugs: ['hyderabad'],
+  locationSlugs: ['vijayawada'],
   modules: [
     { id: 'm1', title: 'Record names', minutes: 20, kind: 'lesson' },
     { id: 'm2', title: 'Review practice', minutes: 40, kind: 'assessment' },
@@ -77,7 +78,10 @@ describe('learning domain', () => {
     });
 
     expect(buyerCourses.every((item) => item.roles.includes('buyer'))).toBe(true);
-    expect(telanganaBuyerCourses.map((item) => item.slug)).toEqual(['landscape-and-site-care-basics']);
+    expect(telanganaBuyerCourses.map((item) => item.slug)).toEqual([
+      'understanding-telangana-land-records',
+      'landscape-and-site-care-basics',
+    ]);
     expect(apSurveyCareerCourses.every((item) => item.roles.includes('surveyor') && (
       item.jurisdictionScope === 'india-general' || item.stateCodes.includes('AP')
     ))).toBe(true);
@@ -124,6 +128,24 @@ describe('learning domain', () => {
     for (const campus of campuses) expect(stateCodes.has(campus.stateCode)).toBe(true);
   });
 
+  test('maps every published course into an ordered audience pathway', () => {
+    expect(learningPathways.map((pathway) => pathway.id)).toEqual(['buyer', 'seller', 'employee', 'service']);
+    const catalogIds = new Set(courses.map((item) => item.id));
+    const mappedIds = new Set<string>();
+    for (const pathway of learningPathways) {
+      expect(pathway.stages.length).toBeGreaterThan(0);
+      for (const stage of pathway.stages) {
+        expect(stage.courseIds.length).toBeGreaterThan(0);
+        expect(new Set(stage.courseIds).size).toBe(stage.courseIds.length);
+        for (const id of stage.courseIds) {
+          expect(catalogIds.has(id)).toBe(true);
+          mappedIds.add(id);
+        }
+      }
+    }
+    expect(mappedIds).toEqual(catalogIds);
+  });
+
   test('publishes all Indian state and union territory land-record guides', () => {
     const states = stateLandRecordProfiles.filter((profile) => profile.kind === 'state');
     const unionTerritories = stateLandRecordProfiles.filter((profile) => profile.kind === 'union-territory');
@@ -132,6 +154,11 @@ describe('learning domain', () => {
     expect(stateLandRecordProfiles).toHaveLength(36);
     expect(new Set(stateLandRecordProfiles.map((profile) => profile.code)).size).toBe(36);
     expect(new Set(stateLandRecordProfiles.map((profile) => profile.slug)).size).toBe(36);
+  });
+
+  test('publishes only the reviewed Andhra Pradesh and Telangana guides at launch', () => {
+    expect(publishedStateLandRecordProfiles.map((profile) => profile.code)).toEqual(['AP', 'TS']);
+    expect(universityStates.map((state) => state.code)).toEqual(['AP', 'TS']);
   });
 
   test('gives every jurisdiction local vocabulary and government-only sources', () => {
@@ -227,7 +254,7 @@ describe('learning domain', () => {
 
   test('publishes complete structured content for every catalog module', () => {
     expect(missingContentModuleIds(courses)).toEqual([]);
-    expect(Object.keys(lessonContentByModuleId)).toHaveLength(52);
+    expect(Object.keys(lessonContentByModuleId)).toHaveLength(60);
     for (const lesson of Object.values(lessonContentByModuleId)) {
       expect(lesson.objectives.length).toBeGreaterThanOrEqual(3);
       expect(lesson.sections.length).toBeGreaterThanOrEqual(3);
@@ -235,6 +262,36 @@ describe('learning domain', () => {
       expect(lesson.knowledgeCheck.options).toHaveLength(3);
       expect(lesson.knowledgeCheck.correctOption).toBeGreaterThanOrEqual(0);
       expect(lesson.knowledgeCheck.correctOption).toBeLessThan(lesson.knowledgeCheck.options.length);
+      expect(lesson.media).toBeUndefined();
+    }
+  });
+
+  test('keeps course duration and location jurisdiction internally consistent', () => {
+    for (const item of courses) {
+      expect(item.modules.reduce((total, module) => total + module.minutes, 0)).toBe(item.durationMinutes);
+      for (const locationSlug of item.locationSlugs) {
+        const campus = campuses.find((candidate) => candidate.slug === locationSlug);
+        expect(campus).toBeDefined();
+        if (item.jurisdictionScope === 'state-specific') {
+          expect(item.stateCodes).toContain(campus?.stateCode);
+        }
+      }
+    }
+  });
+
+  test('connects Markapuram learning priorities to published AP lessons and official sources', () => {
+    const campus = campuses.find((item) => item.slug === 'markapuram');
+    expect(campus?.district).toBe('Markapuram');
+    expect(campus?.stateCode).toBe('AP');
+    expect(campus?.courseSlugs).toContain('buying-land-andhra-pradesh');
+    expect(campus?.focusAreas).toHaveLength(3);
+    for (const area of campus?.focusAreas ?? []) {
+      const linkedCourse = courses.find((item) => item.slug === area.courseSlug);
+      expect(linkedCourse).toBeDefined();
+      expect(campus?.courseSlugs).toContain(area.courseSlug);
+      expect(linkedCourse?.modules.some((module) => module.id === area.lessonId)).toBe(true);
+      expect(lessonContentByModuleId[area.lessonId]).toBeDefined();
+      expect(isGovernmentReferenceUrl(area.sourceUrl)).toBe(true);
     }
   });
 
@@ -242,6 +299,27 @@ describe('learning domain', () => {
     for (const reference of officialReferences) expect(isGovernmentReferenceUrl(reference.url)).toBe(true);
     for (const lesson of Object.values(lessonContentByModuleId)) {
       for (const referenceId of lesson.referenceIds ?? []) expect(officialReferenceById(referenceId)).toBeDefined();
+      for (const section of lesson.sections) {
+        for (const layer of section.evidenceLayers ?? []) {
+          for (const referenceId of layer.referenceIds) {
+            expect(officialReferenceById(referenceId)).toBeDefined();
+            expect(lesson.referenceIds).toContain(referenceId);
+          }
+        }
+      }
+    }
+  });
+
+  test('teaches the six AP evidence questions with their limits and official sources', () => {
+    const lesson = lessonContentByModuleId['buy-records'];
+    const layers = lesson.sections.flatMap((section) => section.evidenceLayers ?? []);
+    expect(layers.map((layer) => layer.name)).toEqual([
+      'Registration', 'Revenue', 'Survey', 'Restrictions', 'Tax, when applicable', 'Planning, when applicable',
+    ]);
+    for (const layer of layers) {
+      expect(layer.question.length).toBeGreaterThan(50);
+      expect(layer.limit.length).toBeGreaterThan(50);
+      expect(layer.referenceIds.length).toBeGreaterThan(0);
     }
   });
 
@@ -249,6 +327,15 @@ describe('learning domain', () => {
     const apCourse = courses.find((item) => item.slug === 'buying-land-andhra-pradesh');
     expect(apCourse).toBeDefined();
     for (const module of apCourse?.modules ?? []) {
+      expect(lessonContentByModuleId[module.id]?.referenceIds?.length ?? 0).toBeGreaterThan(0);
+      expect(lessonContentByModuleId[module.id]?.practiceCase?.facts.length ?? 0).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test('grounds every Telangana foundation module in official sources', () => {
+    const telanganaCourse = courses.find((item) => item.slug === 'understanding-telangana-land-records');
+    expect(telanganaCourse).toBeDefined();
+    for (const module of telanganaCourse?.modules ?? []) {
       expect(lessonContentByModuleId[module.id]?.referenceIds?.length ?? 0).toBeGreaterThan(0);
     }
   });

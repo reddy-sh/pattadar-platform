@@ -67,7 +67,7 @@ export const DELETE_INVITATION_MUTATION = `mutation($id: String!) { deleteInvita
  * BeneficiaryType object, so a selection set is REQUIRED — without one the
  * document fails GraphQL validation before executing.
  */
-export const VERIFY_BENEFICIARY_MUTATION = `mutation($token: String!) { verifyBeneficiary(token: $token) { id status } }`;
+export const VERIFY_BENEFICIARY_MUTATION = `mutation($token: String!, $consent: Boolean = false) { verifyBeneficiary(token: $token, inactivityEmailConsent: $consent) { id status } }`;
 
 /** Server-side invite fan-out (email/WhatsApp/SMS via notify seam). */
 export const INVITE_MEMBER_MUTATION = `mutation($id:String!){ inviteMember(id:$id){ id } }`;
@@ -163,7 +163,11 @@ export const UPDATE_MEMBER_MUTATION = `mutation($id:String!,$name:String!,$relat
 
 export const REVEAL_AADHAAR_MUTATION = `mutation($id:String!){ revealMemberAadhaar(id:$id) }`;
 
-export const UPDATE_PROFILE_AADHAAR_MUTATION = `mutation($kyc:String!){ updateProfile(language:"",districtsOfInterest:"",notificationPrefs:"",kycRef:$kyc,mfaEnabled:false){ id kycRefMasked } }`;
+/** Only the Aadhaar: an argument updateProfile is not sent leaves its column
+ *  alone. This used to send `language:""`, `districtsOfInterest:""`,
+ *  `notificationPrefs:""` and `mfaEnabled:false`, which — once the mutation
+ *  was reachable — would have wiped all four to save one number. */
+export const UPDATE_PROFILE_AADHAAR_MUTATION = `mutation($kyc:String!){ updateProfile(kycRef:$kyc){ id kycRefMasked } }`;
 export const REVEAL_MY_AADHAAR_MUTATION = `mutation { revealMyAadhaar }`;
 
 /** CL-545: the way back out of a wrong card — applyMyKyc only ever writes. */

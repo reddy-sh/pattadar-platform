@@ -114,7 +114,7 @@ async function storageThatDropsOneFile(page: Pg): Promise<void> {
 const MARKER = 'E2E half-failed upload';
 
 /** Open the survey request screen with both files queued and a message typed,
- *  ready for a press of Create request. */
+ *  ready for a press of Send request. */
 async function queueBothFiles(page: Pg): Promise<void> {
   await storageThatDropsOneFile(page);
   await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
@@ -127,20 +127,20 @@ async function queueBothFiles(page: Pg): Promise<void> {
   await expect(page.getByText(new RegExp(`${GOOD}.*${DEAD}`))).toBeVisible();
 
   await page.getByLabel('Message', { exact: true }).fill(MARKER);
-  await expect(page.getByRole('button', { name: 'Create request' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send request' })).toBeEnabled();
 }
 
-/** Press Create request and wait for the attempt to finish, rather than for a
+/** Press Send request and wait for the attempt to finish, rather than for a
  *  particular sentence: the message under test is the thing that is wrong, so
  *  waiting on it would hide the defect behind a timeout. */
 async function raiseAndSettle(page: Pg, request: Req, expectedFiled: number): Promise<void> {
-  await page.getByRole('button', { name: 'Create request' }).click();
+  await page.getByRole('button', { name: 'Send request' }).click();
   await expect
     .poll(async () => (await papersOn(request)).filter((p) => p.title === GOOD).length,
       { message: `${GOOD} should have been filed ${expectedFiled}x by now`, timeout: 20_000 })
     .toBe(expectedFiled);
   // The button comes back out of "Raising…" once the flow has unwound.
-  await expect(page.getByRole('button', { name: 'Create request' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send request' })).toBeVisible();
 }
 
 test.describe('raising a request whose upload dies half way', () => {
@@ -173,7 +173,7 @@ test.describe('raising a request whose upload dies half way', () => {
     // pickedPapers. A storage failure throws past it, so `e2e-first.pdf` —
     // already uploaded, already filed as a paper by addPaper at :170 — stays
     // listed under "Something else" while also appearing in the Papers card.
-    // Press Create request again and the loop restarts at index 0: the same
+    // Press Send request again and the loop restarts at index 0: the same
     // bytes upload again and services/api/src/web360.py:4601 add_paper INSERTs
     // a fresh doc-<uuid> without a dedupe, leaving the record holding two
     // identical papers the owner never asked for twice.
@@ -182,8 +182,8 @@ test.describe('raising a request whose upload dies half way', () => {
     await raiseAndSettle(page, request, 1);
     // Second press: e2e-second.pdf is refused again, so nothing is raised
     // either way and the only question is what happened to e2e-first.pdf.
-    await page.getByRole('button', { name: 'Create request' }).click();
-    await expect(page.getByRole('button', { name: 'Create request' })).toBeVisible();
+    await page.getByRole('button', { name: 'Send request' }).click();
+    await expect(page.getByRole('button', { name: 'Send request' })).toBeVisible();
 
     // The record's papers are the record of truth — the screen can say what it
     // likes, this is what a surveyor would be handed.
@@ -269,15 +269,18 @@ test.describe('the Waiting on you list behind the rail badge', () => {
     await expect(page.getByRole('heading', { name: 'Waiting on you' })).toBeVisible();
     // The lede has to answer "then where is everything else?", because this
     // page deliberately shows a strict subset and the old version did not.
-    await expect(page.getByText(/Everything you have ordered, finished jobs included, is under Services/)).toBeVisible();
+    await expect(page.getByText(/All your service orders, finished jobs included, is under Services/)).toBeVisible();
 
     const rows = page.locator('.rows.boxed > div');
     const waiting = rows.filter({ hasText: 'PT-2094' });
     await expect(waiting).toHaveCount(1);
-    // Both halves of Orders.tsx:368's rule, shown on the row: the pill for
-    // needsYou and the tag for the four pending deliverables.
-    await expect(waiting.getByText('Needs you')).toBeVisible();
-    await expect(waiting.getByText('4 to look at')).toBeVisible();
+    // Both halves of the list's rule, shown on the row: needsYou as the
+    // row's one status word, and the four pending deliverables as their own
+    // chip. "Needs you" used to be a second pill saying the same thing as the
+    // status (Orders.tsx statusOf, 28/09/2026).
+    await expect(waiting.getByText('Waiting on you', { exact: true })).toBeVisible();
+    await expect(waiting.getByText('Needs you')).toHaveCount(0);
+    await expect(waiting.getByText('4 to review')).toBeVisible();
 
     // The regression this page's own header comment records: it once ran the
     // Services query and listed Placed jobs nobody was waiting on. PT-2101 is

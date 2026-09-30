@@ -3,15 +3,17 @@
  * across the top, one navigation rail down the left, the routed screen in the
  * rest. It is the frame every one of W01–W15 is drawn inside.
  *
- * The rail is grouped rather than flat: Your land, Shared, Money & help,
- * Account. Fifteen equally-weighted entries in one column is a list you re-read
+ * The rail is grouped rather than flat: Your portfolio, Shared, Money,
+ * Account, then Operations and Administration for staff only, and Help &
+ * resources (Tools, Pattadar University, Help & support) pinned to the foot.
+ * Fifteen equally-weighted entries in one column is a list you re-read
  * top to bottom every time, because nothing in it says where to start looking;
  * four named groups of three or four is a shape you learn once. Inside a group
  * the order is still the way the product reasons, not alphabetical.
  *
- * One entry is not the owner's at all — the Pattadar desk. It hangs off Money &
- * help rather than the foot of the rail, because that group is where the people
- * who do the work live, and it is drawn only for whoever runs the platform.
+ * One entry is not the owner's at all — the Pattadar desk. It has its own
+ * Operations group, drawn only for whoever runs the platform, so a staff job
+ * queue never sits among the owner's own money.
  *
  * Below 900px the rail becomes a drawer behind a hamburger — it used to
  * simply vanish, leaving a phone with no navigation at all. And the jump box
@@ -24,34 +26,44 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined';
 import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
 import CalculateOutlined from '@mui/icons-material/CalculateOutlined';
+import CardGiftcardOutlined from '@mui/icons-material/CardGiftcardOutlined';
 import ContrastOutlined from '@mui/icons-material/ContrastOutlined';
 import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
-import GridViewOutlined from '@mui/icons-material/GridViewOutlined';
+import HomeOutlined from '@mui/icons-material/HomeOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
+import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined';
 import LightModeOutlined from '@mui/icons-material/LightModeOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MailOutlined from '@mui/icons-material/MailOutlined';
 import MapOutlined from '@mui/icons-material/MapOutlined';
 import LayersOutlined from '@mui/icons-material/LayersOutlined';
+import JoinFullOutlined from '@mui/icons-material/JoinFullOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
 import NotificationsNoneOutlined from '@mui/icons-material/NotificationsNoneOutlined';
+import OpenInNewOutlined from '@mui/icons-material/OpenInNewOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
 import PolicyOutlined from '@mui/icons-material/PolicyOutlined';
 import PublicOutlined from '@mui/icons-material/PublicOutlined';
 import SaveAltOutlined from '@mui/icons-material/SaveAltOutlined';
+import SchoolOutlined from '@mui/icons-material/SchoolOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ShieldOutlined from '@mui/icons-material/ShieldOutlined';
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined';
 
 import { useDesk, useOrders, usePortfolio, useSearch } from './api';
-import { Icon, Menu, initialsOf, plural } from './ui';
+import { Icon, Menu, plural } from './ui';
 import { ToastHost } from './Toast';
+import { InboxWatcher } from './InboxWatcher';
+import { Face } from './Face';
+import { useInbox } from './inbox';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { useAuth } from '../auth/AuthProvider';
+import { PENDING_INVITE, PENDING_REFERRAL, redeemReferral } from './growthData';
+import { UNIVERSITY_URL } from '../lib/links';
 import './w360.css';
 
 const SCHEME_KEY = 'w360.scheme';
@@ -64,6 +76,9 @@ const isScheme = (value: string | null): value is Scheme =>
 
 /** Which icon a jump hit wears: the record's kind, a paper, a person. */
 const HIT_ICON: Record<string, string> = { record: 'parcel', paper: 'title', person: 'person' };
+/** The kind tag on a search hit, in the rail's own nouns. The server's kinds
+ *  are internal ('record', 'paper'); the reader sees Property and Document. */
+const HIT_KIND: Record<string, string> = { record: 'property', paper: 'document', person: 'person' };
 
 interface NavItem {
   to: string;
@@ -72,6 +87,15 @@ interface NavItem {
   end?: boolean;
   count?: number;
   dot?: boolean;
+  /** `to` is outside this app (Pattadar University): a plain link that opens
+   *  a new tab and says so, rather than a router NavLink that cannot reach it. */
+  external?: boolean;
+}
+
+/** What the shell hands the routed screen. Help & support opens the
+ *  assistant drawer, which lives here, beside the topbar button. */
+export interface ShellContext {
+  openAssistant: () => void;
 }
 
 /** One named group of rail entries.
@@ -83,6 +107,8 @@ interface NavSection {
   title: string;
   items: NavItem[];
   desk?: boolean;
+  /** Pinned to the foot of the rail and ruled off (Help & resources). */
+  foot?: boolean;
 }
 
 /** One entry in the rail.
@@ -105,6 +131,21 @@ interface NavSection {
 function RailLink({ it, railHidden, onNavigate }: {
   it: NavItem; railHidden: boolean; onNavigate: () => void;
 }) {
+  if (it.external) {
+    const name = `${it.label} (opens in a new tab)`;
+    return (
+      <a
+        href={it.to} target="_blank" rel="noopener noreferrer"
+        title={railHidden ? it.label : undefined}
+        aria-label={name}
+        onClick={onNavigate}
+      >
+        <it.icon sx={{ fontSize: 19 }} aria-hidden />
+        <span className="lbl">{it.label}</span>
+        <OpenInNewOutlined className="ext" sx={{ fontSize: 14 }} aria-hidden />
+      </a>
+    );
+  }
   return (
     <NavLink
       to={it.to} end={it.end}
@@ -124,7 +165,7 @@ function RailLink({ it, railHidden, onNavigate }: {
 
 /** The Pattadar desk — the one rail entry that is not drawn for everybody.
  *
- *  It is a component instead of a third line in the Money & help group because
+ *  It is a component instead of a plain item in the Operations group because
  *  its badge is a real query, and not a cheap one: `desk` is one of the
  *  resolvers that read every owner’s jobs, it answers nothing for anybody who
  *  is not a platform admin, and it writes an audit row each time it does
@@ -233,6 +274,23 @@ export function Shell() {
 
   useEffect(() => { setActiveHit(0); }, [deferredQ]);
 
+  // Someone who arrived by an invitation or a referral link and had to sign
+  // up first lands back where the link was taking them. The referral is
+  // recorded once; the server ignores it for an account that already has
+  // records, is the referrer's own, or is already attributed.
+  useEffect(() => {
+    const code = localStorage.getItem(PENDING_REFERRAL);
+    if (code) {
+      localStorage.removeItem(PENDING_REFERRAL);
+      void redeemReferral(code).catch(() => undefined);
+    }
+    const invite = localStorage.getItem(PENDING_INVITE);
+    // Resumed once: cleared before navigating, so a link that turns out to be
+    // spent cannot bounce every later visit back to it.
+    if (invite) localStorage.removeItem(PENDING_INVITE);
+    if (invite && /^[\w-]{8,200}$/.test(invite)) navigate(`/i/${invite}`, { replace: true });
+  }, [navigate]);
+
   // ⌘K / Ctrl-K puts the caret in the jump box — the shortcut the box advertises.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -275,23 +333,32 @@ export function Shell() {
   const who = portfolio.data?.displayName ?? '';
   const ordered = orders.data?.length ?? 0;
   const waiting = portfolio.data?.waiting.length ?? 0;
+  // The bell counts what is waiting on you AND what arrived unread (a reading
+  // that finished while you were elsewhere). The same query InboxWatcher runs.
+  const inbox = useInbox();
+  const bell = waiting + (inbox.data?.unread ?? 0);
   // Tickets with work sitting on them. A dot that never clears trains people
   // to ignore the corner; a number that goes away when you have looked does not.
   const needsReview = orders.data?.filter((o) => o.needsYou || o.pendingReview > 0).length ?? 0;
 
-  // Four groups, named for what the reader is trying to do rather than for the
+  // Groups named for what the reader is trying to do rather than for the
   // machinery behind them: the land itself, the traffic between people, the
-  // money and the people paid to move it, then the account's own dials. Every
-  // destination that was in the flat rail is still here, and nothing new is —
-  // this is the same fifteen entries, grouped.
+  // money, the account's own settings, staff-only groups, and — pinned to the
+  // foot of the rail — help, learning and utilities.
   const sections: NavSection[] = [
     {
-      title: 'Your land',
+      title: 'Your portfolio',
       items: [
-        { to: '/app', label: 'Dashboard', icon: GridViewOutlined, end: true },
+        { to: '/app', label: 'Home', icon: HomeOutlined, end: true },
         { to: '/app/properties', label: 'Properties', icon: MapOutlined },
-        { to: '/app/villages', label: 'Maps', icon: LayersOutlined },
-        { to: '/app/papers', label: 'Papers', icon: DescriptionOutlined },
+        // Records viewed as one piece of ground. Beside Properties because it
+        // is the same land seen another way. "Views", not "properties": it
+        // merges no title, boundary or record — each member stays separate.
+        { to: '/app/combined', label: 'Combined views', icon: JoinFullOutlined },
+        // Cadastral maps: village and plot geometry, distinct from the
+        // Properties Map view and each record's Location tab.
+        { to: '/app/maps', label: 'Cadastral maps', icon: LayersOutlined },
+        { to: '/app/papers', label: 'Documents', icon: DescriptionOutlined },
       ],
     },
     {
@@ -304,37 +371,43 @@ export function Shell() {
         { to: '/app/assigned', label: 'Waiting on you', icon: AssignmentOutlined,
           count: needsReview || undefined },
         { to: '/app/invitations', label: 'Invitations', icon: MailOutlined },
-        { to: '/app/groups', label: 'Families & Groups', icon: GroupsOutlined },
+        { to: '/app/groups', label: 'Families & groups', icon: GroupsOutlined },
+        // Referral is how Pattadar grows, so it sits with the other ways
+        // people arrive, not buried in settings.
+        { to: '/app/refer', label: 'Invite & earn', icon: CardGiftcardOutlined },
       ],
     },
     {
-      // Work you have paid for, the balance it comes out of, and — for an
-      // operator only — the desk that moves it.
-      title: 'Money & help',
-      desk: true,
+      // Work you have ordered and the balance it comes out of.
+      title: 'Money',
       items: [
         { to: '/app/services', label: 'Services', icon: HandshakeOutlined, count: ordered || undefined },
         { to: '/app/wallet', label: 'Wallet', icon: AccountBalanceWalletOutlined },
       ],
     },
     {
+      // The account's own settings and trail. Notifications left this group
+      // for the topbar bell: it is something that arrives, not a place you go.
+      // "Admin & Ref Data" used to sit here for everybody; the desk is
+      // DeskRail under Operations now, drawn for an admin and nobody else.
       title: 'Account',
       items: [
-        // `waiting + 1` used to sit here. Nobody could say what the extra one
-        // was, and a badge reading 3 over a list of 2 teaches people to stop
-        // trusting the badge — which is the only thing it exists to do.
-        { to: '/app/notifications', label: 'Notifications', icon: NotificationsNoneOutlined,
-          count: waiting || undefined },
-        { to: '/app/tools', label: 'Tools', icon: CalculateOutlined },
-        { to: '/app/audit', label: 'Audit Log', icon: FactCheckOutlined },
-        // "Admin & Ref Data" used to sit here, for everybody, and pointed at a
-        // stub. /app/admin is the desk now (routes.tsx), and the desk belongs
-        // to whoever runs Pattadar rather than to whoever owns the land — so
-        // the entry is DeskRail under Money & help, drawn for an admin and for
-        // nobody else. The reference data itself is untouched at /legacy/admin.
         { to: '/app/profile', label: 'Profile', icon: PersonOutlined },
+        // The DPDP screen (consent, export, deletion). It was reachable only
+        // from the avatar menu; settings-shaped screens belong in the rail too.
+        { to: '/app/account', label: 'Privacy & your data', icon: ShieldOutlined },
+        // The owner's own trail. "Activity", not "Audit log": that name
+        // belongs to a compliance surface, and this one is the owner's.
+        { to: '/app/audit', label: 'Activity', icon: FactCheckOutlined },
       ],
     },
+    // The operator's desk has its own group. It used to hang off Money & help,
+    // which put a staff job queue among the owner's own spending.
+    ...(portfolio.data?.isPlatformAdmin ? [{
+      title: 'Operations',
+      desk: true,
+      items: [],
+    }] : []),
     ...(portfolio.data?.isSuperAdmin ? [{
       title: 'Administration',
       items: [
@@ -343,6 +416,17 @@ export function Shell() {
         { to: '/app/admin/geography', label: 'Government geography', icon: PublicOutlined },
       ],
     }] : []),
+    {
+      // Utilities, learning and help — not the owner's data, so they sit at
+      // the foot of the rail, ruled off from it, the way consoles place them.
+      title: 'Help & resources',
+      foot: true,
+      items: [
+        { to: '/app/tools', label: 'Tools', icon: CalculateOutlined },
+        { to: UNIVERSITY_URL, label: 'Pattadar University', icon: SchoolOutlined, external: true },
+        { to: '/app/help', label: 'Help & support', icon: HelpOutlineOutlined },
+      ],
+    },
   ];
 
   return (
@@ -352,6 +436,7 @@ export function Shell() {
     // unstyled text in the corner.
     <div className="w360" data-scheme={scheme} data-rail={railHidden ? 'hidden' : 'open'}>
       <ToastHost>
+      <InboxWatcher />
       <header className="topbar">
         <span className="row tight" style={{ flexWrap: 'nowrap' }}>
           {/* aria-expanded described the desktop rail even on a phone, so the
@@ -398,8 +483,8 @@ export function Shell() {
                   setActiveHit((i) => Math.max(0, i - 1));
                 }
               }}
-              placeholder="Jump to a parcel, paper, person…"
-              aria-label="Jump to a parcel, paper, person"
+              placeholder="Jump to a property, document, person…"
+              aria-label="Jump to a property, document, person"
               role="combobox"
               aria-expanded={showResults}
               aria-controls="w360-jump-list"
@@ -434,7 +519,7 @@ export function Shell() {
                     <Icon name={HIT_ICON[h.kind] ?? 'feature'} size={17} />
                   </span>
                   <span className="grow" style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>
+                    <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>
                       {h.title}
                     </span>
                     {h.subtitle && (
@@ -446,7 +531,7 @@ export function Shell() {
                   </span>
                   <span className="note mono" style={{ flex: 'none', fontSize: '0.625rem',
                     textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {h.kind}
+                    {HIT_KIND[h.kind] ?? h.kind}
                   </span>
                 </button>
               ))}
@@ -461,12 +546,12 @@ export function Shell() {
               {hits.length === 0 && !search.isFetching && search.isError && (
                 <p className="note" aria-hidden style={{ padding: '0.75rem 0.875rem', margin: 0,
                                              color: 'var(--w-danger)' }}>
-                  That search could not run. It is the connection, not your records.
+                  That search could not run.
                 </p>
               )}
               {hits.length === 0 && !search.isFetching && !search.isError && (
                 <p className="note" aria-hidden style={{ padding: '0.75rem 0.875rem', margin: 0 }}>
-                  Nothing matches “{q.trim()}” — not a parcel, a paper or a person.
+                  Nothing matches “{q.trim()}”.
                 </p>
               )}
               {hits.length === 0 && search.isFetching && (
@@ -526,6 +611,22 @@ export function Shell() {
           >
             <SmartToyOutlined sx={{ fontSize: 18 }} />
           </button>
+          {/* Notifications, moved up from the rail's Account group. A link,
+              not a popup: /app/notifications is the whole list. The badge is
+              the same `waiting` count the rail carried — never `waiting + 1`,
+              a number nobody could explain — and it is folded into the
+              accessible name because the badge itself is aria-hidden. */}
+          <NavLink
+            to="/app/notifications"
+            className="iconbtn notify-btn"
+            aria-label={bell ? `Notifications, ${bell} waiting` : 'Notifications'}
+            title="Notifications"
+          >
+            <NotificationsNoneOutlined sx={{ fontSize: 18 }} aria-hidden />
+            {bell > 0 && (
+              <span className="notify-badge" aria-hidden>{bell > 99 ? '99+' : bell}</span>
+            )}
+          </NavLink>
           {/* Was a hardcoded "S". On a product where several family members
               share one screen, an avatar that reads the same for everyone is
               worse than no avatar: it says you are signed in as someone you
@@ -549,8 +650,10 @@ export function Shell() {
           <Menu
             label={who ? `Your account — ${who}` : 'Your account'}
             triggerClassName="avatar"
-            trigger={who ? initialsOf(who) : <PersonOutlined sx={{ fontSize: 17 }} aria-hidden />}
-            header={who || user?.email || 'Signed in'}
+            // The sign-in provider's photo when the ID token carries one
+            // (Google's), else initials, else the person mark (Face.tsx).
+            trigger={<Face picture={user?.picture ?? ''} name={who || user?.name || ''} />}
+            header={who || user?.name || user?.email || 'Signed in'}
             items={[
               { label: 'Profile',
                 icon: <PersonOutlined sx={{ fontSize: 16 }} />,
@@ -596,7 +699,8 @@ export function Shell() {
               not. The visible label is aria-hidden so the same four words are
               not announced twice on the way into each group. */}
           {sections.map((sec) => (
-            <div className="navsec" key={sec.title} role="group" aria-label={sec.title}>
+            <div className={sec.foot ? 'navsec foot' : 'navsec'} key={sec.title}
+                 role="group" aria-label={sec.title}>
               <p className="navsec-t" aria-hidden>{sec.title}</p>
               {sec.items.map((it) => (
                 <RailLink key={it.to} it={it} railHidden={railHidden}
@@ -611,7 +715,7 @@ export function Shell() {
             </div>
           ))}
         </nav>
-        <Outlet />
+        <Outlet context={{ openAssistant: () => setAssistantOpen(true) } satisfies ShellContext} />
       </div>
       <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
       </ToastHost>

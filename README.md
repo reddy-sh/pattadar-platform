@@ -72,6 +72,7 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 | `governance/custodian` | Daily report-only Cloud Custodian security/cost/tagging sweeps. |
 | `docs/runbooks` | Operational release, migration, identity, account-data, lifecycle, thaw, restore, provider and access procedures. |
 | `docs/compliance` | SOC 2, GDPR/DPDP, privacy/security engineering, and evidence mappings. |
+| `docs/qa` | Phased testing plan, the `test.fail()` defect register, and the proposed tester role with its run commands and the decisions still reserved to Reddy. |
 
 ## Repository stack
 
@@ -115,7 +116,7 @@ Infra: see [infra/terraform/README.md](infra/terraform/README.md). Compliance po
 2. **Identity** uses the immutable issuer and subject, never the email local part. Existing DB/S3 owner keys remain reachable only through the reviewed `IDENTITY_LEGACY_BINDINGS` mapping. Complete [identity migration](docs/runbooks/identity-migration.md) before rollout.
 3. **AI readings** use durable asynchronous jobs and authenticated status polls on web. An interrupted provider call is never automatically repeated. Direct extraction endpoints remain for older clients; their callers need the longer operation budget.
 4. **`CRON_SECRET` is always set** — the inactivity-check endpoint is open without it.
-5. **Storage object keys** `{owner}/{node}/{version}` are migrated verbatim; metadata rows never change.
+5. **Storage object keys** are `{node}/{version}` — the owner is deliberately not in the key, because authorization is decided in SQL (`_access`) and never by key prefix. Reads use the `object_key` stored on the version row, so pre-existing objects keep their original keys verbatim; metadata rows never change.
 6. Dates render **DD/MM/YYYY** (India) everywhere.
 
 ## Repairs and release preparation

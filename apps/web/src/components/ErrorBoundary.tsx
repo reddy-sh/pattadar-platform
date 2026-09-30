@@ -35,8 +35,9 @@ interface State { error: Error | null }
 
 const wrap: React.CSSProperties = {
   minHeight: '60vh', display: 'grid', placeContent: 'center', justifyItems: 'center',
-  gap: '0.75rem', textAlign: 'center', padding: '3rem 1.5rem',
-  fontFamily: 'Inter, system-ui, sans-serif', color: '#c9c0ba',
+  // No font of its own: it inherits the one face from the body, which is set
+  // before any route can throw ('Inter' was named here and never loaded).
+  gap: '0.75rem', textAlign: 'center', padding: '3rem 1.5rem', color: '#c9c0ba',
 };
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -64,18 +65,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return (
       <div style={wrap} role="alert">
-        <p style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 600, color: '#f5efe9' }}>
+        <p style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700, color: '#f5efe9' }}>
           {stale
             ? 'Pattadar updated while this tab was open'
             : `${this.props.what ?? 'This screen'} stopped before it finished drawing`}
         </p>
         <p style={{ margin: 0, maxWidth: '30rem', fontSize: '0.8125rem', lineHeight: 1.5 }}>
           {stale
-            ? 'Reloading picks up the new version. Nothing you have saved is affected.'
-            : 'Nothing has been lost — this is a fault in the page, not in your records. '
-              + 'Reloading usually clears it.'}
+            ? 'Reload to get the new version.'
+            : 'Reload to try again.'}
         </p>
-        <p style={{ margin: 0, fontFamily: 'ui-monospace, monospace', fontSize: '0.6875rem',
+        <p style={{ margin: 0, fontSize: '0.6875rem',
                     color: '#8a807a', overflowWrap: 'anywhere', maxWidth: '30rem' }}>
           {error.message}
         </p>
@@ -85,7 +85,7 @@ export class ErrorBoundary extends Component<Props, State> {
             onClick={() => window.location.reload()}
             style={{ padding: '0.4375rem 0.875rem', borderRadius: 999, cursor: 'pointer',
                      border: 0, background: '#e08b3c', color: '#231a14',
-                     font: 'inherit', fontSize: '0.8125rem', fontWeight: 500 }}
+                     font: 'inherit', fontSize: '0.8125rem', fontWeight: 400 }}
           >
             Reload
           </button>
@@ -99,7 +99,7 @@ export class ErrorBoundary extends Component<Props, State> {
                        border: '1px solid #453c36', background: 'none', color: 'inherit',
                        font: 'inherit', fontSize: '0.8125rem' }}
             >
-              Go to your dashboard
+              Go to Home
             </button>
           )}
         </span>

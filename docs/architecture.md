@@ -72,6 +72,27 @@ New identities use immutable issuer/subject. Existing DB/S3 owner keys remain
 reachable only through reviewed `IDENTITY_LEGACY_BINDINGS`; neither gateway nor
 API derives authority from the email local part.
 
+## Secure media delivery
+
+Audio and video remain gateway-proxied; Pattadar does not issue presigned S3 GET
+URLs. A Bearer-authenticated `POST /api/gateway/storage/files/{node}/stream-session`
+authorizes one immutable node/version and sets a 15-minute, exact-path,
+`HttpOnly; SameSite=Strict` opaque cookie. PostgreSQL stores only its SHA-256.
+Native `<video>`/`<audio>` requests then use the pinned same-origin content URL
+and HTTP byte ranges. On every GET/HEAD/range the gateway rechecks account
+access and `StorageService.content_identity`, so a revoked share fails on the
+next request. S3 bodies are streamed in bounded chunks and are owned by a response lifecycle
+that closes them on completion, cancellation, or setup failure. Images, HEIC
+conversion, thumbnails and ordinary downloads keep the existing buffered
+transform path. The first authorized body request claims the stream session and
+writes one audit event before any bytes are offered, avoiding one event per seek
+range. This is authorized-access evidence; the existing audit transport is
+fail-open and does not prove every byte reached the browser.
+
+This is declared implementation behavior, not evidence that CloudFront currently
+forwards Range/cookies in a deployed environment; deployment verification is a
+separate release gate.
+
 ## Household inactivity safeguard
 
 The implemented working-tree flow treats the family-group owner as the sole

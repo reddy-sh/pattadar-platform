@@ -5,7 +5,9 @@ export default function ShareResult({ path }: { path: string }) {
   const [message, setMessage] = useState('');
   const url = new URL(path, window.location.origin).href;
   return <div className="stack" style={{ gap: 'var(--space-sm)' }}>
-    <p>The link is ready. Copy it and send it to the intended recipient. Anyone with this link can open the selected files until it expires or you revoke it.</p>
+    {/* A status, so the change from form to link is announced: the record
+        header no longer raises a toast for it. */}
+    <p role="status">Link ready. Anyone with it can open the selected files until it expires or you revoke it.</p>
     <label className="field">Recipient link
       <input aria-label="Recipient link" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
     </label>

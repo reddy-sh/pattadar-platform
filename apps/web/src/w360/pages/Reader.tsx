@@ -122,12 +122,12 @@ export function Reader() {
   // Two different absences that used to render identically: the read broke,
   // or the paper is genuinely not there. Telling an owner their deed "did not
   // load" when it has been deleted sends them to support for nothing.
-  if (error) return <main><Failed what="This paper" error={error} boxed h="26rem" /></main>;
+  if (error) return <main><Failed what="This document" error={error} boxed h="26rem" /></main>;
   if (!data) {
     return (
       <main>
-        <Empty boxed icon="paper" title="This paper is not in your vault">
-          It may have been deleted, or it belongs to a record that is no longer yours.
+        <Empty boxed icon="paper" title="This document isn't in your account">
+          It may have been deleted, or its property is no longer yours.
         </Empty>
       </main>
     );
@@ -179,7 +179,7 @@ export function Reader() {
     } catch (e) {
       // A storage read is not a w360 mutation, so no shared onError stands
       // behind it — this one has to raise its own.
-      toast.bad('That file could not be downloaded. The paper itself is unchanged.', e);
+      toast.bad('That file could not be downloaded. The document itself is unchanged.', e);
     }
   };
 
@@ -225,7 +225,7 @@ export function Reader() {
         documentIds: [data.id],
       });
       if (!result.web.createShareLink) {
-        toast.bad('This paper could not be shared. Refresh and try again.');
+        toast.bad('This document could not be shared. Refresh and try again.');
         return;
       }
       setSharePath(result.web.createShareLink);
@@ -235,7 +235,7 @@ export function Reader() {
     // Nothing on this screen changes when the link is made: the "shared" note
     // in the rail tracks a document-scoped link, and this one is scoped to the
     // record. So the confirmation has to be said out loud.
-    toast.ok('The link is ready to copy. Revoke it any time from the Vault.');
+    toast.ok('The link is ready to copy. Revoke it any time from Documents.');
   };
 
   const saveEdit = async (e: FormEvent) => {
@@ -305,7 +305,7 @@ export function Reader() {
                       not a segment: an <output> carries the status role, so
                       aria-live makes − and + actually speak the new percentage.
                       The padding and size are inline because `.mono` alone is
-                      font-family, and the pill's metrics come from
+                      tabular figures, and the pill's metrics come from
                       `.segmented button`, which this deliberately is not. */}
                   <output className="mono" aria-live="polite"
                           style={{ display: 'inline-flex', alignItems: 'center', fontSize: '0.8125rem', color: 'var(--w-ink-2)', padding: '0.3125rem 0.875rem' }}>
@@ -352,7 +352,7 @@ export function Reader() {
             </button>
           ) : (
             <span className="note" style={{ maxWidth: '13rem', lineHeight: 1.3 }}>
-              Sharing works on a record's papers. File this paper under a record to share it.
+              File this document under a property to share it.
             </span>
           )}
           <Menu label={`Actions for ${data.title}`} header={data.title} items={[
@@ -361,7 +361,7 @@ export function Reader() {
               onClick: () => { setDraft(data.title); setShelf(data.shelf); setEditing(true); },
             },
             ...(data.recordId ? [{
-              label: 'Open the record it is filed under',
+              label: 'Open the property it is filed under',
               onClick: () => nav(papersHome),
             }] : []),
             // Where the two other screens in this codebase that delete a
@@ -395,7 +395,7 @@ export function Reader() {
               style={{
                 width: '100%', height: '4.5rem',
                 borderColor: page === n + 1 ? 'var(--w-accent)' : 'var(--w-line)',
-                fontFamily: 'var(--font-mono)', fontSize: '0.75rem',
+                fontVariantNumeric: 'tabular-nums', fontSize: '0.75rem',
               }}
             >
               {n + 1}
@@ -484,11 +484,11 @@ export function Reader() {
                conditional and the only unconditional block was the delete
                panel, so a paper with nothing read off it rendered a screen
                whose entire message was "Delete this document". */
-            <Card title="What was read off this paper">
+            <Card title="What was read from this document">
               <p className="note" style={{ margin: 0 }}>
                 {data.subtitle
-                  ? 'The line above is all that was kept when this paper was filed. Nothing further was taken off the scan, so there is nothing more to show here yet.'
-                  : 'Nothing was taken off this paper when it was filed — no dates, no parties, no amounts. The scan itself is beside this panel; it is the reading that is missing.'}
+                  ? 'Nothing further was read off the scan.'
+                  : 'Nothing was read from this document.'}
               </p>
             </Card>
           )}
@@ -540,19 +540,6 @@ export function Reader() {
                   </div>
                 ))}
               </div>
-              {/* The "Replace" button that sat in this card's corner had no
-                  handler. Replacing a scan means writing a new fileRef onto
-                  the row, and `updatePaper` takes a name and a shelf and
-                  nothing else — so it is removed rather than left looking
-                  live, and the card says where a newer scan does go. Bring it
-                  back when the API accepts a fileRef on an existing paper. */}
-              <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                A newer scan is filed from{' '}
-                {data.recordId
-                  ? <Link className="link" to={papersHome}>this record's papers</Link>
-                  : 'the record this paper belongs to'}.
-                Nothing here is ever overwritten — an older version stays in this list.
-              </p>
             </Card>
           )}
 
@@ -596,8 +583,7 @@ export function Reader() {
         >
           {sharePath ? <ShareResult path={sharePath} /> : <form id="share-paper" onSubmit={makeLink} style={{ display: 'grid', gap: 'var(--space-sm)' }}>
             <p className="note" style={{ margin: 0 }}>
-              This link carries only this paper. It is good for 30 days and anyone
-              you send it to can open and download the file. Revoke it any time from the Vault.
+              Anyone with this link can open and download this document for 30 days.
             </p>
             <div className="field">
               <label htmlFor="rd-share">Who is it for</label>
@@ -643,20 +629,13 @@ export function Reader() {
                 style={{ display: 'grid', gap: 'var(--space-sm)' }}>
             <p className="note" style={{ margin: 0 }}>
               {data.recordId
-                ? <>It leaves this record straight away, with its list of versions.</>
-                : <>It leaves the vault straight away, with its list of versions.</>}{' '}
-              {/* The old panel promised the file "stays in your storage" in
-                  every state, including the states where this screen has just
-                  proved the store will not produce it. */}
-              {scan.status === 'ready'
-                ? <>The file itself stays in your storage, but nothing in the vault points at it.</>
-                : <>Whatever is in your storage is left alone, but nothing in the vault will point at it.</>}
+                ? <>It leaves this property straight away, with its list of versions.</>
+                : <>It leaves Documents straight away, with its list of versions.</>}
             </p>
             {needsPhrase && (
               <>
                 <p className="note" style={{ margin: 0 }}>
-                  This is your title to this land and it is shared right now, so you are asked
-                  to type {phrase} first. The link is revoked with it.
+                  This title deed is shared. Its link is revoked with it.
                 </p>
                 <div className="field">
                   {/* The accessible name the suite already knows this field by. */}
@@ -672,7 +651,7 @@ export function Reader() {
 
       {editing && (
         <Dialog
-          title="Rename or move this paper"
+          title="Rename or move this document"
           busy={editPaper.isPending}
           dismissable={false}
           onClose={() => setEditing(false)}
@@ -702,9 +681,6 @@ export function Reader() {
                   .map((s) => <option key={s} value={s}>{SHELF_WORD[s] ?? s}</option>)}
               </select>
             </div>
-            <p className="note" style={{ margin: 0 }}>
-              The shelf is where the vault files this paper. Nothing read off the scan changes.
-            </p>
           </form>
         </Dialog>
       )}

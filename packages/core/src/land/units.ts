@@ -107,6 +107,28 @@ export function unitLabel(label: string): string {
   return u ? u.label : label;
 }
 
+/** One of each unit. UNITS carries the plural because a picker and the
+ *  converter grid name units, not quantities. */
+const UNIT_ONE: Record<UnitKey, string> = {
+  acre: 'Acre',
+  cent: 'Cent',
+  gunta: 'Gunta',
+  sqyd: 'Sq. yard',
+  sqft: 'Sq. foot',
+  sqm: 'Sq. metre',
+  hectare: 'Hectare',
+  ankanam: 'Ankanam',
+};
+
+/** A unit's name agreeing with a count: 1 → "Acre", anything else → "Acres".
+ *  A readout that names a quantity goes through here; the Tools converter
+ *  echoed the picker's plural label and printed "1 Acres =" above a value
+ *  that `formatArea` rightly wrote as "1 Acre". */
+export function unitLabelFor(count: number, key: UnitKey): string {
+  if (Number(count) === 1) return UNIT_ONE[key];
+  return UNITS.find((u) => u.key === key)?.label ?? key;
+}
+
 /** Global extent-display preference (CL-13). */
 export type ExtentPref = 'acres-cents' | 'acres-guntas' | 'cents' | 'sqyd';
 

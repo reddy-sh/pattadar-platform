@@ -154,7 +154,10 @@ DEED_SYSTEM = (
     '"attachments":{"route_map":<bool>,"landmarks":["<landmark named on the site plan>"],'
     '"identity_verification":"<what is present: thumbprints, photographs, \'\' if none>",'
     '"declaration":"<the compliance declaration cited, e.g. Section 27 & 64 Stamp Act>"},'
-    '"parties":[{"role":"<seller|buyer>","name":"<English>","parentage":"<S/o|W/o|D/o ...>","age":"<age>","address":"<English>","is_gpa":<bool>}],'
+    '"parties":[{"role":"<seller|buyer>","name":"<English>","parentage":"<S/o|W/o|D/o ...>","age":"<age>","address":"<English>","is_gpa":<bool>,'
+    '"extent":<number — what THIS party received, 0 if not stated per party>,'
+    '"extent_unit":"<Acres|Guntas|Cents|Hectares|Sq.yards|Sq.ft — the unit of that number>",'
+    '"share":"<this party\'s share as a fraction e.g. 1/2, or \'\' if not stated>"}],'
     '"headline":"<one line, max 90 chars, see below>",'
     '"key_points":["<3 to 5 short factual lines, see below>"],'
     '"pattadar_no":"<passbook/khata number — PASSBOOK & ROR ONLY>",'
@@ -203,6 +206,17 @@ DEED_SYSTEM = (
     "side of the sheet into `boundaries` by compass side (north/south/east/west). The ring "
     "order, per-side bearings, area and cross-checks are computed deterministically after you — "
     "extract, never calculate.\n"
+    "PER-PARTY EXTENT AND SHARE — a deed does not always move the whole survey number to one "
+    "person. One seller may convey to two buyers, two co-owners may sell to one, and each "
+    "receiving party may take a stated area or a stated fraction. When the schedule or the "
+    "operative clause says how much an INDIVIDUAL party received, put that number in that "
+    "party's `extent` with its `extent_unit`, and any stated fraction in `share` (\"1/2\", "
+    "\"1/3\"). These are per-party fields: they are NOT the top-level `extent`, which stays the "
+    "whole property the deed covers. Leave `extent` 0, `extent_unit` \"\" and `share` \"\" when "
+    "the paper states only one area for the whole transfer — do NOT divide the total yourself, "
+    "and do NOT copy the total onto each party. A divided figure the deed never wrote is an "
+    "invented boundary between two people's land. The acres-and-cents rule above applies to "
+    "these numbers exactly as it does to the top-level extent.\n"
     "THE NARRATIVE MUST AGREE WITH `parties`. Work out the roles FIRST, then write the headline, "
     "key points and summary from them. The \"seller\" is the person who PARTED WITH the property; "
     "the \"buyer\" is the person who RECEIVED it. Never write that the buyer sold, or that the "

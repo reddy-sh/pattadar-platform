@@ -65,7 +65,7 @@ export function Shelf() {
   }, [papers.data, q]);
 
   const crumbs = (
-    <Crumbs trail={[{ label: 'Papers', to: '/app/papers' },
+    <Crumbs trail={[{ label: 'Documents', to: '/app/papers' },
                     { label: shelf ? shelf.label : 'Shelf' }]} />
   );
 
@@ -76,28 +76,7 @@ export function Shelf() {
       <main>
         {crumbs}
         <Empty boxed h="22rem" icon="unsorted" title="There is no shelf by that name"
-               action={<Link className="btn" to="/app/papers">Back to your papers</Link>}>
-          The vault files everything on eight shelves: Title, Revenue record, Map, Identity,
-          Search &amp; tax, Old record, Photos and Unsorted.
-        </Empty>
-      </main>
-    );
-  }
-
-  // Photos are counted from parcel_photos, never from `documents`, so this
-  // shelf is empty by construction. Saying "no papers here" would be true and
-  // useless; the photographs are real and they are on the records.
-  if (key === 'photos') {
-    return (
-      <main>
-        {crumbs}
-        <PageHead eyebrow="Your papers" title="Photos" />
-        <Empty boxed h="22rem" icon="photos" title="Photographs live on the record they are of"
-               action={<Link className="btn" to="/app/properties">Open your properties</Link>}>
-          A photo is the feature&rsquo;s condition, the order&rsquo;s evidence and one of the
-          parcel&rsquo;s own — the same file, three lenses. It is filed against the land it shows
-          rather than in a drawer of its own, so it opens from that record&rsquo;s Photos tab.
-        </Empty>
+               action={<Link className="btn" to="/app/papers">Back to your documents</Link>} />
       </main>
     );
   }
@@ -108,7 +87,7 @@ export function Shelf() {
     <main>
       {crumbs}
       <PageHead
-        eyebrow="Your papers"
+        eyebrow="Your documents"
         title={shelf.label}
         actions={papers.data && papers.data.length > 0 ? (
           <span className="search" style={{ width: '18rem' }}>
@@ -116,7 +95,7 @@ export function Shelf() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder={`Search ${plural(papers.data.length, 'paper')} on this shelf`}
+              placeholder={`Search ${plural(papers.data.length, 'document')} on this shelf`}
               aria-label={`Search the ${shelf.label} shelf`}
             />
           </span>
@@ -133,18 +112,14 @@ export function Shelf() {
 
       {papers.data && papers.data.length === 0 && (
         <Empty boxed h="20rem" icon={key} title={`Nothing is filed under ${shelf.label} yet`}
-               action={<Link className="btn" to="/app/papers">Back to your papers</Link>}>
-          {count
-            ? 'The shelf count disagrees with this list — that is worth reporting.'
-            : `Papers land here as they are read. ${shelf.note} belong on this shelf.`}
+               action={<Link className="btn" to="/app/papers">Back to your documents</Link>}>
+          {count ? 'The shelf count disagrees with this list.' : null}
         </Empty>
       )}
 
       {papers.data && papers.data.length > 0 && rows.length === 0 && (
         <Empty boxed h="14rem" icon="search" title={`Nothing on this shelf matches “${q.trim()}”`}
-               action={<button type="button" className="btn" onClick={() => setQ('')}>Clear</button>}>
-          Search looks at the paper&rsquo;s name and its one-line detail.
-        </Empty>
+               action={<button type="button" className="btn" onClick={() => setQ('')}>Clear</button>} />
       )}
 
       {rows.length > 0 && (
@@ -157,7 +132,7 @@ export function Shelf() {
                   <Icon name={p.icon || key} size={19} />
                 </span>
                 <span className="grow">
-                  <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>{p.title}</span>
+                  <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>{p.title}</span>
                   {p.detail && <span className="note" style={{ display: 'block' }}>{p.detail}</span>}
                 </span>
                 <span className="row tight" style={{ flexWrap: 'nowrap' }}>

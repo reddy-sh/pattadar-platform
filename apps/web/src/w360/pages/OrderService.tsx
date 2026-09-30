@@ -57,7 +57,7 @@ import { pairRing } from '../portfolioGeo';
 import { MapThumb } from '../MapThumb';
 import { ServiceVisual } from '../ServiceVisual';
 import {
-  Card, Chip, Empty, Failed, Icon, KV, Loading, ddmmyyyy, inr, plural,
+  Card, Chip, Empty, Failed, Icon, KV, Loading, ddmmyyyy, inr, plural, useNarrow,
 } from '../ui';
 import { RecordCrumbs, useRecordCtx } from './Record';
 import { ServiceRequestGuidance } from '../GovernanceGuidance';
@@ -73,9 +73,8 @@ import { ServiceRequestGuidance } from '../GovernanceGuidance';
  *  manifest is checked against what is filed now, not what was filed when the
  *  box was ticked. So the sentence names that, and the handler goes and looks. */
 const ORDER_REFUSED =
-  'That order was not accepted, and nothing was charged. The usual reason is that '
-  + 'something you attached is no longer on this land — a paper that was deleted or '
-  + 'moved since you ticked it. Check what is attached, and place it again.';
+  'That order was not accepted, and nothing was charged. Something you attached may '
+  + 'no longer be on this land. Check what is attached, and place it again.';
 
 /** A request that never came back.
  *
@@ -121,12 +120,12 @@ function LandRail({ rec, state }: { rec: RecordDetail; state: MapState }) {
   const geo = { ring: pairRing(rec.ring), lat: rec.lat, lon: rec.lon };
   return (
     <aside className="landrail">
-      <Card title="This land">
+      <Card title="This property">
         <div className="landart">
           <Icon name={rec.kind === 'parcel' ? 'parcel' : 'flat'} size={40} />
           <MapThumb {...geo} title={rec.title} />
         </div>
-        <p style={{ margin: 'var(--space-sm) 0 0', fontWeight: 600 }}>{rec.title}</p>
+        <p style={{ margin: 'var(--space-sm) 0 0', fontWeight: 700 }}>{rec.title}</p>
         <p className="note" style={{ margin: '0.125rem 0 0' }}>{rec.placeLine}</p>
         <p className="note" style={{ margin: '0.25rem 0 0' }}>
           {extentLine(rec)}
@@ -355,6 +354,14 @@ export function OrderService() {
   // inserting, so a revised attempt needs a new intent key.
   const [attempt, setAttempt] = useState(0);
   const intent = useRef({ fp: '', key: '' });
+  /** True from the press of Place until the flow has moved to its receipt or
+   *  come back with a refusal. The write invalidates every w360 read, so the
+   *  open-orders list can land WITH the order just placed in it while the URL
+   *  still says `check` — and the duplicate guard below would then take the
+   *  owner back to the catalogue ("already on order") instead of to the
+   *  receipt. A ref, because the guard has to see it on the render that races
+   *  the navigation, not one render later. */
+  const placingRef = useRef(false);
   const headRef = useRef<HTMLHeadingElement | null>(null);
 
   const compact = useNarrow(900);
@@ -463,6 +470,9 @@ export function OrderService() {
   // authoritative active-request read lands. Once it does, take the owner
   // back to the catalogue where the existing request is visible and openable.
   useEffect(() => {
+    // Not while this flow is placing its own order: the "duplicate" is then
+    // the job it has just filed (see `placingRef`).
+    if (placingRef.current) return;
     if (duplicate && (step === 'tell' || step === 'check')) {
       setParams({ service: offer?.key ?? service, ...(why ? { why } : {}), step: 'pick' },
         { replace: true });
@@ -495,6 +505,7 @@ export function OrderService() {
 
     const before = new Set((existing ?? []).map((o) => o.id));
     let count = 0;
+    placingRef.current = true;
     try {
       count = await placeOrder(order.mutateAsync, {
         recordIds: [rec.id],
@@ -511,11 +522,13 @@ export function OrderService() {
     } catch {
       // A throw is not a refusal. The order may be filed and only the answer
       // lost, so this points at the list rather than claiming nothing happened.
+      placingRef.current = false;
       setErr(ORDER_FAILED);
       void refetchExisting();
       return;
     }
     if (!count) {
+      placingRef.current = false;
       // Another tab may have filed the same service after this review loaded.
       // Refresh that fact before describing the zero as an attachment error.
       const current = await refetchExisting();
@@ -550,6 +563,10 @@ export function OrderService() {
       setPlaced({ found: fresh.length === 1 ? fresh[0] : null, read: 'ok' });
     } catch {
       setPlaced({ found: null, read: 'failed' });
+    } finally {
+      // The receipt is on screen by now, where the guard never fires; a next
+      // order from here starts with it armed again.
+      placingRef.current = false;
     }
   }
 
@@ -634,8 +651,7 @@ export function OrderService() {
           {step !== 'done' && service && !offer && !offersLoading && offers && (
             <Card title="That service is no longer offered">
               <p className="note" style={{ marginBottom: 'var(--space-sm)' }}>
-                The link you followed names a service this catalogue does not have. It may
-                have been withdrawn or renamed. Nothing has been ordered.
+                Nothing has been ordered.
               </p>
               <button type="button" className="btn" onClick={() => go({ service: null, step: 'pick' })}>
                 Choose another
@@ -683,9 +699,9 @@ function PickStep(
   }
   if (rec.paperCount === 0) {
     needs.push({
-      say: 'No papers are filed on this land yet.',
+      say: 'No documents are filed on this property yet.',
       to: `/app/records/${rec.id}`,
-      word: 'Open Papers',
+      word: 'Open Documents',
     });
   }
   const running = (existing ?? [])[0];
@@ -701,12 +717,8 @@ function PickStep(
     <>
       <StepHead headRef={headRef}>What do you want done on this land?</StepHead>
 
-      <Card className="flat">
-        {needs.length === 0 ? (
-          <p className="note" style={{ margin: 0 }}>
-            This land has its boundary and its papers on record.
-          </p>
-        ) : (
+      {needs.length > 0 && (
+        <Card className="flat">
           <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
             {needs.map((n) => (
               <li key={n.word} className="note" style={{ marginBottom: '0.25rem' }}>
@@ -714,8 +726,8 @@ function PickStep(
               </li>
             ))}
           </ul>
-        )}
-      </Card>
+        </Card>
+      )}
 
       {loading && !offers ? (
         <Loading h="14rem" what="the list of services" />
@@ -723,12 +735,9 @@ function PickStep(
         <Failed what="The list of services" error={error} boxed h="16rem" />
       ) : offers.length === 0 ? (
         <Empty
-          boxed h="16rem" icon="unsorted" title="There is nothing on offer just now"
+          boxed h="16rem" icon="unsorted" title="No services are available right now"
           action={<Link className="btn" to={`/app/records/${rec.id}/request`}>Ask someone yourself</Link>}
-        >
-          Nothing is wrong with your land. You can still ask a surveyor, an advocate or a
-          caretaker directly.
-        </Empty>
+        />
       ) : (
         <>
           {/* The server sorts (group, label), which puts Legal first by
@@ -777,7 +786,6 @@ function PickStep(
                           <Chip>{already.statusLabel || 'Already requested'}</Chip>
                         </span>
                         <small>{already.stageLabel || 'In progress'} · {already.ref}</small>
-                        <small>You already have one of these running on this land.</small>
                         <Link className="link" to={`/app/services/${already.id}`}>Open request</Link>
                       </span>
                     </div>
@@ -854,20 +862,19 @@ function TellStep(
     <>
       <StepHead headRef={headRef}>What we need to know</StepHead>
       <p className="lede">
-        {offer.label} on {rec.title}. {inr(offer.price)} · about {offer.days} days once
-        somebody is on it.
+        {offer.label} on {rec.title} · {inr(offer.price)} · about {offer.days} days
       </p>
 
       <ServiceRequestGuidance serviceKind={offer.key} district={rec.district || '*'} />
 
-      <Card title="The questions">
+      <Card title="Details for this service">
         {offer.fields.length === 0 ? (
           <p className="note" style={{ margin: 0 }}>There is nothing to fill in for this one.</p>
         ) : (
           <>
             {requiredNames.size > 0 && (
               <p className="note" style={{ marginTop: 0 }}>
-                Marked <span className="accent">*</span> — we cannot start without it.
+<span className="accent">*</span> Required
               </p>
             )}
             <div className="stack qsheet">
@@ -890,7 +897,7 @@ function TellStep(
           record can actually say. The four paperwork services get no map
           sentence at all — an EC does not care where the land is. */}
       {groundService(offer) && (
-        <Card title="Where this land is">
+        <Card title="Location & boundary">
           <p className="note" style={{ marginTop: 0 }}>
             {LAND_SENTENCE[offer.key]?.[mapState]}
           </p>
@@ -898,12 +905,7 @@ function TellStep(
             <label className="check">
               <input type="checkbox" checked={sendBoundary}
                      onChange={() => setSendBoundary(!sendBoundary)} />
-              <span className="grow">
-                Send them the boundary you have drawn
-                <span className="note" style={{ display: 'block' }}>
-                  Only the outline goes — no name, no khata, no survey number.
-                </span>
-              </span>
+              <span className="grow">Send them the boundary you have drawn</span>
             </label>
           ) : (
             <p className="note" style={{ marginBottom: 0 }}>{PIN_CANNOT_GO}</p>
@@ -912,24 +914,18 @@ function TellStep(
       )}
 
       <Card
-        title="What should they be given?"
+        title="Documents to share with the provider"
         aside={<Chip>{attach.length} of {papers.length + photos.length}</Chip>}
       >
-        <p className="note" style={{ marginTop: 0 }}>
-          Whoever does this work sees only what you tick here.
-        </p>
         {/* A read that failed is named here and nowhere else. The order still
             goes — a papers outage is not a reason to refuse to sell. */}
         {filesErr && papers.length === 0 && photos.length === 0 ? (
           <Failed what="What is filed on this land" error={filesErr} onRetry={onRetryFiles} />
         ) : papers.length === 0 && photos.length === 0 ? (
           <Empty
-            icon="paper" title="Nothing is filed on this land yet"
-            action={<Link className="btn sm" to={`/app/records/${rec.id}`}>File a paper first</Link>}
-          >
-            You can still order — they simply go without paperwork. Anything you file
-            later will not be added to an order that has already gone in.
-          </Empty>
+            icon="paper" title="No documents on this property yet"
+            action={<Link className="btn sm" to={`/app/records/${rec.id}`}>Add a document first</Link>}
+          />
         ) : (
           <Attachments papers={papers} photos={photos} picked={attach}
                        onToggle={onToggle} compact={compact} />
@@ -971,7 +967,7 @@ function CheckStep(
     .map((f) => ({ k: f.label, v: sheet[f.name] }));
 
   const goesWith = [
-    attachedPapers.length ? plural(attachedPapers.length, 'paper') : '',
+    attachedPapers.length ? plural(attachedPapers.length, 'document') : '',
     attachedPhotos.length ? plural(attachedPhotos.length, 'photo') : '',
   ].filter(Boolean).join(', ') || 'Nothing';
 
@@ -1004,19 +1000,15 @@ function CheckStep(
             wallet" is what the Services list used to say one click away, and it
             is wrong: funding is a separate later act. */}
         <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-          Nothing is taken now. {inr(offer.price)} is what this job costs. You set that money
-          aside on the job itself, and it is only owed once you accept what came back.
+          You pay only after you accept the work.
         </p>
         {offer.key === 'patta_copy' && (
-          <p className="note">
-            {inr(offer.price)} is what is quoted for this job. The number of copies does not
-            change it.
-          </p>
+          <p className="note">The number of copies does not change the price.</p>
         )}
       </Card>
 
       {duplicate && (
-        <Card className="alert" title="You already have one of these here">
+        <Card className="alert" title="This service is already ordered for this property">
           <p className="note" style={{ marginTop: 0 }}>
             {aOrAn(duplicate.title)} {duplicate.title.toLowerCase()} is already running on this land
             {duplicate.stageLabel && ` — ${duplicate.stageLabel.toLowerCase()}`}
@@ -1035,11 +1027,11 @@ function CheckStep(
       {duplicateUnknown && (
         <p className="note">
           {duplicateChecking
-            ? 'Checking whether this service is already running on this land. Ordering is paused.'
+            ? 'Checking whether this service is already running on this land.'
             : <>
-                We could not check what is already running on this land, so look under{' '}
+                We could not check what is already running on this land. Check{' '}
                 <Link className="link" to={`/app/records/${recordId}/services`}>Services</Link>{' '}
-                before trying again. Ordering is paused until that check succeeds.
+                before trying again.
               </>}
         </p>
       )}
@@ -1097,26 +1089,22 @@ function DoneStep(
         {read === 'flying' ? (
           // The headline stands on the count, which is proof enough that it was
           // filed. Only the reference waits.
-          <Loading h="6rem" what="your new job" />
+          <Loading h="6rem" what="your new order" />
         ) : found ? (
           <p className="note" style={{ marginTop: 0 }}>
             {offer.label} on {rec.title}. It is job <strong className="mono">{found.ref}</strong>
             {found.dueDate && <>, and we expect it back by {ddmmyyyy(found.dueDate)}</>}.
-            Nobody is on it yet — open it to put somebody on it, or to have Pattadar send
-            it out.
           </p>
         ) : read === 'failed' ? (
           // A failed read after a successful write must never read as a failed
           // write.
           <p className="note" style={{ marginTop: 0 }}>
-            We could not read the list back just now. The order is filed; you will find it
-            under Services on this land.
+            Order placed. Track it in Services.
           </p>
         ) : (
           // Zero new rows, or more than one. A reference is never invented.
           <p className="note" style={{ marginTop: 0 }}>
-            {offer.label} is filed against {rec.title}. We could not pick it out of the list
-            just now — it is under Services on this land.
+            {offer.label} is filed against {rec.title}. It is under Services on this land.
           </p>
         )}
 
@@ -1135,20 +1123,6 @@ function DoneStep(
 
 // ── Width ──────────────────────────────────────────────────────────────
 
-/** The attachment list and the land card both have to know whether they are on
- *  a phone, and CSS cannot collapse a scroller into a button. One listener,
- *  matchMedia rather than a resize handler, and it tolerates the older Safari
- *  that has `addListener` and not `addEventListener`. */
-function useNarrow(px: number): boolean {
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${px}px)`).matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${px}px)`);
-    const on = () => setNarrow(mq.matches);
-    on();
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, [px]);
-  return narrow;
-}
+/* The attachment list and the land card both have to know whether they are on
+   a phone, and CSS cannot collapse a scroller into a button: `useNarrow`, now
+   shared from ui.tsx (the Location tab needs the same answer). */

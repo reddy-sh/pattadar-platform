@@ -274,12 +274,21 @@ export class World {
 
     const query = parsed.query ?? '';
     const vars = parsed.variables ?? {};
-    const field = rootField(query);
+    let field = rootField(query);
+    if (!field) {
+      // A W360 screen can read through the root (cross-client) schema instead
+      // of `web` — RecordHead's notes do, on every record. Such a document is
+      // routed only when a `root.<field>` answer exists. Every other root-level
+      // document keeps the 400 below, which the previous app's screens are
+      // built to swallow (07-record-people, 19-sections-legacy).
+      const top = topLevelField(query);
+      if (top && this.answers.has(ROOT + top)) field = ROOT + top;
+    }
     if (!field) {
       return route.fulfill({
         status: 400,
         contentType: 'application/json',
-        body: JSON.stringify({ errors: [{ message: `Sealed: no 'web { <field>' in this document, so the world cannot route it:\n${query.slice(0, 400)}` }] }),
+        body: JSON.stringify({ errors: [{ message: `Sealed: no 'web { <field>' in this document and no '${ROOT}<field>' answer for it, so the world cannot route it:\n${query.slice(0, 400)}` }] }),
       });
     }
 
@@ -339,7 +348,7 @@ export class World {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: { web: { [field]: value === undefined ? null : value } } }),
+      body: JSON.stringify(envelope(field, value)),
     });
   }
 
@@ -353,7 +362,7 @@ export class World {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ data: { web: { [field]: answer.value ?? null } } }),
+          body: JSON.stringify(envelope(field, answer.value)),
         });
       case 'gql-error':
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: null, errors: [{ message: answer.message }] }) });
@@ -374,6 +383,30 @@ export class World {
  */
 export function rootField(query: string): string | null {
   return /\bweb\s*\{\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(query)?.[1] ?? null;
+}
+
+/**
+ * Answer keys for fields the app reads outside `web { … }`, through the root
+ * schema: `world.set('root.notes', [])`. The prefix keeps them apart from the
+ * `web` fields, and it is what the escape messages name.
+ */
+export const ROOT = 'root.';
+
+/**
+ * The first field an operation selects at its top level — `notes` in
+ * `query N($t:String!) { notes(entityType:$t) { id } }`, `groups` in
+ * `{ groups { id } }`. Only consulted when there is no `web {`.
+ */
+export function topLevelField(query: string): string | null {
+  return /^\s*(?:(?:query|mutation)\b[^{]*)?\{\s*([A-Za-z_][A-Za-z0-9_]*)/.exec(query)?.[1] ?? null;
+}
+
+/** The response body for an answer: `web`-wrapped, or bare for a `root.` key. */
+function envelope(field: string, value: unknown): unknown {
+  const answer = value === undefined ? null : value;
+  return field.startsWith(ROOT)
+    ? { data: { [field.slice(ROOT.length)]: answer } }
+    : { data: { web: { [field]: answer } } };
 }
 
 function describe(value: unknown): string {

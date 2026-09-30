@@ -85,29 +85,34 @@ function Busy({ label, children, className, style }: {
 // ── W02, the properties list ───────────────────────────────────────────
 
 /** One record card, grey. Mirrors Card() in pages/Properties.tsx line for
- *  line: cover, title + kind pill, owner, place, chips, rule, figure row. */
+ *  line: band, title, owner, place, rule, figure row, extent reading, what is
+ *  filed, chips. The state capsule is not among them — it moved onto the band,
+ *  where a grey placeholder for something absent on nine cards out of ten would
+ *  be a promise the answer usually breaks. */
 function SkCard({ i }: { i: number }) {
   return (
     <div className="rec sk" aria-hidden>
       <div className="art" style={wave(i)} />
       <div className="meat">
-        <div className="row between" style={{ flexWrap: 'nowrap' }}>
-          <Sk w="55%" h="1rem" />
-          <Sk w="2.5rem" h="1.125rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
-        </div>
+        <Sk w="55%" h="1rem" />
         <Sk w="38%" style={{ marginTop: '0.5rem' }} />
         <Sk w="64%" style={{ marginTop: '0.4375rem' }} />
-        <div className="row tight" style={{ margin: '0.75rem 0' }}>
-          <Sk w="5.5rem" h="1.375rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
-          <Sk w="3.25rem" h="1.375rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
-        </div>
-        <hr className="hr" style={{ margin: '0 0 0.625rem' }} />
-        {/* The one line the card exists for — extent, alternate unit, worth —
-            so it is the one that must not reflow when the figures land. */}
+        <hr className="hr" style={{ margin: '0.625rem 0' }} />
+        {/* The line the card exists for — extent and worth — so it is the one
+            that must not reflow when the figures land. */}
         <div className="row" style={{ flexWrap: 'nowrap', gap: '0.5rem' }}>
           <Sk w="4.5rem" h="1.125rem" style={{ flex: 'none' }} />
-          <Sk w="5rem" h="0.8125rem" />
           <Sk w="2.75rem" h="0.875rem" style={{ flex: 'none', marginLeft: 'auto' }} />
+        </div>
+        {/* The reading under it, and the digest under that. Both are single
+            truncating lines on the real card, so the placeholder is one bar
+            each and the card's height is the same before and after the answer
+            lands. */}
+        <Sk w="86%" h="0.6875rem" style={{ marginTop: '0.3125rem' }} />
+        <Sk w="70%" h="0.75rem" style={{ marginTop: '0.4375rem' }} />
+        <div className="row tight" style={{ marginTop: '0.5rem' }}>
+          <Sk w="5.5rem" h="1.25rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
+          <Sk w="3.25rem" h="1.25rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
         </div>
       </div>
     </div>
@@ -168,9 +173,14 @@ export function SkRecordTable({ rows = 8 }: { rows?: number }) {
  *  fills the column exactly the way the live map does — and the caption line
  *  under it is reserved too, or the map would grow by one line when the count
  *  arrives. */
-export function SkPortfolioMap() {
+export function SkPortfolioMap({ label = 'Loading the map of your properties' }: {
+  /** What is loading, in the noun the screen's `Failed what=` uses. The
+   *  combined map waited as "the map of your properties" and failed as "The
+   *  combined map" — two names for one read. */
+  label?: string;
+} = {}) {
   return (
-    <Busy label="Loading the map of your properties" className="pf">
+    <Busy label={label} className="pf">
       <div className="plot pf-stage" aria-hidden />
       <SkText className="note" w="18rem" />
     </Busy>
@@ -241,7 +251,7 @@ export function SkRows({ rows = 4, label = 'Loading' }: { rows?: number; label?:
  *  visible jump on this screen — the headline moves, then the strip lands,
  *  then the content shifts down. Here it simply never moves. */
 function SkTabs() {
-  const TABS = ['Papers', 'Features', 'People', 'Services', 'Money', 'Audit'];
+  const TABS = ['Documents', 'Site features', 'People', 'Services', 'Money', 'Activity'];
   return (
     <nav className="tabs" aria-hidden>
       {TABS.map((t) => <span key={t} className="sk-tab muted">{t}</span>)}
@@ -282,7 +292,7 @@ export function SkRecordPage() {
 
   return (
     <main>
-      <Busy label="Loading this record">
+      <Busy label="Loading this property">
         <div className="crumbs" aria-hidden style={{ height: '1.5em' }}>
           <Sk w="4.5rem" h="0.8125rem" style={{ display: 'inline-block' }} />
         </div>

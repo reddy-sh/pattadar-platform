@@ -30,6 +30,8 @@ flowchart LR
   AST -->|Agent SDK| ANT
   AST -->|in-process MCP| T[UI intents +<br/>read-only records]
   API --> J[(document_read_jobs)]
+  J -->|reading finished| IN[(inbox_items)]
+  API -.empty Web Push, opt-in.-> PS[browser push service]
   API --> AC[(aadhaar_candidates<br/>KMS ciphertext, 30 min)]
   API --> AKMS[(dedicated Aadhaar KMS key)]
   AST --> R[(conversations / runs /<br/>attachments)]
@@ -73,6 +75,23 @@ semantics, and merging them would force one policy onto both:
 
 The queue deliberately stays outside the module: it owns a table and a worker
 lifecycle, and `ai_reading.JOB_HANDLERS` is the whole contract between them.
+
+**Reading-complete notices (27/09/2026).** A reading submitted with
+`X-Reading-Purpose: add-property` (only the web's Add property drawer sends
+it; Aadhaar can never carry it) is stored with that `purpose`. When the worker
+stores the result — or the sweep marks it interrupted — `src/inbox.py` writes
+one `inbox_items` row and, if browser push is configured, sends an **empty**
+Web Push (VAPID, RFC 8292; no payload, so nothing about the document reaches
+the push service and no message encryption is needed). The web polls
+`GET /inbox` every 5 s only while such a reading is running, and on focus
+otherwise; the bell, a toast with Review, and `/app/notifications` read it.
+Review opens Add property filled from `GET /import-status/{job}` (kept one
+day). The server never keeps the source bytes after a reading, so a reading
+reopened after a reload cannot file the document itself and the drawer says
+so. No new AWS service: the worker and PostgreSQL that already exist do all
+of it. Push is off until `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and
+`VAPID_SUBJECT` are set (`scripts/vapid-keys.py`); subscription endpoints are
+restricted to the four browser push services.
 Those handler names are written into queued rows, so renaming one orphans work
 already in flight.
 

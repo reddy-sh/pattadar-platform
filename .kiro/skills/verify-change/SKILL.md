@@ -5,7 +5,7 @@ compatibility: Requires the pattadar-platform repository and Bun 1.3.14. Python,
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-16"
+  verified: "2026-09-26"
 ---
 
 # Verify Change

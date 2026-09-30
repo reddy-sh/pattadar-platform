@@ -1,7 +1,7 @@
 /**
  * W08 · the people hanger — /app/records/:id/people
  *
- * "Who looks after it" is the only screen in the module that mixes five kinds
+ * "Caretakers & staff" is the only screen in the module that mixes five kinds
  * of person on one page and grades them: the ones you pay get the full
  * arrangement grid (what, how much, when next, what they can see), the ones you
  * don't get one line and one control. Almost every assertion here is about that
@@ -37,14 +37,14 @@
  *    options also refuse a save and hold one open. Its "Scan Aadhaar / ID"
  *    panel is an ASYNC read (api/client.ts:33), so the two tests that use it
  *    answer `extract-aadhaar-async` AND `import-status` with world.route.
- *  · Five test.fail()s, each with the file and line of its cause on it:
+ *  · Four test.fail()s, each with the file and line of its cause on it:
  *    a payment row throws away the date and the method the query asked for;
- *    the same row carries "paid out" vs "received" in a colour and an
- *    aria-hidden arrow and nothing else; the one-line list drops the role,
- *    which is the only thing a person remembered off a closed job has; a
- *    rename that fails raises a toast with no reason in it; and the Aadhaar
- *    field tells the owner only the last four digits are kept, which is not
- *    what the server does with the number.
+ *    the one-line list drops the role, which is the only thing a person
+ *    remembered off a closed job has; a rename that fails raises a toast with
+ *    no reason in it; and the Aadhaar field tells the owner only the last four
+ *    digits are kept, which is not what the server does with the number. A
+ *    fifth — a payment's direction said only by an aria-hidden arrow and a
+ *    colour — was fixed on 28/09/2026 and is an ordinary test now.
  */
 import { test, expect, World } from '../fixtures/harness';
 import type { Page } from '../fixtures/harness';
@@ -53,6 +53,12 @@ import { ID, PERSON } from '../fixtures/ids';
 const PEOPLE_OF = (id: string) => `/app/records/${id}/people`;
 const PARCEL = PEOPLE_OF(ID.parcel);   // three people, two payments, a wallet
 const NOBODY = PEOPLE_OF(ID.plot);     // the same shape, emptied
+/** The People tab now opens on the ownership side; the caretakers and staff
+ *  list these tests are about is one toggle away. */
+async function gotoStaff(page: Page, url: string) {
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Caretakers & staff', exact: true }).click();
+}
 
 type Row = Record<string, unknown>;
 
@@ -100,7 +106,7 @@ const asideCard = (page: Page, title: string) =>
 
 test.describe('the hanger, drawn', () => {
   test('the people hanger asks for the record it was routed to and heads itself with the question it answers', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     // The people land before the world is questioned about them: :5173 is the
     // founder's own dev server and can be slow to serve a cold module graph,
@@ -108,7 +114,12 @@ test.describe('the hanger, drawn', () => {
     await expect(card(page, 'Ramana Rao')).toBeVisible();
     expect(world.lastVars('people')).toMatchObject({ id: ID.parcel });
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Who looks after it');
+    // One heading for the tab, its own noun, and the side you are on is the
+    // pressed half of the segment under it (design.md § App vocabulary,
+    // "Property tabs").
+    await expect(page.getByRole('heading', { level: 2, name: 'People', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Caretakers & staff', exact: true }))
+      .toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('Sy 214/2 · Katragunta')).toBeVisible();
 
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
@@ -121,20 +132,26 @@ test.describe('the hanger, drawn', () => {
     await expect(crumbs.getByRole('link', { name: 'People' })).toHaveCount(0);
   });
 
-  test('the lede counts the people and states the money moving through them', async ({ page }) => {
-    await page.goto(PARCEL);
-    await expect(page.getByText('3 people · ₹7,200 a month going out · ₹1.4 L a season coming in'))
-      .toBeVisible();
+  test('the line under the heading counts the people, and the rail states the money moving through them', async ({ page }) => {
+    // The pay figures are said once on this tab, in the rail, in whole
+    // rupees the way each person's own pay is written — so the sum can be
+    // checked against them. The line under the heading is the headcount.
+    await gotoStaff(page, PARCEL);
+    await expect(page.locator('header.sechead p.note')).toHaveText('3 people');
+    const money = asideCard(page, 'Payments to people');
+    await expect(money).toContainText('₹7,200 out, each month');
+    await expect(money).toContainText('₹1,40,000 in, each season');
+    await expect(page.getByText(/\/month out/)).toHaveCount(0);
   });
 
   test('one person is one person, not "1 people"', async ({ page, world }) => {
     world.set('people', peopleView({ count: 1, people: [person({ name: 'Ramana Rao' })] }));
-    await page.goto(PARCEL);
-    await expect(page.getByText(/^1 person · /)).toBeVisible();
+    await gotoStaff(page, PARCEL);
+    await expect(page.locator('header.sechead p.note')).toHaveText('1 person');
   });
 
   test('the watchman is drawn with his initials, his badge and the whole arrangement', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     const watchman = card(page, 'Ramana Rao');
 
     await expect(watchman).toContainText('RR');
@@ -153,7 +170,7 @@ test.describe('the hanger, drawn', () => {
   });
 
   test('a tenant with no badge wears his role instead', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     const tenant = card(page, 'Sai Kumar');
 
     await expect(tenant).toContainText('Tenant farmer');
@@ -176,7 +193,7 @@ test.describe('the hanger, drawn', () => {
         badges: ['Aadhaar verified', 'On site'],
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     const sai = card(page, 'Sai Kumar');
     await expect(sai.getByText('Aadhaar verified')).toBeVisible();
@@ -200,7 +217,7 @@ test.describe('the hanger, drawn', () => {
         dueLabel: '', dueValue: 'Feb 2027', visibility: '',
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     const half = card(page, 'Lakshmi Devi');
     await expect(half).toContainText('Arrangement');
@@ -216,7 +233,7 @@ test.describe('the hanger, drawn', () => {
   });
 
   test('what each person can see is on their own card, not in a settings screen', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await expect(card(page, 'Ramana Rao')).toContainText('Can see');
     await expect(card(page, 'Ramana Rao')).toContainText('Sees photos and boundary');
     await expect(card(page, 'Sai Kumar')).toContainText('Can see');
@@ -230,14 +247,14 @@ test.describe('the hanger, drawn', () => {
       count: 1,
       people: [person({ id: 'w-person-sn', name: 'M. Satyanarayana', initials: 'ZZ' })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await expect(card(page, 'M. Satyanarayana')).toContainText('MS');
     await expect(page.getByText('ZZ')).toHaveCount(0);
   });
 
   test('somebody remembered from a closed job gets one line and one control', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     // Venkat Reddy is filed compact: no card, no arrangement grid, no rename.
     await expect(card(page, 'Venkat Reddy')).toHaveCount(0);
@@ -260,14 +277,12 @@ test.describe('the hanger, drawn', () => {
         summary: 'Brother · equal share', compact: true,
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await expect(page.getByText('Venkat Reddy')).toBeVisible();
     await expect(page.getByText('Brother · equal share')).toBeVisible();
-    await expect(page.getByText('Nobody is filed on this land yet')).toHaveCount(0);
+    await expect(page.getByText('No caretakers or staff recorded')).toHaveCount(0);
     await expect(page.getByRole('article')).toHaveCount(0);
-    // And the footnote belongs to a list that has somebody in it.
-    await expect(page.getByText(/Who can see this record is granted as a link/)).toBeVisible();
   });
 
   test('somebody remembered from a closed job says what they did here', async ({ page, world }) => {
@@ -293,7 +308,7 @@ test.describe('the hanger, drawn', () => {
         summary: 'Re-walk the eastern boundary · SR-1042', compact: true,
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await expect(page.getByText('K. Prasad')).toBeVisible();
     await expect(page.getByText('Re-walk the eastern boundary · SR-1042')).toBeVisible();
@@ -311,7 +326,7 @@ test.describe('the hanger, drawn', () => {
         actions: ['Lease agreement', 'Permissions'],
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await expect(page.getByRole('link', { name: 'Lease agreement' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}`);
@@ -327,7 +342,7 @@ test.describe('the hanger, drawn', () => {
       count: 1,
       people: [person({ id: 'w-person-new', name: 'Lakshmi Devi', role: 'Caretaker' })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     const fresh = card(page, 'Lakshmi Devi');
     await expect(fresh).toContainText('Caretaker');
@@ -341,16 +356,16 @@ test.describe('the hanger, drawn', () => {
       count: 1,
       people: [person({
         id: 'w-person-acts', name: 'Sai Kumar', role: 'Tenant farmer',
-        actions: ['Lease agreement', 'Track order', 'Invite to the app',
+        actions: ['Lease agreement', 'Track', 'Invite to the app',
                   'Message', 'Change pay', 'Record a payment', 'Permissions'],
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     const acts = card(page, 'Sai Kumar');
     await expect(acts.getByRole('link', { name: 'Lease agreement' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}`);
-    await expect(acts.getByRole('link', { name: 'Track order' }))
+    await expect(acts.getByRole('link', { name: 'Track' }))
       .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
     await expect(acts.getByRole('link', { name: 'Invite to the app' }))
       .toHaveAttribute('href', '/app/invitations');
@@ -368,59 +383,126 @@ test.describe('the hanger, drawn', () => {
   });
 
   test('the People tab is the one you are standing on, and it carries the record own count', async ({ page }) => {
-    await page.goto(PARCEL);
-    const tabs = page.getByRole('navigation', { name: 'This record' });
+    await gotoStaff(page, PARCEL);
+    const tabs = page.getByRole('navigation', { name: 'This property' });
     const here = tabs.getByRole('link', { name: /^People/ });
     await expect(here).toHaveAttribute('aria-current', 'page');
-    await expect(here).toContainText('3');
+    // Both sides of the tab: the three staff and the one owner the seed files
+    // against every record (web360.py `record` counts record_people and
+    // record_owners, so the badge agrees with what the tab shows).
+    await expect(here).toContainText('4');
+  });
+});
+
+// ── the owners side ────────────────────────────────────────────────────
+
+test.describe('the owners side', () => {
+  test('the tab opens on the owners, and says how many and who holds it now', async ({ page }) => {
+    await page.goto(PARCEL);
+    await expect(page.getByRole('button', { name: 'Owners', exact: true }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('header.sechead p.note')).toHaveText('1 owner · Shankar Reddy');
+  });
+
+  test('an owner on the chain opens their own drawer from a pointer click', async ({ page }) => {
+    // The chain's node sat under a layer that took the pointer (the canvas
+    // wrapper's pointer-events), so the owner could be opened from the
+    // keyboard and not by a click. A real click is what proves it now:
+    // Playwright only clicks an element that receives the pointer at that
+    // point (OwnerChain.tsx, the node's pointer-events).
+    await page.goto(PARCEL);
+    await page.getByRole('button', { name: 'Open Shankar Reddy', exact: true }).click();
+
+    const drawer = page.getByRole('dialog', { name: 'Shankar Reddy', exact: true });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('.eyebrow')).toHaveText('Sy 214/2 · Owners');
+    await expect(drawer.getByRole('button', { name: 'Remove from this property' })).toBeVisible();
+  });
+
+  test('a property with no owner on file offers the first transfer, and it opens the transfer drawer', async ({ page, world }) => {
+    // A chain of title starts with a transfer, and the only "Add a transfer"
+    // used to be drawn inside the chain it would create — so an empty Owners
+    // side had no way in at all.
+    world.set('owners', { owners: [], count: 0, currentName: '' });
+    world.set('transfers', { transfers: [], count: 0, unverifiedCount: 0 });
+    await page.goto(PARCEL);
+
+    await expect(page.getByText('No owners recorded yet')).toBeVisible();
+    await page.getByRole('button', { name: 'Add a transfer' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Add a transfer', exact: true });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('.eyebrow')).toHaveText('Sy 214/2 · Owners');
+    expect(world.calls('addTransfer')).toHaveLength(0);
   });
 });
 
 // ── the money column ───────────────────────────────────────────────────
 
 test.describe('the money on people', () => {
-  test('the money card repeats the two figures in the lede, out first and in second', async ({ page }) => {
-    await page.goto(PARCEL);
-    const money = asideCard(page, 'Money on people');
+  test('the money card says the two figures once, out first and in second, to the rupee', async ({ page }) => {
+    await gotoStaff(page, PARCEL);
+    const money = asideCard(page, 'Payments to people');
 
     await expect(money).toContainText('₹7,200');
-    await expect(money).toContainText('out, this month');
-    await expect(money).toContainText('₹1.4 L');
-    await expect(money).toContainText('in, at harvest');
+    await expect(money).toContainText('out, each month');
+    // Whole rupees, as each person's own pay is written, not "₹1.4 L".
+    await expect(money).toContainText('₹1,40,000');
+    await expect(money).toContainText('in, each season');
+    await expect(money).not.toContainText('₹1.4 L');
   });
+
+  /** Somebody on the property with pay on file — what brings the money
+   *  column out at all (RecordPeople.tsx `hasArrangement`). */
+  const paid = () => person({ arrangement: 'Monthly', payLabel: 'Paid', payValue: '₹7,200 / month' });
 
   test('the wallet balance is printed to the rupee, the way the wallet itself prints it', async ({ page, world }) => {
     // ₹1,01,000 read as "₹1.01 L" here and ₹1,01,000 a click away on
     // /app/wallet is ₹433 of daylight between two figures for the same money.
     world.set('people', peopleView({
-      count: 1, people: [person()], walletBalance: 101_000, walletNote: 'In your wallet',
+      count: 1, people: [paid()], monthlyOut: 7_200, walletBalance: 101_000, walletNote: 'In your wallet',
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
-    await expect(asideCard(page, 'Money on people')).toContainText('Balance ₹1,01,000 · In your wallet');
+    await expect(asideCard(page, 'Payments to people')).toContainText('Balance ₹1,01,000 · In your wallet');
     await expect(page.getByText('₹1.01 L')).toHaveCount(0);
   });
 
-  test('the wallet card is honest that paying out of Pattadar is not switched on', async ({ page }) => {
-    await page.goto(PARCEL);
-    const money = asideCard(page, 'Money on people');
+  test('the wallet card does not say anything was paid from it while paying out is not switched on', async ({ page }) => {
+    // "Paid" is a claim that money moved through Pattadar. While the payments
+    // provider is a stub nothing has, so the card names the wallet and says
+    // what it holds (design.md § App vocabulary, "Property tabs").
+    await gotoStaff(page, PARCEL);
+    const money = asideCard(page, 'Payments to people');
 
-    await expect(money).toContainText('Paid from your Pattadar wallet');
-    await expect(money).toContainText('Adding money to the wallet is not switched on yet.');
+    await expect(money).toContainText('Your Pattadar wallet');
+    await expect(money).not.toContainText('Paid from your Pattadar wallet');
     await expect(money.getByRole('link', { name: 'See the wallet' }))
       .toHaveAttribute('href', '/app/wallet');
   });
 
-  test('when the wallet goes live the screen stops apologising for it', async ({ page, world }) => {
+  test('when the wallet goes live the card says the pay comes out of it', async ({ page, world }) => {
     world.set('people', peopleView({
-      count: 1, people: [person()], walletLive: true, walletNote: 'In your wallet',
+      count: 1, people: [paid()], monthlyOut: 7_200, walletLive: true, walletNote: 'In your wallet',
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
-    const money = asideCard(page, 'Money on people');
+    const money = asideCard(page, 'Payments to people');
+    await expect(money).toContainText('Paid from your Pattadar wallet');
     await expect(money).toContainText('Balance ₹24,500');
     await expect(money).not.toContainText('not switched on yet');
     await expect(money.getByRole('link', { name: 'See the wallet' })).toBeVisible();
+  });
+
+  test('nobody with pay on file means no money column, rather than one full of zeroes', async ({ page, world }) => {
+    // The rail waits until somebody on this property has an arrangement, as
+    // Missing documents waits for a gap (RecordPeople.tsx `hasRail`).
+    world.set('people', peopleView({ count: 1, people: [person()] }));
+    await gotoStaff(page, PARCEL);
+
+    await expect(card(page, 'Ramana Rao')).toBeVisible();
+    await expect(asideCard(page, 'Payments to people')).toHaveCount(0);
+    await expect(asideCard(page, 'Recent payments')).toHaveCount(0);
+    await expect(page.locator('.split.no-rail')).toHaveCount(1);
   });
 
   test('the last payments say which way the money went, and money still held says neither', async ({ page, world }) => {
@@ -435,16 +517,15 @@ test.describe('the money on people', () => {
         payment({ id: 'w-pay-held', title: 'Boundary survey', subtitle: 'releases when you accept the sketch', amount: 4_500, direction: 'out', state: 'escrow' }),
       ],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     // The rows have no role of their own, and the only thing separating the
     // three glyphs is the data-testid MUI stamps on an icon outside a
-    // production build (@mui/material SvgIcon/createSvgIcon.js:18) — so these
-    // three assertions hold against the dev server this suite drives and not
-    // against a built bundle. Nothing in the row says "in" or "out" in words:
-    // direction here is an unlabelled arrow and a colour, and that is all a
-    // screen reader gets.
-    const rows = asideCard(page, 'Last payments').locator('.rows > div');
+    // production build (@mui/material SvgIcon/createSvgIcon.js:18) — so the
+    // glyph assertions hold against the dev server this suite drives and not
+    // against a built bundle. The direction is also said in a word under the
+    // amount (RecordPeople.tsx paymentWord), asserted in the test below.
+    const rows = asideCard(page, 'Recent payments').locator('.rows > div');
     await expect(rows).toHaveCount(3);
 
     await expect(rows.nth(0)).toContainText('Ramana Rao');
@@ -452,7 +533,7 @@ test.describe('the money on people', () => {
     await expect(rows.nth(0).locator('[data-testid="NorthEastOutlinedIcon"]')).toHaveCount(1);
 
     await expect(rows.nth(1)).toContainText('Groundnut sale');
-    await expect(rows.nth(1)).toContainText('₹1.4 L');
+    await expect(rows.nth(1)).toContainText('₹1,40,000');
     await expect(rows.nth(1).locator('[data-testid="SouthWestOutlinedIcon"]')).toHaveCount(1);
 
     // Escrow is money that has NOT moved, and takes the clock rather than
@@ -475,9 +556,9 @@ test.describe('the money on people', () => {
         direction: 'in', state: 'escrow',
       })],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
-    const row = asideCard(page, 'Last payments').locator('.rows > div').first();
+    const row = asideCard(page, 'Recent payments').locator('.rows > div').first();
     await expect(row).toContainText('Groundnut advance');
     await expect(row).toContainText('₹25,000');
     await expect(row.locator('[data-testid="AccessTimeOutlinedIcon"]')).toHaveCount(1);
@@ -497,27 +578,22 @@ test.describe('the money on people', () => {
     // date on every movement (Wallet.tsx:143). The owner is owed the method
     // and the date on the row, or those two fields dropped from the query.
     test.fail();
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
-    const first = asideCard(page, 'Last payments').locator('.rows > div').first();
+    const first = asideCard(page, 'Recent payments').locator('.rows > div').first();
     await expect(first).toContainText('UPI');
     await expect(first).toContainText(/2026/);
   });
 
   test('a payment row says which way the money went to somebody who cannot see the arrow', async ({ page, world }) => {
-    // DEFECT: apps/web/src/w360/pages/RecordPeople.tsx:481-487 carries the
-    // direction of a payment in an arrow glyph and a colour and nowhere else.
-    // MUI renders every one of those glyphs aria-hidden unless it is given
-    // titleAccess (@mui/material/SvgIcon/SvgIcon.js:157), so the row reaches a
-    // screen reader as "Ramana Rao, Watchman · September, ₹7,200" — with no
-    // way to tell ₹7,200 handed out from ₹7,200 received, which is the whole
-    // fact of the row. Colour is the only other cue, and --w-ok green against
-    // --w-ink-3 grey is exactly the pair a red-green reader loses. This module
-    // has already settled this same question once: the stage rail counts its
-    // pips out loud because "four amber dashes say nothing to a screen reader"
-    // (w360/ui.tsx:766-769). The owner is owed the direction in the
-    // accessibility tree — a word in the row, or a label on the glyph.
-    test.fail();
+    // Was a DEFECT marker: the direction of a payment was an aria-hidden arrow
+    // glyph and a colour and nothing else, so the row reached a screen reader
+    // as "Ramana Rao, Watchman · September, ₹7,200" with no way to tell money
+    // handed out from money received — and green against grey is exactly the
+    // pair a red-green reader loses. Fixed 28/09/2026: the row says Out, In or
+    // Held in a word under the amount (RecordPeople.tsx paymentWord). Read as
+    // rendered text (innerText), because the word is its own block under the
+    // figure rather than run on to it.
     world.set('people', peopleView({
       count: 1,
       people: [person()],
@@ -526,20 +602,40 @@ test.describe('the money on people', () => {
         payment({ id: 'w-pay-in', title: 'Groundnut sale', subtitle: 'Sai Kumar · share', amount: 140_000, direction: 'in' }),
       ],
     }));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
-    // Any wording that carries the direction satisfies this; none does today.
-    const rows = asideCard(page, 'Last payments').locator('.rows > div');
-    await expect(rows.nth(0)).toHaveText(/\b(out|paid|sent)\b/i);
-    await expect(rows.nth(1)).toHaveText(/\b(in|received|came)\b/i);
+    const rows = asideCard(page, 'Recent payments').locator('.rows > div');
+    await expect(rows.nth(0)).toHaveText(/₹7,200\s+Out$/, { useInnerText: true });
+    await expect(rows.nth(1)).toHaveText(/₹1,40,000\s+In$/, { useInnerText: true });
+    // Never "paid": while the payments provider is a stub nothing has moved
+    // through Pattadar.
+    await expect(asideCard(page, 'Recent payments')).not.toContainText(/paid/i);
   });
 
-  test('a record where no money has moved says so rather than drawing an empty card', async ({ page }) => {
-    await page.goto(NOBODY);
-    const payments = asideCard(page, 'Last payments');
+  test('money still held says Held, whichever way it is going', async ({ page, world }) => {
+    world.set('people', peopleView({
+      count: 1,
+      people: [person()],
+      payments: [payment({
+        id: 'w-pay-held', title: 'Boundary survey', subtitle: 'releases when you accept the sketch',
+        amount: 4_500, direction: 'in', state: 'escrow',
+      })],
+    }));
+    await gotoStaff(page, PARCEL);
 
-    await expect(payments).toContainText('Nothing has been paid on this record yet.');
-    await expect(payments).toContainText('The ledger across all your records is in the wallet.');
+    const row = asideCard(page, 'Recent payments').locator('.rows > div').first();
+    await expect(row).toHaveText(/₹4,500\s+Held$/, { useInnerText: true });
+  });
+
+  test('pay on file with no payment recorded says so rather than drawing an empty card', async ({ page, world }) => {
+    world.set('people', peopleView({
+      count: 1, monthlyOut: 7_200,
+      people: [person({ arrangement: 'Monthly', payLabel: 'Paid', payValue: '₹7,200 / month' })],
+    }));
+    await gotoStaff(page, PARCEL);
+    const payments = asideCard(page, 'Recent payments');
+
+    await expect(payments).toContainText('No payments recorded on this property yet.');
     await expect(payments.locator('.rows > div')).toHaveCount(0);
   });
 });
@@ -568,7 +664,7 @@ test.describe('assigning someone', () => {
   const assign = (page: Page) => page.getByRole('button', { name: 'Assign them' });
 
   test('assigning someone opens a drawer, focuses the name, and refuses to file a blank one', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
 
     // A real dialog: named by its own heading, and the page behind it is inert.
@@ -588,7 +684,7 @@ test.describe('assigning someone', () => {
   test('the drawer says which record and which hanger it is filing against', async ({ page }) => {
     // The panel covers the header that names the record, so it carries the
     // record's own name in its eyebrow (Drawer.drawerEyebrow).
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
 
     await expect(page.getByRole('dialog', { name: 'Assign someone' }).locator('.eyebrow'))
@@ -596,7 +692,7 @@ test.describe('assigning someone', () => {
   });
 
   test('filing somebody sends exactly what was typed, trimmed, against this record', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('  Lakshmi Devi  ');
     await page.getByRole('button', { name: 'Caretaker' }).click();
@@ -619,7 +715,7 @@ test.describe('assigning someone', () => {
     // add_person requires only the name: "who someone is to this land is often
     // known long before what they are paid" (web360.py). So nothing is
     // pre-selected in the chip row and nothing is invented here.
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await assign(page).click();
@@ -631,7 +727,7 @@ test.describe('assigning someone', () => {
   });
 
   test('pressing the chosen role again clears it rather than leaving it stuck on', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
 
@@ -652,7 +748,7 @@ test.describe('assigning someone', () => {
     // split is on whether the value contains "month" or "season"
     // (web360.py). Written any other way the pay files fine and then appears in
     // neither figure on this screen's rail.
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await page.getByLabel('What they are owed').fill('12000');
@@ -665,7 +761,7 @@ test.describe('assigning someone', () => {
   });
 
   test('a season instead of a month changes both the label and the value', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Ravi Kumar');
     await page.getByLabel('What they are owed').fill('42000');
@@ -681,7 +777,7 @@ test.describe('assigning someone', () => {
   test('pressing Enter in the name box files the person, the way a form should', async ({ page, world }) => {
     // The drawer's body IS a <form> with a submit button (Drawer.tsx), so the
     // keyboard has to file somebody without ever reaching for the mouse.
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await nameBox(page).press('Enter');
@@ -694,7 +790,7 @@ test.describe('assigning someone', () => {
   });
 
   test('a filed person closes the drawer, empties it and hands focus back to the button that opened it', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await expect(card(page, 'Ramana Rao')).toBeVisible();
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
@@ -715,7 +811,7 @@ test.describe('assigning someone', () => {
 
   test('while the server is thinking the primary says so and will not fire twice', async ({ page, world }) => {
     world.set('addPerson', World.slow(1_500, 'w-person-new'));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
@@ -733,7 +829,7 @@ test.describe('assigning someone', () => {
     // add_person returns "" when the record is not the caller's
     // (services/api/src/web360.py).
     world.set('addPerson', '');
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
@@ -751,7 +847,7 @@ test.describe('assigning someone', () => {
 
   test('cancelling after a refusal takes the refusal away with the draft', async ({ page, world }) => {
     world.set('addPerson', '');
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
@@ -771,13 +867,13 @@ test.describe('assigning someone', () => {
 
   test('a person the server never hears about keeps the typed name and says to try again', async ({ page, world }) => {
     world.set('addPerson', World.gqlError('record_people is not accepting writes'));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await assign(page).click();
 
-    await expect(page.getByText('That person was not filed. What you typed is still here — try Assign again.'))
+    await expect(page.getByText('That person was not filed. Try again.'))
       .toBeVisible();
     await expect(nameBox(page)).toHaveValue('Lakshmi Devi');
 
@@ -787,7 +883,7 @@ test.describe('assigning someone', () => {
 
   test('a second try after a refusal sends the same person again, without the old message under it', async ({ page, world }) => {
     world.set('addPerson', '');
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
@@ -803,7 +899,7 @@ test.describe('assigning someone', () => {
   });
 
   test('cancelling throws the draft away and gives the button its focus back', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await page.getByRole('button', { name: 'Cancel' }).click();
@@ -819,7 +915,7 @@ test.describe('assigning someone', () => {
   test('Escape on an untouched drawer closes it, and on a half-typed one asks first', async ({ page, world }) => {
     // Somebody dismissing a browser autofill dropdown with Escape must not lose
     // a half-filled form, which is the whole argument for Drawer's dirty check.
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await page.keyboard.press('Escape');
     await expect(nameBox(page)).toHaveCount(0);
@@ -844,7 +940,7 @@ test.describe('assigning someone', () => {
 
 test.describe('renaming somebody', () => {
   test('renaming opens an editor with the name already in it, and Save refuses an emptied one', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
 
     const box = page.getByRole('textbox', { name: 'Rename Ramana Rao' });
@@ -858,7 +954,7 @@ test.describe('renaming somebody', () => {
   });
 
   test('saving a new name calls updatePerson for that person and nobody else', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('  Ramana Rao Naidu  ');
     await page.getByRole('button', { name: 'Save' }).click();
@@ -879,7 +975,7 @@ test.describe('renaming somebody', () => {
 
   test('a rename the server refuses keeps the editor open with what was typed in it', async ({ page, world }) => {
     world.set('updatePerson', false);
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
@@ -892,7 +988,7 @@ test.describe('renaming somebody', () => {
 
   test('a rename that cannot be sent keeps what was typed', async ({ page, world }) => {
     world.set('updatePerson', World.gqlError('record_people is read-only right now'));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
@@ -916,7 +1012,7 @@ test.describe('renaming somebody', () => {
     // :90 and on the removal at :141.
     test.fail();
     world.set('updatePerson', World.gqlError('record_people is read-only right now'));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
@@ -929,7 +1025,7 @@ test.describe('renaming somebody', () => {
 
   test('while a rename is in flight Save says so and refuses a second press', async ({ page, world }) => {
     world.set('updatePerson', World.slow(1_500, true));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
@@ -944,7 +1040,7 @@ test.describe('renaming somebody', () => {
   });
 
   test('cancelling a rename changes nothing and gives the pencil its focus back', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Somebody Else');
     await page.getByRole('button', { name: 'Cancel' }).click();
@@ -956,7 +1052,7 @@ test.describe('renaming somebody', () => {
   });
 
   test('only the person whose pencil was pressed gets an editor', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
 
     await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toBeVisible();
@@ -972,7 +1068,7 @@ test.describe('renaming somebody', () => {
     // There is ONE draft for the whole list (RecordPeople.tsx:61), so a name
     // half-typed against one person is exactly what could arrive prefilled
     // against the next.
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Somebody Else');
 
@@ -988,117 +1084,142 @@ test.describe('renaming somebody', () => {
 
 // ── taking somebody off ────────────────────────────────────────────────
 
+/** Rewritten 28/09/2026. Taking somebody off used to be a Remove / Keep pair
+ *  inside their card (and a copy of it in the one-line list). A card is now
+ *  one button that opens the person's own drawer, and the drawer's "Remove
+ *  from this property" asks in the shared confirmation, raised over the
+ *  drawer (Drawer.tsx `over`, PropertyActions.tsx ConfirmDialog), naming the
+ *  person and saying what goes: this property's row, nothing on any other. */
 test.describe('taking somebody off', () => {
-  test('taking somebody off asks before it does anything', async ({ page, world }) => {
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Ramana Rao' }).click();
+  const openPerson = async (page: Page, name: string) => {
+    await page.getByRole('button', { name: `Open ${name}`, exact: true }).click();
+    const drawer = page.getByRole('dialog', { name, exact: true });
+    await expect(drawer).toBeVisible();
+    return drawer;
+  };
+  const askToRemove = async (page: Page, name: string) => {
+    const drawer = await openPerson(page, name);
+    await drawer.getByRole('button', { name: 'Remove from this property' }).click();
+    return { drawer, question: page.getByRole('dialog', { name: `Remove ${name}?` }) };
+  };
 
-    const watchman = card(page, 'Ramana Rao');
-    await expect(watchman.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
-    await expect(watchman.getByRole('button', { name: 'Keep' })).toBeVisible();
+  test('taking somebody off asks before it does anything, and says what goes', async ({ page, world }) => {
+    await gotoStaff(page, PARCEL);
+    const { question } = await askToRemove(page, 'Ramana Rao');
+
+    await expect(question).toContainText(
+      'Ramana Rao comes off this property only. The same person on any other property is not touched.');
+    await expect(question.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+    // The safe choice is the one under the thumb.
+    await expect(question.getByRole('button', { name: 'Cancel' })).toBeFocused();
     expect(world.calls('deletePerson')).toHaveLength(0);
   });
 
-  test('keeping them calls nothing and puts the focus back on their own row', async ({ page, world }) => {
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Ramana Rao' }).click();
-    await card(page, 'Ramana Rao').getByRole('button', { name: 'Keep' }).click();
+  test('Cancel on the question calls nothing and leaves their drawer as it was', async ({ page, world }) => {
+    await gotoStaff(page, PARCEL);
+    const { drawer, question } = await askToRemove(page, 'Ramana Rao');
+    await question.getByRole('button', { name: 'Cancel' }).click();
 
-    await expect(page.getByRole('button', { name: 'Remove Ramana Rao' })).toBeFocused();
+    await expect(question).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Remove from this property' })).toBeFocused();
     expect(world.calls('deletePerson')).toHaveLength(0);
   });
 
-  test('confirming calls deletePerson for that person and reads the list again', async ({ page, world }) => {
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Sai Kumar' }).click();
-    await card(page, 'Sai Kumar').getByRole('button', { name: 'Remove', exact: true }).click();
+  test('confirming calls deletePerson for that person, closes the drawer and reads the list again', async ({ page, world }) => {
+    await gotoStaff(page, PARCEL);
+    const { drawer, question } = await askToRemove(page, 'Sai Kumar');
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect.poll(() => world.calls('deletePerson').length).toBe(1);
     expect(world.lastVars('deletePerson')).toMatchObject({ personId: PERSON.tenant });
+    await expect(question).toHaveCount(0);
+    await expect(drawer).toHaveCount(0);
     await expect.poll(() => world.calls('people').length).toBeGreaterThan(1);
   });
 
   test('once somebody is off, the focus lands on the button that files the next one', async ({ page, world }) => {
-    // The row that held the focus is the row that just went away, so it cannot
-    // keep it (RecordPeople.tsx:139). Focus left on a detached node is focus
-    // back at the top of the document for anybody driving this by keyboard.
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Sai Kumar' }).click();
-    await card(page, 'Sai Kumar').getByRole('button', { name: 'Remove', exact: true }).click();
+    // The card that opened the drawer is the card that just went away, so it
+    // cannot have focus back. Focus left on a detached node is focus back at
+    // the top of the document for anybody driving this by keyboard, so the
+    // drawer's fallback is the head's "Assign someone" (RecordPeople.tsx).
+    world.set('people', () => (world.calls('deletePerson').length
+      ? peopleView({ count: 1, people: [person({ id: PERSON.watcher, name: 'Ramana Rao' })] })
+      : peopleView({
+        count: 2,
+        people: [
+          person({ id: PERSON.watcher, name: 'Ramana Rao' }),
+          person({ id: PERSON.tenant, name: 'Sai Kumar', role: 'Tenant farmer' }),
+        ],
+      })));
+    await gotoStaff(page, PARCEL);
+    const { question } = await askToRemove(page, 'Sai Kumar');
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect.poll(() => world.calls('deletePerson').length).toBe(1);
+    await expect(card(page, 'Sai Kumar')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Assign someone' })).toBeFocused();
   });
 
-  test('a removal the server refuses leaves the card and the question standing', async ({ page, world }) => {
+  test('a removal the server refuses leaves the person and the question standing', async ({ page, world }) => {
     world.set('deletePerson', false);
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
+    const { question } = await askToRemove(page, 'Ramana Rao');
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Remove Ramana Rao' }).click();
-    await card(page, 'Ramana Rao').getByRole('button', { name: 'Remove', exact: true }).click();
-
-    await expect(page.getByText('That person was not removed. They may already be off this record.'))
-      .toBeVisible();
-    await expect(card(page, 'Ramana Rao')).toBeVisible();
-    await expect(card(page, 'Ramana Rao').getByRole('button', { name: 'Keep' })).toBeVisible();
+    await expect(question.getByRole('alert'))
+      .toHaveText('That person was not removed. They may already be off this property.');
+    await expect(question.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+    await expect(card(page, 'Ramana Rao')).toHaveCount(1);
   });
 
   test('a removal that cannot be sent says they are still filed here', async ({ page, world }) => {
     world.set('deletePerson', World.gqlError('the people store is refusing writes'));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
+    const { question } = await askToRemove(page, 'Ramana Rao');
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Remove Ramana Rao' }).click();
-    await card(page, 'Ramana Rao').getByRole('button', { name: 'Remove', exact: true }).click();
-
-    await expect(page.getByText('That person could not be removed. They are still filed here.'))
-      .toBeVisible();
-    await expect(card(page, 'Ramana Rao')).toBeVisible();
+    await expect(question.getByRole('alert'))
+      .toHaveText('That person could not be removed. They are still filed here.');
+    await expect(card(page, 'Ramana Rao')).toHaveCount(1);
   });
 
-  test('while a removal is in flight the button says so and refuses a second press', async ({ page, world }) => {
+  test('while a removal is in flight the question says so and refuses a second press', async ({ page, world }) => {
     world.set('deletePerson', World.slow(1_500, true));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
+    const { drawer, question } = await askToRemove(page, 'Ramana Rao');
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Remove Ramana Rao' }).click();
-    await card(page, 'Ramana Rao').getByRole('button', { name: 'Remove', exact: true }).click();
+    const working = question.getByRole('button', { name: 'Working…' });
+    await expect(working).toBeVisible();
+    await expect(working).toBeDisabled();
+    await expect(question).toHaveAttribute('aria-busy', 'true');
 
-    const removing = card(page, 'Ramana Rao').getByRole('button', { name: 'Removing…' });
-    await expect(removing).toBeVisible();
-    await expect(removing).toBeDisabled();
-
-    await expect(card(page, 'Ramana Rao').getByRole('button', { name: 'Keep' })).toHaveCount(0);
+    // And it all closes only once the server has answered.
+    await expect(drawer).toHaveCount(0);
     expect(world.calls('deletePerson')).toHaveLength(1);
   });
 
   test('somebody on the one-line list can be taken off from there too', async ({ page, world }) => {
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Venkat Reddy' }).click();
-    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await gotoStaff(page, PARCEL);
+    const { question } = await askToRemove(page, 'Venkat Reddy');
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect.poll(() => world.calls('deletePerson').length).toBe(1);
     expect(world.lastVars('deletePerson')).toMatchObject({ personId: PERSON.brother });
   });
 
-  test('keeping somebody on the one-line list puts the focus back on their own row', async ({ page, world }) => {
-    // The one-line list carries its own copy of the confirm
-    // (RecordPeople.tsx:383-401), so Keep has to be proved on both.
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Venkat Reddy' }).click();
-    await expect(page.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+  test('the question is about one person, raised over their drawer, and the page behind cannot be reached', async ({ page }) => {
+    await gotoStaff(page, PARCEL);
+    const { question } = await askToRemove(page, 'Ramana Rao');
 
-    await page.getByRole('button', { name: 'Keep' }).click();
-
-    await expect(page.getByRole('button', { name: 'Remove Venkat Reddy' })).toBeFocused();
-    expect(world.calls('deletePerson')).toHaveLength(0);
-  });
-
-  test('the question is asked about one person at a time', async ({ page }) => {
-    await page.goto(PARCEL);
-    await page.getByRole('button', { name: 'Remove Ramana Rao' }).click();
-
-    await expect(card(page, 'Ramana Rao').getByRole('button', { name: 'Keep' })).toBeVisible();
-    await expect(card(page, 'Sai Kumar').getByRole('button', { name: 'Keep' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Remove Sai Kumar' })).toBeVisible();
+    await expect(question).toHaveAttribute('aria-modal', 'true');
+    await expect(page.getByRole('dialog', { name: 'Remove Sai Kumar?' })).toHaveCount(0);
+    // Tab stays inside the question while it is up.
+    await page.keyboard.press('Tab');
+    await expect(question.getByRole('button', { name: 'Remove', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(question.getByRole('button', { name: 'Cancel' })).toBeFocused();
   });
 });
 
@@ -1106,99 +1227,105 @@ test.describe('taking somebody off', () => {
 
 test.describe('nobody, still coming, failed', () => {
   test('a record with nobody on it says so and offers the one thing there is to do', async ({ page }) => {
-    await page.goto(NOBODY);
+    await gotoStaff(page, NOBODY);
 
-    await expect(page.getByText('Nobody is filed on this land yet')).toBeVisible();
-    await expect(page.getByText(/A tenant, a caretaker, an agent/)).toBeVisible();
-    await expect(page.getByText(/What they are\s+owed, and what they can see of this record, is kept on their card/))
-      .toBeVisible();
+    await expect(page.getByText('No caretakers or staff recorded')).toBeVisible();
     await expect(page.getByRole('article')).toHaveCount(0);
 
-    // The lede is honest about the zeroes rather than hiding the row.
-    await expect(page.getByText('0 people · ₹0 a month going out · ₹0 a season coming in'))
-      .toBeVisible();
+    // The headcount is honest about the zero rather than hiding the line; the
+    // pay figures belong to the rail, which waits for somebody with pay.
+    await expect(page.locator('header.sechead p.note')).toHaveText('0 people');
+    await expect(page.getByRole('button', { name: 'Assign someone' })).toBeVisible();
 
     // The footnote is about a list, and there is no list — the one sentence on
     // an empty record is the empty state's own.
     await expect(page.getByText(/Who can see this record is granted as a link/)).toHaveCount(0);
   });
 
-  test('the empty state own button opens the same drawer the header one does', async ({ page }) => {
-    await page.goto(NOBODY);
-    // Two buttons carry this name on an empty record: the one in the header
-    // and the one inside the empty state. This is the second.
-    await page.getByRole('button', { name: 'Assign someone' }).nth(1).click();
+  test('an empty record offers one way to assign somebody, the head’s, and it opens the drawer', async ({ page }) => {
+    // The empty state used to carry a second "Assign someone" under the
+    // head's: one flow belongs on the screen once, and a second filled button
+    // was the viewport's third fill (design.md § App-surface rules).
+    await gotoStaff(page, NOBODY);
+    await expect(page.getByText('No caretakers or staff recorded')).toBeVisible();
+    const assign = page.getByRole('button', { name: 'Assign someone' });
+    await expect(assign).toHaveCount(1);
+    await assign.click();
 
     await expect(page.getByRole('dialog', { name: 'Assign someone' })).toBeVisible();
     await expect(page.getByLabel('Their name')).toBeFocused();
   });
 
-  test('filing from the empty state hands focus to a control that still exists', async ({ page, world }) => {
-    // The empty state's own button is removed by the very person it files — the
-    // list stops being empty — so focus cannot go back to the control that was
-    // pressed. Without a fallback it lands on <body> and the next Tab starts
-    // again from the top of the document, which is the case
-    // Drawer.useSealedPage names. The answer has to grow for the empty state to
-    // go away, so it grows: empty on the first read, one person after the write.
+  test('filing on an empty record hands focus back to the button that asked', async ({ page, world }) => {
+    // The empty state goes away with the person it files, so focus must go
+    // somewhere that is still on the page — the head's button, which is what
+    // opened the drawer. The answer has to grow for the empty state to go
+    // away, so it grows: empty on the first read, one person after the write.
     let filed = false;
     world.set('people', () => (filed
       ? peopleView({ count: 1, people: [person({ id: 'w-person-new', name: 'Lakshmi Devi' })] })
       : peopleView()));
     world.set('addPerson', () => { filed = true; return 'w-person-new'; });
 
-    await page.goto(NOBODY);
-    const inEmptyState = page.getByRole('button', { name: 'Assign someone' }).nth(1);
-    await expect(inEmptyState).toBeVisible();
-    await inEmptyState.click();
+    await gotoStaff(page, NOBODY);
+    const assign = page.getByRole('button', { name: 'Assign someone' });
+    await assign.click();
     await page.getByLabel('Their name').fill('Lakshmi Devi');
     await page.getByRole('button', { name: 'Assign them' }).click();
 
     await expect.poll(() => world.calls('addPerson').length).toBe(1);
     await expect(page.getByLabel('Their name')).toHaveCount(0);
-    // One left, and it has focus: the empty state's copy went with the empty
-    // state.
-    const assign = page.getByRole('button', { name: 'Assign someone' });
+    await expect(card(page, 'Lakshmi Devi')).toBeVisible();
     await expect(assign).toHaveCount(1);
     await expect(assign).toBeFocused();
   });
 
-  test('an empty record still says where the ledger is, and what the wallet holds', async ({ page }) => {
-    await page.goto(NOBODY);
+  test('an empty record draws no money column at all', async ({ page }) => {
+    // Nobody with pay on file and no payment recorded: the rail has nothing
+    // true to say, so there is no rail, rather than a wallet balance and a
+    // "nothing paid" line beside an empty list (RecordPeople.tsx `hasRail`).
+    await gotoStaff(page, NOBODY);
+    await expect(page.getByText('No caretakers or staff recorded')).toBeVisible();
 
-    await expect(asideCard(page, 'Money on people')).toContainText('Balance ₹24,500 · In your wallet');
-    await expect(asideCard(page, 'Last payments')).toContainText('Nothing has been paid on this record yet.');
+    await expect(asideCard(page, 'Payments to people')).toHaveCount(0);
+    await expect(asideCard(page, 'Recent payments')).toHaveCount(0);
+    await expect(page.locator('.split.no-rail')).toHaveCount(1);
   });
 
   test('while the people are still coming the screen holds its shape and claims nothing', async ({ page, world }) => {
     world.set('people', World.never());
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await expect(page.getByRole('main').getByRole('status')).toContainText('Loading…');
-    // The question and the tab strip belong to the record, which has landed.
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Who looks after it');
-    await expect(page.getByRole('navigation', { name: 'This record' })).toBeVisible();
+    // The heading, the side you are on and the tab strip belong to the
+    // record, which has landed.
+    await expect(page.getByRole('heading', { level: 2, name: 'People', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Caretakers & staff', exact: true }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('navigation', { name: 'This property' })).toBeVisible();
 
     // And nothing is claimed about who is on this land, either way.
-    await expect(page.getByText('Nobody is filed on this land yet')).toHaveCount(0);
+    await expect(page.getByText('No caretakers or staff recorded')).toHaveCount(0);
     await expect(page.getByRole('article')).toHaveCount(0);
-    await expect(page.getByText('Money on people')).toHaveCount(0);
-    // Not even a zero: the lede waits for the figures rather than printing
-    // "0 people · ₹0 a month going out" over a record with three people on it.
-    await expect(page.getByText(/a month going out/)).toHaveCount(0);
+    await expect(page.getByText('Payments to people')).toHaveCount(0);
+    // Not even a zero: the headcount waits for the people rather than
+    // printing "0 people" over a record with three people on it.
+    await expect(page.locator('header.sechead p.note')).toHaveCount(0);
+    await expect(page.getByText(/out, each month/)).toHaveCount(0);
   });
 
   test('a people read that fails says so in the server own words, with a way to try again', async ({ page, world }) => {
     world.set('people', World.gqlError('the people store is down'));
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     const failed = page.getByRole('alert');
-    await expect(failed).toContainText('The people on this record did not load');
-    await expect(failed).toContainText('Nothing has been lost');
+    await expect(failed).toContainText('The people on this property did not load');
+    await expect(failed).toContainText('Check your connection and try again.');
     await expect(failed).toContainText('the people store is down');
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
 
     // A failed read must not read as a record with nobody on it.
-    await expect(page.getByText('Nobody is filed on this land yet')).toHaveCount(0);
+    await expect(page.getByText('No caretakers or staff recorded')).toHaveCount(0);
   });
 
   test.describe('when the gateway itself answers', () => {
@@ -1209,19 +1336,19 @@ test.describe('nobody, still coming, failed', () => {
 
     test('a people read the gateway refuses fails the same way, with the transport reason', async ({ page, world }) => {
       world.set('people', World.httpError(503));
-      await page.goto(PARCEL);
+      await gotoStaff(page, PARCEL);
 
       const failed = page.getByRole('alert');
-      await expect(failed).toContainText('The people on this record did not load');
+      await expect(failed).toContainText('The people on this property did not load');
       await expect(failed).toContainText('GraphQL HTTP 503');
-      await expect(page.getByText('Nobody is filed on this land yet')).toHaveCount(0);
+      await expect(page.getByText('No caretakers or staff recorded')).toHaveCount(0);
     });
   });
 
   test('trying again once the server is back draws the people', async ({ page, world }) => {
     world.set('people', World.gqlError('the people store is down'));
-    await page.goto(PARCEL);
-    await expect(page.getByText('The people on this record did not load')).toBeVisible();
+    await gotoStaff(page, PARCEL);
+    await expect(page.getByText('The people on this property did not load')).toBeVisible();
 
     world.set('people', peopleView({
       count: 1, people: [person({ id: PERSON.watcher, name: 'Ramana Rao', role: 'Watchman' })],
@@ -1229,7 +1356,7 @@ test.describe('nobody, still coming, failed', () => {
     await page.getByRole('button', { name: 'Try again' }).click();
 
     await expect(card(page, 'Ramana Rao')).toBeVisible();
-    await expect(page.getByText('The people on this record did not load')).toHaveCount(0);
+    await expect(page.getByText('The people on this property did not load')).toHaveCount(0);
   });
 
   test('a try again that fails again says so rather than going quiet', async ({ page, world }) => {
@@ -1237,21 +1364,21 @@ test.describe('nobody, still coming, failed', () => {
     // itself the answer" (w360/ui.tsx:699-701). A button that returns to rest
     // with nothing changed is the point at which somebody gives up.
     world.set('people', World.gqlError('the people store is down'));
-    await page.goto(PARCEL);
-    await expect(page.getByText('The people on this record did not load')).toBeVisible();
+    await gotoStaff(page, PARCEL);
+    await expect(page.getByText('The people on this property did not load')).toBeVisible();
     const before = world.calls('people').length;
 
     await page.getByRole('button', { name: 'Try again' }).click();
 
     await expect.poll(() => world.calls('people').length).toBeGreaterThan(before);
     const failed = page.getByRole('alert');
-    await expect(failed).toContainText('The people on this record did not load');
+    await expect(failed).toContainText('The people on this property did not load');
     await expect(failed).toContainText('the people store is down');
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeEnabled();
   });
 
   test('a refresh that fails does not take the people already on screen away', async ({ page, world }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
     await expect(card(page, 'Ramana Rao')).toBeVisible();
 
     // The refetch after a successful write is the one that lands here.
@@ -1263,13 +1390,13 @@ test.describe('nobody, still coming, failed', () => {
     await expect.poll(() => world.calls('people').length).toBeGreaterThan(1);
     await expect(card(page, 'Ramana Rao')).toBeVisible();
     await expect(card(page, 'Sai Kumar')).toBeVisible();
-    await expect(page.getByText('The people on this record did not load')).toHaveCount(0);
+    await expect(page.getByText('The people on this property did not load')).toHaveCount(0);
   });
 
   test('a record that is not in your portfolio is never asked who looks after it', async ({ page, world }) => {
     await page.goto(PEOPLE_OF(ID.missing));
 
-    await expect(page.getByRole('heading', { name: 'That record is not in your portfolio' }))
+    await expect(page.getByRole('heading', { name: "This property isn't in your account" }))
       .toBeVisible();
     expect(world.asked('people')).toBe(false);
   });
@@ -1278,17 +1405,17 @@ test.describe('nobody, still coming, failed', () => {
     world.set('record', World.gqlError('the record store is down'));
     await page.goto(PARCEL);
 
-    await expect(page.getByText('This record did not load')).toBeVisible();
-    await expect(page.getByText('Who looks after it')).toHaveCount(0);
+    await expect(page.getByText('This property did not load')).toBeVisible();
+    await expect(page.getByText('Caretakers & staff')).toHaveCount(0);
     expect(world.asked('people')).toBe(false);
   });
 
   test('the hanger stacks on a narrow screen without losing the money column @phone', async ({ page }) => {
-    await page.goto(PARCEL);
+    await gotoStaff(page, PARCEL);
 
     await expect(card(page, 'Ramana Rao')).toBeVisible();
-    await expect(asideCard(page, 'Money on people')).toBeVisible();
-    await expect(asideCard(page, 'Last payments')).toBeVisible();
+    await expect(asideCard(page, 'Payments to people')).toBeVisible();
+    await expect(asideCard(page, 'Recent payments')).toBeVisible();
 
     // Nothing may push the page sideways at any width.
     const overflow = await page.evaluate(() =>

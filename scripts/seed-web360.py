@@ -29,6 +29,8 @@ import os
 import sys
 import psycopg
 
+from seed_guard import require_local_dsn
+
 DSN = os.getenv("APP_PG_DSN",
                 "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd")
 UID = sys.argv[1] if len(sys.argv) > 1 else os.getenv("DEV_USER_ID", "shankarreddy.t")
@@ -646,6 +648,9 @@ KIT_CHECKS = [
 
 
 def main() -> None:
+    # Every row below is invented. The id-prefix scoping further down limits
+    # what this script DELETES; it has never limited what it writes.
+    require_local_dsn(DSN, "seed-web360.py")
     with psycopg.connect(DSN, autocommit=True) as conn:
         # Wipe only our own rows.
         for table, col in [

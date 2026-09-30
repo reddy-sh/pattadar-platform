@@ -3,32 +3,43 @@
  *  An order is the one place money leaves the app on someone else's word, so
  *  the row says what state it is really in, who is doing it and what is still
  *  set aside on it — never just "in progress". The four pips stay, because they
- *  are what a glance down a list reads; the status word beside them is what the
- *  owner acts on, and "Sent out" and "Waiting on you" have no pip of their own. */
+ *  are what a glance down a list reads; the status chip after the title is what
+ *  the owner acts on, said once, and "Sent out" and "Waiting on you" have no
+ *  pip of their own. */
 import { Fragment, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
-import { Link } from 'react-router';
+import type { MouseEvent, ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 
-import { useAssignRequest, useAssignable, useOrders, useRecordHistory, useServicesOffered } from '../api';
-import type { Order, ServiceOffer, ServiceVisual as ServiceVisualData } from '../api';
+import { actionLabel, eventEntity } from '@pattadar/core';
+
+import { HISTORY_CAP, useAssignRequest, useAssignable, useOrders, useRecordHistory } from '../api';
+import type { Order } from '../api';
 import {
-  Card, Chip, Empty, FacetFilter, Failed, Loading, ORDER_STAGES, PageHead, Rail, State, Tag, ddmmyyyy, inr, plural,
+  Empty, FacetFilter, Failed, Loading, Menu, ORDER_MOVE_FAILED, ORDER_STAGES, PageHead, Rail, StatusChip,
+  ddmmyyyy, inr, num, plural,
 } from '../ui';
+import { fmtLocal } from '../../lib/format';
 import type { FacetFilterGroup } from '../ui';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
 import { AssignedResourceProof } from '../AssignedResourceProof';
-import { ServiceVisual } from '../ServiceVisual';
 
-/** What a refused move says. Word for word what the ticket screen says for the
- *  same refusal, because the same job refused in two places must not sound
- *  like two different problems. It is copied rather than imported: the
- *  sentence is a private const of Ticket.tsx, and '../ui' — where it belongs —
- *  is shared. Lift it there when that file is next opened. */
-const MOVE_FAILED =
-  'That did not go through. Nothing on this job has changed — reload the page and try again.';
+/** What a refused move says: the order page's own sentence (ui.tsx), because
+ *  the same order refused in two places must not sound like two different
+ *  problems. */
+const MOVE_FAILED = ORDER_MOVE_FAILED;
+
+/** One status per order, in one word. "Needs you" used to be a second pill
+ *  beside the status "Waiting on you" — the same fact twice, and with the word
+ *  under the pips and the "to look at" tag, one state said four ways. It is
+ *  folded in: an order the server flags as needing the owner reads "Waiting on
+ *  you", the ticket machine's word for that state (ticketing.STATUS_LABEL),
+ *  even on an older row whose status was worked out from its stage. */
+const statusOf = (o: Order) => (o.needsYou
+  ? { word: 'Waiting on you', state: 'warn' }
+  : { word: o.statusLabel || o.stageLabel, state: o.statusState });
 
 /** A job nobody can be put on any more. `assignRequest` refuses a closed
  *  ticket outright, so the two closed statuses are what decides whether the
@@ -102,9 +113,7 @@ function AssignPicker({ order }: { order: Order }) {
   if (people && people.length === 0) {
     return (
       <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-        Nobody has worked on your records yet, so there is no name to pick. Open the
-        service and send this to someone — Pattadar does the sending, so you can take
-        it back.
+        No providers yet.
       </p>
     );
   }
@@ -147,13 +156,12 @@ function AssignPicker({ order }: { order: Order }) {
   );
 }
 
-const visualMap = (offers: ServiceOffer[] | undefined) => new Map(
-  (offers ?? []).map((offer) => [offer.key, offer.visual]),
-);
-
-function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
+/** The order rows. No illustration: a picture helps where a service is being
+ *  chosen (OrderLand, OrderService), and in a list of orders already placed it
+ *  was a 4rem thumbnail repeating the title beside it. */
+function Rows({ orders, showRecord, closed, onShowAll, empty }: {
   orders: Order[]; showRecord?: boolean; closed?: boolean; onShowAll?: () => void;
-  empty?: ReactNode; visualByKey?: Map<string, ServiceVisualData>;
+  empty?: ReactNode;
 }) {
   const [open, setOpen] = useState('');
   if (orders.length === 0) {
@@ -164,19 +172,16 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
     return (
       <Empty
         boxed h="16rem" icon="clock"
-        title={closed ? 'Nothing has ever been ordered' : 'Nothing is on order'}
+        title={closed ? 'No orders yet' : 'No open orders'}
         // The "including done" view is the one question an empty Open list
         // raises — "did I have any?" — so it is offered here, where it is the
         // answer, rather than as a filter chip above an empty box.
         action={!closed && onShowAll ? (
           <button type="button" className="btn sm" onClick={onShowAll}>
-            Everything, including done
+            Show all
           </button>
         ) : undefined}
-      >
-        A survey, an EC, a title opinion or a site visit can be ordered from
-        any record — the people who do the work appear on its People tab while they hold it.
-      </Empty>
+      />
     );
   }
   const groups: { key: string; batchRef: string; items: Order[] }[] = [];
@@ -206,30 +211,29 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
             {group.batchRef && (
               <div className="service-batch-head">
                 <strong>{group.batchRef}</strong>
-                <span>{plural(group.items.length, 'service')}</span>
+                <span>{plural(group.items.length, 'order')}</span>
                 <span className="num">{inr(total)}</span>
                 <span className="note">
-                  {needsYou > 0 ? `${needsYou} need you`
+                  {needsYou > 0 ? `${needsYou} waiting on you`
                     : done === group.items.length ? 'Complete'
                       : `${done} of ${group.items.length} complete`}
                 </span>
               </div>
             )}
-            {group.items.map((o) => (
+            {group.items.map((o) => {
+              const status = statusOf(o);
+              return (
           <div key={o.id} className="service-order-row">
-            <ServiceVisual serviceKey={o.kind} label={o.title}
-                           visual={visualByKey?.get(o.kind)} variant="thumb" />
             <span className="grow">
               <span className="row tight">
                 <strong style={{ fontSize: '0.9375rem' }}>{o.title}</strong>
                 <span className="mono note">{o.ref}</span>
-                {o.needsYou && <span className="pill managed">Needs you</span>}
-                {/* The four pips cannot say "sent out and unanswered" or
-                    "waiting on you", and those are the two states an owner
-                    actually acts on. */}
-                <State state={o.statusState}>{o.statusLabel}</State>
+                {/* The status, once, as the same chip /app/services draws. The
+                    four pips cannot say "sent out and unanswered" or "waiting
+                    on you", and those are the two states an owner acts on. */}
+                <StatusChip state={status.state}>{status.word}</StatusChip>
                 {o.pendingReview > 0 && (
-                  <Tag alert>{o.pendingReview} to look at</Tag>
+                  <StatusChip state="warn">{o.pendingReview} to review</StatusChip>
                 )}
                 {showRecord && o.recordTitle && (
                   <Link to={`/app/records/${o.recordId}`} className="note accent"
@@ -241,7 +245,8 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
               <span className="note" style={{ display: 'block', margin: '0.25rem 0 0.4375rem' }}>
                 {o.detail}
               </span>
-              <Rail stage={o.stage} steps={ORDER_STAGES} word={o.statusLabel || undefined} />
+              {/* Pips only: the word is the chip above. */}
+              <Rail stage={o.stage} steps={ORDER_STAGES} pipsOnly />
               {open === o.id && (
                 <div className="card" style={{ marginTop: 'var(--space-sm)' }}>
                   {/* `assigneeRef` is the associates row behind the name, or
@@ -251,12 +256,12 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
                       identically for both until this pill. */}
                   <p className="note">
                     <strong>{o.stageLabel}</strong>
-                    {o.dueDate && <> · due {o.dueDate}</>}
+                    {o.dueDate && <> · due {ddmmyyyy(o.dueDate)}</>}
                     {o.assignee && (
                       <>
                         {' · with '}{o.assignee}{' '}
                         {o.assigneeRef
-                          ? <span className="pill managed">Pattadar associate</span>
+                          ? <span className="pill managed">Pattadar member</span>
                           : '(a name you typed)'}
                       </>
                     )}
@@ -271,7 +276,7 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
                       rather than offering a picker that quietly does nothing. */}
                   {!o.assignee && (isClosed(o) ? (
                     <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                      Nobody was ever put on this job.
+                      Never assigned.
                     </p>
                   ) : (
                     <AssignPicker order={o} />
@@ -287,24 +292,24 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
                     </dl>
                   ) : (
                     <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
-                      This order was placed before the form asked for details.
+                      No details recorded.
                     </p>
                   )}
                 </div>
               )}
             </span>
-            <span className="service-order-money" style={{ textAlign: 'right' }}>
+            <span className="service-order-money">
               <span className="num" style={{ display: 'block' }}>{inr(o.cost)}</span>
-              {/* What is actually set aside on this job, which is not always
-                  what it was quoted at — a job nobody funded reads ₹2,900 and
-                  has nothing behind it. "Set aside" and not "paid": nothing
+              {/* What is actually set aside on this order, which is not always
+                  what it was quoted at — an order nobody funded reads ₹2,900
+                  and has nothing behind it. "Set aside" and not "paid": nothing
                   has been taken from any account. */}
               {o.held > 0 && (
-                <span className="note" style={{ display: 'block' }}>{inr(o.held)} set aside</span>
+                <span className="note" style={{ display: 'block' }}>{inr(o.held)} held</span>
               )}
               {o.dueDate && (
-                <span className="note row tight" style={{ justifyContent: 'flex-end' }}>
-                  <AccessTimeOutlined sx={{ fontSize: 12 }} /> {o.dueDate}
+                <span className="note row tight service-order-due">
+                  <AccessTimeOutlined sx={{ fontSize: 12 }} titleAccess="Due" /> {ddmmyyyy(o.dueDate)}
                 </span>
               )}
             </span>
@@ -312,14 +317,15 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
                 is it" without leaving the list; the ticket is where it is sent
                 out, reviewed, accepted and settled. */}
             <span className="row tight service-order-actions">
-              <Link className="btn sm" to={`/app/services/${o.id}`}>Open the service</Link>
+              <Link className="btn sm" to={`/app/services/${o.id}`}>Open order</Link>
               <button type="button" className="btn sm" aria-expanded={open === o.id}
                       onClick={() => setOpen((v) => (v === o.id ? '' : o.id))}>
-                {open === o.id ? 'Hide' : 'Track order'}
+                {open === o.id ? 'Hide' : 'Track'}
               </button>
             </span>
           </div>
-            ))}
+              );
+            })}
           </Fragment>
           );
         })}
@@ -330,145 +336,112 @@ function Rows({ orders, showRecord, closed, onShowAll, empty, visualByKey }: {
 
 export function RecordServices() {
   const rec = useRecordCtx();
-  // The record's own Open / Everything, for the reason written over OpenFilter
-  // below: this tab only ever asked for open jobs and had no control to ask
+  // The record's own Open / All, for the reason written over OpenFilter
+  // below: this tab only ever asked for open orders and had no control to ask
   // for the rest, so a record whose survey, EC and title opinion had all been
   // accepted read as one that had never ordered anything.
   const [closed, setClosed] = useState(false);
   const { data, isLoading, error } = useOrders(rec.id, closed);
-  const offers = useServicesOffered('', '', true, rec.id);
-  const visuals = useMemo(() => visualMap(offers.data), [offers.data]);
   const bare = !closed && !isLoading && !!data && data.length === 0;
-  // "2 open · 1 assigned · 1 not assigned yet" — the state of the work, which
-  // is what the hanger is asked. The promise about money moved below the
-  // heading: it is a standing condition of ordering, not a description of what
-  // is on this record.
+  // "2 open · 1 assigned · 1 unassigned" — the state of the work, which is
+  // what the hanger is asked. The promise about money is behind the ⓘ: it is a
+  // standing condition of ordering, not a description of what is on this
+  // record, and /app/services keeps it in the same place.
   //
   // `closed` is the server's own filter, so these rows ARE the open ones until
   // the reader asks for the finished ones too — no second pass over them here.
   const rows = data ?? [];
   const assigned = rows.filter((o) => !!o.assignee).length;
   const servicesSub = data && (closed
-    ? `${plural(rows.length, 'service')} · finished ones included`
+    ? `${plural(rows.length, 'order')} · Includes completed`
     : [
       `${rows.length} open`,
       assigned > 0 && `${assigned} assigned`,
-      rows.length - assigned > 0 && `${rows.length - assigned} not assigned yet`,
+      rows.length - assigned > 0 && `${rows.length - assigned} unassigned`,
     ].filter(Boolean).join(' · '));
   return (
     <>
+      {/* No "Order a service" here: the property's own header carries it on
+          all nine tabs, and a second copy one fold down was the same
+          destination twice. The rail's one link ("See every service ›", to a
+          page titled Services that lists orders) is this head's text action
+          now, under the name the rest of the app gives that list. */}
       <SectionHead
-        title="What Pattadar is doing"
+        title="Service orders"
+        info="You pay only after you accept the work."
         sub={servicesSub}
-        actions={(
-          <Link className="btn primary" to={`/app/records/${rec.id}/order`}>
-            <HandshakeOutlined sx={{ fontSize: 16 }} /> Order a service
-          </Link>
-        )}
+        actions={<Link className="link" to="/app/services">All your service orders</Link>}
       />
-      <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-        Nothing is taken when you order. Money is set aside on the job, and is only
-        owed once you accept what came back.
-      </p>
-      <div className="split">
-        <div>
-          {!bare && <OpenFilter closed={closed} setClosed={setClosed} />}
-          {isLoading ? <Loading h="12rem" />
-            : !data ? <Failed what="This record's services" error={error} boxed h="12rem" />
-            : <Rows orders={data} closed={closed} onShowAll={() => setClosed(true)}
-                    visualByKey={visuals} />}
-        </div>
-
-        <aside className="stack">
-          {/* What an order actually does, in order, so the wait between placing
-              one and hearing anything is a known shape rather than silence.
-              The pips on each row say where a job IS; this says what the pips
-              mean. */}
-          <Card title="What happens next" className="railcard">
-            <ul className="railnotes railsteps">
-              <li>A checker is assigned from the nearest desk.</li>
-              <li>They visit and file dated photos against what they were sent for.</li>
-              <li>You get a report on this record, and a line in its audit log.</li>
-            </ul>
-          </Card>
-
-          {/* Every job carries a thread, and an owner with a question about one
-              should not have to find the ticket to ask it — the row's own
-              "Message the desk" is the same conversation. This is the way to
-              the ones not on this record. */}
-          <Card title="Who to ask" className="railcard">
-            <p className="note" style={{ margin: 0 }}>
-              Each job above has its own thread with the desk doing it. Every service
-              across all your records is in one list.
-            </p>
-            <Link className="link accent" to="/app/services"
-                  style={{ display: 'inline-block', marginTop: 'var(--space-sm)', fontSize: '0.8125rem' }}>
-              See every service ›
-            </Link>
-          </Card>
-        </aside>
+      <div>
+        {!bare && <OpenFilter closed={closed} setClosed={setClosed} />}
+        {isLoading ? <Loading h="12rem" what="this property's service orders" />
+          : !data ? <Failed what="This property's service orders" error={error} boxed h="12rem" />
+          : <Rows orders={data} closed={closed} onShowAll={() => setClosed(true)} />}
       </div>
     </>
   );
 }
 
-/** The server logs a raw verb (`add_paper`, `set_pin`); this is the human
- *  headline for it. An unmapped action falls back to its words spaced out, so a
- *  new server-side action still reads sensibly here before this map catches up
- *  rather than showing a bare snake_case token. */
-const HISTORY_PHRASES: Record<string, string> = {
-  add_person: 'Person added', update_person: 'Person edited', delete_person: 'Person removed',
-  add_feature: 'Feature added', update_feature: 'Feature edited', delete_feature: 'Feature removed',
-  add_expense: 'Cost recorded', delete_expense: 'Cost removed',
-  add_paper: 'Paper filed', update_paper: 'Paper updated', delete_paper: 'Paper removed',
-  add_photo: 'Photo added', set_pin: 'Pin moved', set_boundary: 'Boundary changed',
-  'record.corrected': 'Field corrected',
-};
-function historyPhrase(action: string): string {
-  return HISTORY_PHRASES[action] || action.replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
+/** The property's own Activity tab.
+ *
+ *  Every row is worded by the one table Account → Activity uses too (core's
+ *  `actionLabel`), so the same event never reads two ways; the private phrase
+ *  map this used to keep drifted into a second grammar ("Document filed" beside
+ *  "Add Note"). A stored detail that only restates the action is dropped
+ *  (`eventEntity`), a correction shows its field with the old value struck, and
+ *  the time is the owner's local time: `at` is a UTC timestamp, and its first
+ *  ten characters were the UTC day, a day early before 05:30 IST. */
 export function RecordHistory() {
   const rec = useRecordCtx();
-  const { data, isLoading } = useRecordHistory(rec.id);
+  const { data, isLoading, error, refetch } = useRecordHistory(rec.id);
+  const rows = data ?? [];
+  const capped = rows.length >= HISTORY_CAP;
   return (
     <>
       <SectionHead
-        title="What has happened here"
-        sub={data && `${plural(data.length, 'change')} · newest first · nothing here can be removed`}
+        title="Activity"
+        sub={data && (capped
+          ? `Latest ${num(HISTORY_CAP)} changes · Newest first`
+          : rows.length > 1
+            ? `${plural(rows.length, 'change')} · Newest first`
+            : plural(rows.length, 'change'))}
       />
-      <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-        Every change to this record is kept here — a paper filed, a cost recorded,
-        a person added, the pin moved. Nothing on this list can be edited or removed.
-      </p>
       <div>
-        {isLoading ? <Loading h="10rem" /> : (data ?? []).length === 0 ? (
-          <div className="card">
-            <p className="note">
-              Nothing has been changed on this record yet. As you file papers, record
-              costs, add people or move the pin, each action is logged here with who
-              did it and when.
-            </p>
-          </div>
+        {isLoading ? (
+          <Loading h="10rem" what="this property's activity" />
+        ) : !data ? (
+          // A read that failed is not a property where nothing ever changed.
+          <Failed what="This property's activity" error={error} boxed h="10rem"
+                  onRetry={() => void refetch()} />
+        ) : rows.length === 0 ? (
+          <Empty boxed h="10rem" title="No activity recorded yet" />
         ) : (
           <div className="card" style={{ padding: 0 }}>
             <div className="rows boxed">
-              {(data ?? []).map((e) => (
-                <div key={e.id}>
-                  <span className="grow">
-                    <strong style={{ fontSize: '0.9375rem' }}>{historyPhrase(e.action)}</strong>
-                    {e.detail && (
-                      <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
-                        {e.detail}
-                      </span>
-                    )}
-                  </span>
-                  <span className="note" style={{ textAlign: 'right', flex: 'none' }}>
-                    {ddmmyyyy(e.at.slice(0, 10))}
-                    <span style={{ display: 'block' }}>{e.by}</span>
-                  </span>
-                </div>
-              ))}
+              {rows.map((e) => {
+                const detail = e.action === 'record.corrected' ? '' : eventEntity(e.action, '', e.detail);
+                return (
+                  <div key={e.id}>
+                    <span className="grow">
+                      <strong style={{ fontSize: '0.9375rem' }}>{actionLabel(e.action)}</strong>
+                      {e.field && (
+                        <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
+                          {e.field}: <s>{e.was || '—'}</s> → {e.now || '—'}
+                        </span>
+                      )}
+                      {detail && (
+                        <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
+                          {detail}
+                        </span>
+                      )}
+                    </span>
+                    <span className="note" style={{ textAlign: 'right', flex: 'none' }}>
+                      {fmtLocal(e.at)}
+                      <span style={{ display: 'block' }}>{e.by}</span>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -482,10 +455,14 @@ export function RecordHistory() {
  *  survey cost last August" has nowhere else to look, and a closed job that
  *  cannot be found reads as a job that was never done. */
 function OpenFilter({ closed, setClosed }: { closed: boolean; setClosed: (v: boolean) => void }) {
+  // The segmented control /app/services uses for the same question, so a
+  // scope toggle is drawn in a wash and never takes the amber fill that means
+  // "act".
   return (
-    <div className="row tight" style={{ marginBottom: 'var(--space-md)' }}>
-      <Chip active={!closed} onClick={() => setClosed(false)}>Open</Chip>
-      <Chip active={closed} onClick={() => setClosed(true)}>Everything, including done</Chip>
+    <div className="segmented" role="group" aria-label="Which orders"
+         style={{ marginBottom: 'var(--space-md)' }}>
+      <button type="button" aria-pressed={!closed} onClick={() => setClosed(false)}>Open</button>
+      <button type="button" aria-pressed={closed} onClick={() => setClosed(true)}>All</button>
     </div>
   );
 }
@@ -507,39 +484,27 @@ function OpenFilter({ closed, setClosed }: { closed: boolean; setClosed: (v: boo
  *
  *  The Open / Everything chips went with the old title: a finished job is not
  *  waiting on anybody, so the second chip re-asked the first one's question.
- *  Everything ordered, done included, is one screen away under Services, and
- *  the lede says so. */
+ *  Everything ordered, done included, is one screen away under Services. */
 export function Assigned() {
   const { data, isLoading, error } = useOrders();
-  const offers = useServicesOffered('');
-  const visuals = useMemo(() => visualMap(offers.data), [offers.data]);
   const waiting = (data ?? []).filter((o) => o.needsYou || o.pendingReview > 0);
   return (
     <main>
-      <PageHead eyebrow="Work on your records" title="Waiting on you">
-        <p className="lede">
-          Orders that have come back and need your decision. Everything you have
-          ordered, finished jobs included, is under Services.
-        </p>
-      </PageHead>
+      <PageHead eyebrow="Needs your action" title="Waiting on you" />
       {isLoading ? <Loading h="14rem" />
         : !data ? <Failed what="Work waiting on you" error={error} boxed h="16rem" />
         : (
           <Rows
             orders={waiting} showRecord
-            visualByKey={visuals}
             empty={(
               <Empty
                 boxed h="16rem" icon="ok" title="Nothing is waiting on you"
                 action={(
                   <Link className="btn sm" to="/app/services">
-                    Everything you have ordered
+                    All your service orders
                   </Link>
                 )}
-              >
-                When work you ordered comes back, it waits here until you accept it
-                or send it back. Money stays set aside until you do.
-              </Empty>
+              />
             )}
           />
         )}
@@ -547,12 +512,84 @@ export function Assigned() {
   );
 }
 
+/** The Services list as a Material 3 data table.
+ *
+ *  One row per order, noun columns, the status as a chip, and the whole row
+ *  opening the order. The service name is the row's real link, so keyboard and
+ *  screen-reader users get the same target the pointer does; everything else
+ *  on the row (the property, the kebab) is its own control and does not also
+ *  fire the row. Assigning, messaging and settling live on the order itself. */
+function OrderTable({ orders }: { orders: Order[] }) {
+  const nav = useNavigate();
+  const open = (e: MouseEvent<HTMLTableRowElement>, id: string) => {
+    // A click that landed on a link, a button or the menu is that control's.
+    if ((e.target as HTMLElement).closest('a, button, [role="menu"]')) return;
+    nav(`/app/services/${id}`);
+  };
+  return (
+    <div className="datatable-wrap">
+      <div className="scroll-x">
+        <table className="datatable">
+          <thead>
+            <tr>
+              <th scope="col">Service</th>
+              <th scope="col">Property</th>
+              <th scope="col">Status</th>
+              <th scope="col">Due</th>
+              <th scope="col" className="right">Cost</th>
+              <th scope="col" className="menucol" aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((o) => (
+              <tr key={o.id} onClick={(e) => open(e, o.id)}>
+                <td>
+                  <Link className="primary" to={`/app/services/${o.id}`}>{o.title}</Link>
+                  <span className="sub mono">{[o.ref, o.batchRef].filter(Boolean).join(' · ')}</span>
+                </td>
+                <td>
+                  {o.recordTitle
+                    ? <Link className="accent" to={`/app/records/${o.recordId}`}
+                            style={{ textDecoration: 'none' }}>{o.recordTitle}</Link>
+                    : '—'}
+                </td>
+                <td>
+                  <span className="row tight" style={{ flexWrap: 'wrap' }}>
+                    <StatusChip state={statusOf(o).state}>{statusOf(o).word}</StatusChip>
+                    {o.pendingReview > 0 && (
+                      <StatusChip state="warn">{o.pendingReview} to review</StatusChip>
+                    )}
+                  </span>
+                </td>
+                <td className="num-nowrap" style={{ whiteSpace: 'nowrap' }}>{ddmmyyyy(o.dueDate) || '—'}</td>
+                <td className="num">
+                  {inr(o.cost)}
+                  {o.held > 0 && <span className="sub">{inr(o.held)} held</span>}
+                </td>
+                <td className="menucol">
+                  <Menu label={`Actions for ${o.title}`} header={o.title} items={[
+                    { label: 'Open order', onClick: () => nav(`/app/services/${o.id}`) },
+                    ...(o.recordId ? [{
+                      label: 'Open property', onClick: () => nav(`/app/records/${o.recordId}`),
+                    }] : []),
+                  ]} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="datatable-foot" role="status">
+        {orders.length === 0 ? 'No orders' : `1–${orders.length} of ${orders.length}`}
+      </div>
+    </div>
+  );
+}
+
 export function Services() {
   const [closed, setClosed] = useState(false);
   const [filters, setFilters] = useState<ServiceFilters>(emptyServiceFilters);
   const { data, isLoading, error } = useOrders(undefined, closed);
-  const offers = useServicesOffered('');
-  const visuals = useMemo(() => visualMap(offers.data), [offers.data]);
   const bare = !closed && !isLoading && !!data && data.length === 0;
   const groups = useMemo<FacetFilterGroup[]>(() => {
     const rows = data ?? [];
@@ -574,7 +611,7 @@ export function Services() {
       };
     };
     return [
-      facet('record', 'Survey / property', (order) => order.recordId, (order) => order.recordTitle),
+      facet('record', 'Property', (order) => order.recordId, (order) => order.recordTitle),
       facet('service', 'Service', (order) => order.kind, (order) => order.title),
       facet('propertyType', 'Property type',
         (order) => `${order.recordKind}:${order.recordClassification}`, recordTypeLabel),
@@ -605,11 +642,20 @@ export function Services() {
     }));
   };
   const clearFilters = () => setFilters(emptyServiceFilters());
+  // Open | All is a view of the same list, so it sits in the one filter bar
+  // rather than as a second row of chips above it.
+  const scope = (
+    <div className="segmented" role="group" aria-label="Which orders">
+      <button type="button" aria-pressed={!closed} onClick={() => setClosed(false)}>Open</button>
+      <button type="button" aria-pressed={closed} onClick={() => setClosed(true)}>All</button>
+    </div>
+  );
   return (
     <main>
       <PageHead
-        eyebrow="Services"
-        title="Work you can order"
+        title="Services"
+        // Payment terms: must match the order flow and the order page.
+        info="You pay only after you accept the work."
         actions={
           // Straight into ordering. The page asks which property first, because
           // an order that is not against one piece of land cannot be worked on
@@ -618,44 +664,30 @@ export function Services() {
             <HandshakeOutlined sx={{ fontSize: 16 }} /> Order a service
           </Link>
         }
-      >
-        {/* Not "paid from your wallet, held in escrow": placing an order takes
-            nothing from anybody. Funding is a separate, later act on the ticket
-            (`fund_ticket`), what it puts behind the job is set aside and not
-            spent, and the money is only owed once the owner accepts what came
-            back. That is what the order flow one click away says and what the
-            ticket says on arrival, and two screens that far apart must not
-            disagree about the owner's money. */}
-        <p className="lede">
-          A licensed surveyor, an advocate&rsquo;s title opinion, an encumbrance search, a
-          caretaker&rsquo;s visit. Ordered against one record &mdash; nothing is taken when you
-          order. Money is set aside on the job afterwards, and is only owed once you accept
-          what came back.
-        </p>
-      </PageHead>
-      {!bare && <OpenFilter closed={closed} setClosed={setClosed} />}
-      {!isLoading && data && data.length > 0 && (
+      />
+      {!bare && data && (
         <FacetFilter
           groups={groups}
           selected={filters}
           onToggle={toggleFilter}
           onClear={clearFilters}
-          tally={`${filtered.length} of ${data.length} shown`}
-          ariaLabel="Filter service requests"
+          trailing={scope}
+          ariaLabel="Filter orders"
         />
       )}
       {isLoading ? <Loading h="14rem" />
-        : !data ? <Failed what="Work you have ordered" error={error} boxed h="16rem" />
-        : <Rows
-            orders={filtered} showRecord closed={closed} onShowAll={() => setClosed(true)}
-            visualByKey={visuals}
-            empty={hasFilters ? (
-              <Empty boxed h="14rem" icon="search" title="No services match those filters"
-                     action={<button type="button" className="btn sm" onClick={clearFilters}>Clear filters</button>}>
-                Try another survey number, location, property type, service or status.
-              </Empty>
-            ) : undefined}
-          />}
+        : !data ? <Failed what="Your service orders" error={error} boxed h="16rem" />
+        : filtered.length === 0 ? (
+          hasFilters ? (
+            <Empty boxed h="14rem" icon="search" title="No orders match these filters"
+                   action={<button type="button" className="btn sm" onClick={clearFilters}>Clear filters</button>} />
+          ) : closed ? (
+            <Empty boxed h="14rem" icon="clock" title="No orders yet" />
+          ) : (
+            <Empty boxed h="14rem" icon="clock" title="No open orders"
+                   action={<button type="button" className="btn sm" onClick={() => setClosed(true)}>Show all</button>} />
+          )
+        ) : <OrderTable orders={filtered} />}
     </main>
   );
 }

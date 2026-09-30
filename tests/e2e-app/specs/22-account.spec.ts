@@ -211,8 +211,8 @@ const screen = (page: Page) => page.getByRole('main');
 const section = (page: Page, heading: string) =>
   screen(page).locator('section').filter({ has: page.getByRole('heading', { name: heading, exact: true }) });
 
-const choices = (page: Page) => section(page, 'Your recorded choices');
-const exporting = (page: Page) => section(page, 'Export your records');
+const choices = (page: Page) => section(page, 'Your choices');
+const exporting = (page: Page) => section(page, 'Export your data');
 const deletion = (page: Page) => section(page, 'Delete your account');
 
 const box = (page: Page, which: keyof typeof LABEL) =>
@@ -500,7 +500,7 @@ test('the export says my original files stay where they are', async ({ page, wor
   seedErasure(world);
   await page.goto('/app/account');
 
-  await expect(exporting(page)).toContainText('The original files remain available in Papers.');
+  await expect(exporting(page)).toContainText('The original files remain available in Documents.');
 });
 
 test('while my export is being built the button says so and the rest of the page is held', async ({ page, world }) => {

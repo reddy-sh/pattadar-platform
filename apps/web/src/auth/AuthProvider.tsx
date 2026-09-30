@@ -24,13 +24,14 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import type { User } from 'oidc-client-ts';
-import { apiFetch, setAccessTokenProvider, setUnauthorizedHandler } from '../api/client';
+import { apiFetch, gql, setAccessTokenProvider, setUnauthorizedHandler } from '../api/client';
 import {
   getNativeSession,
   hasNativeUser,
   signIn as nativeSignIn,
   signOutNative,
 } from './cognitoNative';
+import { personName, safePicture } from '../lib/identity';
 
 const authority = import.meta.env.VITE_COGNITO_AUTHORITY as string | undefined;
 
@@ -40,6 +41,24 @@ export const isAuthMocked = !authority;
 /** Minimal user shape the UI needs (works in both real and mock mode). */
 export interface AuthUser {
   email: string;
+  /** The `name` claim of the ID token — for a Google sign-in, the name on the
+   *  Google account (Cognito maps it). '' for a password account that never
+   *  set one. Display and first-fill only; identity is issuer + subject. */
+  name?: string;
+  /** The `picture` claim: the provider's profile photo URL, https only. ''
+   *  until the pool maps `picture` for the provider (cognito.tf). */
+  picture?: string;
+}
+
+/** The display claims of a verified ID token payload. */
+function claimsUser(payload: Record<string, unknown>, fallbackEmail = ''): AuthUser {
+  const str = (k: string) => (typeof payload[k] === 'string' ? (payload[k] as string).trim() : '');
+  const joined = [str('given_name'), str('family_name')].filter(Boolean).join(' ');
+  return {
+    email: str('email') || fallbackEmail,
+    name: str('name') || joined,
+    picture: safePicture(str('picture')),
+  };
 }
 
 /** Cognito identity_provider values for the supported social logins. */
@@ -159,7 +178,24 @@ if (!isAuthMocked) {
 }
 
 function toAuthUser(user: User): AuthUser {
-  return { email: user.profile.email ?? '' };
+  return claimsUser(user.profile as Record<string, unknown>);
+}
+
+/** First social sign-in: give the account the provider's name.
+ *
+ *  `me` seeds `users.name` with the principal id, so a Google account was
+ *  greeted as `subject_f3fc…` with its real name sitting unused in the ID
+ *  token. Only a blank or id-shaped name is filled — a name the owner typed
+ *  on Profile is never overwritten by what Google says. `updateMe` leaves the
+ *  email alone when sent "". Best effort: a failure here must not fail the
+ *  sign-in, and Profile offers the same name to save by hand. */
+async function seedNameFromProvider(name: string): Promise<void> {
+  if (!name) return;
+  try {
+    const d = await gql<{ me: { id: string; name: string } | null }>('query SeedMe { me { id name } }');
+    if (!d.me || personName(d.me.name, d.me.id)) return;
+    await gql('mutation SeedName($name:String!) { updateMe(name:$name, email:"") { id } }', { name });
+  } catch { /* Profile shows the provider name as a suggestion instead. */ }
 }
 
 /**
@@ -168,6 +204,16 @@ function toAuthUser(user: User): AuthUser {
  * social sign-in silently signs the same user back in. Native (email/
  * password) sessions never touch the hosted UI and need no redirect.
  */
+/** Invalidate HttpOnly media stream sessions while the Bearer still exists.
+ * Best effort: sign-out must still complete if the gateway is unavailable;
+ * outstanding sessions also expire after 15 minutes and recheck account/share
+ * access on every range. */
+async function revokeMediaStreams(): Promise<void> {
+  try {
+    await apiFetch('/api/gateway/storage/stream-sessions', { method: 'DELETE' });
+  } catch { /* local token clearing remains the sign-out fallback */ }
+}
+
 function hostedUiLogoutUrl(): string {
   const domain = import.meta.env.VITE_COGNITO_DOMAIN as string | undefined;
   if (!domain) return '/';
@@ -187,6 +233,7 @@ export async function completeSignIn(): Promise<string> {
   const user = await userManager.signinRedirectCallback();
   const state = user.state as { returnTo?: string } | undefined;
   const returnTo = state?.returnTo ?? '/app';
+  await seedNameFromProvider(toAuthUser(user).name ?? '');
   // Social sign-up does not visit SignupPage. Offer the same account notice
   // after the verified session exists, without turning a settings outage
   // into a failed authentication or losing the intended destination.
@@ -224,8 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Native (email/password) session wins; fall back to the social user.
       const session = await getNativeSession();
       if (session) {
-        const email = session.getIdToken().payload['email'] as string | undefined;
-        if (!cancelled) setUser({ email: email ?? '' });
+        if (!cancelled) setUser(claimsUser(session.getIdToken().payload));
         return;
       }
       if (userManager) {
@@ -269,8 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithPassword: async (email: string, password: string) => {
         if (isAuthMocked) return; // Mock mode: dev user is already signed in.
         const session = await nativeSignIn(email, password);
-        const claim = session.getIdToken().payload['email'] as string | undefined;
-        setUser({ email: claim ?? email });
+        setUser(claimsUser(session.getIdToken().payload, email));
       },
       signInSocial: async (provider: SocialProvider, returnTo?: string) => {
         if (!userManager) {
@@ -289,6 +334,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (hasNativeUser()) {
+          // Revoke media cookies while the access token still exists.
+          await revokeMediaStreams();
           // Native session: clearing local tokens is a full sign-out — the
           // hosted UI was never involved, so no redirect is needed.
           signOutNative();
@@ -297,6 +344,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (userManager) {
+          await revokeMediaStreams();
           await userManager.removeUser();
           window.location.assign(hostedUiLogoutUrl());
         }

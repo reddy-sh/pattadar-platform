@@ -40,16 +40,16 @@
  *      ONE line under the chip row — never in a toast. The line is `role
  *      ="alert"` because it appears well away from the row that asked.
  *
- * Two defects are recorded as `test.fail()`, each naming its cause: a reading
- * the classifier could not name filed as the literal word "Other", and a shelf
- * filter that is stranded on a shelf that no longer exists. Two more were here
- * and are now ordinary passing tests — the storage gateway's refusal reaching
- * the owner, and a paper filed but not read saying so — because both were the
- * same missing `catch` around `uploadToDrive`, which throws and never returns
- * the falsy node its callers were testing for.
+ * One defect is recorded as `test.fail()`, naming its cause: a reading the
+ * classifier could not name filed as the literal word "Other". Three more were
+ * here and are now ordinary passing tests — the storage gateway's refusal
+ * reaching the owner, and a paper filed but not read saying so, because both
+ * were the same missing `catch` around `uploadToDrive`, which throws and never
+ * returns the falsy node its callers were testing for; and a shelf filter left
+ * stranded on a shelf that no longer exists (fixed 28/09/2026).
  *
- * The offline branch (RecordPapers.tsx:675-681, "These papers have not loaded
- * — you appear to be offline.") IS covered, without cutting the wire. It needs
+ * The offline branch (RecordPapers.tsx, the app's one UNREACHABLE_NOTE, which
+ * replaced "These papers have not loaded") IS covered, without cutting the wire. It needs
  * React Query's PAUSED state — no data, no error and no fetch in flight at
  * once — and a real `context.setOffline` cannot give it on a lazy route: with
  * the line down this screen's own chunk cannot arrive either, so the
@@ -75,7 +75,7 @@ const SCAN = 'Scan 2026-08-02';
 
 /** The size cap the screen states, as `mb(MAX_UPLOAD_BYTES)` prints it
  *  (filePhotos.ts:16/22). */
-const LIMIT = '10.0 MB';
+const LIMIT = '15.0 MB';
 
 /** The one message every upload surface shows when storage is unreachable
  *  (pages/documents/storage.ts STORAGE_OFFLINE_MSG). */
@@ -92,6 +92,30 @@ const STORAGE_OFFLINE_MSG =
  */
 const paperRow = (page: Page, title: string) =>
   page.locator('.rows.boxed > div').filter({ has: page.getByRole('link', { name: title, exact: true }) });
+
+/** The shelf a row is filed on: the one plain chip in its trailing group
+ *  (RecordPapers.tsx `.paper-row-actions`). Asserted as the chip's whole text,
+ *  so a shelf word that merely appears somewhere in the row cannot pass. */
+const shelfChip = (page: Page, title: string) => paperRow(page, title).locator('.chip');
+
+/** The shelves are the shared filter surface (ui.tsx FacetFilter): "+ Filter"
+ *  opens a panel of options, each a toggle named for its shelf and the count
+ *  of papers on it, and pressed while on. */
+const openShelfFilter = async (page: Page) => {
+  const trigger = page.getByRole('button', { name: '+ Filter' });
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+  return page.getByRole('group', { name: 'Filter documents' });
+};
+/** One option in that panel, by its shelf word and the count it carries —
+ *  the whole name, so "Title 1" is not also "Title 12". */
+const reEscape = (s: string) => s.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
+const shelfOption = (filter: ReturnType<Page['locator']>, shelf: string, n: number) =>
+  filter.getByRole('button', { name: new RegExp('^' + reEscape(shelf) + '\\s*' + n + '$') });
+
+/** The shared confirmation (PropertyActions.tsx ConfirmDialog) a removal asks
+ *  in, titled with the document it would unfile. */
+const removeDialog = (page: Page, title: string) =>
+  page.getByRole('dialog', { name: `Remove ${title}?` });
 
 /** The placeholder rows the list draws while the papers are in flight. They
  *  are `aria-hidden` by design (skeletons.tsx:217), which is exactly how they
@@ -165,23 +189,23 @@ interface Picked { name: string; mimeType: string; buffer: Buffer }
 const fileOf = (name: string, mb: number, mimeType = 'application/pdf'): Picked =>
   ({ name, mimeType, buffer: Buffer.alloc(Math.round(mb * 1_048_576)) });
 
-/** The header's own "Add a paper". Scoped to the section head (`header.sechead`,
- *  RecordHead.SectionHead) because a record with nothing filed grows a second
- *  button of exactly that name in its empty state, and both open the same panel.
- *  It no longer relabels itself while a pick goes up — the panel's own primary
- *  reports that. */
+/** The header's own "Add a document". Scoped to the section head
+ *  (`header.sechead`, RecordHead.SectionHead). It is the only way into the
+ *  panel now — the empty state no longer carries a second button of the same
+ *  name. It does not relabel itself while a pick goes up — the panel's own
+ *  primary reports that. */
 const addTrigger = (page: Page) =>
-  page.locator('header.sechead').getByRole('button', { name: 'Add a paper' });
+  page.locator('header.sechead').getByRole('button', { name: 'Add a document' });
 
 /** The panel that files a pick (RecordPapers.PaperDrawer over the shared
  *  Drawer.tsx). Its heading counts the pick once there is more than one file. */
 const paperDrawer = (page: Page) =>
-  page.getByRole('dialog', { name: /^File (a paper|\d+ papers)$/ });
+  page.getByRole('dialog', { name: /^File (a document|\d+ documents)$/ });
 
 /** The panel's primary. It reads "Filing…" while the pick is going up, and
  *  becomes "Done" once everything is filed but something still needs saying. */
 const fileButton = (page: Page) =>
-  page.getByRole('button', { name: /^(File (the paper|\d+ papers)|Filing…|Done)$/ });
+  page.getByRole('button', { name: /^(File (the document|\d+ documents)|Filing…|Done)$/ });
 
 /**
  * Open the panel and hand it a pick, WITHOUT filing it.
@@ -201,7 +225,7 @@ const pickPapers = async (page: Page, files: Picked | Picked[]) => {
   await expect(addTrigger(page)).toBeEnabled();
   await addTrigger(page).click();
   await expect(paperDrawer(page)).toBeVisible();
-  await page.getByLabel('Add a paper to this record')
+  await page.getByLabel('Add a document to this property')
     .setInputFiles(files, { timeout: 60_000 });
 };
 
@@ -238,16 +262,18 @@ const filePapers = async (page: Page, files: Picked | Picked[]) => {
 test('every paper filed against the record is drawn with its name, its one line and its shelf', async ({ page }) => {
   await page.goto(`/app/records/${ID.parcel}`);
 
+  // The shelf is a plain chip with the shelf's word and nothing else: the "●"
+  // it used to lead with was decoration a screen reader read out as a glyph.
   await expect(paperRow(page, DEED)).toContainText('Markapur SRO · 1998 · 14 pages');
-  await expect(paperRow(page, DEED)).toContainText('● Title');
+  await expect(shelfChip(page, DEED)).toHaveText('Title');
   await expect(paperRow(page, EC)).toContainText('1985 to 2026 · clear');
-  await expect(paperRow(page, EC)).toContainText('● Search & tax');
+  await expect(shelfChip(page, EC)).toHaveText('Search & tax');
   await expect(paperRow(page, FMB)).toContainText('Survey 214/2 · village map');
-  await expect(paperRow(page, FMB)).toContainText('● Map');
+  await expect(shelfChip(page, FMB)).toHaveText('Map');
   await expect(paperRow(page, ADANGAL)).toContainText('Revenue record · Katragunta');
-  await expect(paperRow(page, ADANGAL)).toContainText('● Revenue record');
+  await expect(shelfChip(page, ADANGAL)).toHaveText('Revenue record');
   await expect(paperRow(page, SCAN)).toContainText('Not yet sorted onto a shelf');
-  await expect(paperRow(page, SCAN)).toContainText('● Unsorted');
+  await expect(shelfChip(page, SCAN)).toHaveText('Unsorted');
 });
 
 test('a paper that has been sent to somebody says so on its own row, and a tagged one carries its tag', async ({ page }) => {
@@ -262,17 +288,19 @@ test('a paper that has been sent to somebody says so on its own row, and a tagge
 test('the shelf chips count what is filed, and picking one narrows the list to that shelf', async ({ page }) => {
   await page.goto(`/app/records/${ID.parcel}`);
 
-  // One chip per shelf that has something on it, each counting the papers that
-  // came back — not the 12 the record's own header claims. A chip counting the
-  // header's number would be a shelf you could press and find empty.
-  for (const shelf of ['Title 1', 'Search & tax 1', 'Map 1', 'Revenue record 1', 'Unsorted 1']) {
-    await expect(page.getByRole('button', { name: shelf })).toBeVisible();
+  // One option per shelf that has something on it, each counting the papers
+  // that came back — not the 12 the record's own header claims. An option
+  // counting the header's number would be a shelf you could press and find
+  // empty.
+  const filter = await openShelfFilter(page);
+  for (const shelf of ['Title', 'Search & tax', 'Map', 'Revenue record', 'Unsorted']) {
+    await expect(shelfOption(filter, shelf, 1)).toBeVisible();
   }
-  // …and no chip for a shelf nothing is on.
-  await expect(page.getByRole('button', { name: /^Identity/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Old record/ })).toHaveCount(0);
+  // …and no option for a shelf nothing is on.
+  await expect(filter.getByRole('button', { name: /^Identity/ })).toHaveCount(0);
+  await expect(filter.getByRole('button', { name: /^Old record/ })).toHaveCount(0);
 
-  const title = page.getByRole('button', { name: 'Title 1' });
+  const title = shelfOption(filter, 'Title', 1);
   await expect(title).toHaveAttribute('aria-pressed', 'false');
   await title.click();
 
@@ -280,15 +308,18 @@ test('the shelf chips count what is filed, and picking one narrows the list to t
   await expect(paperRow(page, DEED)).toBeVisible();
   await expect(paperRow(page, EC)).toHaveCount(0);
   await expect(paperRow(page, SCAN)).toHaveCount(0);
+  // The heading's line says the filter is narrowing, beside the whole count.
+  await expect(page.locator('header.sechead p.note')).toHaveText('5 documents · showing 1');
 
-  // The same chip lets go again — it is a filter, not a mode.
+  // The same option lets go again — it is a filter, not a mode.
   await title.click();
   await expect(paperRow(page, EC)).toBeVisible();
+  await expect(page.locator('header.sechead p.note')).toHaveText('5 documents');
 });
 
 test('searching the papers narrows them, and a search nothing matches says so rather than looking empty', async ({ page }) => {
   await page.goto(`/app/records/${ID.parcel}`);
-  const box = page.getByRole('textbox', { name: "Search this record's papers" });
+  const box = page.getByRole('textbox', { name: "Search this property's documents" });
 
   // The placeholder counts the record's own papers, not the rows on screen.
   await expect(box).toHaveAttribute('placeholder', 'Search the 12 papers on this parcel');
@@ -302,41 +333,35 @@ test('searching the papers narrows them, and a search nothing matches says so ra
   await expect(paperRow(page, ADANGAL)).toBeVisible();
 
   await box.fill('zzzz');
-  await expect(page.getByText('No paper here matches that.')).toBeVisible();
-  await expect(page.getByText('Nothing is filed against this parcel yet.')).toHaveCount(0);
+  await expect(page.getByText('No document here matches that.')).toBeVisible();
+  await expect(page.getByText('No documents on this parcel yet.')).toHaveCount(0);
 });
 
 test('a shelf and a search narrow together, not one instead of the other', async ({ page }) => {
   await page.goto(`/app/records/${ID.parcel}`);
-  await page.getByRole('button', { name: 'Title 1' }).click();
-  const box = page.getByRole('textbox', { name: "Search this record's papers" });
+  await shelfOption(await openShelfFilter(page), 'Title', 1).click();
+  const box = page.getByRole('textbox', { name: "Search this property's documents" });
 
   // A word that matches a paper on ANOTHER shelf must not pull it through the
-  // chip (RecordPapers.tsx:219-221 ands the two).
+  // filter (RecordPapers.tsx `shown` ands the two).
   await box.fill('encumbrance');
-  await expect(page.getByText('No paper here matches that.')).toBeVisible();
+  await expect(page.getByText('No document here matches that.')).toBeVisible();
   await expect(paperRow(page, EC)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Title 1' })).toHaveAttribute('aria-pressed', 'true');
+  // The shelf is still on: its chip stands in the filter bar.
+  await expect(page.getByRole('button', { name: 'Remove filter Shelf Title' })).toBeVisible();
 
   // And a word that matches on the chosen shelf still does.
   await box.fill('markapur');
   await expect(paperRow(page, DEED)).toBeVisible();
 });
 
-test('unfiling the last paper on a shelf leaves the filter stranded on a shelf that is gone', async ({ page, world }) => {
-  // DEFECT — the chip row is derived from the papers that came back
-  // (RecordPapers.tsx:213-217) while the shelf being filtered on is state that
-  // nothing reconciles with it (RecordPapers.tsx:210). Remove the only paper
-  // on a shelf while that shelf's chip is pressed and the chip goes with it,
-  // filter still on: the four papers that remain are invisible, the page says
-  // "No paper here matches that." over an empty search box, and there is no
-  // control left on screen to let the filter go. The owner's own papers are
-  // then unreachable until they reload the page — after an action whose whole
-  // point was that it touched ONE paper.
-  //
-  // Owed: when the shelf a filter names is no longer on the wall, let it go —
-  // the same way the chip lets go when it is pressed a second time.
-  test.fail();
+test('unfiling the last paper on a shelf lets the filter on that shelf go with it', async ({ page, world }) => {
+  // Was a DEFECT marker: the filter options were derived from the papers that
+  // came back while the shelf being filtered on was state nothing reconciled
+  // with them, so removing the only paper on a filtered shelf hid the four
+  // left behind a filter on a shelf that was gone, with no control left to
+  // let it go. Fixed 28/09/2026 (RecordPapers.tsx `activeShelves`): a shelf
+  // the papers no longer fill is not a filter, the Site features tab's rule.
   world.set('papers', (vars) => {
     if (String(vars.id) !== ID.parcel) return [];
     return world.calls('deletePaper').length
@@ -345,12 +370,17 @@ test('unfiling the last paper on a shelf leaves the filter stranded on a shelf t
   });
   await page.goto(`/app/records/${ID.parcel}`);
 
-  await page.getByRole('button', { name: 'Unsorted 1' }).click();
+  await shelfOption(await openShelfFilter(page), 'Unsorted', 1).click();
+  await expect(paperRow(page, DEED)).toHaveCount(0);
+  // Put the panel away first: it opens over the top of the list.
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: `Remove ${SCAN}` }).click();
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect.poll(() => world.calls('deletePaper').length).toBe(1);
 
   await expect(paperRow(page, DEED)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove filter Shelf Unsorted' })).toHaveCount(0);
+  await expect(page.locator('header.sechead p.note')).toHaveText('4 documents');
 });
 
 test('a paper’s name opens that paper in the Reader', async ({ page, world }) => {
@@ -401,7 +431,7 @@ test('a rename with the name rubbed out is refused, and nothing is written', asy
   await page.getByRole('button', { name: 'Save' }).click();
 
   await expect(page.getByRole('alert'))
-    .toHaveText('A paper needs a name — type one, or Cancel to keep the old one.');
+    .toHaveText('A document needs a name.');
   expect(world.calls('updatePaper')).toHaveLength(0);
   // Still open, so the fix is a keystroke rather than a second click.
   await expect(page.getByRole('textbox', { name: `Rename ${EC}` })).toBeVisible();
@@ -493,13 +523,20 @@ test('the notice one paper left behind is cleared by the next thing the owner do
 
 // ── removing ───────────────────────────────────────────────────────────
 
-test('removing a paper asks first, and Keep backs out without unfiling it', async ({ page, world }) => {
+test('removing a paper asks first, and Cancel backs out without unfiling it', async ({ page, world }) => {
   await page.goto(`/app/records/${ID.parcel}`);
   await page.getByRole('button', { name: `Remove ${SCAN}` }).click();
 
-  await expect(page.getByRole('button', { name: 'Keep' })).toBeVisible();
-  await page.getByRole('button', { name: 'Keep' }).click();
+  // The shared confirmation, naming the paper and saying what a removal does
+  // and does not do (delete_paper unfiles it and kills its share links; the
+  // stored bytes stay).
+  const dialog = removeDialog(page, SCAN);
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(
+    "It comes off this parcel's documents and any share link to it stops working. The stored file itself is kept.");
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
 
+  await expect(dialog).toHaveCount(0);
   expect(world.calls('deletePaper')).toHaveLength(0);
   await expect(paperRow(page, SCAN)).toBeVisible();
   await expect(page.getByRole('button', { name: `Remove ${SCAN}` })).toBeVisible();
@@ -531,10 +568,10 @@ test('a removal the server declines leaves the paper filed, and says to reload',
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
 
   await expect(page.getByRole('alert'))
-    .toHaveText('Scan 2026-08-02 could not be removed — it may already be gone. Reload the page.');
+    .toHaveText('Scan 2026-08-02 could not be removed. Reload the page.');
   await expect(paperRow(page, SCAN)).toBeVisible();
-  // The confirm pair holds, so a refusal can never read as a removal.
-  await expect(page.getByRole('button', { name: 'Keep' })).toBeVisible();
+  // The confirmation holds, so a refusal can never read as a removal.
+  await expect(removeDialog(page, SCAN).getByRole('button', { name: 'Cancel' })).toBeVisible();
 });
 
 test('a removal that never reaches the server says the paper is still filed here', async ({ page, world }) => {
@@ -555,20 +592,23 @@ test('a removal still in flight says it is removing, and will not take a second 
   await page.getByRole('button', { name: `Remove ${SCAN}` }).click();
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
 
-  const removing = page.getByRole('button', { name: 'Removing…' });
+  // The shared confirmation's busy word, on the one button that would send it
+  // again.
+  const dialog = removeDialog(page, SCAN);
+  const removing = dialog.getByRole('button', { name: 'Working…' });
   await expect(removing).toBeVisible();
-  await expect(removing, 'the pair holds until the server has answered').toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Keep' })).toBeVisible();
+  await expect(removing, 'the confirmation holds until the server has answered').toBeDisabled();
+  await expect(dialog).toHaveAttribute('aria-busy', 'true');
 
-  // And the pair collapses only when the paper is actually gone.
-  await expect(page.getByRole('button', { name: 'Keep' })).toHaveCount(0);
+  // And it closes only when the paper is actually gone.
+  await expect(dialog).toHaveCount(0);
   expect(world.calls('deletePaper')).toHaveLength(1);
 });
 
-test('Keep hands the keyboard back to the row it was asked from', async ({ page }) => {
+test('Cancel hands the keyboard back to the row it was asked from', async ({ page }) => {
   await page.goto(`/app/records/${ID.parcel}`);
   await page.getByRole('button', { name: `Remove ${SCAN}` }).click();
-  await page.getByRole('button', { name: 'Keep' }).click();
+  await removeDialog(page, SCAN).getByRole('button', { name: 'Cancel' }).click();
 
   await expect(page.getByRole('button', { name: `Remove ${SCAN}` })).toBeFocused();
 });
@@ -602,7 +642,7 @@ test('the picker lives in the panel, and takes a scan or a photograph of one', a
   // limit — a fact about choosing files, printed where the choosing happens.
   await page.goto(`/app/records/${ID.parcel}`);
 
-  await expect(page.getByLabel('Add a paper to this record')).toHaveCount(0);
+  await expect(page.getByLabel('Add a document to this property')).toHaveCount(0);
   await expect(page.getByText(`Up to ${LIMIT} each`)).toHaveCount(0);
   await addTrigger(page).click();
 
@@ -610,12 +650,11 @@ test('the picker lives in the panel, and takes a scan or a photograph of one', a
   await expect(panel).toBeVisible();
   // The panel names the record it is filing against, which the header it covers
   // was the only thing saying.
-  await expect(panel.locator('.eyebrow')).toHaveText('Sy 214/2 · Papers');
+  await expect(panel.locator('.eyebrow')).toHaveText('Sy 214/2 · Documents');
   await expect(panel.locator('.scanbox')).toContainText('Drop the scan or photograph here');
-  await expect(panel.locator('.scanbox')).toContainText('A photograph of the paper is enough');
   await expect(panel.locator('.scanbox')).toContainText(`Up to ${LIMIT} each.`);
 
-  const picker = page.getByLabel('Add a paper to this record');
+  const picker = page.getByLabel('Add a document to this property');
   await expect(picker).toHaveCount(1);
   await expect(picker).toHaveAttribute('accept', 'image/*,application/pdf');
   await expect(picker).toHaveAttribute('multiple', '');
@@ -634,26 +673,23 @@ test('the panel offers the shelf as a choice, with the reader deciding by defaul
 
   const decide = panel.getByRole('button', { name: 'Let Pattadar decide' });
   await expect(decide).toHaveAttribute('aria-pressed', 'true');
-  await expect(panel).toContainText('Read off the document itself.');
   for (const shelf of ['Title', 'Revenue record', 'Map', 'Search & tax', 'Identity', 'Old record', 'Photos']) {
     await expect(panel.getByRole('button', { name: shelf, exact: true })).toBeVisible();
   }
 
   await panel.getByRole('button', { name: 'Title', exact: true }).click();
   await expect(decide).toHaveAttribute('aria-pressed', 'false');
-  await expect(panel).toContainText('filed under Title, whatever the reader makes of it');
 });
 
-test('a record with nothing filed says so, and offers the same panel from its own empty state', async ({ page }) => {
+test('a record with nothing filed says so, and the header button is the one way to the panel', async ({ page }) => {
   await page.goto(`/app/records/${ID.plot}`);
 
-  await expect(page.getByText('Nothing is filed against this parcel yet.')).toBeVisible();
-  // Its own button, so acting on the sentence just read does not mean going back
-  // up to the section head. Two carry the name on an empty record; this is the
-  // one inside the list.
-  const inEmptyState = page.getByRole('button', { name: 'Add a paper' }).nth(1);
-  await expect(inEmptyState).toBeEnabled();
-  await inEmptyState.click();
+  await expect(page.getByText('No documents on this parcel yet.')).toBeVisible();
+  // The empty state's duplicate "Add a paper" button was removed: one flow
+  // belongs on the screen once, so only the section head's button carries it.
+  await expect(page.getByRole('button', { name: 'Add a document' })).toHaveCount(1);
+  await expect(addTrigger(page)).toBeEnabled();
+  await addTrigger(page).click();
   await expect(paperDrawer(page)).toBeVisible();
 });
 
@@ -666,14 +702,12 @@ test('an oversize scan is refused by name, before a single byte is sent', async 
   // Picked, not filed: the refusal arrives BEFORE the press now, which is the
   // real gain from the panel. It used to be a sentence printed after a press the
   // owner had already made.
-  await pickPapers(page, fileOf('east-block-scan.pdf', 10.1));
+  await pickPapers(page, fileOf('east-block-scan.pdf', 15.1));
 
   const panel = paperDrawer(page);
   await expect(panel.locator('.rows.boxed > div').filter({ hasText: 'east-block-scan.pdf' }))
-    .toContainText(`10.1 MB · over the ${LIMIT} limit`);
-  await expect(panel.getByRole('alert')).toContainText(
-    'Take that one out to file the rest — nothing is uploaded while anything in the list is'
-    + ' over the limit.');
+    .toContainText(`15.1 MB · over the ${LIMIT} limit`);
+  await expect(panel.getByRole('alert')).toContainText('Remove that one to file the rest.');
   await expect(fileButton(page)).toBeDisabled();
   expect(world.restCalls(/storage/), 'no bytes may leave for a file the screen refused').toHaveLength(0);
   expect(world.restCalls(/import-/), 'and no reading may be paid for either').toHaveLength(0);
@@ -692,14 +726,14 @@ test('one oversize scan in a pick refuses the whole pick, each named and sized',
   // had been. Nothing can be sent while anything in the list is over.
   await pickPapers(page, [
     fileOf('page-1.pdf', 0.001),
-    fileOf('page-2.pdf', 10.1),
-    fileOf('page-3.pdf', 10.2),
+    fileOf('page-2.pdf', 15.1),
+    fileOf('page-3.pdf', 15.2),
   ]);
 
   const rows = paperDrawer(page).locator('.rows.boxed > div');
   await expect(rows).toHaveCount(3);
-  await expect(rows.filter({ hasText: 'page-2.pdf' })).toContainText('10.1 MB · over the');
-  await expect(rows.filter({ hasText: 'page-3.pdf' })).toContainText('10.2 MB · over the');
+  await expect(rows.filter({ hasText: 'page-2.pdf' })).toContainText('15.1 MB · over the');
+  await expect(rows.filter({ hasText: 'page-3.pdf' })).toContainText('15.2 MB · over the');
   await expect(paperDrawer(page).getByRole('alert')).toContainText('Take those out');
   // And the good one in the pick is not sent on its own, which is the fault this
   // test was written for.
@@ -725,7 +759,7 @@ test('a wrong file is taken out of the pick before a byte of it is sent', async 
   await panel.getByRole('button', { name: 'Take wrong-folder.pdf out' }).click();
 
   await expect(panel.locator('.rows.boxed > div')).toHaveCount(1);
-  await expect(panel.getByRole('heading', { name: 'File a paper' })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'File a document' })).toBeVisible();
   await fileButton(page).click();
 
   // One upload, one filing, and the one that came out never left the browser.
@@ -746,7 +780,7 @@ test('a paper that is on the shelf can still be unfiled from its own row', async
   await expect(row).toBeVisible();
 
   await row.getByRole('button', { name: 'Remove east-block-scan.pdf' }).click();
-  await row.getByRole('button', { name: 'Remove' }).click();
+  await removeDialog(page, 'east-block-scan.pdf').getByRole('button', { name: 'Remove', exact: true }).click();
 
   await expect.poll(() => world.calls('deletePaper').length).toBe(1);
 });
@@ -785,7 +819,7 @@ test('a scan the reader could read is filed under the register’s own name, on 
   });
 
   // And the shelf it landed on is the shelf the row shows.
-  await expect(paperRow(page, 'Sale Deed 4412/1998')).toContainText('● Title');
+  await expect(shelfChip(page, 'Sale Deed 4412/1998')).toHaveText('Title');
   await expect(paperRow(page, 'Sale Deed 4412/1998')).toContainText('Registered 04/03/1998 · Markapur SRO · Katragunta');
 });
 
@@ -798,10 +832,6 @@ test('a scan nothing could be read from is still filed, under its own filename, 
 
   await filePapers(page, fileOf('IMG_4482.pdf', 0.005));
 
-  // First, because a success toast slides away after 4.5s (Toast.tsx OK_MS) and
-  // the assertions below take longer than that to walk.
-  await expect(page.locator('.toast')).toContainText('The paper is filed.');
-
   await expect.poll(() => world.calls('addPaper').length).toBe(1);
   const vars = world.lastVars('addPaper');
   expect(vars).toMatchObject({
@@ -810,7 +840,9 @@ test('a scan nothing could be read from is still filed, under its own filename, 
   // An empty shelf is what the server files as Unsorted (web360.py:4632).
   expect(String(vars.subtitle)).toMatch(/^Filed \d{2}\/\d{2}\/\d{4}$/);
 
-  await expect(paperRow(page, 'IMG_4482.pdf')).toContainText('● Unsorted');
+  await expect(shelfChip(page, 'IMG_4482.pdf')).toHaveText('Unsorted');
+  // Success is silent (design.md): the filed row is the answer, not a toast.
+  await expect(page.locator('.toast')).toHaveCount(0);
 });
 
 test('a paper filed but not read says so, because a paper in Unsorted needs sorting by hand', async ({ page, world }) => {
@@ -836,8 +868,7 @@ test('a paper filed but not read says so, because a paper in Unsorted needs sort
   // `status`, not `alert`: the paper IS filed. A red warning about a successful
   // filing is the screen saying something went wrong when nothing did.
   await expect(panel.getByRole('status')).toContainText(
-    'IMG_4482.pdf is filed, but nothing could be read from it — it is in Unsorted,'
-    + ' under its own file name, until you put it on a shelf.');
+    'IMG_4482.pdf could not be read. Filed in Unsorted.');
   // Nothing left to file, so the primary is the way out rather than a second
   // filing — and it cannot file the same scan twice.
   await expect(panel.getByRole('button', { name: 'Done' })).toBeEnabled();
@@ -941,11 +972,9 @@ test('two scans picked at once are both filed, each against its own stored file'
 
   await filePapers(page, [fileOf('east-block.pdf', 0.002), fileOf('west-block.pdf', 0.002)]);
 
-  // First, because a success toast slides away after 4.5s (Toast.tsx OK_MS) and
-  // the assertions below take longer than that to walk.
-  await expect(page.locator('.toast')).toContainText('2 papers are filed.');
-
   await expect.poll(() => world.calls('addPaper').length).toBe(2);
+  // Success is silent (design.md): the two filed rows are the answer.
+  await expect(page.locator('.toast')).toHaveCount(0);
   // Two files, two uploads, two rows — and each row pointing at the bytes that
   // are actually its own. One fileRef used twice is two papers over one scan.
   expect(world.calls('addPaper').map((c) => c.vars.fileRef))
@@ -1004,7 +1033,7 @@ test('a deed photographed on a phone is filed as a picture, with its one page', 
   expect(world.lastVars('addPaper')).toMatchObject({
     name: 'Sale Deed 4412/1998', shelf: 'photos', pageCount: 1, mimeType: 'image/jpeg',
   });
-  await expect(paperRow(page, 'Sale Deed 4412/1998')).toContainText('● Photos');
+  await expect(shelfChip(page, 'Sale Deed 4412/1998')).toHaveText('Photos');
 });
 
 test('a scan the reader answered for but could not name is filed as “Other”', async ({ page, world }) => {
@@ -1058,13 +1087,11 @@ test('a second copy of the same scan is filed under the name storage gave it', a
 
   await filePapers(page, fileOf('sale-deed.pdf', 0.002));
 
-  // First, because a success toast slides away after 4.5s (Toast.tsx OK_MS). The
-  // reader is seeded as a failure, so this one also lands in Unsorted and says so
-  // — see "a paper filed but not read says so" above. The confirmation still
-  // fires, because every file in the pick did reach the shelf.
-  await expect(page.locator('.toast')).toContainText('The paper is filed.');
-
+  // The reader is seeded as a failure, so this one also lands in Unsorted and
+  // the panel says so — see "a paper filed but not read says so" above. There
+  // is no success toast beside it: success is silent (design.md).
   await expect.poll(() => world.calls('addPaper').length).toBe(1);
+  await expect(page.locator('.toast')).toHaveCount(0);
   expect(world.lastVars('addPaper')).toMatchObject({
     name: 'sale-deed (2).pdf', fileRef: 'file-uploaded-dup',
   });
@@ -1121,15 +1148,15 @@ test.describe('the upload error path', () => {
 test('a record with nothing filed says so, and still offers the button that files the first paper', async ({ page }) => {
   await page.goto(`/app/records/${ID.plot}`);
 
-  await expect(page.getByText(
-    'Nothing is filed against this parcel yet. A deed, a passbook or a receipt added here'
-    + ' becomes searchable by its text', { exact: false })).toBeVisible();
-  await expect(page.getByText('No paper here matches that.')).toHaveCount(0);
-  // No shelves, because nothing is on one.
-  await expect(page.getByRole('button', { name: /^Title/ })).toHaveCount(0);
+  await expect(page.getByText('No documents on this parcel yet.')).toBeVisible();
+  await expect(page.getByText('No document here matches that.')).toHaveCount(0);
+  // No shelf filter, because nothing is on a shelf.
+  await expect(page.getByRole('button', { name: '+ Filter' })).toHaveCount(0);
 
-  const box = page.getByRole('textbox', { name: "Search this record's papers" });
-  await expect(box).toHaveAttribute('placeholder', 'No papers on this parcel yet');
+  // The placeholder only says what the box is for; the empty state above is
+  // the one place that says nothing is filed.
+  const box = page.getByRole('textbox', { name: "Search this property's documents" });
+  await expect(box).toHaveAttribute('placeholder', 'Search documents');
 
   // The add control is a real button, in the tab order, precisely so that filing
   // a paper is possible from the keyboard. With no shelf chips in between, it is
@@ -1138,18 +1165,14 @@ test('a record with nothing filed says so, and still offers the button that file
   await page.keyboard.press('Tab');
   await expect(addTrigger(page)).toBeFocused();
 
-  // And the empty state has one of its own, so acting on the sentence just read
-  // does not mean going back up to the section head. Only here, where the record
-  // is genuinely bare: under a filter that missed, the thing to do is clear the
-  // filter, not file a paper.
-  const inEmptyState = page.getByRole('button', { name: 'Add a paper' }).nth(1);
-  await expect(inEmptyState).toBeEnabled();
-  // Both open the same panel, and the picker is in there — not on the page, where
-  // handing it files used to be the whole interaction.
-  await expect(page.getByLabel('Add a paper to this record')).toHaveCount(0);
-  await inEmptyState.click();
+  // The empty state no longer carries a duplicate button: the header's is the
+  // only one, and it opens the panel with the picker in it — not on the page,
+  // where handing it files used to be the whole interaction.
+  await expect(page.getByRole('button', { name: 'Add a document' })).toHaveCount(1);
+  await expect(page.getByLabel('Add a document to this property')).toHaveCount(0);
+  await addTrigger(page).click();
   await expect(paperDrawer(page)).toBeVisible();
-  await expect(page.getByLabel('Add a paper to this record')).toHaveCount(1);
+  await expect(page.getByLabel('Add a document to this property')).toHaveCount(1);
 });
 
 test('a flat’s papers are a property’s papers, not a parcel’s', async ({ page }) => {
@@ -1158,9 +1181,14 @@ test('a flat’s papers are a property’s papers, not a parcel’s', async ({ p
   // nounFor (ui.tsx:118) — copy on this screen addresses one specific thing,
   // and "this parcel" over a third-floor flat has stopped being about the
   // reader's property.
-  await expect(page.getByRole('textbox', { name: "Search this record's papers" }))
-    .toHaveAttribute('placeholder', 'Search the 5 papers on this property');
-  await expect(paperRow(page, 'Sale agreement')).toContainText('● Title');
+  // The search box only says what it is for, so the noun is read where the
+  // screen addresses the property itself: the removal's own sentence.
+  await expect(page.getByRole('textbox', { name: "Search this property's documents" }))
+    .toHaveAttribute('placeholder', 'Search documents');
+  await expect(shelfChip(page, 'Sale agreement')).toHaveText('Title');
+  await page.getByRole('button', { name: 'Remove Sale agreement' }).click();
+  await expect(removeDialog(page, 'Sale agreement')).toContainText("It comes off this property's documents");
+  await expect(removeDialog(page, 'Sale agreement')).not.toContainText('parcel');
 });
 
 test('papers that have not arrived yet draw placeholder rows, and never claim the shelf is empty', async ({ page, world }) => {
@@ -1169,9 +1197,9 @@ test('papers that have not arrived yet draw placeholder rows, and never claim th
 
   await expect(page.getByRole('status', { name: 'Loading the papers on this parcel' })).toBeVisible();
   await expect(skeletonRows(page)).toHaveCount(3);
-  await expect(page.getByText('Nothing is filed against this parcel yet.')).toHaveCount(0);
-  await expect(page.getByText('No paper here matches that.')).toHaveCount(0);
-  await expect(page.getByText('These papers did not load')).toHaveCount(0);
+  await expect(page.getByText('No documents on this parcel yet.')).toHaveCount(0);
+  await expect(page.getByText('No document here matches that.')).toHaveCount(0);
+  await expect(page.getByText('These documents did not load')).toHaveCount(0);
   // The rest of the record is not held up by it.
   await expect(page.getByRole('heading', { name: 'Sy 214/2' })).toBeVisible();
 });
@@ -1180,11 +1208,11 @@ test('papers that did not load say so, with the reason and a way to ask again', 
   world.set('papers', World.gqlError('the paper store is down'));
   await page.goto(`/app/records/${ID.parcel}`);
 
-  await expect(page.getByText('These papers did not load')).toBeVisible();
+  await expect(page.getByText('These documents did not load')).toBeVisible();
   await expect(page.getByText('the paper store is down')).toBeVisible();
   // A read that never came back is not an empty shelf (RecordPapers.tsx:643).
-  await expect(page.getByText('Nothing is filed against this parcel yet.')).toHaveCount(0);
-  await expect(page.getByText('No paper here matches that.')).toHaveCount(0);
+  await expect(page.getByText('No documents on this parcel yet.')).toHaveCount(0);
+  await expect(page.getByText('No document here matches that.')).toHaveCount(0);
 
   const asked = world.calls('papers').length;
   await page.getByRole('button', { name: 'Try again' }).click();
@@ -1205,7 +1233,7 @@ test('a refetch that fails after a good load keeps the papers the owner can stil
   await expect.poll(() => world.calls('papers').length).toBeGreaterThan(1);
   // Gated on `!papers` rather than on the error alone: an error slab here
   // would hide five papers that are still on screen and still readable.
-  await expect(page.getByText('These papers did not load')).toHaveCount(0);
+  await expect(page.getByText('These documents did not load')).toHaveCount(0);
   await expect(paperRow(page, DEED)).toBeVisible();
   await expect(paperRow(page, EC)).toBeVisible();
 });
@@ -1216,23 +1244,25 @@ test.describe('papers waiting on a connection', () => {
    *  from which the list can be met by a dead line. */
   const featuresFirst = async (page: Page) => {
     await page.goto(`/app/records/${ID.parcel}/features`);
-    await expect(page.getByRole('navigation', { name: 'This record' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'This property' })).toBeVisible();
   };
   const papersTab = (page: Page) =>
-    page.getByRole('navigation', { name: 'This record' }).getByRole('link', { name: /^Papers/ });
+    page.getByRole('navigation', { name: 'This property' }).getByRole('link', { name: /^Documents/ });
 
   test('papers that cannot be asked for say the line is down, not that the shelf is empty', async ({ page, world }) => {
     await featuresFirst(page);
     await pretendOffline(page, true);
     await papersTab(page).click();
 
-    await expect(page.getByText('These papers have not loaded — you appear to be offline.')).toBeVisible();
+    // The app's one unreachable sentence (useLiveOrSample UNREACHABLE_NOTE),
+    // not a private "Offline · …" line of this tab's own.
+    await expect(page.getByText('The live service is not reachable')).toBeVisible();
     // A paused query is one that never reached the wire — which is the whole
     // difference between this line and "These papers did not load".
     expect(world.calls('papers'), 'nothing may be asked for while the line is down').toHaveLength(0);
-    await expect(page.getByText('Nothing is filed against this parcel yet.')).toHaveCount(0);
-    await expect(page.getByText('No paper here matches that.')).toHaveCount(0);
-    await expect(page.getByText('These papers did not load')).toHaveCount(0);
+    await expect(page.getByText('No documents on this parcel yet.')).toHaveCount(0);
+    await expect(page.getByText('No document here matches that.')).toHaveCount(0);
+    await expect(page.getByText('These documents did not load')).toHaveCount(0);
     await expect(skeletonRows(page)).toHaveCount(0);
     // The record around them is cached and still readable.
     await expect(page.getByRole('heading', { name: 'Sy 214/2' })).toBeVisible();
@@ -1242,7 +1272,7 @@ test.describe('papers waiting on a connection', () => {
     await featuresFirst(page);
     await pretendOffline(page, true);
     await papersTab(page).click();
-    await expect(page.getByText('These papers have not loaded — you appear to be offline.')).toBeVisible();
+    await expect(page.getByText('The live service is not reachable')).toBeVisible();
 
     await pretendOffline(page, false);
 
@@ -1250,7 +1280,9 @@ test.describe('papers waiting on a connection', () => {
     // for it. Anything less and a phone that walked back into signal keeps
     // saying it is offline.
     await expect(paperRow(page, DEED)).toBeVisible();
-    await expect(page.getByText('These papers have not loaded')).toHaveCount(0);
+    // The app's one unreachable sentence (useLiveOrSample UNREACHABLE_NOTE)
+    // goes with the line coming back.
+    await expect(page.getByText('The live service is not reachable')).toHaveCount(0);
     expect(world.calls('papers')).toHaveLength(1);
   });
 });
@@ -1258,7 +1290,7 @@ test.describe('papers waiting on a connection', () => {
 test('a record that is not in the portfolio never gets as far as its papers', async ({ page, world }) => {
   await page.goto(`/app/records/${ID.missing}`);
 
-  await expect(page.getByRole('heading', { name: 'That record is not in your portfolio' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
   expect(world.calls('papers')).toHaveLength(0);
 });
 
@@ -1313,7 +1345,7 @@ test('a link the server would not make says so, and keeps the name that was type
   await page.getByRole('button', { name: 'Share', exact: true }).click();
 
   await expect(page.getByRole('alert')).toHaveText(
-    'No link was made for Union Bank, Markapur — this record may no longer be yours to share.');
+    'No link was made for Union Bank, Markapur. This record may no longer be yours to share.');
   // Nothing that could be mistaken for a link, and the typed name is still
   // there so a second try is one press.
   await expect(page.getByLabel('Recipient link')).toHaveCount(0);
@@ -1402,10 +1434,10 @@ test('an oversize photo picked from the record page is refused by name, before a
   await page.goto(`/app/records/${ID.parcel}`);
 
   await page.getByLabel('Add a photo or video to this record')
-    .setInputFiles(fileOf('east-walk.mp4', 10.4, 'video/mp4'), { timeout: 60_000 });
+    .setInputFiles(fileOf('east-walk.mp4', 15.4, 'video/mp4'), { timeout: 60_000 });
 
   await expect(page.getByRole('alert')).toHaveText(
-    `east-walk.mp4 (10.4 MB) is over the ${LIMIT} limit — nothing was uploaded.`
+    `east-walk.mp4 (15.4 MB) is over the ${LIMIT} limit — nothing was uploaded.`
     + ' Shrink or drop it and pick again.');
   expect(uploads(world), 'no bytes may leave for a file the card refused').toHaveLength(0);
   expect(world.calls('addPhoto')).toHaveLength(0);
@@ -1415,8 +1447,10 @@ test('@phone the papers, their shelves and the button that adds one all survive 
   await page.goto(`/app/records/${ID.parcel}`);
 
   await expect(paperRow(page, DEED)).toBeVisible();
-  await expect(paperRow(page, DEED)).toContainText('● Title');
-  await expect(page.getByRole('button', { name: 'Add a paper' })).toBeVisible();
+  await expect(shelfChip(page, DEED)).toHaveText('Title');
+  // The shelves are behind the shared "+ Filter" at this width too.
+  await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add a document' })).toBeVisible();
   await expect(page.getByRole('button', { name: `Remove ${DEED}` })).toBeVisible();
 
   // Nothing may push the page sideways: a horizontal scrollbar on a phone is

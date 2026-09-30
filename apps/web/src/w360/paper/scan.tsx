@@ -179,7 +179,7 @@ export function ScanView({
   if (scan.status === 'error') {
     return (
       <div style={{ width: 'min(100%, 34rem)' }}>
-        <Failed what="This paper's scan" error={scan.error} onRetry={scan.retry} boxed />
+        <Failed what="This document's scan" error={scan.error} onRetry={scan.retry} boxed />
       </div>
     );
   }
@@ -193,11 +193,9 @@ export function ScanView({
       <div style={{ width: 'min(100%, 34rem)' }}>
         <Empty boxed icon="paper" title="This scan cannot be opened from this account"
                action={recordHref
-                 ? <Link className="btn sm" to={recordHref}>Open the record</Link>
+                 ? <Link className="btn sm" to={recordHref}>Open the property</Link>
                  : undefined}>
-          The file store holds the reference on this row but will not release the file to the
-          account you are signed in as. Nothing has been deleted — the paper, the record and the
-          file are all still there. Asking again returns the same answer, so there is no retry here.
+          This account cannot open the file. Nothing has been deleted.
         </Empty>
       </div>
     );
@@ -206,9 +204,8 @@ export function ScanView({
   if (scan.status === 'legacy') {
     return (
       <div style={{ width: 'min(100%, 34rem)' }}>
-        <Empty boxed icon="paper" title="This paper's file is filed under an old reference">
-          The reference on this row is not one the file store can resolve, so the scan cannot be
-          opened and asking again will not change that. Upload the scan again to restore it.
+        <Empty boxed icon="paper" title="This document's file is filed under an old reference">
+          Upload the scan again to restore it.
         </Empty>
       </div>
     );
@@ -217,10 +214,8 @@ export function ScanView({
   // scan.status === 'none'
   return (
     <div style={{ width: 'min(100%, 34rem)' }}>
-      <Empty boxed icon="paper" title="No file is attached to this paper">
-        The record holds what was read off it — the registration facts and the reading on the
-        right — but the scan itself has never been filed. The page count comes from the filing,
-        not from anything on this screen.
+      <Empty boxed icon="paper" title="No file is attached to this document">
+        The details read from it are kept, but the scan was never filed.
       </Empty>
     </div>
   );

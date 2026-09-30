@@ -63,9 +63,10 @@ import {
 } from '../ui';
 import { Sk, SkPortfolioMap, SkRecordCards, SkRecordTable } from '../skeletons';
 import { RecordDrawer, ConfirmDialog, TagDialog } from './PropertyActions';
+import { CombineDialog } from './CombinedActions';
 import { PortfolioCanvas } from '../PortfolioCanvasLazy';
 import type { PortfolioCanvasHandle, PortfolioPin } from '../PortfolioCanvasLazy';
-import { isLocated, pairRing } from '../portfolioGeo';
+import { hasBoundaryRing, isLocated, pairRing } from '../portfolioGeo';
 import { MapThumb } from '../MapThumb';
 
 // The status words come from `statusWord` in ../ui. This screen used to keep
@@ -150,28 +151,79 @@ function SelectBox({ rec, a }: { rec: RecordCard; a: CardActions }) {
   );
 }
 
+/** What a card is able to say about where its land is, in the words the map
+ *  view's own result rows already use for the same fact.
+ *
+ *  It belongs on the tile because it is the difference between a record and a
+ *  record somebody has actually been to. A surveyed boundary is the strongest
+ *  thing this system holds; a dropped pin is a village, not a parcel; and
+ *  nothing at all is a job to do, which the card should say out loud rather
+ *  than filling the space with a drawing of a field. */
+function groundWord(geo: { ring: Array<[number, number]>; lat: number; lon: number }): string {
+  if (hasBoundaryRing(geo.ring)) return 'Boundary on map';
+  return isLocated(geo) ? 'Location pin only' : 'No location yet';
+}
+
+/** The line the reference card spends on "Custom cabinetry · Whole house fan ·
+ *  Quartz countertops": everything filed against this land, most useful first,
+ *  truncating at the right.
+ *
+ *  Zero counts are dropped rather than printed. "0 papers · 0 photos" is four
+ *  words to say nothing is filed, and it reads as a system that lost them; the
+ *  sentence for that case is one sentence and it names the remedy. The deed
+ *  comes last because it is a lookup key — the thing a bank asks for — where
+ *  the counts are a judgement about whether this record is finished. */
+function digestOf(rec: RecordCard): { text: string; empty: boolean } {
+  const filed = [
+    rec.paperCount ? plural(rec.paperCount, 'document') : '',
+    rec.photoCount ? plural(rec.photoCount, 'photo') : '',
+    rec.featureCount ? plural(rec.featureCount, 'feature') : '',
+    rec.deedLine,
+  ].filter(Boolean);
+  // `empty` rides along rather than being recovered by comparing the text back
+  // against the sentence: one of them would get reworded and the other would
+  // not, and the quiet styling would silently attach to the wrong line.
+  return filed.length > 0
+    ? { text: filed.join(' · '), empty: false }
+    : { text: 'Nothing filed against it yet', empty: true };
+}
+
 function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
   const art = rec.classification === 'flat' || rec.classification === 'open_plot'
     ? 'built' : rec.classification === 'shop' ? 'shop' : '';
 
   /** What a card shows of itself, in order: the photograph the owner took, the
-   *  ground the record sits on, and — when it knows neither — the illustration
-   *  for what kind of thing it is.
+   *  ground the record sits on, a paper the owner filed, and — when it knows
+   *  none of them — the illustration for what kind of thing it is.
    *
-   *  The photo wins because it is the only one of the three the OWNER made. The
-   *  map beats the illustration because it is about THIS record: the drawing is
-   *  the same drawing on every agricultural parcel in the account, which is
-   *  decoration, not information.
+   *  The photo wins because it is the only one of the four the OWNER made. The
+   *  map beats the rest because it is about THIS record. The paper comes next
+   *  for the same reason the map beats the drawing: a scanned sketch or
+   *  passbook page is this land's own paper, and the illustration is the same
+   *  illustration on every agricultural parcel in the account — decoration,
+   *  not information. `paperFileRef` is only ever an image; the storage gateway
+   *  can downscale a photograph and cannot rasterise a PDF page, so a record
+   *  whose papers are all PDFs keeps the drawing.
    *
-   *  The chain is nested rather than sequential — the map is the photo's
-   *  `fallback` while the authenticated read is pending or no usable storage
-   *  reference exists. A real read failure is different: PhotoImg names it and
-   *  offers a retry instead of pretending the filed photo is absent. The icon
-   *  sits underneath the whole stack, so no arrangement of missing data leaves
-   *  a card blank. */
+   *  The chain is nested rather than sequential — whatever is next is the
+   *  photo's `fallback` while the authenticated read is pending or no usable
+   *  storage reference exists. A real read failure is different: PhotoImg names
+   *  it and offers a retry instead of pretending the filed photo is absent. The
+   *  icon sits underneath the whole stack, so no arrangement of missing data
+   *  leaves a card blank. */
   const geo = { ring: pairRing(rec.ring), lat: rec.lat, lon: rec.lon };
-  const thumb = <MapThumb {...geo} title={rec.title} />;
+  const thumb = isLocated(geo)
+    ? <MapThumb {...geo} title={rec.title} />
+    : rec.paperFileRef
+      // `alt=""`, like the cover photograph: at 6.5rem a scan is a recognition
+      // cue and not a readable document, and the digest line below already
+      // states in words that papers are filed here. `fallback={null}` because
+      // the illustration is already in the markup underneath.
+      ? <PhotoImg className="cardpaper" fileRef={rec.paperFileRef} thumb={512}
+                  alt="" fallback={null} />
+      : null;
   const badge = badgeOf(rec);
+  const digest = digestOf(rec);
   // `coords` is already empty for a record with no fix, so there is nothing to
   // guard: an unlocated parcel prints no coordinate rather than "0.0000° N".
   const where = coords(rec.lat, rec.lon);
@@ -195,61 +247,103 @@ function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
                       thumb={512} fallback={thumb} />
           )
           : thumb}
+        {/* The exceptional state rides on the band, not beside the title.
+            Two reasons, and the reference card the redesign was measured
+            against does the same thing: this is the first place the eye lands,
+            and a title row that has to share its width wraps "Flat 4B, Sai
+            Residency" onto two lines to make room for a capsule that is absent
+            on nine cards out of ten.
+
+            Litigation is its own capsule rather than folded into `status`,
+            because land can be in court and still plainly owned — the two facts
+            are not alternatives and a reader who sees only "Owned" on a parcel
+            with a case against it has been told the wrong thing. */}
         <span className="badges">
           <SelectBox rec={rec} a={a} />
+          {badge && <Pill kind={badge.kind}>{badge.word}</Pill>}
+          {rec.litigation && <Pill kind="litigation">In court</Pill>}
         </span>
-        {/* Where it is, and what can be done to it — the two things that belong
-            to the record rather than to the picture of it. The coordinate is
-            only printed when the record actually knows one; "0.0000° N" on an
-            unlocated parcel would be a reading, not a blank. */}
-        <span className="bandright">
-          {where && <span className="coord">{where}</span>}
-          <Menu label={`Actions for ${rec.title}`} header={rec.title}
-                items={recMenu(rec, a)} />
+        {/* `.more` is what pins the kebab to the band's top-right corner AND
+            lifts it over the photo scrim and over the stretched span that makes
+            the whole card one click target. Without the class the menu is a
+            static div in the middle of the band with nothing above that span,
+            and every action on every card is unreachable — which is what
+            happened the moment the wrapper that used to carry those two rules
+            was removed. */}
+        <Menu className="more" label={`Actions for ${rec.title}`} header={rec.title}
+              items={recMenu(rec, a)} />
+        {/* What the picture above is worth as evidence, and the fix it was
+            drawn from. The two belong together and they belong at the bottom:
+            the coordinate shared the top-right corner with the kebab, which
+            left the state capsules nowhere to go at the narrowest track, and
+            "15.6657° N" on its own never said whether it came from a survey or
+            from somebody standing at the gate. The coordinate is still only
+            printed when the record knows one — "0.0000° N" on an unlocated
+            parcel would be a reading, not a blank. */}
+        <span className="bandfoot">
+          {[groundWord(geo), where].filter(Boolean).join(' · ')}
         </span>
       </div>
       <div className="meat">
-        <div className="row between" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-          <h3>
-            <Link className="recgo" to={`/app/records/${rec.id}`}
-                  style={{ color: 'inherit', textDecoration: 'none' }}>
-              {rec.title}
-              {/* The card's click target, stretched over `.rec` from inside the
-                  anchor. It paints under the select box and the kebab, which
-                  w360.css already lifts to z-index 1 to clear the art's scrim,
-                  so both of them stay clickable over the top of it. */}
-              <span aria-hidden style={{ position: 'absolute', inset: 0 }} />
-            </Link>
-          </h3>
-          {badge && <Pill kind={badge.kind}>{badge.word}</Pill>}
-        </div>
+        {/* The title owns its row now that the status capsule has moved onto the
+            band, so a built property's real name is not squeezed into half a
+            card. */}
+        <h3>
+          <Link className="recgo" to={`/app/records/${rec.id}`}
+                style={{ color: 'inherit', textDecoration: 'none' }}>
+            {rec.title}
+            {/* The card's click target, stretched over `.rec` from inside the
+                anchor. It paints under the select box and the kebab, which
+                w360.css already lifts to z-index 1 to clear the art's scrim,
+                so both of them stay clickable over the top of it. */}
+            <span aria-hidden style={{ position: 'absolute', inset: 0 }} />
+          </Link>
+        </h3>
         {/* Not every record names an owner; an empty line left a gap where
             the card promised a name. */}
         {rec.ownerName && (
           <p className="note" style={{ marginTop: '0.25rem' }}>{rec.ownerName}</p>
         )}
+        {/* Village, mandal AND district. It was village and mandal, while the
+            record's own header said all three — and Andhra Pradesh holds more
+            than one Katragunta, so the short form named a place and not a
+            place on earth. `_place_line` drops a repeated segment, so
+            Markapur/Markapur/Prakasam still reads as two names. */}
         <p className="note row tight" style={{ marginTop: '0.1875rem' }}>
           <PlaceOutlined sx={{ fontSize: 13 }} aria-hidden /> {rec.placeLine}
         </p>
         <hr className="hr" style={{ margin: '0.625rem 0' }} />
-        {/* One line, always: the extent reads big, the alternate unit fills
-            what room is left and truncates, and the money stays pinned right.
-            Wrapping here made a card look like it held two figures. */}
+        {/* One line, always: the extent reads big and the money stays pinned
+            right. Wrapping here made a card look like it held two figures.
+
+            The alternate unit used to fill the middle of this row and truncate
+            into it. It has its own line below now, as the full reading rather
+            than one converted figure — the acre is what the title deed says,
+            and guntas, cents and square yards are what the village office, the
+            neighbour and the buyer each say instead. Squeezed onto this row
+            there was only ever room for one of them. */}
         <div className="row" style={{ flexWrap: 'nowrap', gap: '0.5rem', alignItems: 'baseline' }}>
           <span className="figure" style={{ flex: 'none' }}>{fmtExtent(rec)}</span>
-          {rec.extentAlt && (
-            <span className="note num grow"
-                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              · {rec.extentAlt}
-            </span>
-          )}
           {/* A dash, not "₹0". A record nobody has valued has no figure to
               print, and printing zero claims somebody looked and the answer
               was nothing. */}
-          <span className="num" style={{ flex: 'none', fontSize: '0.875rem' }}>
+          <span className="num" style={{ flex: 'none', marginLeft: 'auto', fontSize: '0.875rem' }}>
             {inrOr(rec.marketValue)}
           </span>
         </div>
+        {/* The same extent in the units it is argued in. The full string is the
+            title as well, because this line truncates and the reading it cuts
+            off is the one somebody is standing in a field trying to check. */}
+        {rec.extentDetail && (
+          <p className="reading" title={rec.extentDetail}>{rec.extentDetail}</p>
+        )}
+        {/* Everything filed against this land, and the registrar's name for it.
+            Truncates rather than wraps, so a card's height does not depend on
+            how much work has been done to it — and the full line is the title
+            for the same reason the reading's is. */}
+        <p className={digest.empty ? 'digest nil' : 'digest'} title={digest.text}>
+          {digest.text}
+        </p>
         {/* The tag row holds its height whether or not there are tags, so a
             grid of cards does not jog by twenty pixels per row. */}
         <div className="row tight" style={{ marginTop: '0.5rem', minHeight: '1.25rem' }}>
@@ -323,23 +417,41 @@ function Th({ k, label, right, sort, setSort }: {
   );
 }
 
-/** The word this screen uses for a facet group.
+/** Every facet arrives named, so this screen keeps no list of the words.
  *
- *  The map is total rather than a single override, because a chip has to be
- *  able to name its group even when the server has stopped sending that group
- *  — see `chips` below for why that happens and why it matters.
+ *  There used to be one — a total map of group key to heading, plus a second
+ *  list naming which groups held free text rather than an enumeration. Both
+ *  restated what the server already sends on every group and option, and both
+ *  had to be edited before a new facet could appear properly: an owner facet
+ *  added on the server drew a heading from this file or none at all, and its
+ *  names were put through statusWord, which capitalises what it does not
+ *  recognise and so quietly retitles a person.
  *
- *  `derived` earns its entry twice over: the server calls the
- *  village-and-khata group "Derived", which is a word about how the options
- *  were computed rather than about what they are. A heading reading "DERIVED"
- *  over a list of village names was half of the reported defect; the other
- *  half — a heading over nothing at all — is fixed by not drawing empty
- *  groups. */
-const GROUP_WORD: Record<string, string> = {
-  kind: 'Kind', status: 'Status', stake: 'My stake',
-  derived: 'Village & khata', tags: 'Your tags', group: 'Family / group',
-};
-const groupWord = (key: string, g?: Pick<FacetGroup, 'label'>) => GROUP_WORD[key] ?? g?.label ?? key;
+ *  What the client genuinely has to do is REMEMBER. The server sends an option
+ *  only while some record still answers to it, so the moment the last archived
+ *  record is unarchived the Archived option stops being sent — while
+ *  `?status=archived` is still in the URL and still filtering (see `chips`
+ *  below for why that matters). The chip for it must keep its words. So every
+ *  name the server has used is kept, and nothing it has never sent falls back
+ *  further than the raw key, which is at least readable and removable. */
+function useFacetWords(groups: FacetGroup[]) {
+  const seen = useRef<{ group: Record<string, string>; option: Record<string, string> }>(
+    { group: {}, option: {} });
+  useEffect(() => {
+    for (const g of groups) {
+      if (g.label) seen.current.group[g.key] = g.label;
+      for (const o of g.options) {
+        if (o.label) seen.current.option[`${g.key}:${o.key}`] = o.label;
+      }
+    }
+  }, [groups]);
+  return {
+    groupWord: (key: string, g?: Pick<FacetGroup, 'label'>) =>
+      g?.label || seen.current.group[key] || key,
+    optionWord: (key: string, value: string) =>
+      seen.current.option[`${key}:${value}`] || statusWord(value),
+  };
+}
 
 /** How many cards the grid draws before it offers to draw more. */
 const PAGE = 24;
@@ -367,10 +479,14 @@ export function Properties() {
   const [sort, setSort] = useState<Sort>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [limit, setLimit] = useState(PAGE);
-  const [drawer, setDrawer] = useState<{ card: RecordCard | null } | null>(null);
+  const [drawer, setDrawer] = useState<{ card: RecordCard | null; job?: string } | null>(null);
   const [confirm, setConfirm] =
     useState<{ kind: 'delete' | 'archive' | 'unarchive' | 'order'; ids: string[] } | null>(null);
   const [tagIds, setTagIds] = useState<string[] | null>(null);
+  /** The records the Combine dialog is open over. Ids rather than cards, like
+   *  `tagIds`, so the dialog always reads the current answer rather than a copy
+   *  of the rows as they were when the bar was clicked. */
+  const [combineIds, setCombineIds] = useState<string[] | null>(null);
   const [err, setErr] = useState('');
 
   const del = useDeleteRecords(false);
@@ -383,7 +499,9 @@ export function Properties() {
     kinds: params.getAll('kind'),
     statuses: params.getAll('status'),
     stakes: params.getAll('stake'),
-    derived: params.getAll('in'),
+    villages: params.getAll('village'),
+    khatas: params.getAll('khata'),
+    owners: params.getAll('owner'),
     tags: params.getAll('tag'),
     // `?group=<id>` is the link Families & Groups sends people here with, so
     // the group's holdings arrive in this screen with all of its filtering,
@@ -393,7 +511,9 @@ export function Properties() {
     groups: params.getAll('group'),
   };
   const PARAM: Record<string, string> = {
-    kind: 'kind', status: 'status', stake: 'stake', derived: 'in', tags: 'tag', group: 'group',
+    kind: 'kind', status: 'status', stake: 'stake',
+    village: 'village', khata: 'khata', owner: 'owner',
+    tags: 'tag', group: 'group',
   };
 
   /** Which array of `filter` a facet group writes into. The popover's boxes
@@ -403,8 +523,9 @@ export function Properties() {
    *  round trip after you tick it is an unresponsive control. The counts beside
    *  them stay server-side and simply update when the response lands. */
   const FIELD: Record<string, keyof PropertyFilter> = {
-    kind: 'kinds', status: 'statuses', stake: 'stakes', derived: 'derived', tags: 'tags',
-    group: 'groups',
+    kind: 'kinds', status: 'statuses', stake: 'stakes',
+    village: 'villages', khata: 'khatas', owner: 'owners',
+    tags: 'tags', group: 'groups',
   };
 
   const toggle = (group: string, key: string) => {
@@ -509,7 +630,7 @@ export function Properties() {
     (acc, r) => ({ ac: acc.ac + inAcres(r), worth: acc.worth + r.marketValue }),
     { ac: 0, worth: 0 }), [cards]);
   const portfolioLine = [
-    plural(cards.length, 'record'),
+    plural(cards.length, 'property', 'properties'),
     totals.ac >= 0.005 ? `${num(totals.ac, 2)} ac` : '',
     totals.worth > 0 ? `${inr(totals.worth)} valued` : '',
   ].filter(Boolean).join(' · ');
@@ -524,6 +645,7 @@ export function Properties() {
     ?.options.find((o) => o.key === 'archived')?.count ?? 0;
 
   const groups = data?.facets ?? [];
+  const { groupWord, optionWord } = useFacetWords(groups);
 
   /** Everything currently narrowing the list, as one flat list of chips.
    *
@@ -603,10 +725,14 @@ export function Properties() {
   // The parameter is consumed immediately: left in the URL it would reopen the
   // drawer every time the page was reloaded or shared.
   useEffect(() => {
-    if (params.get('new') !== '1') return;
-    setDrawer({ card: null });
+    // `?reading=<job>` is where a notice lands: Add property, filled from a
+    // reading that finished after the drawer was closed. Consumed the same way.
+    const job = params.get('reading') ?? '';
+    if (params.get('new') !== '1' && !job) return;
+    setDrawer(job ? { card: null, job } : { card: null });
     const next = new URLSearchParams(params);
     next.delete('new');
+    next.delete('reading');
     setParams(next, { replace: true });
   }, [params, setParams]);
 
@@ -773,11 +899,17 @@ export function Properties() {
    *  is acting on. With nothing selected the Export in the page head takes the
    *  whole visible list, which is what its position promises. */
   const exportCsv = (rows: RecordCard[]) => {
+    // The deed and the three counts go out with the rest. An export is what an
+    // owner hands an advocate or a bank, and the first thing either of them
+    // asks is which document registered the land.
     const head = ['Record', 'Kind', 'Owner', 'Village', 'Mandal', 'District', 'Khata',
-      'Status', 'Stake', 'Extent', 'Unit', 'Worth (₹)', 'Tags'];
+      'Status', 'Stake', 'Extent', 'Unit', 'Reading', 'Worth (₹)', 'Deed',
+      'Documents', 'Photos', 'Site features', 'In court', 'Tags'];
     const lines = rows.map((r) => [r.title, r.kind, r.ownerName, r.village, r.mandal,
-      r.district, r.khataNo, r.status, r.stake, r.extent, r.extentUnit,
-      Math.round(r.marketValue), r.tags.join('; ')].map(csvCell).join(','));
+      r.district, r.khataNo, r.status, r.stake, r.extent, r.extentUnit, r.extentDetail,
+      Math.round(r.marketValue), r.deedLine,
+      r.paperCount, r.photoCount, r.featureCount, r.litigation ? 'yes' : '',
+      r.tags.join('; ')].map(csvCell).join(','));
     // The BOM makes Excel read the ₹ column as UTF-8 instead of mojibake.
     const blob = new Blob(['﻿' + [head.join(','), ...lines].join('\n')],
       { type: 'text/csv;charset=utf-8' });
@@ -799,32 +931,27 @@ export function Properties() {
 
   const confirmCopy = confirm && {
     delete: {
-      title: confirm.ids.length === 1 ? 'Delete this record?'
-        : `Delete ${confirm.ids.length} records?`,
+      title: confirm.ids.length === 1 ? 'Delete this property?'
+        : `Delete ${confirm.ids.length} properties?`,
       body: <>Everything filed under {confirm.ids.length === 1
           ? <strong>{byId.get(confirm.ids[0])?.title ?? 'it'}</strong>
-          : 'them'} goes too — papers, photos, features, people and the money
-        ledger. There is no undo. If you only want {confirm.ids.length === 1 ? 'it' : 'them'} out
-        of the way, Archive instead.</>,
+          : 'them'} is deleted too. There is no undo.</>,
       action: 'Delete', danger: true,
     },
     archive: {
-      title: `Archive ${plural(confirm.ids.length, 'record')}?`,
-      body: <>Archived records leave the list, the map and every total, but keep
-        everything filed under them. Bring them back any time from the
-        <strong> Archived</strong> option under Status in the filter.</>,
+      title: `Archive ${plural(confirm.ids.length, 'property', 'properties')}?`,
+      body: <>Archived properties leave lists, maps and totals. Everything filed under them is kept.</>,
       action: 'Archive', danger: false,
     },
     unarchive: {
-      title: `Unarchive ${plural(confirm.ids.length, 'record')}?`,
+      title: `Unarchive ${plural(confirm.ids.length, 'property', 'properties')}?`,
       body: <>{confirm.ids.length === 1 ? 'It rejoins' : 'They rejoin'} the list,
         the map and the portfolio totals.</>,
       action: 'Unarchive', danger: false,
     },
     order: {
       title: `Order ${confirm.ids.length === 1 ? 'an EC' : `${confirm.ids.length} ECs`}?`,
-      body: <>One Encumbrance Certificate order per record, ₹1,180 each. They
-        appear under <strong>Services</strong> as they are placed.</>,
+      body: <>One Encumbrance Certificate order per record, ₹1,180 each.</>,
       action: `Order EC ×${confirm.ids.length}`, danger: false,
     },
   }[confirm.kind];
@@ -897,8 +1024,7 @@ export function Properties() {
             tally={`${shownCount} of ${data.total} shown`}
             busy={isFetching}
             groupLabel={groupWord}
-            missingOptionLabel={(key, value) =>
-              key === 'tags' || key === 'derived' ? value : statusWord(value)}
+            missingOptionLabel={optionWord}
             extraChips={q ? [{
               id: 'q', group: 'Search', label: params.get('q') ?? '',
               removeLabel: `Clear the search for ${params.get('q')}`,
@@ -937,7 +1063,7 @@ export function Properties() {
             with everything else. */}
         {virgin && archivedCount > 0 && (
           <Empty
-            boxed h="26rem" icon="parcel" title="Nothing active"
+            boxed h="26rem" icon="parcel" title="All properties are archived"
             action={
               <>
                 <button type="button" className="btn" onClick={() => {
@@ -947,13 +1073,12 @@ export function Properties() {
                   Show archived
                 </button>
                 <button type="button" className="btn primary" onClick={() => setDrawer({ card: null })}>
-                  <AddOutlined sx={{ fontSize: 17 }} /> Add a record
+                  <AddOutlined sx={{ fontSize: 17 }} /> Add a property
                 </button>
               </>
             }
           >
-            {`${plural(archivedCount, 'record')} ${archivedCount === 1 ? 'is' : 'are'} archived. `}
-            Archived records leave the list, the map and every total until you bring them back.
+            {`${plural(archivedCount, 'property', 'properties')} ${archivedCount === 1 ? 'is' : 'are'} archived.`}
           </Empty>
         )}
 
@@ -962,15 +1087,14 @@ export function Properties() {
             instead" button beside it would be the same button twice. */}
         {virgin && archivedCount === 0 && (
           <Empty
-            boxed h="26rem" icon="parcel" title="Nothing filed yet"
+            boxed h="26rem" icon="parcel" title="No properties yet"
             action={
               <button type="button" className="btn primary" onClick={() => setDrawer({ card: null })}>
-                <AddOutlined sx={{ fontSize: 17 }} /> Add a record
+                <AddOutlined sx={{ fontSize: 17 }} /> Add a property
               </button>
             }
           >
-            Add your first parcel or property — the khata, the extent and what it is worth.
-            Or upload a pattadar passbook and the parcels are read out of it for you.
+            Add a parcel or property, or upload a pattadar passbook.
           </Empty>
         )}
 
@@ -983,14 +1107,12 @@ export function Properties() {
             <h3>
               {q && active === 0
                 ? `Nothing matches “${params.get('q')}”`
-                : 'No records match these filters'}
+                : 'No properties match these filters'}
             </h3>
             <p className="note" style={{ maxWidth: '26rem' }}>
               {q && active === 0
                 ? "Try a survey number, a village, a khata or an owner's name."
                 : <>
-                    Every filter narrows the same list. Clear one and the records
-                    come back.
                     {/* Not every hidden record carries a place: the server builds
                         hiddenPlaces only from rows that have a mandal, a district
                         or a village, and the Add drawer takes a record with all
@@ -1047,7 +1169,7 @@ export function Properties() {
                          setParams(next, { replace: true });
                        }} />
               </label>
-              <Link className="btn sm" to="/app/villages">Search village maps</Link>
+              <Link className="btn sm" to="/app/maps">Search cadastral maps</Link>
             </div>
             <div className="pf-body">
             <div className="plot live pf-stage">
@@ -1065,7 +1187,7 @@ export function Properties() {
               <div className="maptools">
                 <span className="row tight">
                   <button type="button" className="chip" aria-pressed={satellite}
-                          title={satellite ? 'Turn the imagery off' : 'Real ground under your land'}
+                          title={satellite ? 'Turn the imagery off' : 'Turn the imagery on'}
                           onClick={() => setSatellite((on) => !on)}>
                     Satellite
                   </button>
@@ -1090,7 +1212,7 @@ export function Properties() {
                     </span>
                   </div>
                   <Link className="btn sm" to={`/app/records/${picked}`}>Open</Link>
-                  <Link className="btn sm" to={`/app/records/${picked}/map`}>Boundary</Link>
+                  <Link className="btn sm" to={`/app/records/${picked}/map`}>Location &amp; boundary</Link>
                 </div>
               )}
 
@@ -1103,8 +1225,7 @@ export function Properties() {
               {drawn.length === 0 && (
                 <div className="mapsays">
                   <p className="nogeo">
-                    None of these records knows where it is yet. A survey or a
-                    dropped pin puts one on this map.
+                    No property here has a pin or boundary yet.
                   </p>
                 </div>
               )}
@@ -1137,20 +1258,20 @@ export function Properties() {
                 the same way and read "3 from a survey, 0 from a pin". */}
             {drawn.length > 0 && (
               <p className="note">
-                {`${plural(drawn.length, 'record', 'records')} drawn — `}
+                {`${plural(drawn.length, 'property', 'properties')} on the map — `}
                 {surveyed === 0
-                  ? 'every one from a pin, none from a survey.'
+                  ? 'every one from a pin, none from a boundary.'
                   : surveyed === drawn.length
-                    ? (drawn.length === 1 ? 'from its survey.' : 'every one from a survey.')
-                    : `${surveyed} from a survey, ${drawn.length - surveyed} from a pin.`}
+                    ? (drawn.length === 1 ? 'from its boundary.' : 'every one from a boundary.')
+                    : `${surveyed} from a boundary, ${drawn.length - surveyed} from a pin.`}
                 {cards.length > drawn.length && (
                   <>
                     {' '}
-                    {plural(cards.length - drawn.length, 'record is', 'records are')} not
+                    {plural(cards.length - drawn.length, 'property is', 'properties are')} not
                     here: {cards.filter((c) => !drawnIds.has(c.id))
                       .slice(0, 3).map((c) => c.title).join(', ')}
-                    {cards.length - drawn.length > 3 ? ' and others' : ''} — neither surveyed
-                    nor pinned. Opening one and dropping its pin is enough.
+                    {cards.length - drawn.length > 3 ? ' and others' : ''} — no boundary
+                    and no pin.
                   </>
                 )}
               </p>
@@ -1228,12 +1349,21 @@ export function Properties() {
               it pretending to be part of the page. */}
           <div className="bulkbar" role="group" aria-label="Act on the selected records">
             <span className="count" role="status">
-              {plural(selShown.length, 'record')} selected — these buttons act on them.
+              {plural(selShown.length, 'property', 'properties')} selected
             </span>
             <span className="vrule" aria-hidden />
             <span className="acts">
               <button type="button" className="btn sm" onClick={() => setTagIds(selShown)}>
                 Tag…
+              </button>
+              {/* Combining is done here because a holding is made OF records,
+                  and this is where the records are. With one record selected the
+                  control still appears, disabled, saying what it needs: hiding
+                  it until a second tick would make the feature invisible to
+                  anybody who had not already found it. */}
+              <button type="button" className="btn sm" disabled={selShown.length < 2}
+                      onClick={() => setCombineIds(selShown)}>
+                {selShown.length < 2 ? 'Select 2 or more to combine' : 'Combine…'}
               </button>
               <button type="button" className="btn sm"
                       onClick={() => setConfirm({ kind: 'order', ids: selShown })}>
@@ -1260,7 +1390,8 @@ export function Properties() {
         </div>
       )}
 
-      {drawer && <RecordDrawer card={drawer.card} onClose={() => setDrawer(null)}
+      {drawer && <RecordDrawer key={drawer.job ?? 'record'} card={drawer.card} fromJob={drawer.job}
+        onClose={() => setDrawer(null)}
         onCreated={view === 'map' ? (id) => {
           setDrawer(null);
           nav(`/app/records/${id}/map`);
@@ -1280,6 +1411,20 @@ export function Properties() {
           existing={(data?.facets ?? []).find((g) => g.key === 'tags')?.options.map((o) => o.key) ?? []}
           busy={tagRecs.isPending} error={err} onApply={applyTag}
           onClose={() => { setErr(''); setTagIds(null); }}
+        />
+      )}
+      {combineIds && (
+        <CombineDialog
+          records={combineIds.map((id) => byId.get(id)).filter((r): r is RecordCard => !!r)}
+          onDone={(id) => {
+            setCombineIds(null);
+            setSelected(new Set());
+            // Onto the holding it just made. Staying on the list would leave the
+            // owner with a dialog closing and nothing on screen to say a
+            // combined property now exists.
+            nav(`/app/combined/${id}`);
+          }}
+          onClose={() => setCombineIds(null)}
         />
       )}
     </div>

@@ -85,8 +85,6 @@ function Person({ a, discipline, job, onAssign, going }: {
         <span className="note" style={{ display: 'block', margin: '0.25rem 0 0' }}>
           {kinds || 'No line of work recorded'}
           {' · '}
-          {/* Where they work, printed as they recorded it. Nothing here has
-              been compared to this job's place — see the note above the list. */}
           {areas || 'no areas recorded'}
         </span>
         <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>
@@ -167,11 +165,10 @@ export function DeskJob() {
       <main>
         <Crumbs trail={[{ label: 'The desk', to: '/app/desk' }, { label: 'This job' }]} />
         <Empty
-          boxed h="18rem" icon="clock" title="This job is not on the desk."
+          boxed h="18rem" icon="clock" title="This job isn't on the desk"
           action={<Link className="btn primary" to="/app/desk">Back to the desk</Link>}
         >
-          It was accepted or cancelled, or it never reached the desk. The desk only holds
-          jobs that are still open — the owner&rsquo;s own job has the rest of its story.
+          It was accepted, cancelled, or never reached the desk.
         </Empty>
       </main>
     );
@@ -212,7 +209,7 @@ export function DeskJob() {
       <div className="split" style={{ marginTop: 'var(--space-md)' }}>
         <div className="stack">
           <Card
-            title="Who could take this"
+            title="Available providers"
             aside={roster.length > 0
               ? <span className="note">{plural(roster.length, 'person', 'people')}</span>
               : undefined}
@@ -233,13 +230,12 @@ export function DeskJob() {
 
             <p className="note" style={{ marginTop: 0 }}>
               {!disciplines.data
-                ? <>The whole roster — what this service needs could not be read.</>
+                ? <>Whole roster. This service&rsquo;s line of work could not be read.</>
                 : disciplineLabel
-                  ? <>Everyone on the roster for {disciplineLabel}.</>
-                  : <>The whole roster — no line of work is registered against {j.serviceLabel}.</>}
+                  ? <>Roster for {disciplineLabel}.</>
+                  : <>Whole roster. No line of work registered for {j.serviceLabel}.</>}
               {' '}
-              Pattadar has not matched anybody to {j.place || 'this place'}: read each
-              person&rsquo;s areas before you put them on it.
+              Not matched to {j.place || 'this place'}.
             </p>
 
             {err && (
@@ -255,14 +251,12 @@ export function DeskJob() {
               : !people.data ? <Failed what="The roster" error={people.error} boxed h="12rem" />
               : roster.length === 0 ? (
                 <Empty
-                  boxed icon="person" title="Nobody can take this today."
-                  action={<Link className="btn primary" to="/app/desk/enrol">Add somebody</Link>}
+                  boxed icon="person" title="No provider is available today"
+                  action={<Link className="btn primary" to="/app/desk/enrol">Add a member</Link>}
                 >
                   {disciplineLabel
                     ? `Nobody is on the roster for ${disciplineLabel}.`
                     : 'Nobody is on the roster at all.'}
-                  {' '}
-                  Add the person you already phone — they do not need an account.
                 </Empty>
               ) : (
                 <div className="rows boxed">
@@ -277,7 +271,7 @@ export function DeskJob() {
         </div>
 
         <aside className="stack">
-          <Card title="Who is on it">
+          <Card title="Assigned provider">
             {j.assignee ? (
               <div className="row">
                 <span className="avatarlg">{initialsOf(j.assignee)}</span>
@@ -288,7 +282,7 @@ export function DeskJob() {
                       ? <Contact contact={j.assigneeContact} />
                       : j.assigneeRef
                         ? 'No number recorded against them.'
-                        : 'The owner typed this name on their job. Pattadar has no number for them.'}
+                        : 'Typed by the owner. No number recorded.'}
                   </span>
                   {j.assigneeRef && (
                     <Link className="link" to={`/app/desk/associates/${j.assigneeRef}`}>
@@ -299,9 +293,7 @@ export function DeskJob() {
               </div>
             ) : (
               <p className="note" style={{ margin: 0 }}>
-                Nobody yet. Put somebody on it from the list beside this: the owner sees
-                who is on their job straight away, and that person&rsquo;s number too when
-                they agreed to owners having it.
+                Nobody yet.
               </p>
             )}
             {j.assignee && j.assigneeRef && (
@@ -311,46 +303,31 @@ export function DeskJob() {
             )}
             {j.assignee && !j.assigneeRef && (
               <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                This is a name the owner typed, not an associate, so the desk cannot take
-                them off it. Putting an associate on it replaces the name.
+                Typed by the owner · not a member
               </p>
             )}
           </Card>
 
-          <Card title="The money">
-            <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>
+          <Card title="Payment">
+            <p style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
               {inrFullish(j.quoted)} quoted
             </p>
             <p style={{ margin: '0.375rem 0 0' }}>
               <span className="pill sim">Not charged</span>
             </p>
             <p className="note">
-              {j.held > 0 ? (
-                <>
-                  {inr(j.held)} is set aside on this job. Nothing has been taken from the
-                  owner: it is owed to whoever finishes the work and has it accepted.
-                </>
-              ) : (
-                <>
-                  Nothing is set aside on this job yet. A job with no money behind it is
-                  one nobody has a reason to start.
-                </>
-              )}
+              {j.held > 0
+                ? <>{inr(j.held)} held on this job.</>
+                : <>Nothing held yet.</>}
             </p>
           </Card>
 
-          <Card title="Where it stands">
+          <Card title="Status">
             <p className="note" style={{ margin: 0 }}>
               {j.place || 'No place recorded on this job.'}
               {j.orderedAt && <> · ordered {ddmmyyyy(j.orderedAt)}</>}
               {j.dueDate && <> · due {j.dueDate}</>}
             </p>
-            {j.quiet && j.quietDays > 0 && (
-              <p className="note">
-                Nothing has happened on this for {plural(j.quietDays, 'day')}. That is the
-                one thing on this desk that loses an owner — ring them, or take them off.
-              </p>
-            )}
           </Card>
         </aside>
       </div>

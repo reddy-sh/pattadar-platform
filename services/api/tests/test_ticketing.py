@@ -312,7 +312,7 @@ def test_accepting_releases_what_was_held_and_nothing_more():
                        "to_bucket": "payout", "amount": 2610.0,
                        "payee": "G. Srinivas", "note": "Released on acceptance",
                        "idempotency_key": "wr-abc:release:1"}
-    assert plan[1]["amount"] == 290.0 and plan[1]["note"] == "Pattadar's share"
+    assert plan[1]["amount"] == 290.0 and plan[1]["note"] == "Pattadar fee"
     # Held goes to zero and nothing is invented: the plan moves exactly what
     # was set aside.
     assert sum(r["amount"] for r in plan) == 2900.0
@@ -332,7 +332,7 @@ def test_a_ticket_nobody_funded_can_still_be_accepted():
 def test_setting_money_aside_is_one_row_and_zero_is_none():
     assert t.hold_plan(2900.0, "wr-abc") == [
         {"entry": "hold", "from_bucket": "wallet", "to_bucket": "held",
-         "amount": 2900.0, "payee": "", "note": "Set aside for this job",
+         "amount": 2900.0, "payee": "", "note": "Held for this order",
          "idempotency_key": "wr-abc:hold:1"}]
     assert t.hold_plan(0.0, "wr-abc") == []
     assert t.hold_plan(-1.0, "wr-abc") == []
@@ -356,7 +356,7 @@ def test_cancelling_with_nothing_settled_returns_the_whole_hold():
     plan = t.cancel_plan(2900.0, 0.0, 0.9, "", "wr-abc")
     assert plan == [{"entry": "return", "from_bucket": "held",
                      "to_bucket": "wallet", "amount": 2900.0, "payee": "",
-                     "note": "Given back on cancellation",
+                     "note": "Refunded — order cancelled",
                      "idempotency_key": "wr-abc:return:1"}]
     assert t.cancel_plan(0.0) == []
 
@@ -392,18 +392,18 @@ def test_a_plan_addresses_each_entry_once_so_a_retry_completes_it():
 
 def test_the_money_headline_reads_the_ticket_it_is_on():
     assert (t.money_headline(2900.0, 2900.0, 0.0, 0.0, "submitted", "G. Srinivas")
-            == "₹2,900 set aside for this job")
+            == "₹2,900 held for this order")
     assert (t.money_headline(2900.0, 0.0, 2610.0, 0.0, "accepted", "G. Srinivas")
             == "₹2,610 recorded as owed to G. Srinivas · ₹290 to Pattadar")
     assert (t.money_headline(2900.0, 0.0, 0.0, 2900.0, "cancelled", "")
-            == "₹2,900 given back to your wallet")
+            == "₹2,900 refunded to your wallet")
     assert (t.money_headline(2900.0, 0.0, 0.0, 0.0, "placed", "")
-            == "Nothing set aside yet")
+            == "Nothing held yet")
     # The part-settled cancellation, which is the only case with both.
     assert (t.money_headline(2200.0, 0.0, 630.0, 1500.0, "cancelled", "B. Ravi")
-            == "₹630 recorded as owed to B. Ravi · ₹1,500 given back")
+            == "₹630 recorded as owed to B. Ravi · ₹1,500 refunded")
     # No payee: the sentence still has to make sense.
-    assert "the person who did the work" in t.money_headline(
+    assert "the provider" in t.money_headline(
         2900.0, 0.0, 2610.0, 0.0, "accepted", "")
 
 
@@ -446,12 +446,12 @@ def test_no_money_copy_ever_claims_a_charge_that_did_not_happen():
 
 def test_the_honesty_line_changes_the_day_the_provider_does():
     assert t.money_honesty("stub", "G. Srinivas") == (
-        "Recorded, not charged. Paying online is not switched on yet — settle"
-        " it with G. Srinivas directly for now.")
+        "Not charged. Online payment is not switched on yet — settle"
+        " with G. Srinivas directly.")
     assert "with them directly" in t.money_honesty("stub")
     live = t.money_honesty("razorpay", "G. Srinivas")
-    assert live == ("We don't release it to G. Srinivas until you accept what"
-                    " came back.")
+    assert live == ("Released to G. Srinivas only after you accept"
+                    " the work.")
     assert "not charged" not in live
 
 
@@ -1008,7 +1008,7 @@ def test_a_deliverable_a_filing_and_a_payment_each_read_as_a_sentence():
                                             "payee": "K. Prasad"}) == (
         "₹405 recorded as owed to K. Prasad")
     assert t.event_headline("payment", "", {"entry": "return",
-                                            "amount": 1500.0}) == "₹1,500 given back"
+                                            "amount": 1500.0}) == "₹1,500 refunded"
     assert t.event_headline("payment", "", {"entry": "fee",
                                             "amount": 45.0}) == "₹45 to Pattadar"
     assert t.event_headline("refused", "", {"why": "not a legal move"}) == (

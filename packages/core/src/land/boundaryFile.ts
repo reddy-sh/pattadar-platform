@@ -222,6 +222,56 @@ export function toBoundaryGeoJson(
   }, null, 2);
 }
 
+/**
+ * The boundary ring out of an FMB reading's derived geometry.
+ *
+ * An FMB (field-measurement book) sheet carries a corner table; the AI reader
+ * extracts it and services/api/src/fmb_geometry.py derives the §13 `geometry`
+ * — `points` ([{id, lat, lon}]) and `ring` (point ids in order). This turns
+ * that into the same flat [lat, lon, …] ring `setBoundary` takes, so an FMB
+ * lands a parcel on the map exactly as a KML does, through one save path.
+ *
+ * ALL OR NOTHING, the same rule the server's to_geojson_ring keeps: a corner
+ * with no coordinate serialises to 0/0, and one such corner in an otherwise
+ * good ring draws a parcel that looks right with a vertex in the Gulf of
+ * Guinea — the dangerous kind of wrong. So a single unplaced corner rejects
+ * the whole ring, and the caller keeps the filed sheet but sets no boundary.
+ *
+ * Returns [] when the geometry is absent, has fewer than three placed corners,
+ * or any corner is missing — never a partial parcel.
+ */
+export function ringFromFmbGeometry(geometry: unknown): number[] {
+  if (!geometry || typeof geometry !== 'object') return [];
+  const g = geometry as { points?: unknown; ring?: unknown };
+  const points = Array.isArray(g.points) ? g.points : [];
+  const order = Array.isArray(g.ring) ? g.ring : [];
+  if (!points.length || !order.length) return [];
+
+  const byId = new Map<number | string, { lat: number; lon: number }>();
+  for (const p of points) {
+    if (!p || typeof p !== 'object') continue;
+    const o = p as Record<string, unknown>;
+    const lat = Number(o.lat);
+    const lon = Number(o.lon);
+    if (o.id !== undefined) byId.set(o.id as number | string, { lat, lon });
+  }
+
+  const flat: number[] = [];
+  for (const id of order) {
+    const pt = byId.get(id as number | string);
+    // A missing corner, or one that never got a real coordinate (0/0 is the
+    // unfilled sentinel, and off-range is corruption), fails the whole ring.
+    if (!pt || !inRange(pt.lat, pt.lon) || (pt.lat === 0 && pt.lon === 0)) return [];
+    flat.push(pt.lat, pt.lon);
+  }
+  // Stored open; drop a repeated closing corner if the geometry carried one.
+  if (flat.length >= 4
+    && flat[0] === flat[flat.length - 2] && flat[1] === flat[flat.length - 1]) {
+    flat.length -= 2;
+  }
+  return flat.length >= 6 ? flat : [];
+}
+
 /** A filename a person can find again: "Sy 71-2 Konakanamitla boundary.geojson".
  *  The survey number's slash cannot survive a filesystem. */
 export function boundaryFileName(title = '', village = ''): string {

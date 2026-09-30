@@ -22,7 +22,8 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 | `mobile-feature-delivery` | Expo compatibility client and EAS/store readiness |
 | `web-next-cutover` | staged Next parity and explicit cutover |
 | `sync-ios` | web/core/root-schema/gateway adaptation to native iOS |
-| `design-system-governance` | cross-client tokens, accessibility, motion, icons and brand |
+| `design-system-governance` | cross-client tokens, the one web face and weights, shared-component reuse, accessibility, motion, icons and brand |
+| `heuristic-ux-audit` | analysis-only heuristic UX audit of an existing web screen against design.md's Material 3 principles, delivered as a side-by-side CURRENT versus standard board |
 | `infrastructure-change` | Terraform/IaC design and source changes |
 | `platform-lifecycle` | operation of existing up/down/park/thaw/restore flows |
 | `dependency-change` | package/provider/action/base-image changes |
@@ -32,6 +33,7 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 | `compliance-evidence` | SOC2/DPDP/GDPR evidence without overclaiming |
 | `reference-data-ingestion` | AP-IGRS/village/KML/FMB/public-record ingestion quality |
 | `runbook-consistency` | documentation/executable-behavior drift |
+| `typesafe-ai` | advisory TypeSafe System One (Jev) typed-decision design within Pattadar boundaries; adapted external skill |
 
 ## Always-on watches
 
@@ -45,6 +47,9 @@ Specialist skills own detailed workflows.
 **Provisional.** Static validation proves package/fixture shape only. It does not
 prove Kiro discovery, trigger accuracy or output benefit. Freeze additions,
 deletions and merges until fresh-session pilot evidence exists.
+`heuristic-ux-audit` was added on explicit request on 27/09/2026 while this
+freeze stands; like the rest of the portfolio, it is unproven until its pilot
+runs.
 
 ## Evaluation and maintenance
 

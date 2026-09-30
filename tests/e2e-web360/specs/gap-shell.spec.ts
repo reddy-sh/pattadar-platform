@@ -1,5 +1,10 @@
 /**
- * The shell, the seven undrawn stubs, and the previous app behind them.
+ * The shell, and the previous app still mounted behind it.
+ *
+ * UPDATE: every rail section is drawn in W360 now. Invitations was the last
+ * "Not yet redrawn" stub (w360/pages/Section.tsx, deleted) and its
+ * /legacy address redirects to /app/invitations, so the stub walk that
+ * used to open this file is gone. The history below is kept as written.
  *
  * W01–W15 drew fifteen screens. The other seven sections of the rail — groups,
  * invitations, notifications, tools, audit, admin, profile — were left as a
@@ -42,77 +47,11 @@ import { expect, test } from './harness';
 
 type Pg = import('@playwright/test').Page;
 
-/** The seven sections the redesign left standing on the previous app, each
- *  with the label its stub link carries and the h1 the legacy screen renders.
- *  The two differ for `admin` — the button says "Admin & Ref Data"
- *  (Section.tsx:44) and the destination says "Admin & Reference Data"
- *  (AdminRefDataPage.tsx:195) — which is exactly why this table is explicit
- *  rather than derived from the title. */
-const UNDRAWN = [
-  { id: 'groups', title: 'Families & Groups', legacyHeading: 'Families & Groups' },
-  { id: 'invitations', title: 'Invitations', legacyHeading: 'Invitations' },
-  { id: 'notifications', title: 'Notifications', legacyHeading: 'Notifications' },
-  { id: 'tools', title: 'Tools', legacyHeading: 'Tools' },
-  // `audit` left this list: /app/audit is a real redrawn page now
-  // (w360/pages/Audit.tsx), not a "Not yet redrawn" signpost into /legacy.
-  { id: 'admin', title: 'Admin & Ref Data', legacyHeading: 'Admin & Reference Data' },
-  { id: 'profile', title: 'Profile', legacyHeading: 'Profile' },
-];
-
 /** The permanent drawer. The legacy shell renders its nav TWICE — the
  *  temporary drawer is `keepMounted` (AppShell.tsx:310) so every label exists
  *  in the DOM at both widths — and an unscoped `getByRole('link')` is
  *  therefore strict-mode ambiguous on every one of the twelve. */
 const rail = (page: Pg) => page.locator('.MuiDrawer-docked');
-
-/** Present only in the previous app's top bar (AppShell.tsx:272), absent from
- *  the W360 shell. The discriminator that proves a click actually left the
- *  stub, since the stub and its destination share an h1. */
-const legacyTopBar = (page: Pg) => page.getByRole('button', { name: 'Account menu' });
-
-test.describe('the sections the redesign has not reached', () => {
-  for (const { id, title, legacyHeading } of UNDRAWN) {
-    test(`the ${title} stub lands on the real ${title} screen, not a dead end`, async ({ page }) => {
-      await page.goto(`/app/${id}`);
-
-      // The stub's own h1 (ui.tsx:308) and the card that explains itself. If
-      // the promise changes wording, the link below is promising something
-      // else and this test should be looked at rather than silently pass.
-      await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Not yet redrawn' })).toBeVisible();
-
-      await page.getByRole('link', { name: `Open ${title}` }).click();
-
-      // The URL is the load-bearing assertion: six of the seven destinations
-      // render the same h1 as the stub, so a link that navigated nowhere would
-      // pass a heading check.
-      await expect(page).toHaveURL(new RegExp(`/legacy/${id}$`));
-      await expect(legacyTopBar(page)).toBeVisible();
-      await expect(page.getByRole('heading', { level: 1, name: legacyHeading })).toBeVisible();
-
-      // Section.tsx:70-74 says in so many words that this is a same-tab in-app
-      // navigation and not an external one. One tab, one page, no dead end.
-      expect(page.context().pages()).toHaveLength(1);
-      await expect(page.getByText('There is no page at that address')).toHaveCount(0);
-    });
-  }
-
-  for (const { id, title } of UNDRAWN) {
-    test(`the ${title} screen behind the stub reaches the API rather than quietly showing you nothing`, async ({ page }) => {
-      // useLiveOrSample.ts:45 swallows EVERY fetch error into emptyLike(sample),
-      // so a dropped resolver reads on screen as "you own nothing here" with
-      // only a small chip to say otherwise. The stub in front of these screens
-      // promises "it works, it just has not been redrawn yet" — an empty table
-      // makes that a lie, and nothing in the suite would have failed.
-      //
-      // Narrow on purpose: an honest empty state ("No groups yet") is fine and
-      // expected for w360-demo, which owns no legacy rows. The chip is not.
-      await page.goto(`/legacy/${id}`);
-      await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
-      await expect(page.getByText('Service unreachable')).toHaveCount(0);
-    });
-  }
-});
 
 test.describe('the previous app, once you are inside it', () => {
   test('the previous app\'s own rail keeps you inside the previous app', async ({ page }) => {
@@ -124,9 +63,8 @@ test.describe('the previous app, once you are inside it', () => {
     // loops you back into it.
     test.fail();
 
-    await page.goto('/app/tools');
-    await page.getByRole('link', { name: 'Open Tools' }).click();
-    await expect(page).toHaveURL(/\/legacy\/tools$/);
+    await page.goto('/legacy/wallet');
+    await expect(page).toHaveURL(/\/legacy\/wallet$/);
     await expect(rail(page)).toBeVisible();
 
     const hrefs = await rail(page).getByRole('link').evaluateAll(
@@ -150,12 +88,12 @@ test.describe('the previous app, once you are inside it', () => {
     // you are somewhere in a twelve-item menu with nothing saying where.
     test.fail();
 
-    await page.goto('/legacy/tools');
+    await page.goto('/legacy/wallet');
     await expect(rail(page)).toBeVisible();
 
     await expect(rail(page).locator('[aria-current="page"]')).toHaveCount(1);
     await expect(rail(page).locator('.Mui-selected')).toHaveCount(1);
-    await expect(rail(page).locator('.Mui-selected')).toHaveText(/Tools/);
+    await expect(rail(page).locator('.Mui-selected')).toHaveText(/Wallet/);
   });
 
   test('View holdings on a group card shows that group\'s holdings, not everything you own', async ({ page }) => {

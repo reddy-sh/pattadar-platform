@@ -21,7 +21,14 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test packages/core apps/web/src/api apps/web/src/lib apps/web/src/w360 apps/mobile/tests
+      # One root per workspace package, not a list of subdirectories. The old
+      # line named apps/web/src/api, /lib and /w360, so escapeHtml.test.ts,
+      # liveQuery.test.ts and members.test.ts — six cases in components/ and
+      # data/ — had never run here. A package root is discovered: bun collects
+      # every *.test.ts beneath it, so the next file lands covered. Verified
+      # that these four roots contain no Playwright *.spec.ts, which is why the
+      # suites under tests/ are not swept in by accident.
+      - run: bun test packages/core apps/web/src apps/mobile/tests apps/university/src
       # Discovered, not enumerated: a list here silently stops covering the next
       # script somebody adds, which is how twelve of these came to run nowhere.
       - name: Offline rule and guard assertions
@@ -157,6 +164,7 @@ jobs:
           - envs/dev/runtime
           - envs/prod/persistent
           - envs/prod/runtime
+          - envs/prod/university
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3

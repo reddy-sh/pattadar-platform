@@ -20,9 +20,11 @@
  *   · nothing is pre-selected in the Features panel and no chip files on the
  *     press, so a type chip plus the primary is what a chip press used to be on
  *     its own, and the per-card editor is no longer opened afterwards;
- *   · the invitation at the end of the features grid is a
- *     `<button class="card dashed addcard">` that only opens the same panel — it
- *     holds no chips and no name box.
+ *   · the dashed invitation that used to end the features grid is gone: the
+ *     section head's "Add a feature" is the one way into the panel;
+ *   · removals ask in the shared confirmation (PropertyActions.tsx
+ *     ConfirmDialog), titled "Remove <name>?", with Cancel and the action —
+ *     not a Remove / Keep pair inside the row or card (28/09/2026).
  */
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -79,10 +81,9 @@ async function sweepMade(request: import('@playwright/test').APIRequestContext):
   }
 }
 
-/** Feature cards. The invitation at the end of the grid is a
- *  `<button class="card dashed addcard">` now rather than a dashed `<article>`,
- *  so it falls outside this either way — and it holds no chips and no name box:
- *  it only opens the drawer. */
+/** Feature cards. The dashed invitation that used to end the grid is gone
+ *  (the section head opens the drawer), and `:not(.dashed)` keeps this count
+ *  honest should one ever come back. */
 const cards = (page: Pg) => page.locator('.cards article.card:not(.dashed)');
 /** People are stacked cards, not the features grid. */
 const people = (page: Pg) => page.locator('.split .stack > article.card');
@@ -100,11 +101,11 @@ test.describe('W360 CRUD · features', () => {
    *  one open editor at a time, and no chance of typing a spec into the wrong
    *  bore. */
   const editing = (page: Pg) => page.locator('.cards article.card', { has: page.getByLabel('What it is') });
-  /** The panel that files one. `exact` on the trigger because the invitation at
-   *  the end of the grid opens the same panel and its accessible name starts with
-   *  the same three words. */
+  /** The panel that files one. The trigger is scoped to the section head
+   *  because the invitation at the end of the grid opens the same panel, and
+   *  since its description was trimmed it has exactly the same accessible name. */
   const openAdd = async (page: Pg) => {
-    await page.getByRole('button', { name: 'Add a feature', exact: true }).click();
+    await page.locator('header.sechead').getByRole('button', { name: 'Add a feature', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Add a feature' })).toBeVisible();
     return page.getByRole('dialog', { name: 'Add a feature' });
   };
@@ -160,10 +161,12 @@ test.describe('W360 CRUD · features', () => {
     // The spec was not sent as empty, so it is still there.
     await expect(renamed).toContainText('18 ft · steel · 2019');
 
-    // remove, behind the second tap
+    // remove, behind the shared confirmation that names the feature (it was a
+    // Remove / Keep pair on the card until 28/09/2026)
     await page.locator(`button[aria-label="Remove ${RENAMED}"]`).first().click();
-    await expect(page.getByRole('button', { name: 'Keep', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    const question = page.getByRole('dialog', { name: `Remove ${RENAMED}?` });
+    await expect(question.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+    await question.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(cards(page)).toHaveCount(start);
     await page.reload();
     await expect(page.getByText(RENAMED, { exact: true })).toHaveCount(0);
@@ -313,7 +316,7 @@ test.describe('W360 CRUD · papers', () => {
     // The complaint this test exists for: an empty record offered no way in,
     // because the gallery link it would have sent you to is not drawn either.
     await page.goto(`/app/records/${PARCEL}`);
-    const addPaper = page.locator('header.sechead').getByRole('button', { name: 'Add a paper' });
+    const addPaper = page.locator('header.sechead').getByRole('button', { name: 'Add a document' });
     await expect(addPaper).toBeVisible();
     // The picker moved INSIDE the drawer, so there is none on the page until the
     // panel is open — which is the point: a pick used to BE a filing, with nothing
@@ -322,7 +325,7 @@ test.describe('W360 CRUD · papers', () => {
     // that has nothing to do with this record.
     await expect(page.locator('main input[type=file]')).toHaveCount(0);
     await addPaper.click();
-    await expect(page.getByRole('dialog', { name: 'File a paper' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'File a document' })).toBeVisible();
     await expect(page.locator('main input[type=file]')).toHaveCount(1);
     await page.getByRole('button', { name: 'Cancel' }).click();
 
@@ -453,8 +456,8 @@ test.describe('W360 · upload limits', () => {
   const oversize = {
     name: 'too-big.jpg',
     mimeType: 'image/jpeg',
-    // 11 MB of nothing — the cap is on bytes, not on what they decode to.
-    buffer: Buffer.alloc(11 * 1024 * 1024, 1),
+    // 16 MB of nothing — the cap is on bytes, not on what they decode to.
+    buffer: Buffer.alloc(16 * 1024 * 1024, 1),
   };
 
   /** Open the panel that files a pick, and hand it the files. Both hangers keep
@@ -469,7 +472,7 @@ test.describe('W360 · upload limits', () => {
   const MEDIA_PANEL = /^Add (photos or video|\d+ files)$/;
   const PAPER_PANEL = /^File (a paper|\d+ papers)$/;
 
-  test('the 10 MB limit is stated where the upload happens', async ({ page }) => {
+  test('the 15 MB limit is stated where the upload happens', async ({ page }) => {
     // Which is inside the panel on both hangers now. It used to be a note beside
     // a header button that fired the picker directly; the limit belongs where the
     // choosing happens, and it is printed again against each picked file.
@@ -481,7 +484,7 @@ test.describe('W360 · upload limits', () => {
 
     await page.goto(`/app/records/${PARCEL}`);
     await expect(page.getByText(/up to 10\.0 MB/i)).toHaveCount(0);
-    await page.locator('header.sechead').getByRole('button', { name: 'Add a paper' }).click();
+    await page.locator('header.sechead').getByRole('button', { name: 'Add a document' }).click();
     await expect(page.getByRole('dialog', { name: PAPER_PANEL })
       .getByText(/up to 10\.0 MB/i).first()).toBeVisible();
   });
@@ -506,7 +509,7 @@ test.describe('W360 · upload limits', () => {
     // than after one.
     const panel = page.getByRole('dialog', { name: MEDIA_PANEL });
     await expect(panel.locator('.rows.boxed > div').filter({ hasText: 'too-big.jpg' }))
-      .toContainText('11.0 MB · over the 10.0 MB limit');
+      .toContainText('16.0 MB · over the 15.0 MB limit');
     await expect(panel.getByRole('alert')).toContainText('nothing is sent while anything in the list is over the limit');
     await expect(panel.getByRole('button', { name: /^Add (it|\d+ files)$/ })).toBeDisabled();
     // Refused in the browser: the bytes never left, and the gallery is unchanged.
@@ -629,7 +632,7 @@ test.describe('W360 CRUD · ordering a service', () => {
 
   test('Track order shows where it is and what was asked for', async ({ page }) => {
     await page.goto(`/app/records/${scratch}/services`);
-    await page.getByRole('button', { name: 'Track order' }).first().click();
+    await page.getByRole('button', { name: 'Track' }).first().click();
     await expect(page.getByRole('button', { name: 'Hide' })).toBeVisible();
     // The parameters come back out in words, not as raw JSON.
     await expect(page.getByText('Which side')).toBeVisible();
@@ -702,11 +705,9 @@ test.describe('W360 · adding a record from a document', () => {
     await expect(page.getByText('Start from the paper')).toBeVisible();
     await expect(page.locator('#rd-title')).toHaveCount(0);
     // The shared shell pins the footer, so the primary is on screen from the
-    // start — but it refuses, and says why, rather than being absent. Cancel
+    // start — but it refuses rather than being absent. Cancel
     // being always reachable is the point of pinning it.
-    await expect(page.getByRole('button', { name: 'Add record' })).toBeDisabled();
-    await expect(page.getByText('Read the deed above, or open the form to fill it in by hand.'))
-      .toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add property' })).toBeDisabled();
 
     await page.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await expect(page.locator('#rd-title')).toBeVisible();
@@ -814,7 +815,7 @@ test.describe('W360 · adding a record from a document', () => {
     await openDrawer(page);
     await page.locator('aside.drawer input[type=file]').setInputFiles(deed);
     await expect(page.locator('#rd-title')).toHaveValue('Sy FILED/7');
-    await page.getByRole('button', { name: 'Add record' }).click();
+    await page.getByRole('button', { name: 'Add property' }).click();
     await expect(page.locator('aside.drawer')).toHaveCount(0);
 
     // A scan that produced a record and threw the paper away was the bug on
@@ -916,7 +917,7 @@ test.describe('W360 · a filed paper is classified, not just named', () => {
     page: Pg,
     file: Parameters<import('@playwright/test').Locator['setInputFiles']>[0],
   ) => {
-    await page.locator('header.sechead').getByRole('button', { name: 'Add a paper' }).click();
+    await page.locator('header.sechead').getByRole('button', { name: 'Add a document' }).click();
     const panel = page.getByRole('dialog', { name: /^File (a paper|\d+ papers)$/ });
     await expect(panel).toBeVisible();
     await page.locator('main input[type=file]').first().setInputFiles(file);
@@ -980,7 +981,7 @@ test.describe('W360 · a filed paper is classified, not just named', () => {
     await expect(row).toContainText('Unsorted');
     // Being HONEST about not having been read is a separate claim, and one the
     // panel currently swallows — see the test below.
-    await expect(page.locator('.toast')).toContainText('The paper is filed.');
+    await expect(page.locator('.toast')).toContainText('The document is filed.');
 
     await gql(request, `mutation { web { deleteRecords(ids:["${id}"]) } }`);
   });
@@ -1149,7 +1150,7 @@ test.describe('W360 · deleting records', () => {
 
     await page.locator('.rec .sel input').first().check();
     const bar = page.locator('.bulkbar');
-    await expect(bar).toContainText('1 record selected');
+    await expect(bar).toContainText('1 property selected');
     await expect(bar.getByRole('button', { name: 'Delete…' })).toBeVisible();
   });
 
@@ -1162,15 +1163,17 @@ test.describe('W360 · deleting records', () => {
     const menu = page.locator('.menu-list');
     await expect(menu).toBeVisible();
     await expect(menu).toContainText('Edit details');
-    await expect(menu).toContainText('See what changed');
-    await expect(menu).toContainText('Delete this record');
+    // "See what changed" left the kebab on 28/09/2026: it is the Activity tab
+    // in the strip right under it.
+    await expect(menu).not.toContainText('See what changed');
+    await expect(menu).toContainText('Delete this property');
     // It floats over the page instead of being part of it. Measuring heights
     // was too loose — data still arriving moves them too — so this asks the
     // question directly: the list is portalled OUT of <main>, and positioned.
     expect(await menu.evaluate((el) => !!el.closest('main'))).toBe(false);
     expect(await menu.evaluate((el) => getComputedStyle(el).position)).toBe('fixed');
 
-    await page.getByRole('menuitem', { name: 'Delete this record' }).click();
+    await page.getByRole('menuitem', { name: 'Delete this property' }).click();
     await expect(page.getByRole('heading', { name: /^Delete Sy MENUME\?$/ })).toBeVisible();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
@@ -1209,7 +1212,7 @@ test.describe('W360 · requesting work on a record', () => {
     await expect(page.getByRole('button', { name: /Send by email/ })).toHaveCount(0);
 
     await page.getByLabel('Message', { exact: true }).fill('E2E please survey the north boundary');
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', /\/app\/services\/wr-/);
     await page.getByRole('button', { name: 'Back to Services' }).click();
     await expect(page).toHaveURL(new RegExp(`/records/${PARCEL}/services$`));
@@ -1236,7 +1239,7 @@ test.describe('W360 · requesting work on a record', () => {
     await papers.locator('input[type=checkbox]').first().check();
 
     await page.getByLabel('Message', { exact: true }).fill('E2E ticked a paper');
-    await page.getByRole('button', { name: 'Create request' }).click();
+    await page.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', /\/app\/services\/wr-/);
     await page.getByRole('button', { name: 'Back to Services' }).click();
     await expect(page).toHaveURL(new RegExp(`/services$`));
@@ -1258,7 +1261,7 @@ test.describe('W360 · requesting work on a record', () => {
   test('a request with no message is refused', async ({ page }) => {
     await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
     await page.getByLabel('Message', { exact: true }).fill('');
-    await expect(page.getByRole('button', { name: 'Create request' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Send request' })).toBeDisabled();
   });
 
   test('an unassigned request can be put on somebody', async ({ page, request }) => {
@@ -1270,7 +1273,7 @@ test.describe('W360 · requesting work on a record', () => {
     await page.goto(`/app/records/${PARCEL}/services`);
     // Open THIS request's panel, not whichever happens to be first.
     const row = page.locator('.rows.boxed > div').filter({ hasText: 'E2E assign me' });
-    await row.getByRole('button', { name: 'Track order' }).click();
+    await row.getByRole('button', { name: 'Track' }).click();
 
     const picker = page.locator(`#as-${rid}`);
     await expect(picker).toBeVisible();
@@ -1401,7 +1404,7 @@ test.describe('W360 · village maps', () => {
    *  them. The label-matched villages carry no extent at all, and a screen
    *  cannot show a figure nobody issued. */
   const open = async (page: Pg, village = 'MARRIPALEM') => {
-    await page.goto('/app/villages');
+    await page.goto('/app/maps');
     // The landing is the whole mandal; a village is chosen from it.
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(`^${village}`) }).click();
@@ -1419,12 +1422,12 @@ test.describe('W360 · village maps', () => {
   test.afterAll(async ({ request }) => { await wipe(request); });
 
   test('a village map is uploaded, read back and taken off', async ({ page, request }) => {
-    await page.goto('/app/villages');
+    await page.goto('/app/maps');
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     const shipped = await page.locator('.vm-villages .villagerow').count();
     expect(shipped).toBeGreaterThan(0);
 
-    await page.setInputFiles('input[aria-label="Village map file"]', [SHAPES, LABELS]);
+    await page.setInputFiles('input[aria-label="Cadastral map file"]', [SHAPES, LABELS]);
 
     // What it says it did, in the detail that matters: the plot numbers came
     // from the OTHER file, and that other file is not a second village.
@@ -1457,17 +1460,17 @@ test.describe('W360 · village maps', () => {
   });
 
   test('half a village is refused, and says which half is missing', async ({ page }) => {
-    await page.goto('/app/villages');
+    await page.goto('/app/maps');
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     const card = page.locator('.card', { hasText: 'Add a village map' }).first();
 
     // The shapes alone: 219 polygons, every one of them called "Burada Palem".
-    await page.setInputFiles('input[aria-label="Village map file"]', [SHAPES]);
+    await page.setInputFiles('input[aria-label="Cadastral map file"]', [SHAPES]);
     await expect(card).toContainText('No village came out of that', { timeout: 30_000 });
     await expect(card).toContainText('keeps them in a separate label file');
 
     // The labels alone: numbers floating over nothing.
-    await page.setInputFiles('input[aria-label="Village map file"]', [LABELS]);
+    await page.setInputFiles('input[aria-label="Cadastral map file"]', [LABELS]);
     await expect(card).toContainText('no plot polygons in it', { timeout: 30_000 });
   });
 
@@ -1602,7 +1605,7 @@ test.describe('W360 · village maps', () => {
     await expect(card).toContainText(/CENTROID/i);
 
     // Nobody's name is invented for somebody else's field.
-    await expect(card).toContainText('Not one of your records');
+    await expect(card).toContainText('Not one of your properties');
   });
 
   test('adjoining plots are found, and lead to each other', async ({ page }) => {
@@ -1735,7 +1738,7 @@ test.describe('W360 · village maps', () => {
 
   test('the landing map is the whole mandal, and a village opens off it',
     async ({ page }) => {
-      await page.goto('/app/villages');
+      await page.goto('/app/maps');
       await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
 
       // Every village on record, drawn — not a list of names with a map behind
@@ -1824,7 +1827,7 @@ test.describe('W360 · village maps', () => {
       await expect(page.locator('.fs-bill')).toContainText('what you buy');
 
       // Rates are the owner's own, and the total is what the bill lists.
-      await expect(page.locator('.fs-panel')).toContainText('Put your own rates in');
+      await expect(page.locator('.fs-panel')).toContainText('Enter your rates to price it.');
       await page.locator('#fs-post-rate').fill('250');
       await page.locator('#fs-wire-rate').fill('12');
       await page.locator('#fs-gate-rate').fill('6000');
@@ -1881,7 +1884,7 @@ test.describe('W360 · village maps', () => {
 
       // This plot is nobody's record here, and the panel says what that means
       // rather than offering a button that would have nothing to hang off.
-      await expect(page.locator('.fs-panel')).toContainText('has to be one of your records');
+      await expect(page.locator('.fs-panel')).toContainText('File this plot as a record');
       await expect(page.getByRole('button', { name: /Ask for this on/ })).toHaveCount(0);
 
       // Add it, and only after the surveyed boundary is saved land on the

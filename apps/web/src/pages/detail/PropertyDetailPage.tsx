@@ -41,7 +41,7 @@ import { sampleDocuments, sampleGroups, sampleProperties } from '@pattadar/core'
 import { gql } from '../../api/client';
 import { escapeHtml } from '../../components/escapeHtml';
 import { GeoMap } from '../../components/GeoMapLazy';
-import { useLiveOrSample } from '../../data/useLiveOrSample';
+import { UNREACHABLE_LABEL, UNREACHABLE_NOTE, useLiveOrSample } from '../../data/useLiveOrSample';
 import { deleteProperty } from '../../data/pattadarActions';
 import { attributeFieldsFor, propertyTypeDef } from '../holdings/propertyTypes';
 import {
@@ -545,7 +545,7 @@ export function PropertyDetailPage() {
 
   const glance = (count: number, label: string, tabKey: string) => (
     <Box onClick={() => setTab(tabKey)} sx={{ cursor: 'pointer', minWidth: 84 }}>
-      <Typography sx={{ fontSize: 22, fontWeight: 600, lineHeight: 1.2 }}>{count}</Typography>
+      <Typography sx={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{count}</Typography>
       <Link component="span" variant="caption">
         {label} ›
       </Link>
@@ -583,7 +583,7 @@ export function PropertyDetailPage() {
           </FieldGrid>
           {attrRows.length > 0 && (
             <>
-              <Typography sx={{ fontWeight: 600, fontSize: 13, mt: 1.25, mb: 0.5 }}>{def.label} details</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: 13, mt: 1.25, mb: 0.5 }}>{def.label} details</Typography>
               <FieldGrid>
                 {attrRows.map((f) => (
                   <Field key={f.key} label={f.label}>
@@ -695,8 +695,8 @@ export function PropertyDetailPage() {
             <Chip key={b.text} size="small" color={b.color} variant="outlined" label={b.text} />
           ))}
           {isSample && (
-            <Tooltip title="The live service is not reachable — showing bundled sample data.">
-              <Chip size="small" variant="outlined" color="secondary" label="Sample data" />
+            <Tooltip title={UNREACHABLE_NOTE}>
+              <Chip size="small" variant="outlined" color="error" label={UNREACHABLE_LABEL} />
             </Tooltip>
           )}
         </Box>

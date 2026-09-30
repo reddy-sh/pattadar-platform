@@ -49,7 +49,7 @@ export function CourseCard({ course, enrollment, onJoin }: CourseCardProps) {
             </Link>
           ) : (
             <button className="text-action" type="button" onClick={() => void onJoin(course.id)}>
-              Join course <ArrowForwardRounded />
+              Join preview <ArrowForwardRounded />
             </button>
           )}
         </div>

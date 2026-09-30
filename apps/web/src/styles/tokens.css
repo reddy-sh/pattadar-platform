@@ -30,10 +30,11 @@
   --color-bloom-2:      oklch(60% 0.220 15);
 
   /* === Typography ============================================== */
-  --font-display: "Inter Tight", "Atkinson Hyperlegible", system-ui, sans-serif;
-  --font-body:    "Atkinson Hyperlegible", system-ui, sans-serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
-  --font-accent:  "Instrument Serif", "Times New Roman", Georgia, serif;
+  /* One face, every surface (design.md § Typography). A root names this
+     token once; everything else inherits. Repeated verbatim in theme.ts,
+     apps/university/tokens.css and packages/tokens — scripts/typography-tests.ts
+     fails when any copy differs. */
+  --font-sans: "Atkinson Hyperlegible", system-ui, sans-serif;
 
   --text-xs:      0.75rem;
   --text-sm:      0.8125rem;

@@ -13,7 +13,7 @@ README/design and flag the drift.
 - `packages/core` — shared TypeScript: GraphQL client/types, domain logic, DD/MM/YYYY formatting.
 - `packages/tokens` — design tokens feeding the MUI and React Native Paper themes.
 - `apps/web` — active React + MUI web app (W360).
-- `apps/web-next` — staged Next.js client; only shipped when `WEB_ORIGIN` is set for it.
+- `apps/university` — Pattadar University content application.
 - `apps/ios` — native SwiftUI app (PattadarKit); checked against generated vectors and the parity contract.
 - `apps/mobile` — Expo/React Native compatibility client. `apps/mobile/ios` and `apps/mobile/android` are generated, never hand-edited.
 - `services/api` — FastAPI + Strawberry GraphQL backend.
@@ -21,7 +21,7 @@ README/design and flag the drift.
 - `services/assistant` — in-app assistant service.
 - `infra/terraform` — persistent/runtime module split under `envs/{dev,prod}/{persistent,runtime}`.
 - `scripts` — operational scripts, guard scripts (`*-tests.ts`, `icon-guard.ts`, `ux-guards.ts`), and lifecycle scripts.
-- `tests/*` — Bun workspace test packages (`e2e-web360`, `e2e-app`, `e2e-mobile`).
+- `tests/*` — Bun workspace test packages (`e2e-web360`, `e2e-app`), plus the Maestro flows in `e2e-mobile`, which has no `package.json` on purpose (see its README).
 - `docs` — architecture, specs, runbooks, compliance.
 
 ## Stack (do not introduce alternatives without discussion)
@@ -37,8 +37,16 @@ README/design and flag the drift.
 2. Identity uses the immutable issuer and subject, never the email local part. Legacy owner keys are reachable only through the reviewed `IDENTITY_LEGACY_BINDINGS` mapping.
 3. AI readings use durable async jobs and authenticated status polls. An interrupted provider call is never automatically repeated.
 4. `CRON_SECRET` is always set — the inactivity-check endpoint is open without it.
-5. Storage object keys `{owner}/{node}/{version}` are migrated verbatim; metadata rows never change.
+5. New storage object keys are `{node}/{version}` — the owner is deliberately not in the key; authorization is decided in SQL, never by key prefix. Reads use the `object_key` stored on the version row, so pre-existing objects keep their original keys verbatim and metadata rows never change.
 6. Dates render DD/MM/YYYY (India) everywhere.
+7. One font, one component (design.md § Typography and § App-surface rules).
+   `apps/web` and `apps/university` render every word in Atkinson Hyperlegible
+   (400/700 + 400 italic) through the one token `--font-sans`; nothing else
+   names a font family, a second face or a 500/600/800 weight, and digits align
+   with `tabular-nums`. Screens compose the shared components
+   (`apps/web/src/w360/ui.tsx`, `apps/web/src/components/`) and never build a
+   page-local copy. Native iOS, Expo and PDF type are not covered yet
+   (`docs/specs/TODO-one-platform.md`).
 
 ## Before finishing a change
 
@@ -47,7 +55,9 @@ README/design and flag the drift.
 - Use `verify-change` to select the smallest sufficient checks. Code changes
   normally require typecheck and relevant tests; docs/skill-only changes need
   their own structural/link/schema checks rather than an unrelated Bun build.
-- UI/icon changes include UX/icon guards; cross-client contract changes include
-  parity/vector checks chosen through the responsible specialist skill.
+- UI, CSS and icon changes run every `scripts/*-tests.ts` guard (including
+  `typography-tests.ts` and `shared-components-tests.ts`) plus the UX/icon
+  guards; cross-client contract changes include parity/vector checks chosen
+  through the responsible specialist skill.
 - Match existing file style; there is no ESLint/Prettier/Ruff config, so follow
   surrounding code and deterministic guard scripts.

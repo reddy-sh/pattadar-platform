@@ -150,7 +150,7 @@ export default function RecipientAccess() {
         </button>
       )}
       {view && <div className="stack" style={{ gap: '1.5rem' }}>
-        <p>Available until {view.expiresOn}. The owner may revoke this link at any time.</p>
+        <p>Available until {view.expiresOn}.</p>
         {view.scope === 'work' && <section className="card">
           <h2>{view.statusLabel}</h2>
           <p>{view.note}</p>
@@ -161,7 +161,6 @@ export default function RecipientAccess() {
             <button className="btn primary" key={action} disabled={busy} onClick={() => { void act(action); }}>
               {action === 'assign' ? 'Accept this job' : 'Mark work started'}
             </button>)}</div>
-          <p className="note">The owner reviews submitted files before accepting the work.</p>
         </section>}
         <section className="card">
           <h2>Selected files</h2>
@@ -217,7 +216,6 @@ export default function RecipientAccess() {
             <label className="field">Title<input required maxLength={240} value={label} onChange={(e) => setLabel(e.target.value)} /></label>
             <label className="field">Update<textarea maxLength={10000} value={note} onChange={(e) => setNote(e.target.value)} /></label>
             <label className="field">File (optional)<input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} /></label>
-            <p className="note">A file is sent to the owner for review. A text update is added to the job history.</p>
             <button className="btn primary" disabled={busy || !label.trim()}>{busy ? 'Sending…' : 'Send to owner'}</button>
           </form>}
         </>}

@@ -51,16 +51,13 @@ declare module '@mui/material/Button' {
   }
 }
 
-const FONT_BODY = '"Atkinson Hyperlegible", system-ui, -apple-system, sans-serif';
-const FONT_DISPLAY = '"Inter Tight", "Atkinson Hyperlegible", system-ui, sans-serif';
-const FONT_MONO = '"JetBrains Mono", ui-monospace, "SFMono-Regular", monospace';
+/** The one face (design.md § Typography) — the same stack as `--font-sans` in
+ *  styles/tokens.css; scripts/typography-tests.ts fails if the two differ. */
+const FONT_SANS = '"Atkinson Hyperlegible", system-ui, sans-serif';
 
-/** Shared heading voice — Inter Tight, tight tracking, roman always. */
-const heading = (fontWeight: number, letterSpacing = '-0.02em') => ({
-  fontFamily: FONT_DISPLAY,
-  fontWeight,
-  letterSpacing,
-});
+/** Shared heading voice — the one face at 700, roman always, untracked. It
+ *  names no family: every variant inherits `typography.fontFamily`. */
+const heading = (fontWeight: number) => ({ fontWeight, letterSpacing: 0 });
 
 /**
  * The high-contrast palette, built through `createTheme` rather than written
@@ -177,20 +174,26 @@ export const theme = createTheme({
   },
   shape: { borderRadius: 8 },
   typography: {
-    fontFamily: FONT_BODY,
-    h1: heading(800),
+    fontFamily: FONT_SANS,
+    // The face has 400 and 700 and nothing else. MUI's own defaults ask for
+    // 300 and 500, which a browser silently draws as 400 — so say 400.
+    fontWeightLight: 400,
+    fontWeightRegular: 400,
+    fontWeightMedium: 400,
+    fontWeightBold: 700,
+    h1: heading(700),
     h2: heading(700),
     h3: heading(700),
     h4: heading(700),
-    h5: heading(600, '-0.01em'),
-    h6: heading(600, '-0.01em'),
-    button: { textTransform: 'none', fontWeight: 600, letterSpacing: '-0.01em' },
-    // Mono eyebrow — the app's half of design.md's "JetBrains Mono labels".
-    // Every PageHeader `eyebrow` and <Typography variant="overline"> inherits it.
+    h5: heading(700),
+    h6: heading(700),
+    button: { textTransform: 'none', fontWeight: 700, letterSpacing: 0 },
+    // The eyebrow is a small uppercase label in the one face, not a second
+    // face. Every PageHeader `eyebrow` and <Typography variant="overline">
+    // inherits it.
     overline: {
-      fontFamily: FONT_MONO,
       fontSize: '0.75rem',
-      fontWeight: 500,
+      fontWeight: 400,
       letterSpacing: '0.12em',
       textTransform: 'uppercase',
       lineHeight: 1.6,
@@ -205,12 +208,22 @@ export const theme = createTheme({
           outlineOffset: '3px',
           boxShadow: '0 0 0 3px #ffffff !important',
         },
-        // Tabular numerals for stat figures — mono per the Bloom DNA.
+        // Stat figures line up through the face's own tabular figures, not a
+        // monospace face (design.md § Typography).
         '.tnum': {
-          fontFamily: FONT_MONO,
           fontVariantNumeric: 'tabular-nums',
           fontFeatureSettings: '"tnum"',
-          letterSpacing: '-0.01em',
+        },
+        // One face everywhere. The user-agent stylesheet gives form controls
+        // a system face and code/kbd/pre/samp a monospace one; each inherits.
+        'button, input, select, textarea, optgroup, code, kbd, pre, samp': {
+          fontFamily: 'inherit',
+        },
+        // Leaflet's stylesheet sets Helvetica on the map, Lucida Console on
+        // its zoom buttons and Tahoma on the popup close. `body` outranks its
+        // selectors whatever order the two stylesheets load in.
+        'body .leaflet-container, body .leaflet-container .leaflet-control-zoom-in, body .leaflet-container .leaflet-control-zoom-out, body .leaflet-container a.leaflet-popup-close-button': {
+          fontFamily: 'inherit',
         },
         // Row actions reveal on hover/focus — always visible on touch.
         '.rowActions': { opacity: 0, transition: 'opacity 150ms ease' },

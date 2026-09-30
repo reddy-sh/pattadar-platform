@@ -11,8 +11,8 @@ architecture, not proof of applied AWS state.
 - `apps/ios`: active SwiftUI/PattadarKit client; parity through vectors/contracts.
 - `apps/mobile`: implemented Expo Router compatibility client; generated
   `ios/`/`android/` trees are not source.
-- `apps/web-next`: substantial staged Next client; deploy refuses it until
-  repaired parity/cutover review.
+- `apps/university`: Pattadar University content application; included in the
+  Bun workspace, build, and unit-test gates.
 - `packages/core`: TypeScript API/network/domain/format/export logic.
 - `packages/tokens`: shared web/mobile design tokens (runtime mobile imports
   should be verified when relevant).
@@ -30,6 +30,7 @@ flowchart LR
   WEB[apps/web] --> EDGE[CloudFront + WAF]
   IOS[apps/ios] --> ALB[ALB]
   MOB[apps/mobile] --> ALB
+  UNI[apps/university] --> EDGE
   EDGE -->|/api/*| ALB
   ALB -->|/api/*| GW[services/gateway]
   ALB -->|/cron/inactivity-check only| API[services/api]
@@ -38,7 +39,6 @@ flowchart LR
   GW --> S3[(S3 documents)]
   GW & API & AST --> PG[(PostgreSQL/RDS)]
   API & AST --> ANT[Anthropic]
-  NEXT[apps/web-next staged] -. optional target .-> ALB
 ```
 
 ## Persistent/runtime split
@@ -51,7 +51,10 @@ state and is recreated by reviewed lifecycle scripts.
 
 ## Feature domains
 
-Auth/identity; public/auth/legal routes; portfolio/record 360; legacy land
+Auth/identity; public/auth/legal routes; portfolio/record 360; combined
+properties (a W360-only aggregate OVER parcel/property records — its own tables,
+name, membership and whole-holding costs; never in `_cards`, never in portfolio
+totals, and it merges no boundary or title); legacy land
 records; families/groups/beneficiaries; vault/storage/reader; durable AI import;
 maps/FMB/village/reference ingestion; photos/features; services/orders/tickets;
 associate desk; wallet/payments; scoped shares/capabilities; assistant/model

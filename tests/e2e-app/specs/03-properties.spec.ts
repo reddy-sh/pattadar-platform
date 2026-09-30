@@ -64,10 +64,10 @@ const only = (...ids: string[]): Card[] =>
  *  than derived: a test asserting a count wants the number in front of it.
  *
  *  The `label` on each group is what the SERVER calls it, and the screen no
- *  longer uses it: GROUP_WORD (Properties.tsx:337) names all five itself —
- *  Kind, Status, My stake, Village & khata, Your tags — so a heading cannot
- *  read "DERIVED" over a list of village names. Tests therefore look for the
- *  screen's word, not this one. */
+ *  longer uses it: GROUP_WORD (Properties.tsx:337) names each group itself —
+ *  Kind, Status, My stake, Village, Khata, Owner, Your tags — so a heading
+ *  cannot read a raw server key over a list of values. Tests therefore look
+ *  for the screen's word, not this one. */
 const facets = (active: Record<string, string[]> = {}) => {
   const on = (group: string, key: string) => (active[group] ?? []).includes(key);
   return [
@@ -246,7 +246,7 @@ const DEED = {
  *  front of them. */
 async function handEntry(page: Page) {
   await page.getByRole('button', { name: 'Add', exact: true }).click();
-  const drawer = page.getByRole('dialog', { name: 'Add a record' });
+  const drawer = page.getByRole('dialog', { name: 'Add a property' });
   await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
   return drawer;
 }
@@ -273,7 +273,11 @@ test.describe('W02 · the list as it arrives', () => {
     await expect(parcel.getByText('Katragunta, Markapur, Prakasam')).toBeVisible();
     await expect(parcel.getByText('● Khata 1042')).toBeVisible();
     await expect(parcel.getByText('ancestral')).toBeVisible();
-    await expect(parcel.getByText('4 acres 12 guntas')).toBeVisible();
+    // Under the figure, the same extent in the units the village office, the
+    // neighbour and the buyer each use. The card used to print one converted
+    // figure squeezed into the worth's row; the figure itself is asserted in
+    // real units below, where `inRealUnits` gives it the server's own 'ac'.
+    await expect(parcel.getByText('4 Acres 12 Guntas · 430 Cents · 20,812 Sq.yd')).toBeVisible();
     await expect(parcel.getByText('₹86.0 L')).toBeVisible();
 
     const flat = gridCards(page).filter({ hasText: 'Flat 4B, Sai Residency' });
@@ -308,6 +312,80 @@ test.describe('W02 · the list as it arrives', () => {
     await expect(page.getByRole('img', { name: 'Where Sy 88 is' })).toHaveCount(0);
   });
 
+  test('the band says how well each record is located, not just where', async ({ page }) => {
+    await page.goto('/app/properties');
+
+    // Three different answers, in the same words the map view's result rows
+    // use for the same fact. A satellite tile and a coordinate on their own
+    // never said whether either came from a survey.
+    await expect(gridCards(page).filter({ hasText: 'Sy 214/2' })
+      .getByText('Boundary on map · 15.7407° N, 79.2699° E')).toBeVisible();
+    await expect(gridCards(page).filter({ hasText: 'Flat 4B' })
+      .getByText('Location pin only · 17.4948° N, 78.3996° E')).toBeVisible();
+    // Never surveyed, never pinned — and no coordinate appended, because
+    // "0.0000° N" would be a reading rather than a blank.
+    await expect(gridCards(page).filter({ hasText: 'Sy 88' })
+      .getByText('No location yet', { exact: true })).toBeVisible();
+  });
+
+  test('a card counts what is filed against it, and says so plainly when nothing is', async ({ page }) => {
+    await page.goto('/app/properties');
+
+    // The papers, photographs and features tabs, counted on the tile — and the
+    // registrar's own name for the land last, because it is a lookup key rather
+    // than a judgement about whether the record is finished.
+    await expect(gridCards(page).filter({ hasText: 'Sy 214/2' })
+      .getByText('6 documents · 12 photos · 4 features · D.No 4521/2019 · Markapur SRO')).toBeVisible();
+
+    // A zero drops out rather than printing "0 photos · 0 features", which
+    // reads as a system that lost them.
+    await expect(gridCards(page).filter({ hasText: 'Sy 88' })
+      .getByText('1 document', { exact: true })).toBeVisible();
+
+    // Empty of everything: one sentence, not four zeroes.
+    await expect(gridCards(page).filter({ hasText: 'Sy 301' })
+      .getByText('Nothing filed against it yet')).toBeVisible();
+  });
+
+  test('a suit against the land is its own capsule, beside the status rather than instead of it', async ({ page }) => {
+    await page.goto('/app/properties');
+
+    const flat = gridCards(page).filter({ hasText: 'Flat 4B' });
+    await expect(flat.getByText('In court')).toBeVisible();
+    // Its holding status is plainly `owned`, and badgeOf prints nothing for
+    // that — so "In court" is additional information and not a replacement
+    // for a word the card was already showing.
+    await expect(flat.getByText('Owned')).toHaveCount(0);
+    await expect(gridCards(page).filter({ hasText: 'Sy 214/2' })
+      .getByText('In court')).toHaveCount(0);
+  });
+
+  test('a built property shows the ground under the slab as well as the slab', async ({ page }) => {
+    await page.goto('/app/properties');
+
+    // `extent` carries one figure and a flat on its own plot has two. The
+    // land area reached no screen at all before this line.
+    await expect(gridCards(page).filter({ hasText: 'Flat 4B' })
+      .getByText('1,450 Sq.ft built · 200 Sq.yd land')).toBeVisible();
+  });
+
+  test('a record with no photograph and no ground falls through to its own filed paper', async ({ page }) => {
+    await page.goto('/app/properties');
+
+    // The chain is photo → ground → paper → illustration, and Sy 88 has only
+    // the third: the scan is about THIS land, where the classification drawing
+    // is identical on every parcel in the account.
+    const unlocated = gridCards(page).filter({ hasText: 'Sy 88' });
+    await expect(unlocated.locator('img.cardpaper')).toBeVisible();
+    await expect(unlocated.locator('.mapart')).toHaveCount(0);
+    // A record that knows where it stands draws that instead — the ground beats
+    // the paper, because the paper is a picture of a document and the ground is
+    // the land.
+    const pinned = gridCards(page).filter({ hasText: 'Sy 301' });
+    await expect(pinned.locator('.mapart')).toHaveCount(1);
+    await expect(pinned.locator('.cardpaper')).toHaveCount(0);
+  });
+
   test('the head says how many records, how much land and what it is all worth', async ({ page, world }) => {
     world.set('properties', listOf(inRealUnits(ACTIVE())));
     await page.goto('/app/properties');
@@ -332,7 +410,12 @@ test.describe('W02 · the list as it arrives', () => {
     await page.goto('/app/properties');
 
     await expect(gridCards(page).filter({ hasText: 'Sy 214/2' }).getByText('4.30 ac')).toBeVisible();
-    await expect(gridCards(page).filter({ hasText: 'Flat 4B' }).getByText('1,450 sq.ft')).toBeVisible();
+    // `exact`, because the reading line below the figure now also contains
+    // "1,450 Sq.ft" — and getByText matches a case-insensitive SUBSTRING, so
+    // the loose form resolves to two elements and fails strict mode. The figure
+    // is what this test is about.
+    await expect(gridCards(page).filter({ hasText: 'Flat 4B' })
+      .getByText('1,450 sq.ft', { exact: true })).toBeVisible();
   });
 
   test('a record nobody has valued shows a dash, not ₹0', async ({ page, world }) => {
@@ -403,7 +486,7 @@ test.describe('W02 · narrowing the list', () => {
         { key: 'kind', label: 'Kind', options: [
           { key: 'parcel', label: 'Land', count: 3, active: false }] },
         { key: 'tags', label: 'Your tags', options: [] },
-        { key: 'derived', label: 'Derived', options: [
+        { key: 'village', label: 'Village', options: [
           { key: 'Katragunta', label: 'Katragunta', count: 2, active: false }] },
       ],
     }));
@@ -411,12 +494,12 @@ test.describe('W02 · narrowing the list', () => {
     await page.getByRole('button', { name: '+ Filter' }).click();
 
     await expect(popover(page)).toContainText('Kind');
-    // A heading over nothing was the reported defect; so was "DERIVED" as a
-    // heading over a list of village names (GROUP_WORD, Properties.tsx:337).
+    // A heading over nothing was the reported defect. Village is its own
+    // section now, named "Village" rather than the server's raw key
+    // (GROUP_WORD, Properties.tsx:337).
     await expect(popover(page)).not.toContainText('Your tags');
-    await expect(popover(page)).not.toContainText('Derived');
-    await expect(popover(page)).toContainText('Village & khata');
-    await expect(facetGroup(page, 'Village & khata')
+    await expect(popover(page)).toContainText('Village');
+    await expect(facetGroup(page, 'Village')
       .getByRole('button', { name: /^Katragunta/ })).toBeVisible();
   });
 
@@ -428,7 +511,7 @@ test.describe('W02 · narrowing the list', () => {
 
     await expect(page).toHaveURL(/\?kind=flat$/);
     await expect.poll(() => world.lastVars('properties')).toMatchObject({
-      kinds: ['flat'], statuses: [], stakes: [], derived: [], tags: [],
+      kinds: ['flat'], statuses: [], stakes: [], villages: [], khatas: [], owners: [], tags: [],
     });
     await expect(gridCards(page)).toHaveCount(1);
     await expect(gridCards(page).first()).toContainText('Flat 4B, Sai Residency');
@@ -523,9 +606,8 @@ test.describe('W02 · narrowing the list', () => {
     // Two things are narrowing this list, so "try another word" — which is
     // what a bare search gets — would be the wrong remedy to offer
     // (Properties.tsx:988-1019).
-    await expect(page.getByRole('heading', { name: 'No records match these filters' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No properties match these filters' })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Nothing matches/ })).toHaveCount(0);
-    await expect(page.getByText('Every filter narrows the same list. Clear one and the records come back.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear filters' }).click();
 
@@ -590,8 +672,7 @@ test.describe('W02 · narrowing the list', () => {
     await page.goto('/app/properties?kind=flat&status=watch');
 
     await expect(gridCards(page)).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'No records match these filters' })).toBeVisible();
-    await expect(page.getByText('Every filter narrows the same list. Clear one and the records come back.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No properties match these filters' })).toBeVisible();
     await expect(page.getByText('The ones being held back are in Markapur.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Clear filters' }).click();
@@ -770,7 +851,7 @@ test.describe('W02 · grid, list and map', () => {
 
     await expect(page.getByText('4 matching records · 3 on map')).toBeVisible();
     await expect(page.getByText(/3 records drawn — 1 from a survey, 2 from a pin\./)).toBeVisible();
-    await expect(page.getByText(/1 record is not here: Sy 88 — neither surveyed nor pinned\./)).toBeVisible();
+    await expect(page.getByText(/1 property is not here: Sy 88 — no boundary and no pin\./)).toBeVisible();
     await expect(page.getByRole('complementary', { name: 'Map search results' }))
       .toContainText('Add a location to show on map');
   });
@@ -781,7 +862,7 @@ test.describe('W02 · grid, list and map', () => {
 
     await pick(page, 'Select Sy 214/2');
 
-    await expect(selectionBar(page)).toContainText('1 record selected');
+    await expect(selectionBar(page)).toContainText('1 property selected');
   });
 
   test('a map with nothing it can draw says so rather than leaving an empty frame', async ({ page, world }) => {
@@ -789,7 +870,7 @@ test.describe('W02 · grid, list and map', () => {
     await page.goto('/app/properties?view=map');
 
     await expect(page.getByText(
-      'None of these records knows where it is yet. A survey or a dropped pin puts one on this map.'))
+      'No property here has a pin or boundary yet.'))
       .toBeVisible();
     // And the count is not said at all: "0 records drawn — every one from a
     // pin, none from a survey" contradicted itself twice in one sentence
@@ -813,7 +894,7 @@ test.describe('W02 · grid, list and map', () => {
     world.set('properties', listOf(only(ID.parcel)));
     await page.goto('/app/properties?view=map');
 
-    await expect(page.getByText('1 record drawn — from its survey.')).toBeVisible();
+    await expect(page.getByText('1 property on the map — from its boundary.')).toBeVisible();
   });
 
   test('a map that cannot place five records names three and owns up to the rest', async ({ page, world }) => {
@@ -824,10 +905,9 @@ test.describe('W02 · grid, list and map', () => {
     await page.goto('/app/properties?view=map');
 
     const said = page.getByText(/not here:/);
-    await expect(said).toContainText('1 record drawn — from its survey.');
+    await expect(said).toContainText('1 property on the map — from its boundary.');
     await expect(said).toContainText(
-      '5 records are not here: Sy 900, Sy 901, Sy 902 and others — neither surveyed nor pinned.');
-    await expect(said).toContainText('Opening one and dropping its pin is enough.');
+      '5 records are not here: Sy 900, Sy 901, Sy 902 and others — no boundary and no pin.');
   });
 
   test('searching from the map narrows the map, its list and its count together', async ({ page }) => {
@@ -872,7 +952,7 @@ test.describe('W02 · grid, list and map', () => {
   test('the map view empties into the same panel the other two do', async ({ page }) => {
     await page.goto('/app/properties?view=map&kind=flat&status=watch');
 
-    await expect(page.getByRole('heading', { name: 'No records match these filters' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No properties match these filters' })).toBeVisible();
     // No frame, no rail and no count over nothing to draw.
     await expect(mapRail(page)).toHaveCount(0);
     await expect(page.getByLabel('Search your land on the map')).toHaveCount(0);
@@ -903,7 +983,7 @@ test.describe('W02 · acting on several records', () => {
 
     await pick(page, 'Select Sy 214/2');
 
-    await expect(selectionBar(page)).toContainText('1 record selected — these buttons act on them.');
+    await expect(selectionBar(page)).toContainText('1 property selected');
     await expect(selectionBar(page).getByRole('button', { name: 'Order EC ×1' })).toBeVisible();
 
     await pick(page, 'Select Sy 88');
@@ -949,7 +1029,7 @@ test.describe('W02 · acting on several records', () => {
     await selectionBar(page).getByRole('button', { name: 'Archive' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Archive 2 records?' });
-    await expect(dialog).toContainText('Archived records leave the list, the map and every total');
+    await expect(dialog).toContainText('Archived properties leave lists, maps and totals');
     await dialog.getByRole('button', { name: 'Archive' }).click();
 
     await expect.poll(() => world.calls('archiveRecords')).toHaveLength(1);
@@ -982,7 +1062,7 @@ test.describe('W02 · acting on several records', () => {
     await pick(page, 'Select Sy 301');
 
     await selectionBar(page).getByRole('button', { name: 'Archive' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Archive 1 record?' });
+    const dialog = page.getByRole('dialog', { name: 'Archive 1 property?' });
     await dialog.getByRole('button', { name: 'Archive' }).click();
 
     await expect(dialog.getByRole('alert')).toHaveText(
@@ -997,7 +1077,7 @@ test.describe('W02 · acting on several records', () => {
 
     await selectionBar(page).getByRole('button', { name: 'Tag…' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Tag 1 record' });
+    const dialog = page.getByRole('dialog', { name: 'Tag 1 property' });
     // The tags the account already uses are offered rather than retyped.
     await expect(dialog.getByRole('button', { name: 'ancestral' })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Apply tag' })).toBeDisabled();
@@ -1038,7 +1118,7 @@ test.describe('W02 · acting on several records', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await pick(page, 'Select Sy 214/2');
-    await expect(selectionBar(page)).toContainText('1 record selected');
+    await expect(selectionBar(page)).toContainText('1 property selected');
 
     await page.getByRole('button', { name: 'List' }).click();
 
@@ -1047,7 +1127,7 @@ test.describe('W02 · acting on several records', () => {
     // picked (narrowKey, Properties.tsx:613-614).
     await expect(page.getByRole('table')).toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Select Sy 214/2' })).toBeChecked();
-    await expect(selectionBar(page)).toContainText('1 record selected');
+    await expect(selectionBar(page)).toContainText('1 property selected');
   });
 
   test('a server that moved none of them says so rather than closing on a lie', async ({ page, world }) => {
@@ -1077,8 +1157,7 @@ test.describe('W02 · acting on several records', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Delete 2 records?' });
     await expect(dialog).toContainText(
-      'Everything filed under them goes too — papers, photos, features, people and the money ledger.');
-    await expect(dialog).toContainText('If you only want them out of the way, Archive instead.');
+      'Everything filed under them is deleted too. There is no undo.');
     await dialog.getByRole('button', { name: 'Delete' }).click();
 
     await expect.poll(() => world.calls('deleteRecords')).toHaveLength(1);
@@ -1092,7 +1171,7 @@ test.describe('W02 · acting on several records', () => {
     await pick(page, 'Select Sy 88');
 
     await selectionBar(page).getByRole('button', { name: 'Tag…' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Tag 1 record' });
+    const dialog = page.getByRole('dialog', { name: 'Tag 1 property' });
     await dialog.getByRole('button', { name: 'rented' }).click();
 
     await expect(dialog.getByLabel('Your tag')).toHaveValue('rented');
@@ -1126,7 +1205,7 @@ test.describe('W02 · acting on several records', () => {
     await pick(page, 'Select Sy 301');
 
     await selectionBar(page).getByRole('button', { name: 'Tag…' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Tag 1 record' });
+    const dialog = page.getByRole('dialog', { name: 'Tag 1 property' });
     await dialog.getByLabel('Your tag').fill('boundary dispute');
     await dialog.getByRole('button', { name: 'Apply tag' }).click();
 
@@ -1145,7 +1224,6 @@ test.describe('W02 · acting on several records', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Order an EC?' });
     await expect(dialog).toContainText('One Encumbrance Certificate order per record, ₹1,180 each.');
-    await expect(dialog).toContainText('They appear under Services as they are placed.');
     await dialog.getByRole('button', { name: 'Order EC ×1' }).click();
 
     await expect.poll(() => world.calls('orderService')).toHaveLength(1);
@@ -1243,9 +1321,15 @@ test.describe('W02 · Export', () => {
     expect(download.suggestedFilename()).toMatch(/^properties-\d{4}-\d{2}-\d{2}\.csv$/);
     const csv = await readFile(await download.path(), 'utf8');
     const lines = csv.replace(/^﻿/, '').trim().split('\n');
-    expect(lines[0]).toBe('Record,Kind,Owner,Village,Mandal,District,Khata,Status,Stake,Extent,Unit,Worth (₹),Tags');
+    // The reading, the deed and the three counts go out with the rest: an
+    // export is what an owner hands an advocate or a bank, and the first thing
+    // either asks is which document registered the land. The reading is quoted
+    // because it carries a thousands comma; `In court` is empty on a record
+    // with no case, not the word "no".
+    expect(lines[0]).toBe('Record,Kind,Owner,Village,Mandal,District,Khata,Status,Stake,Extent,Unit,Reading,Worth (₹),Deed,Papers,Photos,Features,In court,Tags');
     expect(lines).toHaveLength(5);
-    expect(lines[1]).toBe('Sy 214/2,parcel,Telukutla Shankar Reddy,Katragunta,Markapur,Prakasam,1042,owned,owned,4.3,acres,8600000,ancestral');
+    expect(lines[1]).toBe('Sy 214/2,parcel,Telukutla Shankar Reddy,Katragunta,Markapur,Prakasam,1042,owned,owned,4.3,acres,'
+      + '"4 Acres 12 Guntas · 430 Cents · 20,812 Sq.yd",8600000,D.No 4521/2019 · Markapur SRO,6,12,4,,ancestral');
     // The archived shop is not on the screen, so it is not in the file.
     expect(csv).not.toContain('Shop 7');
   });
@@ -1299,7 +1383,7 @@ test.describe('W02 · the add drawer', () => {
 
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByText('Start from the paper')).toBeVisible();
     await expect(drawer.getByRole('button', { name: 'Choose a file' })).toBeFocused();
@@ -1314,22 +1398,22 @@ test.describe('W02 · the add drawer', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
 
-    await expect(drawer.getByRole('button', { name: 'Add record' })).toBeDisabled();
+    await expect(drawer.getByRole('button', { name: 'Add property' })).toBeDisabled();
     await drawer.getByLabel('Village').fill('Katragunta');
-    await expect(drawer.getByRole('button', { name: 'Add record' })).toBeDisabled();
+    await expect(drawer.getByRole('button', { name: 'Add property' })).toBeDisabled();
 
     await drawer.getByLabel('Survey number').fill('Sy 411');
-    await expect(drawer.getByRole('button', { name: 'Add record' })).toBeEnabled();
+    await expect(drawer.getByRole('button', { name: 'Add property' })).toBeEnabled();
   });
 
   test('a record typed by hand is saved with exactly what I typed', async ({ page, world }) => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
 
     await drawer.getByLabel('Survey number').fill('Sy 411/1');
@@ -1344,7 +1428,7 @@ test.describe('W02 · the add drawer', () => {
     await drawer.getByLabel('What you paid').fill('900000');
     await drawer.getByLabel('Status').selectOption('for_sale');
 
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     expect(world.lastVars('saveRecord').input).toEqual({
@@ -1361,12 +1445,12 @@ test.describe('W02 · the add drawer', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
 
     await expect(drawer.getByLabel('Worth today')).toHaveValue('');
     await drawer.getByLabel('Survey number').fill('Sy 12');
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     const input = world.lastVars('saveRecord').input as Record<string, unknown>;
@@ -1378,7 +1462,7 @@ test.describe('W02 · the add drawer', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
 
     await drawer.getByRole('button', { name: /^Built property/ }).click();
@@ -1390,7 +1474,7 @@ test.describe('W02 · the add drawer', () => {
 
     await drawer.getByLabel('What it is called').fill('Shop 9, Market Road');
     await drawer.getByLabel('Extent · Sq.ft').fill('420');
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     expect(world.lastVars('saveRecord').input).toMatchObject({
@@ -1402,13 +1486,13 @@ test.describe('W02 · the add drawer', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await drawer.getByLabel('Survey number').fill('Sy 411/1');
 
     await page.keyboard.press('Escape');
 
-    const asking = page.getByRole('dialog', { name: 'Discard this record?' });
+    const asking = page.getByRole('dialog', { name: 'Discard this property?' });
     await expect(asking).toContainText('Nothing has been saved yet.');
     await asking.getByRole('button', { name: 'Keep editing' }).click();
 
@@ -1416,7 +1500,7 @@ test.describe('W02 · the add drawer', () => {
     await expect(drawer.getByLabel('Survey number')).toHaveValue('Sy 411/1');
 
     await page.keyboard.press('Escape');
-    await page.getByRole('dialog', { name: 'Discard this record?' })
+    await page.getByRole('dialog', { name: 'Discard this property?' })
       .getByRole('button', { name: 'Discard' }).click();
     await expect(drawer).toHaveCount(0);
   });
@@ -1425,13 +1509,13 @@ test.describe('W02 · the add drawer', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await expect(drawer).toBeVisible();
 
     await page.keyboard.press('Escape');
 
     await expect(drawer).toHaveCount(0);
-    await expect(page.getByRole('dialog', { name: 'Discard this record?' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Discard this property?' })).toHaveCount(0);
   });
 
   test('a save the server refuses keeps the drawer open and says why', async ({ page, world }) => {
@@ -1439,11 +1523,11 @@ test.describe('W02 · the add drawer', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await drawer.getByLabel('Survey number').fill('Sy 214/2');
 
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect(drawer.getByText('a record with that survey number already exists')).toBeVisible();
     await expect(drawer).toBeVisible();
@@ -1453,7 +1537,7 @@ test.describe('W02 · the add drawer', () => {
   test('?new=1 opens the drawer on arrival and takes itself back out of the URL', async ({ page }) => {
     await page.goto('/app/properties?new=1');
 
-    await expect(page.getByRole('dialog', { name: 'Add a record' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Add a property' })).toBeVisible();
     await expect(page).toHaveURL(/\/app\/properties$/);
   });
 
@@ -1469,7 +1553,7 @@ test.describe('W02 · the add drawer', () => {
     // the scrim. Cancel and the header X are somebody saying it
     // (PropertyActions.tsx:271-278).
     await expect(drawer).toHaveCount(0);
-    await expect(page.getByRole('dialog', { name: 'Discard this record?' })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Discard this property?' })).toHaveCount(0);
   });
 
   test('a record added while I am looking at the map lands where its boundary gets drawn', async ({ page, world }) => {
@@ -1478,7 +1562,7 @@ test.describe('W02 · the add drawer', () => {
 
     const drawer = await handEntry(page);
     await drawer.getByLabel('Survey number').fill('Sy 411');
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     // A record made from the map has nowhere on it yet, so the one thing to do
@@ -1503,7 +1587,7 @@ test.describe('W02 · adding from the paper', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
 
     await scanPicker(page).setInputFiles(fileOf('sale-deed.pdf', 0.002), { timeout: 60_000 });
 
@@ -1538,7 +1622,7 @@ test.describe('W02 · adding from the paper', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
 
     await scanPicker(page).setInputFiles(fileOf('sale-deed.pdf', 0.002), { timeout: 60_000 });
 
@@ -1548,7 +1632,7 @@ test.describe('W02 · adding from the paper', () => {
     await expect(drawer.getByLabel('Extent · Sq.yd')).toHaveValue('418.5');
     await expect(drawer.getByLabel('Extent · Acres')).toHaveCount(0);
 
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     expect(world.lastVars('saveRecord').input).toMatchObject({
@@ -1578,11 +1662,11 @@ test.describe('W02 · adding from the paper', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
 
-    await scanPicker(page).setInputFiles(fileOf('passbook-scan.pdf', 10.4), { timeout: 60_000 });
+    await scanPicker(page).setInputFiles(fileOf('passbook-scan.pdf', 15.4), { timeout: 60_000 });
 
-    await expect(drawer.getByText('passbook-scan.pdf is 10.4 MB. The limit is 10.0 MB.')).toBeVisible();
+    await expect(drawer.getByText('passbook-scan.pdf is 15.4 MB. The limit is 15.0 MB.')).toBeVisible();
     // Said before the wait, and the manual road is already open behind it.
     await expect(drawer.getByLabel('Survey number')).toBeVisible();
     // Not one byte left the page: the size is checked here, not reported back
@@ -1596,7 +1680,7 @@ test.describe('W02 · adding from the paper', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await expect(drawer.getByLabel('Survey number')).toHaveCount(0);
 
     await scanPicker(page).setInputFiles(fileOf('blurry.jpg', 0.01, 'image/jpeg'), { timeout: 60_000 });
@@ -1619,11 +1703,11 @@ test.describe('W02 · adding from the paper', () => {
     await page.goto('/app/properties');
     await expect(gridCards(page)).toHaveCount(4);
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    const drawer = page.getByRole('dialog', { name: 'Add a record' });
+    const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await scanPicker(page).setInputFiles(fileOf('sale-deed.pdf', 0.002), { timeout: 60_000 });
     await expect(drawer.getByLabel('Survey number')).toHaveValue('Sy 411/1');
 
-    await drawer.getByRole('button', { name: 'Add record' }).click();
+    await drawer.getByRole('button', { name: 'Add property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     // The evidence goes in WITH the record. A record made from a scanned deed
@@ -1653,16 +1737,16 @@ test.describe('W02 · adding from the paper', () => {
       await page.goto('/app/properties');
       await expect(gridCards(page)).toHaveCount(4);
       await page.getByRole('button', { name: 'Add', exact: true }).click();
-      const drawer = page.getByRole('dialog', { name: 'Add a record' });
+      const drawer = page.getByRole('dialog', { name: 'Add a property' });
       await scanPicker(page).setInputFiles(fileOf('sale-deed.pdf', 0.002), { timeout: 60_000 });
       await expect(drawer.getByLabel('Survey number')).toHaveValue('Sy 411/1');
 
-      await drawer.getByRole('button', { name: 'Add record' }).click();
+      await drawer.getByRole('button', { name: 'Add property' }).click();
 
       await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
       // Closing here would carry the message away with the drawer, so the
       // drawer becomes the report (PropertyActions.tsx:392-401).
-      await expect(drawer.getByText(/^The record was saved, but its deed could not be filed/))
+      await expect(drawer.getByText(/^The property was saved, but its deed could not be filed/))
         .toBeVisible();
       await expect(drawer.getByText(/You can add it from the record's Papers\.$/)).toBeVisible();
       expect(world.calls('addPaper')).toHaveLength(0);
@@ -1771,7 +1855,7 @@ test.describe('W02 · the menu on one record', () => {
     await page.getByRole('button', { name: 'Actions for Sy 88' }).click();
     await page.getByRole('menuitem', { name: 'Delete…' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Delete this record?' });
+    const dialog = page.getByRole('dialog', { name: 'Delete this property?' });
     await expect(dialog).toContainText('papers, photos, features, people and the money ledger');
     await expect(dialog).toContainText('There is no undo.');
     await dialog.getByRole('button', { name: 'Delete' }).click();
@@ -1786,7 +1870,7 @@ test.describe('W02 · the menu on one record', () => {
     await page.getByRole('button', { name: 'Actions for Sy 88' }).click();
     await page.getByRole('menuitem', { name: 'Delete…' }).click();
 
-    await page.getByRole('dialog', { name: 'Delete this record?' })
+    await page.getByRole('dialog', { name: 'Delete this property?' })
       .getByRole('button', { name: 'Cancel' }).click();
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -1800,7 +1884,7 @@ test.describe('W02 · the menu on one record', () => {
     await page.getByRole('button', { name: 'Actions for Sy 301' }).click();
     await page.getByRole('menuitem', { name: 'Archive' }).click();
 
-    const dialog = page.getByRole('dialog', { name: 'Archive 1 record?' });
+    const dialog = page.getByRole('dialog', { name: 'Archive 1 property?' });
     await dialog.getByRole('button', { name: 'Archive' }).click();
 
     await expect.poll(() => world.calls('archiveRecords')).toHaveLength(1);
@@ -1897,8 +1981,8 @@ test.describe('W02 · the menu on one record', () => {
     await page.getByRole('menuitem', { name: 'Edit…' }).click();
 
     const drawer = page.getByRole('dialog', { name: 'Edit Shop 7, Market Road' });
-    await expect(drawer).toContainText('This record is archived.');
-    await expect(drawer.getByText('Archived. Unarchive the record to give it a status again.')).toBeVisible();
+    await expect(drawer).toContainText('This property is archived.');
+    await expect(drawer.locator('.field', { hasText: 'Status' })).toContainText('Archived');
     // No status select to lie with while the record is out of the lists.
     await expect(drawer.getByLabel('Status')).toHaveCount(0);
   });
@@ -1911,9 +1995,9 @@ test.describe('W02 · a list with nothing on it', () => {
     await page.goto('/app/properties');
 
     // Empty's title is a paragraph, not a heading (ui.tsx Empty).
-    await expect(page.getByText('Nothing filed yet')).toBeVisible();
+    await expect(page.getByText('No properties yet')).toBeVisible();
     await expect(page.getByText('Add your first parcel or property')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Add a record' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add a property' })).toBeVisible();
 
     // The filter row, the view switch, Export and the tally are all furniture
     // for rows that do not exist.
@@ -1927,9 +2011,9 @@ test.describe('W02 · a list with nothing on it', () => {
     world.set('properties', listOf([], { facets: [] }));
     await page.goto('/app/properties');
 
-    await page.getByRole('button', { name: 'Add a record' }).click();
+    await page.getByRole('button', { name: 'Add a property' }).click();
 
-    await expect(page.getByRole('dialog', { name: 'Add a record' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Add a property' })).toBeVisible();
   });
 
   test('an account whose every record is archived is told where they went', async ({ page, world }) => {
@@ -1940,8 +2024,8 @@ test.describe('W02 · a list with nothing on it', () => {
     }));
     await page.goto('/app/properties');
 
-    await expect(page.getByText('Nothing active')).toBeVisible();
-    await expect(page.getByText('2 records are archived. Archived records leave the list, the map and every total until you bring them back.')).toBeVisible();
+    await expect(page.getByText('All properties are archived')).toBeVisible();
+    await expect(page.getByText('2 records are archived.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Show archived' })).toBeVisible();
   });
 
@@ -2024,7 +2108,7 @@ test.describe('W02 · while it loads, and when it does not', () => {
     await page.goto('/app/properties');
 
     await expect(page.getByRole('status', { name: 'Loading your properties' })).toBeVisible();
-    await expect(page.getByText('Nothing filed yet')).toHaveCount(0);
+    await expect(page.getByText('No properties yet')).toHaveCount(0);
     await expect(page.getByText(/of \d+ shown/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: '+ Filter' })).toHaveCount(0);
   });
@@ -2056,7 +2140,7 @@ test.describe('W02 · while it loads, and when it does not', () => {
 
     const failed = page.getByRole('alert');
     await expect(failed.getByText('Your properties did not load')).toBeVisible();
-    await expect(failed).toContainText('Nothing has been lost');
+    await expect(failed).toContainText('Check your connection and try again.');
     await expect(failed.getByText('the record store is down')).toBeVisible();
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
     // No half-drawn list under the failure.

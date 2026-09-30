@@ -1,4 +1,4 @@
-/** Village maps — the survey department's own shape files, browsable.
+/** Cadastral maps — the survey department's village shape files, browsable.
  *
  *  Everywhere else in this app you start from a record and ask where it is.
  *  Here you start from the ground and ask whose it is, which is how an owner
@@ -26,19 +26,23 @@ import StraightenOutlined from '@mui/icons-material/StraightenOutlined';
 import ArrowForwardOutlined from '@mui/icons-material/ArrowForwardOutlined';
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
 import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
+import CheckOutlined from '@mui/icons-material/CheckOutlined';
 import { formatAcresGuntas, fromAcres, naturalCompare, villageKey } from '@pattadar/core';
 
 import { apiFetch } from '../../api/client';
 import { EMPTY_FILTER, usePapers, useProperties, useSaveRecord, useSetBoundary } from '../api';
 import type { RecordCard } from '../api';
-import { Card, Empty, Failed, Loading, num, plural } from '../ui';
+import { Card, Empty, FacetFilter, Failed, Loading, num, plural } from '../ui';
 import { BANDS, VillageCanvas, bandOf } from '../VillageCanvasLazy';
 import { FenceStudio } from '../FenceStudio';
 import type { MeasureState, VillageCanvasHandle, VillageMode } from '../VillageCanvasLazy';
-import type { VillageEntry, VillageFacts } from '../villageIndex';
+import type { MandalEntry, VillageEntry, VillageFacts } from '../villageIndex';
 import {
-  forgetVillage, loadVillageFacts, readVillageIndex,
+  forgetVillage, loadGlobalOverview, loadMandalOverview, loadVillageCatalog,
+  loadVillageFacts, readVillageIndex,
 } from '../villageIndex';
+import { recordInVillage, resolveVillage } from '../villageResolve';
+import { acresText } from '../villageGeom';
 import type { PlotFacts } from '../villageGeom';
 import { surveyNumber } from '../surveyNumber';
 
@@ -95,8 +99,18 @@ const STAGE_FILL: CSSProperties = {
 export function VillageMaps() {
   const nav = useNavigate();
   const [index, setIndex] = useState<VillageEntry[] | null>(null);
-  const [q, setQ] = useState('');
   const [village, setVillage] = useState<string | null>(null);
+  /** The index row that is open. The name alone is not an address — two
+   *  mandals can each have a MYLAVARAM — so the row travels with the name and
+   *  is what the plots are read for. */
+  const [openEntry, setOpenEntry] = useState<VillageEntry | null>(null);
+  /** Every mandal with shipped maps, and the outlines in the current Area
+   *  scope. With no Area filter that is the full global published set. */
+  const [catalog, setCatalog] = useState<MandalEntry[]>([]);
+  /** Only choices the reader made become FacetFilter chips. No choice means
+   *  the global list/map, not a hidden automatic mandal. */
+  const [areaFilter, setAreaFilter] = useState<{ district?: string; mandal?: string }>({});
+  const [overview, setOverview] = useState<VillageEntry[]>([]);
   const [facts, setFacts] = useState<VillageFacts | null>(null);
   const [loading, setLoading] = useState(false);
   /** Which village's shape file could not be read, and why as far as it can be
@@ -119,6 +133,7 @@ export function VillageMaps() {
   const [zoom, setZoom] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   const [goto, setGoto] = useState('');
   const [gotoNote, setGotoNote] = useState('');
   const [finderOpen, setFinderOpen] = useState(false);
@@ -129,7 +144,6 @@ export function VillageMaps() {
   // and the two prices are left empty because a rate is local and this screen
   // has no business guessing one.
   const [fencing, setFencing] = useState(false);
-  const [openVillages, setOpenVillages] = useState(true);
   const [err, setErr] = useState('');
   /** A record that was filed from this plot and did not get its boundary. Kept
    *  so the retry can be the boundary ALONE — filing again would be a second
@@ -184,6 +198,7 @@ export function VillageMaps() {
       setIndex(rows);
       setUploadsGone(uploadsFailed);
     });
+    void loadVillageCatalog().then((rows) => { if (!dropped) setCatalog(rows); });
     return () => { dropped = true; };
   }, []);
 
@@ -207,13 +222,13 @@ export function VillageMaps() {
     const failedWith = (why: string) => {
       // The read is cached per tab, including its failures, so the cache goes
       // with it. Without this the Try again below is a dead button.
-      forgetVillage(village);
+      forgetVillage(openEntry?.key ?? village);
       if (dropped) return;
       setFacts(null);
       setLoading(false);
       setVillageErr({ village, why });
     };
-    loadVillageFacts(village)
+    loadVillageFacts(openEntry ?? village)
       .then((f) => {
         if (!f) {
           failedWith(navigator.onLine
@@ -227,7 +242,7 @@ export function VillageMaps() {
       })
       .catch((e) => failedWith(e instanceof Error ? e.message : 'The shape file could not be read.'));
     return () => { dropped = true; };
-  }, [village, attempt]);
+  }, [village, openEntry, attempt]);
 
   /** Measurement depends on visible ground. Entering it keeps the current
    *  display mode aside, switches to satellite imagery and locks the layer
@@ -283,6 +298,7 @@ export function VillageMaps() {
     const { rows, uploadsFailed } = await readVillageIndex(true);
     setIndex(rows);
     setUploadsGone(uploadsFailed);
+    return rows;
   };
 
   const send = async (files: FileList | null) => {
@@ -305,14 +321,16 @@ export function VillageMaps() {
       const villages = (body.villages ?? []) as Landed[];
       setLanded(villages);
       setSkipped(body.skipped ?? []);
-      await refresh(villages.map((v) => v.village));
+      const rows = await refresh(villages.map((v) => v.village));
       if (villages.length) {
         setVillage(villages[0].village);
+        // An upload is keyed by its folded name; that row is the one it made.
+        setOpenEntry(rows.find((r) => r.uploaded && r.key === villages[0].key)
+          ?? resolveVillage(rows, villages[0].village));
         setAttempt((n) => n + 1);
         setSelected(null);
         resetTape();
         setFencing(false);
-        setOpenVillages(false);       // straight to the map it just took
       }
     } catch (e) {
       setUpErr(e instanceof Error ? e.message : 'That upload failed.');
@@ -344,19 +362,117 @@ export function VillageMaps() {
       setRmErr(body?.error || `${entry.village} could not be taken off (${res.status}).`);
       return;
     }
-    if (village === entry.village) { setVillage(null); setSelected(null); }
+    if (village === entry.village) { setVillage(null); setOpenEntry(null); setSelected(null); }
     setLanded([]);
     await refresh([entry.village]);
   };
 
-  const shown = useMemo(() => {
+  /** No Area selection means the whole published list. District narrows it to
+   *  that district, and Mandal narrows it once more. The list and the unselected
+   *  map derive from this same scope — neither can silently show less. */
+  const pickedState = catalog[0]?.state ?? '';
+  const pickedDistrict = areaFilter.district ?? '';
+  const pickedMandal = areaFilter.mandal
+    ? catalog.find((m) => m.key === areaFilter.mandal) ?? null
+    : null;
+  const districts = useMemo(
+    () => [...new Set(catalog.filter((m) => m.state === pickedState).map((m) => m.district))].sort(),
+    [catalog, pickedState],
+  );
+  const mandalsHere = useMemo(
+    () => catalog.filter((m) => m.state === pickedState
+      && (!pickedDistrict || m.district === pickedDistrict))
+      .sort((a, b) => a.mandal.localeCompare(b.mandal) || a.district.localeCompare(b.district)),
+    [catalog, pickedState, pickedDistrict],
+  );
+  const villagesHere = useMemo(() => {
     const all = index ?? [];
+    return pickedMandal
+      ? all.filter((entry) => entry.mandal === pickedMandal.mandal
+        && entry.district === pickedMandal.district)
+      : pickedDistrict
+        ? all.filter((entry) => entry.district === pickedDistrict)
+        : all;
+  }, [index, pickedDistrict, pickedMandal]);
+  const shown = useMemo(() => {
     const needle = villageKey(q);
-    if (!needle) return all;
-    // Matched on the folded key, so "Chintagunta" finds "CHINTHAGUNTA" — the
-    // same one-letter difference that loses a village map elsewhere.
-    return all.filter((v) => v.key.includes(needle) || villageKey(v.village).includes(needle));
-  }, [index, q]);
+    if (!needle) return villagesHere;
+    return villagesHere.filter((entry) =>
+      villageKey([entry.village, entry.mandal, entry.district].filter(Boolean).join(' '))
+        .includes(needle));
+  }, [q, villagesHere]);
+  const areaGroups = useMemo(() => [{
+    key: 'district', label: 'District', options: districts.map((district) => ({
+      key: district, label: district,
+      count: catalog.filter((m) => m.state === pickedState && m.district === district)
+        .reduce((sum, m) => sum + m.villages, 0),
+    })),
+  }, {
+    key: 'mandal', label: 'Mandal', options: mandalsHere.map((m) => ({
+      key: m.key,
+      label: pickedDistrict ? m.mandal : `${m.mandal} · ${m.district}`,
+      count: m.villages,
+    })),
+  }, {
+    key: 'village', label: 'Village', options: villagesHere.map((entry) => ({
+      key: entry.key,
+      label: pickedMandal
+        ? entry.village
+        : pickedDistrict ? `${entry.village} · ${entry.mandal ?? 'Unplaced'}`
+          : `${entry.village} · ${entry.mandal ?? 'Unplaced'} · ${entry.district ?? 'Unplaced'}`,
+      count: entry.plots ?? 0,
+    })),
+  }], [catalog, districts, mandalsHere, pickedDistrict, pickedMandal, pickedState, villagesHere]);
+
+  const clearVillage = () => {
+    setVillage(null);
+    setOpenEntry(null);
+    setSelected(null);
+  };
+  const clearArea = () => {
+    setAreaFilter({});
+    clearVillage();
+  };
+  const toggleArea = (group: string, key: string) => {
+    if (group === 'district') {
+      if (areaFilter.district === key) { clearArea(); return; }
+      setAreaFilter({ district: key });
+      clearVillage();
+      return;
+    }
+    if (group === 'mandal') {
+      if (areaFilter.mandal === key) {
+        setAreaFilter((at) => ({ district: at.district }));
+      } else {
+        const picked = catalog.find((m) => m.key === key);
+        if (!picked) return;
+        setAreaFilter({ district: picked.district, mandal: key });
+      }
+      clearVillage();
+      return;
+    }
+    if (group === 'village') {
+      if (openEntry?.key === key) { clearVillage(); return; }
+      const entry = (index ?? []).find((candidate) => candidate.key === key);
+      if (entry) openVillage(entry.village, entry);
+    }
+  };
+
+  // No Area filter loads the root overview and fits every village in the list.
+  // District filters that same answer; Mandal uses its smaller manifest. A
+  // failed read gives no outlines rather than leaving the previous scope drawn.
+  useEffect(() => {
+    let dropped = false;
+    const job = pickedMandal ? loadMandalOverview(pickedMandal) : loadGlobalOverview();
+    void job.then((rows) => {
+      if (dropped) return;
+      const all = rows ?? [];
+      setOverview(pickedDistrict && !pickedMandal
+        ? all.filter((row) => row.district === pickedDistrict)
+        : all);
+    });
+    return () => { dropped = true; };
+  }, [pickedDistrict, pickedMandal, index]);
 
   /** Whether this account's records have actually answered.
    *
@@ -367,6 +483,12 @@ export function VillageMaps() {
    *  test; the status is used for nothing but the wording. */
   const answered = records.data !== undefined;
   const recordsFailed = !answered && records.isError;
+  const sharedName = useMemo(() => {
+    if (!openEntry) return false;
+    const name = villageKey(openEntry.village);
+    return (index ?? []).some((entry) => entry.key !== openEntry.key
+      && villageKey(entry.village) === name);
+  }, [index, openEntry]);
 
   /** Which of this account's records sit in this village, by plot number. The
    *  only place an owner name or a passbook on this screen can honestly come
@@ -374,7 +496,6 @@ export function VillageMaps() {
   const mine = useMemo(() => {
     const out = new Map<string, RecordCard>();
     if (!village) return out;
-    const key = villageKey(village);
     const plotNumbers = new Map((facts?.plots ?? []).map((p) => [surveyNumber(p.lp), p.lp]));
     for (const r of records.data?.cards ?? []) {
       // Land only. A flat in the same village is titled "Flat 4B", and the
@@ -387,13 +508,13 @@ export function VillageMaps() {
       // accident — and it has to agree with the adopt list below, or a plot
       // could be handed to an open plot that then never shows as yours on it.
       if (r.kind !== 'parcel' && r.classification !== 'open_plot') continue;
-      if (villageKey(r.village) !== key) continue;
+      if (!recordInVillage(r, openEntry ?? { village }, sharedName)) continue;
       const number = surveyNumber(r.title);
       const lp = number ? plotNumbers.get(number) : undefined;
       if (lp && !out.has(lp)) out.set(lp, r);
     }
     return out;
-  }, [records.data, village, facts]);
+  }, [records.data, village, facts, openEntry, sharedName]);
 
   const plot: PlotFacts | null = selected ? facts?.byLp.get(selected) ?? null : null;
   const record = plot ? mine.get(plot.lp) ?? null : null;
@@ -430,15 +551,23 @@ export function VillageMaps() {
       ?.scrollIntoView({ block: 'nearest' });
   }, [activePlotOption, finderExpanded, suggestedPlots.length]);
 
-  /** Every village that can be drawn without being opened. This is the landing
-   *  state: the question is "which village", and eight outlines on one map
-   *  answer it better than eight names in a list. */
+  /** Every village outline in the current Area scope. With no filter this is
+   *  the global set: the list and map answer the same question. Without a
+   *  catalog (an older /vm/ build, or only uploads), use whatever outlines the
+   *  index itself carries. */
   const mandal = useMemo(
-    () => (index ?? []).filter((v) => (v.outline?.length ?? 0) > 0),
-    [index],
+    () => (catalog.length ? overview : (index ?? []).filter((v) => (v.outline?.length ?? 0) > 0)),
+    [catalog, overview, index],
   );
 
-  const openVillage = (name: string) => {
+  /** Open a village. A row off the list or the map is exact; a bare name (the
+   *  mandal map's click hands back the name it drew) is looked up in the
+   *  mandal on screen first, where names are unique, then in the index. */
+  function openVillage(name: string, entry?: VillageEntry) {
+    const want = villageKey(name);
+    setOpenEntry(entry
+      ?? overview.find((v) => villageKey(v.village) === want)
+      ?? resolveVillage(index ?? [], name));
     resetTape();
     setFencing(false);
     setVillage(name);
@@ -448,8 +577,7 @@ export function VillageMaps() {
     setFinderOpen(false);
     setActivePlotOption(0);
     setRmErr('');
-    setOpenVillages(false);
-  };
+  }
 
   // A half-filed record and the failure line that explains it belong to the
   // plot they came from; moving to another plot must not offer to put THIS
@@ -499,7 +627,7 @@ export function VillageMaps() {
     setSelected(hit.lp);
     setOpenPlot(true);
     setGoto(hit.lp);
-    setGotoNote(`Plot ${hit.lp} · ${hit.acres.toFixed(2)} ac`);
+    setGotoNote(`Plot ${hit.lp} · ${acresText(hit)} ac`);
     setFinderOpen(false);
     setActivePlotOption(0);
     setHovered(null);
@@ -612,7 +740,7 @@ export function VillageMaps() {
       onSuccess: (r) => {
         if (savedBoundary(r)) { nav(`/app/records/${recordId}/map`); return; }
         setErr('That boundary was refused — the shape may have fewer than three '
-             + 'usable corners, or that record is no longer yours.');
+             + 'usable corners, or that property is no longer yours.');
       },
       onError: (e) => setErr(e instanceof Error ? e.message : 'That boundary could not be saved.'),
     });
@@ -633,7 +761,6 @@ export function VillageMaps() {
   const adoptable = useMemo(() => {
     const rows = records.data?.cards ?? [];
     if (!village) return [];
-    const key = villageKey(village);
     const leadingSurvey = (value: string) => {
       const head = surveyNumber(value).split('/')[0];
       const n = Number(head);
@@ -648,10 +775,10 @@ export function VillageMaps() {
     return rows
       // 'open_plot' is a classification, not a kind — see `mine` above.
       .filter((r) => (r.kind === 'parcel' || r.classification === 'open_plot')
-                  && villageKey(r.village) === key
+                  && recordInVillage(r, openEntry ?? { village }, sharedName)
                   && r.ring.length === 0)
       .sort((a, b) => distance(a) - distance(b) || naturalCompare(a.title, b.title));
-  }, [records.data, village, plot]);
+  }, [records.data, village, plot, openEntry, sharedName]);
 
   if (index === null) return <main><Loading h="70vh" /></main>;
 
@@ -663,29 +790,25 @@ export function VillageMaps() {
   const stage: 'village' | 'mandal' | null =
     facts ? 'village' : (!villageErr && mandal.length > 0 ? 'mandal' : null);
 
-  /** The same control in both places it is needed: the empty state, where it
-   *  is the only thing to do, and beside the village list, where it is how the
-   *  next one arrives. */
-  const uploader = (
+  /** Upload is a page action when maps exist and the empty state's primary
+   *  action when none do. The picker and its outcome are separate so the
+   *  header does not become a card merely to report what the file produced. */
+  const uploadPicker = (filled: boolean) => (
+    <div className="row tight">
+      <button type="button" className={`btn sm${filled ? ' primary' : ''}`} disabled={uploading}
+              onClick={() => fileBox.current?.click()}>
+        <UploadFileOutlined sx={{ fontSize: 16 }} />
+        {uploading ? 'Reading…' : 'Choose KMZ or KML'}
+      </button>
+      <input
+        ref={fileBox} type="file" multiple accept=".kml,.kmz"
+        aria-label="Cadastral map file" style={{ display: 'none' }}
+        onChange={(e) => void send(e.target.files)}
+      />
+    </div>
+  );
+  const uploadReport = () => (
     <>
-      <p className="note">
-        A village&rsquo;s KMZ or KML, as the survey department issues it — a few
-        hundred kilobytes covering thousands of plots. If yours came as two
-        files, the shapes in one and the plot numbers in the other, choose both
-        together: neither half is a map on its own.
-      </p>
-      <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
-        <button type="button" className="btn primary sm" disabled={uploading}
-                onClick={() => fileBox.current?.click()}>
-          <UploadFileOutlined sx={{ fontSize: 16 }} />
-          {uploading ? 'Reading…' : 'Choose KMZ or KML'}
-        </button>
-        <input
-          ref={fileBox} type="file" multiple accept=".kml,.kmz"
-          aria-label="Village map file" style={{ display: 'none' }}
-          onChange={(e) => void send(e.target.files)}
-        />
-      </div>
       {upErr && (
         <p className="note" style={{ color: 'var(--w-danger)', marginTop: 'var(--space-sm)' }}>
           {upErr}
@@ -693,7 +816,7 @@ export function VillageMaps() {
       )}
       {landed.map((v) => (
         <div key={v.key} className="note" style={{ marginTop: 'var(--space-sm)' }}>
-          <strong>{v.village}</strong> — {num(v.plots)} plots
+          <strong>{v.village}</strong> — {plural(v.plots, 'plot')}
           {v.replaced ? ', replacing the one on file' : ''}, from {v.from}.
           {(v.within + v.near) > 0 && (
             <> {num(v.within + v.near)} plot numbers were read off a separate label sheet.</>
@@ -704,7 +827,7 @@ export function VillageMaps() {
           )}
           {v.clashes > 0 && (
             <> {num(v.clashes)} plot number{v.clashes === 1 ? ' is' : 's are'} claimed
-              by more than one shape — worth checking against the sheet.</>
+              by more than one shape.</>
           )}
           {v.duplicates.map((d) => (
             <span key={d.name}> {d.name} was not used ({d.why}).</span>
@@ -718,42 +841,43 @@ export function VillageMaps() {
       ))}
     </>
   );
+  const uploader = (filled: boolean) => <>{uploadPicker(filled)}{uploadReport()}</>;
 
   const tileNotice = tilesFailed && (
     <div className="vc-legend vc-tile-error" role="status">
-      <span className="note">{mode === 'street' ? 'Street map' : 'Imagery'} could not fully load. Survey plots remain visible.</span>
+      <span className="note">{mode === 'street' ? 'Street map' : 'Imagery'} could not fully load.</span>
       <button type="button" className="btn sm" onClick={() => canvas.current?.retryTiles()}>Retry map</button>
     </div>
   );
 
+  /** What sits above the title: the level above this one, never this level
+   *  itself (spec § Village maps, "Three levels"). The mandal is the page, so
+   *  nothing; a village sits under the page; a plot with a tool open on it sits
+   *  under its village. Naming the level itself put "Village maps" on the first
+   *  screen three times with the rail, and a village's name twice. */
+  const above = fencing && toFence ? village : village ? 'Cadastral maps' : null;
+
   return (
     <main className="vm">
-      {/* Three levels, and the head says which one you are on: the mandal, a
-          village in it, or one parcel of that village with a tool open on it.
-          Each says what is above it, and the button beside goes there. */}
-      <p className="eyebrow">
-        Village maps
-        {village && ` · ${village}`}
-      </p>
+      {above && <p className="eyebrow">{above}</p>}
       <header className="pagehead">
         <div className="grow">
-          <h1>{fencing && toFence ? toFence.title : village ?? 'Maps'}</h1>
+          <h1>{fencing && toFence ? toFence.title : village ?? 'Cadastral maps'}</h1>
           <p className="lede" style={{ marginTop: '0.375rem' }}>
             {fencing && toFence
               ? toFence.subtitle
               : facts
-                ? `${num(facts.plots.length)} plots · ${num(facts.acres, 1)} ac`
+                ? `${plural(facts.plots.length, 'plot')} · ${num(facts.acres, 1)} ac`
                 // The head still names the village that failed, because the
                 // list beside it still shows that village chosen. What must not
                 // stand under that name is the MANDAL's totals, which is what
                 // this line silently fell back to.
                 : villageErr
-                  ? 'Its shape file could not be read, so there are no plots to show.'
+                  ? 'Its shape file could not be read.'
                   : mandal.length
                     ? `${plural(mandal.length, 'village')} on record · `
-                      + `${num(mandal.reduce((t, v) => t + (v.plots ?? 0), 0))} plots`
-                    : 'The survey department’s own shape file for a village — every plot in it. '
-                      + 'Find your land here and the boundary comes with it.'}
+                      + plural(mandal.reduce((t, v) => t + (v.plots ?? 0), 0), 'plot')
+                    : null}
           </p>
         </div>
         {/* The fence calculator is open on ONE parcel, so the only way out of it
@@ -773,7 +897,10 @@ export function VillageMaps() {
         )}
         {!fencing && (
           <div className="actions">
-            <Link className="btn" to="/app/properties?view=map">Your land on map</Link>
+            {/* Named for where it goes, the Map view of Properties. The app
+                does not call the owner's land a portfolio (design.md § App
+                vocabulary). */}
+            <Link className="btn" to="/app/properties?view=map">Properties map</Link>
             {/* The way out stays on a village whose map failed — it is the
                 only one from there. */}
             {village && (
@@ -783,7 +910,6 @@ export function VillageMaps() {
                         setFencing(false);
                         setVillage(null);
                         setSelected(null);
-                        setOpenVillages(true);
                       }}>
                 <ArrowBackOutlined sx={{ fontSize: 16 }} /> All villages
               </button>
@@ -792,16 +918,86 @@ export function VillageMaps() {
               <>
                 <button type="button" className="btn" onClick={() => canvas.current?.fit()}>
                   <FitScreenOutlined sx={{ fontSize: 16 }} />
-                  {stage === 'village' ? ' Fit village' : ' Fit mandal'}
+                  {stage === 'village'
+                    ? ' Fit village'
+                    : areaFilter.mandal ? ' Fit mandal' : areaFilter.district ? ' Fit district' : ' Fit all'}
                 </button>
                 <button type="button" className="btn" onClick={() => window.print()}>
                   <PrintOutlined sx={{ fontSize: 16 }} /> Print
                 </button>
               </>
             )}
+            {index.length > 0 && uploadPicker(false)}
           </div>
         )}
       </header>
+
+      {!fencing && index.length > 0 && (
+        <section className="vm-map-filters" aria-label="Cadastral map filters">
+          {catalog.length > 0 && (
+            <div className="vm-place">
+              <span>India · {pickedState}</span>
+              <strong>{pickedMandal
+                ? `${pickedMandal.district} · ${pickedMandal.mandal}`
+                : pickedDistrict || 'All mapped areas'}</strong>
+            </div>
+          )}
+          <FacetFilter
+            groups={areaGroups}
+            selected={{
+              district: areaFilter.district ? [areaFilter.district] : [],
+              mandal: areaFilter.mandal ? [areaFilter.mandal] : [],
+            }}
+            onToggle={toggleArea}
+            onClear={clearArea}
+            tally={plural(shown.length, 'village')}
+            ariaLabel="Narrow villages by area"
+            searchPlaceholder="Search districts, mandals or villages"
+            trailing={(
+              <span className="search vm-village-search">
+                <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
+                <input value={q} onChange={(e) => setQ(e.target.value)}
+                       placeholder={pickedMandal
+                         ? `Search in ${pickedMandal.mandal}`
+                         : pickedDistrict ? `Search in ${pickedDistrict}` : 'Search all villages'}
+                       aria-label={pickedMandal
+                         ? `Search villages in ${pickedMandal.mandal}`
+                         : pickedDistrict ? `Search villages in ${pickedDistrict}` : 'Search all villages'} />
+              </span>
+            )}
+          />
+          {uploadsGone && (
+            <p className="note" style={{ color: 'var(--w-danger)', marginTop: 'var(--space-sm)' }}>
+              Your uploaded cadastral maps could not be loaded.{' '}
+              <button type="button" className="btn sm" onClick={() => void refresh()}>Try again</button>
+            </p>
+          )}
+          {q.trim() && (
+            <div className="rows vm-villages vm-search-results" aria-label="Matching villages">
+              {shown.map((v) => (
+                <span key={v.key} className="row tight" style={{ flexWrap: 'nowrap' }}>
+                  <button type="button" className="villagerow grow"
+                          aria-pressed={openEntry ? openEntry.key === v.key : village === v.village}
+                          onClick={() => openVillage(v.village, v)}>
+                    <span className="grow">{v.village}</span>
+                    {v.mandal && <span className="note">{v.mandal}</span>}
+                    {v.plots ? <span className="note">{plural(v.plots, 'plot')}</span> : null}
+                  </button>
+                  {v.uploaded && (
+                    <button type="button" className="iconbtn" aria-label={`Remove ${v.village}`}
+                            style={{ border: 0, background: 'none' }} onClick={() => void remove(v)}>
+                      <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
+                    </button>
+                  )}
+                </span>
+              ))}
+              {shown.length === 0 && <p className="note">No cadastral map on file matching that.</p>}
+            </div>
+          )}
+          {rmErr && <p className="note" style={{ color: 'var(--w-danger)' }}>{rmErr}</p>}
+          {uploadReport()}
+        </section>
+      )}
 
       {index.length === 0 ? (
         // "None on file" and "could not ask" are different sentences, and only
@@ -809,34 +1005,30 @@ export function VillageMaps() {
         // eight villages on file to upload them again, because the gateway is
         // down, is asking for the work to be done twice against a server that
         // is not listening.
-        <Card title={uploadsGone ? 'Village maps could not be loaded' : 'No village maps yet'}>
+        <Card title={uploadsGone ? 'Cadastral maps could not be loaded' : 'No cadastral maps yet'}>
           {uploadsGone && (
             <>
               <p className="note" style={{ color: 'var(--w-danger)' }}>
-                Your uploaded village maps could not be read, so any village you have
-                sent up is missing from this screen. Nothing has been lost.
+                Your uploaded cadastral maps could not be loaded.
               </p>
               <div className="row tight" style={{ margin: 'var(--space-sm) 0 var(--space-md)' }}>
-                <button type="button" className="btn sm" onClick={() => void refresh()}>
+                {/* The filled button, because this is the answer: the maps
+                    are on file and the read failed. The upload below it is
+                    still there for a village that is genuinely new. */}
+                <button type="button" className="btn sm primary" onClick={() => void refresh()}>
                   Try again
                 </button>
               </div>
             </>
           )}
-          {uploader}
-          <p className="note" style={{ marginTop: 'var(--space-md)' }}>
-            For a whole folder at once there is still the desk route: put the
-            files in <code>data/vm/</code> and run{' '}
-            <code>python3 scripts/village-map-import.py data/vm</code>, which
-            ships them with the app instead of storing them.
-          </p>
+          {uploader(!uploadsGone)}
         </Card>
       ) : (
         // `solo` — the inspector says which plot is selected and how big it is,
         // and the fence calculator's own bar says the same in the same words.
         // While the calculator has the stage that column stands down and gives
         // it the width: two panels answering one question is one too many.
-        <div className={`vm-body${fencing && toFence ? ' solo' : ''}`}>
+        <div className={`vm-body${(fencing && toFence) || !plot ? ' solo' : ''}`}>
           <div className="vm-stage">
             {fencing && toFence ? (
               <FenceStudio
@@ -889,24 +1081,29 @@ export function VillageMaps() {
                                 ? 'Satellite is locked while measuring.'
                                 : mode === m.key ? `Turn ${m.label.toLowerCase()} off` : ''}
                               onClick={() => pickMode(m.key)}>
+                        {mode === m.key && <CheckOutlined sx={{ fontSize: 16 }} aria-hidden />}
                         {m.label}
                       </button>
                     ))}
                   </span>
                   <span className="row tight">
-                    <button type="button" className={`btn sm${numbers ? ' primary' : ''}`}
+                    {/* Toggles, so one that is on is tonal with a check, like
+                        the layer chips above it. Fill on this screen is for
+                        the one action that commits. */}
+                    <button type="button" className="btn sm"
                             aria-pressed={numbers}
                             onClick={() => setNumbers((on) => !on)}>
+                      {numbers && <CheckOutlined sx={{ fontSize: 15 }} aria-hidden />}
                       Numbers
                     </button>
-                    <button type="button" className={`btn sm${measuring ? ' primary' : ''}`}
+                    <button type="button" className="btn sm"
                             aria-pressed={measuring}
                             aria-describedby={measuring ? 'vm-measure-ground' : undefined}
-                            title={measuring
-                              ? 'Put the tape away and return to the previous map.'
-                              : 'Switch to satellite imagery and measure on the ground.'}
                             onClick={toggleTape}>
-                      <StraightenOutlined sx={{ fontSize: 15 }} /> Measure on satellite
+                      {measuring
+                        ? <CheckOutlined sx={{ fontSize: 15 }} aria-hidden />
+                        : <StraightenOutlined sx={{ fontSize: 15 }} aria-hidden />}
+                      Measure on satellite
                     </button>
                   </span>
                   {tileNotice}
@@ -924,11 +1121,11 @@ export function VillageMaps() {
                   )}
                   {measuring && (
                     <div className="vc-legend vc-measure">
-                      <span className="eyebrow">Measure · Satellite locked</span>
+                      <span className="eyebrow">Measuring · Satellite view on</span>
                       <span id="vm-measure-ground" className="note">
                         {tape && tape.points > 1
                           ? `${tape.points >= 3 ? 'Perimeter' : 'Distance'} ${num(tape.metres, 1)} m · ${tape.points} points`
-                          : 'Tap each corner. Three points enclose an area.'}
+                          : 'Tap each corner.'}
                       </span>
                       {tape?.acres != null && (
                         <span className="note">Encloses {tape.acres.toFixed(3)} ac</span>
@@ -949,7 +1146,7 @@ export function VillageMaps() {
                 </span>
 
                 <div className="vc-tr">
-                  <label className="eyebrow" htmlFor="vm-goto">Find survey / plot no.</label>
+                  <label className="eyebrow" htmlFor="vm-goto">Find a survey or plot number</label>
                   <span className="row tight">
                     <input
                       id="vm-goto"
@@ -992,14 +1189,14 @@ export function VillageMaps() {
                         }
                       }}
                     />
-                    <button type="button" className="btn sm primary" aria-label="Find plot"
+                    <button type="button" className="btn sm" aria-label="Find plot"
                             onClick={() => goToPlot()}>
                       <ArrowForwardOutlined sx={{ fontSize: 15 }} />
                     </button>
                   </span>
                   <span className="note" role="status" aria-live="polite">
                     {gotoNote || (!goto.trim()
-                      ? 'Type the first digits to see matching plots.'
+                      ? ''
                       : !surveyNumber(goto)
                         ? 'Use a number such as 1234 or 1234/2.'
                         : plotMatches.length
@@ -1025,7 +1222,7 @@ export function VillageMaps() {
                           onMouseLeave={() => setHovered(null)}
                           onClick={() => showPlot(p, true)}>
                           <span>Plot <strong>{p.lp}</strong></span>
-                          <span className="note num">{p.acres.toFixed(2)} ac</span>
+                          <span className="note num">{acresText(p)} ac</span>
                         </button>
                       ))}
                     </div>
@@ -1072,6 +1269,7 @@ export function VillageMaps() {
                               className="chip"
                               aria-pressed={mode === m.key}
                               onClick={() => pickMode(m.key)}>
+                        {mode === m.key && <CheckOutlined sx={{ fontSize: 16 }} aria-hidden />}
                         {m.label}
                       </button>
                     ))}
@@ -1085,7 +1283,7 @@ export function VillageMaps() {
                 <span className="vc-badge">
                   {loading && village
                     ? `Reading ${village}’s shape file…`
-                    : `${plural(mandal.length, 'village')} · click one to open it`}
+                    : plural(mandal.length, 'village')}
                 </span>
               </>
             ) : loading ? (
@@ -1095,88 +1293,15 @@ export function VillageMaps() {
               </div>
             ) : (
               <div style={STAGE_FILL}>
-                <Empty icon="map" title={`${plural(index.length, 'village map')} on file`}>
-                  Pick one from the list beside this panel to see its plots. None of
-                  them carries a village outline, so there is no mandal map to draw
-                  until one is open.
+                <Empty icon="map" title={`${plural(index.length, 'cadastral map')} on file`}>
+                  Search for a village above.
                 </Empty>
               </div>
             )}
           </div>
 
-          {!(fencing && toFence) && (
+          {!(fencing && toFence) && plot && (
           <aside className="vm-side">
-            <Card title={village ? 'Village' : 'Villages on record'}>
-              {/* Said whether or not the list ends up empty: with shipped maps
-                  on the bundle the list is never empty, and the uploaded
-                  villages would simply be gone from it without a word. */}
-              {uploadsGone && (
-                <p className="note" style={{ color: 'var(--w-danger)', marginBottom: 'var(--space-sm)' }}>
-                  Your uploaded village maps could not be loaded, so any village you
-                  sent up is missing from this list.{' '}
-                  <button type="button" className="btn sm" onClick={() => void refresh()}>
-                    Try again
-                  </button>
-                </p>
-              )}
-              <button type="button" className="vm-switch" aria-expanded={openVillages}
-                      onClick={() => setOpenVillages((v) => !v)}>
-                <span className="grow">{village ?? 'Choose a village'}</span>
-                {facts && (
-                  <span className="note">
-                    {num(facts.plots.length)} plots · {num(facts.acres, 0)} ac
-                  </span>
-                )}
-                <ExpandMoreOutlined sx={{ fontSize: 18 }} />
-              </button>
-              {openVillages && (
-                <>
-                  <span className="search" style={{ width: '100%', marginTop: 'var(--space-sm)' }}>
-                    <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
-                    <input value={q} onChange={(e) => setQ(e.target.value)}
-                           placeholder="Search a village" aria-label="Search a village" />
-                  </span>
-                  {/* Its own class: village rows and plot rows share a look
-                      but are not the same list, and one selector that matched
-                      both counted 140 plots as 140 villages. */}
-                  <div className="rows vm-villages" style={{ marginTop: 'var(--space-sm)' }}>
-                    {shown.map((v) => (
-                      <span key={v.file} className="row tight" style={{ flexWrap: 'nowrap' }}>
-                        <button type="button" className="villagerow grow"
-                                aria-pressed={village === v.village}
-                                // Folded away once a village is chosen. The
-                                // list is how you get here; the plot is what
-                                // you came for, and it should not be below
-                                // eight other villages.
-                                onClick={() => openVillage(v.village)}>
-                          <span className="grow">{v.village}</span>
-                          {v.plots ? <span className="note">{num(v.plots)}</span> : null}
-                        </button>
-                        {/* Only what was uploaded can be taken back off. The
-                            shipped maps are in the bundle and are not this
-                            screen's to delete. */}
-                        {v.uploaded && (
-                          <button type="button" className="iconbtn"
-                                  aria-label={`Remove ${v.village}`}
-                                  style={{ border: 0, background: 'none' }}
-                                  onClick={() => void remove(v)}>
-                            <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {shown.length === 0 && (
-                      <p className="note">No village map on file matching that.</p>
-                    )}
-                  </div>
-                  {/* Beside the bin that was pressed. The uploader's own error
-                      line is two cards down the column, which is not where
-                      anybody looks after clicking a row up here. */}
-                  {rmErr && <p className="note" style={{ color: 'var(--w-danger)' }}>{rmErr}</p>}
-                </>
-              )}
-            </Card>
-
             {plot && (
               <Card title="Selected plot">
                 <div className="vm-plot">
@@ -1185,7 +1310,10 @@ export function VillageMaps() {
                     {plot.lp}
                   </span>
                   <span>
-                    <span className="vm-acres">{plot.acres.toFixed(3)}</span> acres
+                    {/* The figure the finder and the map label print (acresText),
+                        so one plot has one extent on this screen. */}
+                    <span className="vm-acres">{acresText(plot)}</span>
+                    {acresText(plot) === '1' ? ' acre' : ' acres'}
                     <span className="note" style={{ display: 'block' }}>
                       {formatAcresGuntas(plot.acres)} ·{' '}
                       {fromAcres(plot.acres, 'hectare').toFixed(3)} ha
@@ -1196,13 +1324,13 @@ export function VillageMaps() {
                     measured off the polygon, and they are not the same claim. */}
                 <p className="note">
                   {plot.measured
-                    ? 'Measured from the shape — this export states no extent.'
+                    ? 'Measured from the shape.'
                     : 'As stated on the shape file.'}
                   {plot.chaltha ? ` · Chaltha ${plot.chaltha}` : ''}
                 </p>
 
                 <dl className="vm-facts">
-                  {/* "Not one of your records" is a claim about the account,
+                  {/* "Not one of your properties" is a claim about the account,
                       and it cannot be made until the account has answered. It
                       used to be printed while the records query was in flight —
                       and to stand for good if the query failed — over a plot
@@ -1214,13 +1342,13 @@ export function VillageMaps() {
                         <span className="note"
                               style={recordsFailed ? { color: 'var(--w-danger)' } : undefined}>
                           {recordsFailed
-                            ? 'Your records could not be loaded'
-                            : 'Checking your records…'}
+                            ? 'Your properties could not be loaded'
+                            : 'Checking your properties…'}
                         </span>
                       )
                       : record
                         ? record.ownerName || record.title
-                        : <span className="note">Not one of your records</span>}
+                        : <span className="note">Not one of your properties</span>}
                   </dd>
                   <dt>Passbook</dt>
                   <dd>
@@ -1232,8 +1360,9 @@ export function VillageMaps() {
                   <dd className="num">
                     {plot.centre[0].toFixed(5)}, {plot.centre[1].toFixed(5)}
                   </dd>
-                  <dt>Village</dt>
-                  <dd>{village}</dd>
+                  {/* No Village row: the village is the page's title and the
+                      switch above this card, and a fourth copy of its name
+                      here told the owner nothing new. */}
                 </dl>
 
                 {openPlot && (
@@ -1257,7 +1386,7 @@ export function VillageMaps() {
                     {record && (
                       <>
                         <hr className="hr" style={{ margin: 'var(--space-md) 0 var(--space-sm)' }} />
-                        <span className="eyebrow">Papers on file</span>
+                        <span className="eyebrow">Documents on file</span>
                         {/* Three states, three sentences. A two-way branch on
                             `data?.length` said "nothing filed" for a parcel
                             with six documents on it — before the query came
@@ -1266,11 +1395,11 @@ export function VillageMaps() {
                             background refetch must not downgrade a list the
                             owner can see into a denial that it exists. */}
                         {papers.isPending && !papers.data
-                          ? <p className="note" aria-busy="true">Looking for papers…</p>
+                          ? <p className="note" aria-busy="true">Looking for documents…</p>
                           : papers.isError && !papers.data
                             ? (
                               <p className="note" style={{ color: 'var(--w-danger)' }}>
-                                The papers filed against {record.title} could not be loaded.{' '}
+                                The documents filed against {record.title} could not be loaded.{' '}
                                 <button type="button" className="btn sm"
                                         onClick={() => void papers.refetch()}>
                                   Try again
@@ -1323,12 +1452,7 @@ export function VillageMaps() {
                   </button>
                 )}
 
-                {!record && (
-                  <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-                    Adds Sy {plot.lp} and this mapped boundary to Properties.
-                  </p>
-                )}
-                <div className="row tight" style={{ marginTop: 'var(--space-xs)' }}>
+                <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
                   {record ? (
                     <button type="button" className="btn sm primary"
                             onClick={() => nav(`/app/records/${record.id}/map`)}>
@@ -1353,21 +1477,14 @@ export function VillageMaps() {
                   </button>
                 </div>
 
-                {/* Why filing is off, and why nothing is offered below it: the
-                    adopt list is built from the same records, so while they are
-                    unknown it is empty, and an empty list here reads as "you
-                    have nothing in this village". */}
                 {!record && !answered && (
                   <p className="note" style={{
                     marginTop: 'var(--space-xs)',
                     ...(recordsFailed ? { color: 'var(--w-danger)' } : {}),
                   }}>
                     {recordsFailed
-                      ? 'Your records could not be loaded, so adding is off and no record '
-                        + 'can be offered this plot — either would risk a second copy of '
-                        + 'land you already hold.'
-                      : 'Your records have not answered yet. Adding waits for them, so this '
-                        + 'plot cannot be added twice.'}
+                      ? 'Your properties could not be loaded.'
+                      : 'Checking your properties…'}
                     {recordsFailed && (
                       <>
                         {' '}
@@ -1383,14 +1500,13 @@ export function VillageMaps() {
                 {!record && adoptable.length > 0 && (
                   <>
                     <hr className="hr" style={{ margin: 'var(--space-md) 0 var(--space-sm)' }} />
-                    <span className="eyebrow">Or give it to a record in this village</span>
+                    <span className="eyebrow">Or give it to a property in this village</span>
                     {/* Count what is cut: a list that stops at forty with no
                         total simply puts the other records out of reach. */}
                     <p className="note" style={{ margin: 'var(--space-2xs) 0 var(--space-xs)' }}>
                       {adoptable.length > ADOPT_MAX
                         ? `first ${ADOPT_MAX} of ${num(adoptable.length)}`
-                        : plural(adoptable.length, 'record')}
-                      {' · nearest number first'}
+                        : plural(adoptable.length, 'property', 'properties')}
                     </p>
                     <div className="rows vm-list">
                       {adoptable.slice(0, ADOPT_MAX).map((r) => (
@@ -1404,20 +1520,11 @@ export function VillageMaps() {
                         </button>
                       ))}
                     </div>
-                    {adoptable.length > ADOPT_MAX && (
-                      <p className="note" style={{ marginTop: 'var(--space-xs)' }}>
-                        A record that is not listed here can still take this plot from
-                        its own Boundary tab.
-                      </p>
-                    )}
                   </>
                 )}
               </Card>
             )}
 
-            <Card title="Add a village map">
-              {uploader}
-            </Card>
           </aside>
           )}
         </div>

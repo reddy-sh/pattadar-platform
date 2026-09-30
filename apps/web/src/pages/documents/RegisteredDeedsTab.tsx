@@ -49,7 +49,7 @@ import { selectionBarSx, stickyHeadSx } from '../../components/tableSx';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
 import { fmtLocal } from '../../lib/format';
-import { useLiveOrSample } from '../../data/useLiveOrSample';
+import { UNREACHABLE_NOTE, useLiveOrSample } from '../../data/useLiveOrSample';
 import { DeedImportDialog } from './DeedImportDialog';
 import { FmbMapViewer, parseFmbGeometry } from '../../components/FmbMapViewer';
 import type { FmbGeometry } from '../../components/FmbMapViewer';
@@ -186,7 +186,7 @@ function DeedExpanded({
       <Typography variant="caption" color="text.secondary">
         {label}
       </Typography>
-      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>
         {v ? formatINR(v) : '—'}
       </Typography>
     </Box>
@@ -219,7 +219,7 @@ function DeedExpanded({
                       variant="outlined"
                     />
                     {p.isGpa && <Chip size="small" label="GPA" variant="outlined" />}
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
                       {p.name}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -427,7 +427,7 @@ export function RegisteredDeedsTab({
         <Box sx={selectionBarSx}>
           {bulk ? (
             <>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 Deleting {Math.min(bulk.done + 1, bulk.total)} of {bulk.total}…
               </Typography>
               <LinearProgress
@@ -439,7 +439,7 @@ export function RegisteredDeedsTab({
             </>
           ) : (
             <>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 {selected.size} selected
               </Typography>
               <Box sx={{ flexGrow: 1 }} />
@@ -531,7 +531,7 @@ export function RegisteredDeedsTab({
                           {open === r.id ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
                         </IconButton>
                       </TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{r.ref}</TableCell>
+                      <TableCell sx={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{r.ref}</TableCell>
                       <TableCell>
                         <Chip size="small" variant="outlined" label={r.docType || '—'} />
                         {(() => {
@@ -607,7 +607,7 @@ export function RegisteredDeedsTab({
       )}
       {isSample && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-          Sample data — the live service is not reachable.
+          {UNREACHABLE_NOTE}
         </Typography>
       )}
 
