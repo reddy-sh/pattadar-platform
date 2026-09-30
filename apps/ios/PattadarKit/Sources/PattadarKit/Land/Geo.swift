@@ -132,3 +132,77 @@ public func ringCentroid(_ ring: [LatLng]) -> LatLng? {
     }
     return LatLng(latitude: lat / (3 * twiceArea), longitude: lon / (3 * twiceArea))
 }
+
+/// The same four-part public village-map address as `mapKey` in core.
+/// A missing segment cannot identify a map, even when the village is known.
+public func mapKey(state: String, district: String, mandal: String, village: String) -> String {
+    func fold(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: "[^a-z]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "([tdbgkp])h", with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: "(.)\\1+", with: "$1", options: .regularExpression)
+    }
+    let parts = [state, district, mandal, village].map(fold)
+    return parts.allSatisfy { !$0.isEmpty } ? parts.joined(separator: "/") : ""
+}
+
+/// Even-odd containment check, matching `pointInRing` in core.
+public func pointInRing(_ point: LatLng, _ ring: [LatLng]) -> Bool {
+    let corners = ring.filter { $0.latitude.isFinite && $0.longitude.isFinite }
+    guard corners.count >= 3 else { return false }
+    var inside = false
+    for i in corners.indices {
+        let j = i == 0 ? corners.count - 1 : i - 1
+        let a = corners[i], b = corners[j]
+        if (a.latitude > point.latitude) != (b.latitude > point.latitude),
+           point.longitude < (b.longitude - a.longitude) * (point.latitude - a.latitude)
+             / (b.latitude - a.latitude) + a.longitude {
+            inside.toggle()
+        }
+    }
+    return inside
+}
+
+public let photoOnSiteRadiusM = 150.0
+
+public enum PhotoGeoStatus: String, Sendable { case unknown, inside, near, outside, far }
+
+public struct PhotoGeoCheck: Sendable {
+    public let status: PhotoGeoStatus
+    public let distanceM: Int
+    public let suspect: Bool
+    public let message: String
+}
+
+/// A photo without coordinates is unknown. A surveyed ring takes precedence
+/// over the record pin; neither a nearby road nor a bad GPS fix is proof of fraud.
+public func checkPhotoOnRecord(
+    photo: LatLng?, recordPoint: LatLng?, ring: [LatLng] = [],
+    radiusM: Double = photoOnSiteRadiusM
+) -> PhotoGeoCheck {
+    func valid(_ point: LatLng?) -> Bool {
+        guard let point else { return false }
+        return point.latitude.isFinite && point.longitude.isFinite
+            && (point.latitude != 0 || point.longitude != 0)
+    }
+    guard valid(photo), let photo, valid(recordPoint) || ring.count >= 3 else {
+        return PhotoGeoCheck(status: .unknown, distanceM: 0, suspect: false, message: "")
+    }
+    let reference = valid(recordPoint) ? recordPoint : ringCentroid(ring)
+    let distanceM = reference.map { haversineKm(photo, $0) * 1000 } ?? 0
+    let rounded = Int(distanceM.rounded())
+    if ring.count >= 3 && pointInRing(photo, ring) {
+        return PhotoGeoCheck(status: .inside, distanceM: rounded, suspect: false, message: "")
+    }
+    if distanceM <= radiusM {
+        if ring.count >= 3 {
+            return PhotoGeoCheck(status: .near, distanceM: rounded, suspect: false,
+                message: "This photo was taken \(formatDistance(distanceM / 1000)) outside the boundary — likely from the edge of the land.")
+        }
+        return PhotoGeoCheck(status: .inside, distanceM: rounded, suspect: false, message: "")
+    }
+    let far = distanceM > radiusM * 10
+    let location = ring.count >= 3 ? "from the property" : "from where this record is pinned"
+    return PhotoGeoCheck(status: far ? .far : .outside, distanceM: rounded, suspect: true,
+        message: "This photo's location is \(formatDistance(distanceM / 1000)) \(location). The phone's location may be wrong, or this may not be a photo of this land.")
+}

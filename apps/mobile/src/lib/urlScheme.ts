@@ -37,7 +37,7 @@ function isPrivateOrLocalHost(host: string): boolean {
 export function allowedApiHosts(): string[] {
   const extra = (process.env.EXPO_PUBLIC_ALLOWED_API_HOSTS ?? '')
     .split(',')
-    .map((h) => h.trim().toLowerCase().replace(/\.+$/, ''))
+    .map((h: string) => h.trim().toLowerCase().replace(/\.+$/, ''))
     .filter(Boolean);
   return ['pattadar.com', ...extra];
 }

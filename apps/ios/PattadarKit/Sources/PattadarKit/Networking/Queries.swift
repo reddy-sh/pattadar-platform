@@ -275,6 +275,17 @@ public enum Mutations {
     mutation($name:String!,$email:String!){ updateMe(name:$name,email:$email){ id name email } }
     """
 
+    /// Keep consent explicit when accepting a beneficiary invitation.
+    public static let verifyBeneficiary = """
+    mutation($token: String!, $consent: Boolean = false) { verifyBeneficiary(token: $token, inactivityEmailConsent: $consent) { id status } }
+    """
+
+    /// Only Aadhaar changes. Omitted updateProfile arguments leave their
+    /// existing values intact, including notification and MFA preferences.
+    public static let updateProfileAadhaar = """
+    mutation($kyc:String!){ updateProfile(kycRef:$kyc){ id kycRefMasked } }
+    """
+
     public static let updatePassbook = """
     mutation($id:String!,$pattadarNo:String!,$ownerName:String!,$fatherHusbandName:String!,$state:String!,$district:String!,$mandal:String!,$village:String!){
       updatePassbook(id:$id,pattadarNo:$pattadarNo,ownerName:$ownerName,fatherHusbandName:$fatherHusbandName,state:$state,district:$district,mandal:$mandal,village:$village){ id }

@@ -63,6 +63,43 @@ public func boundaryPointsText(_ raw: Any?) -> String {
     return corners.count >= 3 ? boundaryText(corners) : ""
 }
 
+/// The FMB reader's ordered point ids become one complete open boundary.
+/// A missing or unplaced point rejects the whole ring, matching core's
+/// `ringFromFmbGeometry`; a partial outline would place land in the wrong spot.
+public func ringFromFmbGeometry(_ raw: Any?) -> [LatLng] {
+    guard let geometry = raw as? [String: Any],
+          let points = geometry["points"] as? [[String: Any]],
+          let order = geometry["ring"] as? [Any],
+          !points.isEmpty, !order.isEmpty else { return [] }
+
+    func identifier(_ raw: Any) -> String {
+        if let text = raw as? String { return text }
+        if let number = raw as? NSNumber { return number.stringValue }
+        return String(describing: raw)
+    }
+    func number(_ raw: Any?) -> Double? {
+        if let value = raw as? NSNumber { return value.doubleValue }
+        if let text = raw as? String { return Double(text) }
+        return nil
+    }
+    var byId: [String: LatLng] = [:]
+    for point in points {
+        guard let id = point["id"], let lat = number(point["lat"]),
+              let lon = number(point["lon"]) else { continue }
+        byId[identifier(id)] = LatLng(latitude: lat, longitude: lon)
+    }
+    var ring: [LatLng] = []
+    for id in order {
+        guard let point = byId[identifier(id)], point.latitude.isFinite,
+              point.longitude.isFinite, abs(point.latitude) <= 90,
+              abs(point.longitude) <= 180,
+              point.latitude != 0 || point.longitude != 0 else { return [] }
+        ring.append(point)
+    }
+    if ring.count > 1 && ring.first == ring.last { ring.removeLast() }
+    return ring.count >= 3 ? ring : []
+}
+
 /// Corners projected to metres in a local frame — x east, y north, origin at
 /// the centroid of the corners. This is what both the sketch and the area
 /// are computed from, so they can never disagree.
