@@ -184,7 +184,7 @@ resource "aws_cloudfront_function" "router" {
       var path = request.uri;
       if (path === '/states' || path === '/states/') {
         request.uri = '/states/index.html';
-      } else if (/^\/states\/(andhra-pradesh|telangana)\/?$/.test(path)) {
+      } else if (/^\/states\/(andhra-pradesh|telangana)(\/records(\/[a-z0-9-]+)?)?\/?$/.test(path)) {
         request.uri = path.replace(/\/$/, '') + '/index.html';
       } else if (path.indexOf('.') === -1) {
         request.uri = '/index.html';

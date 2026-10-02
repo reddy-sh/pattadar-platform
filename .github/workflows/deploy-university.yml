@@ -60,3 +60,7 @@ jobs:
           for path in / /locations /locations/markapuram /states/andhra-pradesh /states/andhra-pradesh/records /states/andhra-pradesh/records/pattadar-passbook /states/telangana/records /states/telangana/records/pahani /record-videos/AP/pattadar-passbook.mp4 /record-videos/TS/pahani.vtt /courses/buying-land-andhra-pradesh/lessons/buy-records; do
             curl -fsSL --output /dev/null "https://university.pattadar.com$path"
           done
+          ap_record="$(curl -fsSL https://university.pattadar.com/states/andhra-pradesh/records/pattadar-passbook)"
+          ts_record="$(curl -fsSL https://university.pattadar.com/states/telangana/records/pahani)"
+          [[ "$ap_record" == *'Passbook / khata number'* ]]
+          [[ "$ts_record" == *'Pahani year'* ]]
