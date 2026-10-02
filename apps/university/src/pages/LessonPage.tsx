@@ -12,6 +12,7 @@ import { contentForModule } from '../content';
 import { courseBySlug } from '../data/catalog';
 import { coverageForModule } from '../data/complianceCoverage';
 import { officialReferenceById, officialReferencesById } from '../data/officialReferences';
+import { recordGuidePath, recordGuidesForModule, recordVideoUrl } from '../data/recordGuides';
 import type { Course } from '../domain/types';
 import { downloadCourseGuide } from '../pdf/coursePdf';
 import { useUniversity } from '../state/UniversityProvider';
@@ -48,6 +49,7 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
   const next = course.modules[moduleIndex + 1];
   const references = officialReferencesById(content.referenceIds);
   const complianceCoverage = coverageForModule(module.id);
+  const recordVideos = recordGuidesForModule(module.id);
 
   return (
     <main className="lesson-page">
@@ -81,6 +83,20 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
                 <h2>By the end of this lesson</h2>
                 <ul>{content.objectives.map((objective) => <li key={objective}>{objective}</li>)}</ul>
               </section>
+
+              {recordVideos.length > 0 && <section className="lesson-record-videos" aria-labelledby="lesson-record-videos-title">
+                <span className="lesson-label">Watch and inspect</span>
+                <h2 id="lesson-record-videos-title">Visual record lessons</h2>
+                <p>Pause each fictional example, use captions if helpful, then inspect every field and source in the record library.</p>
+                <div className="lesson-record-videos__grid">{recordVideos.map((record) => <article key={record.slug}>
+                  <video controls playsInline preload="none" poster={recordVideoUrl(record, 'jpg')} aria-label={`${record.title} visual lesson`}>
+                    <source src={recordVideoUrl(record, 'mp4')} type="video/mp4" />
+                    <track kind="captions" src={recordVideoUrl(record, 'vtt')} srcLang="en" label="English captions" default />
+                    Video unavailable. Open the written record guide below.
+                  </video>
+                  <div><h3>{record.title}</h3><p>{record.summary}</p><Link to={recordGuidePath(record)}>Inspect {record.fields.length} key fields <OpenInNewRounded aria-hidden="true" /></Link></div>
+                </article>)}</div>
+              </section>}
 
               {content.sections.map((section) => (
                 <section className="lesson-section" key={section.heading}>

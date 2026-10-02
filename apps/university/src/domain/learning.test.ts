@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { lessonContentByModuleId, missingContentModuleIds } from '../content';
 import { campuses, courses, opportunities, universityStates } from '../data/catalog';
 import { learningPathways } from '../data/pathways';
@@ -10,6 +12,7 @@ import {
   workforceComplianceKeys,
 } from '../data/complianceCoverage';
 import { isGovernmentReferenceUrl, officialReferenceById, officialReferences } from '../data/officialReferences';
+import { recordGuidePath, recordGuides, recordGuidesForState } from '../data/recordGuides';
 import { stateLearningGuides } from '../data/stateGuideContent';
 import { indiaLandRecordSources, publishedStateLandRecordProfiles, stateLandRecordProfiles } from '../data/stateLandRecords';
 import { buildStateGuideStructuredData } from '../seo/stateSeo';
@@ -263,6 +266,31 @@ describe('learning domain', () => {
       expect(lesson.knowledgeCheck.correctOption).toBeGreaterThanOrEqual(0);
       expect(lesson.knowledgeCheck.correctOption).toBeLessThan(lesson.knowledgeCheck.options.length);
       expect(lesson.media).toBeUndefined();
+    }
+  });
+
+  test('keeps record videos, field guides, sources, and state lessons together', () => {
+    expect(recordGuidesForState('AP')).toHaveLength(6);
+    expect(recordGuidesForState('TS')).toHaveLength(5);
+    expect(new Set(recordGuides.map(recordGuidePath)).size).toBe(recordGuides.length);
+
+    for (const guide of recordGuides) {
+      const course = courses.find((item) => item.slug === guide.courseSlug);
+      expect(course?.stateCodes).toContain(guide.stateCode);
+      expect(course?.modules.some((module) => module.id === guide.lessonId)).toBe(true);
+      expect(guide.fields.length).toBeGreaterThanOrEqual(5);
+      expect(guide.videoTakeaways).toHaveLength(4);
+      expect(guide.sourceIds.length).toBeGreaterThanOrEqual(2);
+      for (const id of guide.sourceIds) {
+        const source = officialReferenceById(id);
+        expect(source).toBeDefined();
+        expect(isGovernmentReferenceUrl(source!.url)).toBe(true);
+      }
+      for (const extension of ['mp4', 'jpg', 'vtt', 'txt']) {
+        const asset = fileURLToPath(new URL(`../../public/record-videos/${guide.stateCode}/${guide.slug}.${extension}`, import.meta.url));
+        expect(existsSync(asset)).toBe(true);
+        if (extension === 'vtt') expect(readFileSync(asset, 'utf8').startsWith('WEBVTT')).toBe(true);
+      }
     }
   });
 

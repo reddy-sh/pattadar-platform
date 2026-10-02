@@ -1,0 +1,196 @@
+[
+  {
+    "stateCode": "AP", "slug": "pattadar-passbook", "title": "Pattadar passbook", "shortTitle": "Passbook", "kind": "Holder record", "lessonId": "ap-ror", "courseSlug": "buying-land-andhra-pradesh", "graphic": "passbook",
+    "summary": "A holder-facing view of the land details recorded against a Pattadar. Formats and QR features can vary by issue date; read the actual issued record.",
+    "purpose": "Use it to identify the recorded holder and parcels, then compare those entries with the current 1-B, registered instruments, survey records, and restrictions.",
+    "limit": "A passbook alone does not establish an undisputed title, resolve an assigned-land restriction, or fix a boundary on the ground.",
+    "fields": [
+      { "label": "Passbook / khata number", "example": "PB-EX-204 / Khata 87", "meaning": "The holder account reference used to retrieve and reconcile revenue entries.", "verify": "Match the khata across the current 1-B and any correction or mutation record." },
+      { "label": "Pattadar identity", "example": "Asha Rao", "meaning": "The person shown as the recorded holder in this issued version.", "verify": "Compare full name and relationship details with the deed chain and identity evidence; do not guess through spelling differences." },
+      { "label": "Village and mandal", "example": "Example Village · Sample Mandal", "meaning": "The revenue jurisdiction for the listed land.", "verify": "Confirm district, mandal, and revenue village before searching by survey number." },
+      { "label": "Survey and subdivision", "example": "42/2", "meaning": "The parcel reference; a parent survey number can cover several subdivisions.", "verify": "Match the complete suffix against 1-B, FMB or LPM, and the deed schedule." },
+      { "label": "Recorded extent", "example": "0.80 acre", "meaning": "The area stated for this holding in the passbook.", "verify": "Check units and compare with 1-B, survey measurement, deed, and any subdivision order." },
+      { "label": "Issue date and QR / verification", "example": "Issued 2026 · sample QR", "meaning": "The version and, where present, a route to linked official details or maps.", "verify": "Read the current official result; a scan is a lookup, not proof that every linked layer agrees." }
+    ],
+    "watchFor": ["An old passbook after a sale or succession", "A matching name with a different survey suffix", "A passbook on land with an assignment or prohibited-list question"],
+    "practice": "Mark the six fields on a fictional passbook, then write three separate requests: current 1-B, deed chain, and survey or restriction clarification.",
+    "sourceIds": ["ap-land-records-service", "ap-passbook-2026", "ap-ror-act"],
+    "videoTakeaways": ["A passbook starts your search. It records a holder and parcels, but it is one dated revenue view.", "Match the khata, Pattadar name, village, and complete survey subdivision before comparing any other record.", "Read the extent and issue date. If a QR link exists, inspect the current official result and preserve its date.", "A passbook does not settle title, transfer restrictions, or ground boundaries. Escalate a conflict before payment."]
+  },
+  {
+    "stateCode": "AP", "slug": "ror-1b", "title": "Record of Rights 1-B", "shortTitle": "1-B", "kind": "Rights register", "lessonId": "ap-ror", "courseSlug": "buying-land-andhra-pradesh", "graphic": "register",
+    "summary": "The village-wise Record of Rights register connects a khata and holder with survey entries, classification, extent, and revenue details.",
+    "purpose": "Use a current, dated 1-B extract to compare the recorded rights account with the seller's documents and the passbook.",
+    "limit": "A correct 1-B entry is relevant revenue evidence, but it is not a substitute for the registered chain or a title opinion.",
+    "fields": [
+      { "label": "Revenue village", "example": "Example Village", "meaning": "The village register from which the extract was taken.", "verify": "Confirm district and mandal; the same survey number can exist elsewhere." },
+      { "label": "Khata number", "example": "87", "meaning": "The account linking the holder's listed land entries.", "verify": "Compare with the passbook and mutation documents." },
+      { "label": "Holder and parentage", "example": "Asha Rao · daughter of N. Rao", "meaning": "The name and identifying relationship recorded for the khatadar.", "verify": "Resolve initials, transliteration, and family-name mismatches with supporting records." },
+      { "label": "Survey / subdivision", "example": "42/2", "meaning": "The exact land entry attributed to the account.", "verify": "Carry the subdivision through deed, Adangal, FMB, and EC searches." },
+      { "label": "Classification and extent", "example": "Dry · 0.80 acre", "meaning": "The register's land category and recorded area.", "verify": "Compare the classification with restrictions and the area with survey and deed evidence." },
+      { "label": "Revenue and change context", "example": "Tax ₹— · extract 2026", "meaning": "Revenue and version context may appear; layout varies by extract.", "verify": "Seek the order or mutation trail behind a recent change; a printout alone may not explain it." }
+    ],
+    "watchFor": ["A 1-B printed before a recent transfer", "A holder match but an extent mismatch", "A parent survey used in one record and subdivision in another"],
+    "practice": "Compare a fictional 1-B to a passbook and deed; record every match, date gap, and missing mutation order.",
+    "sourceIds": ["ap-ror-1b-manual", "ap-ror-act"],
+    "videoTakeaways": ["Andhra Pradesh 1-B is a village Record of Rights register. Read the extract date before treating an entry as current.", "Use the khata and Pattadar details to connect a person to the correct village account.", "Match the whole survey subdivision, classification, and extent. A near match is an unresolved question.", "A 1-B entry does not replace the deed chain. Ask for the mutation or correction order when a change is unclear."]
+  },
+  {
+    "stateCode": "AP", "slug": "adangal", "title": "Adangal and cultivation entries", "shortTitle": "Adangal", "kind": "Village account", "lessonId": "ap-adangal", "courseSlug": "buying-land-andhra-pradesh", "graphic": "register",
+    "summary": "Adangal is a land and cultivation account. It can show pattadar and occupant details, extent, land nature, water source, and crop context for a dated period.",
+    "purpose": "Use it to understand land use and occupation evidence without collapsing cultivator, occupant, and recorded holder into one person.",
+    "limit": "A crop or occupant entry does not by itself establish ownership or settle a possession dispute.",
+    "fields": [
+      { "label": "Record year / season", "example": "2025–26", "meaning": "The period to which the cultivation entry relates.", "verify": "Compare like periods; do not treat an old crop entry as a present site observation." },
+      { "label": "Survey and subdivision", "example": "42/2", "meaning": "The land unit addressed by the village account.", "verify": "Use the exact suffix and village in all comparisons." },
+      { "label": "Total and cultivated extent", "example": "0.80 / 0.65 acre", "meaning": "The recorded parcel area and the area described as cultivated may differ.", "verify": "Keep the two numbers separate; check whether the remainder is uncultivated or recorded differently." },
+      { "label": "Pattadar and occupant", "example": "Asha Rao / Kiran Rao", "meaning": "The listed holder and the listed person occupying or enjoying the land may differ.", "verify": "Ask what supports each entry; do not rename an occupant as owner." },
+      { "label": "Land nature and irrigation", "example": "Dry · borewell", "meaning": "Classification and stated water source for the entry.", "verify": "Check whether conditions and permissions still match the record." },
+      { "label": "Crop and cultivation", "example": "Groundnut · Kharif", "meaning": "The crop or seasonal use noted in the village account.", "verify": "Compare with later Adangals and site evidence, keeping dates visible." }
+    ],
+    "watchFor": ["A cultivator name treated as proof of title", "Cultivated area confused with total parcel extent", "A historical crop entry presented as current possession"],
+    "practice": "Read a fictional Adangal and explain why the named cultivator and Pattadar answer different questions.",
+    "sourceIds": ["ap-adangal-manual", "ap-revenue-administration", "ap-gsws-services", "ap-ror-act"],
+    "videoTakeaways": ["Adangal answers land-use and cultivation questions for a dated period. Start with the year and exact survey number.", "Keep total extent separate from cultivated extent. They are not interchangeable measurements.", "Read Pattadar, occupant, land nature, irrigation, and crop as different fields with different meanings.", "If an occupant differs from the holder, preserve the difference. A crop entry is not an ownership decision."]
+  },
+  {
+    "stateCode": "AP", "slug": "old-records-rsr", "title": "Old records, RSR and survey lineage", "shortTitle": "Old records", "kind": "Historical record", "lessonId": "ap-survey", "courseSlug": "buying-land-andhra-pradesh", "graphic": "timeline",
+    "summary": "Older settlement records such as the Re-settlement Register can help trace a parcel's historic survey identity, classification, and extent.",
+    "purpose": "Use certified historical material to explain how a current subdivision relates to its parent and earlier survey entries.",
+    "limit": "A historical entry needs a documented bridge to today's parcel. It does not override a later order simply because it is old.",
+    "fields": [
+      { "label": "Record name and year", "example": "RSR · historical extract", "meaning": "The source and period of the old entry.", "verify": "Ask for a certified copy and note whether pages or years are missing." },
+      { "label": "Old survey number", "example": "42", "meaning": "The parent or earlier parcel reference.", "verify": "Find the official link to the present subdivision 42/2." },
+      { "label": "Settlement extent", "example": "2.40 acres (parent)", "meaning": "The historic area of the earlier survey unit, often broader than a current holding.", "verify": "Never copy a parent extent into a child parcel without subdivision records." },
+      { "label": "Classification and remarks", "example": "Dry · remarks retained", "meaning": "Historic land category and annotations that may affect interpretation.", "verify": "Preserve the exact wording and seek the order behind a changed category." },
+      { "label": "Subdivision / mutation link", "example": "42 → 42/1 + 42/2", "meaning": "The chain of records that connects the older survey to current entries.", "verify": "Collect subdivision sketches, orders, later ROR, and FMB versions." }
+    ],
+    "watchFor": ["Old and new survey numbers assumed identical", "Parent area assigned to one child", "Missing pages or a handwritten remark ignored"],
+    "practice": "Draw a source-linked timeline from a fictional parent survey to the current subdivision; label missing orders as gaps.",
+    "sourceIds": ["ap-survey-records", "ap-ror-act", "ap-gsws-services"],
+    "videoTakeaways": ["Old records help explain where a present survey number came from. Start with the record name and year.", "A parent survey can divide into several present parcels. Trace the official subdivision chain.", "Read historic extent, classification, and remarks in the context of their own date and map.", "Do not jump from an RSR entry to current ownership. Reconcile later orders, 1-B, deeds, and survey records."]
+  },
+  {
+    "stateCode": "AP", "slug": "fmb-and-village-map", "title": "FMB, village map and BhuNaksha", "shortTitle": "FMB & maps", "kind": "Survey record", "lessonId": "ap-survey", "courseSlug": "buying-land-andhra-pradesh", "graphic": "map",
+    "summary": "The Field Measurement Book describes measured survey geometry; village maps and BhuNaksha add wider cadastral context.",
+    "purpose": "Use official survey references to compare parcel shape and subdivision with deed and revenue identifiers.",
+    "limit": "An FMB image or digital map is not a field demarcation; an authorised survey process is needed for disputed ground boundaries.",
+    "fields": [
+      { "label": "Village and survey", "example": "Example Village · 42/2", "meaning": "The map's jurisdiction and exact parcel reference.", "verify": "Check against deed, 1-B, and any parent survey number." },
+      { "label": "Subdivision outline", "example": "42/2 highlighted", "meaning": "The recorded shape within the survey framework.", "verify": "Make sure the sketch is for the child parcel, not only survey 42." },
+      { "label": "Measurements and scale", "example": "Sides A–B, B–C · scale shown", "meaning": "Survey dimensions and drawing scale where provided.", "verify": "Do not calculate a legal boundary from a low-resolution screenshot." },
+      { "label": "Adjoining features", "example": "Road / 42/1 / channel", "meaning": "Neighbouring surveys or public features help orient the sketch.", "verify": "Compare neighbours and access claims with the deed and field visit." },
+      { "label": "Version and certification", "example": "Copy issued 2026", "meaning": "The copy date, survey update, or certification status.", "verify": "Ask whether later subdivisions or re-survey work changed the geometry." }
+    ],
+    "watchFor": ["A fence treated as the official line", "A digital screenshot with no scale or date", "FMB area different from deed or 1-B"],
+    "practice": "Annotate a fictional FMB with survey number, neighbours, dimensions, and date; write a demarcation request for an unresolved extent difference.",
+    "sourceIds": ["ap-survey-records", "ap-gsws-services", "ap-bhunaksha"],
+    "videoTakeaways": ["FMB is measurement evidence. Village maps show context; BhuNaksha is a digital cadastral view.", "Match the exact village and subdivision. A parent sketch cannot silently stand in for a child parcel.", "Read measurements, scale, neighbours, and the copy date together. Preserve any extent conflict.", "A screen map cannot place legal boundary stones. Ask the authorised survey office for demarcation when ground lines are disputed."]
+  },
+  {
+    "stateCode": "AP", "slug": "encumbrance-and-deeds", "title": "EC, registered deeds and certified copies", "shortTitle": "EC & deeds", "kind": "Registration record", "lessonId": "ap-registration", "courseSlug": "buying-land-andhra-pradesh", "graphic": "timeline",
+    "summary": "An Encumbrance Certificate reports indexed registered transactions found for the searched property and period; certified copies provide the underlying document text.",
+    "purpose": "Build a dated registration chronology and compare each instrument's property schedule with revenue and survey records.",
+    "limit": "A nil or no-entry EC is limited to its search inputs, office, period, and available index. It does not prove that no unregistered claim exists.",
+    "fields": [
+      { "label": "Search office and identity", "example": "Sample SRO · survey 42/2", "meaning": "The office and property keys used to retrieve indexed entries.", "verify": "Check jurisdiction, old references, and alternate spellings before relying on a result." },
+      { "label": "From / to period", "example": "2019–2024", "meaning": "The years covered by the EC search.", "verify": "A 2012 deed falls outside this sample period; request the missing history." },
+      { "label": "Document number and year", "example": "EX-123/2012", "meaning": "An index pointer to a registered instrument.", "verify": "Obtain the certified copy and compare the actual deed, not only its index line." },
+      { "label": "Parties and transaction type", "example": "Seller → buyer · sale", "meaning": "Names and instrument category as recorded in registration data.", "verify": "Check identities, execution and registration dates, and any power of attorney." },
+      { "label": "Property schedule", "example": "42/2 · 0.80 acre", "meaning": "The parcel description tied to the registered document.", "verify": "Compare survey, boundaries, village, extent, and subdivision to current records." },
+      { "label": "No-entry wording", "example": "No entries for searched period", "meaning": "A result for the chosen search, not an all-purpose clearance.", "verify": "Keep the exact wording and search receipt; investigate other periods and private agreements." }
+    ],
+    "watchFor": ["A short EC period called a clear title", "An index line used without the certified deed", "A private agreement assumed to appear in EC"],
+    "practice": "Build a fictional deed and EC timeline, then identify the missing years and draft a certified-copy request.",
+    "sourceIds": ["ap-registration", "india-services-ec", "ap-registration-manual", "dolr-model-property-documents"],
+    "videoTakeaways": ["An EC is a scoped search of registered transaction indexes. Record the office, property keys, and years.", "Read each document number, parties, instrument type, and property schedule. Get certified copies for the underlying text.", "A no-entry result for 2019 to 2024 cannot explain a deed from 2012 or every private agreement.", "Build the chronology and compare it with 1-B, survey, and restrictions. Seek qualified review for conflicting agreements."]
+  },
+  {
+    "stateCode": "TS", "slug": "eppb-and-ror-1b", "title": "ePPB and ROR-1B", "shortTitle": "ePPB & ROR", "kind": "Holder and rights record", "lessonId": "ts-ror", "courseSlug": "understanding-telangana-land-records", "graphic": "passbook",
+    "summary": "Bhu Bharati offers Record of Rights information and passbook services for Telangana agricultural land; entries should be checked at their current version.",
+    "purpose": "Connect the Pattadar, khata, and precise survey or subdivision to current rights, history, and transaction status.",
+    "limit": "An ePPB or ROR display does not erase a competing deed, prohibited-property issue, or unresolved civil dispute.",
+    "fields": [
+      { "label": "ePPB / khata", "example": "ePPB-EX-31 / Khata 61", "meaning": "The passbook and account identifiers for the recorded holder.", "verify": "Use the official Bhu Bharati record; do not circulate an Aadhaar number in training files." },
+      { "label": "Pattadar identity", "example": "Kavya Reddy", "meaning": "The person shown as holder in the current record.", "verify": "Compare with registered documents, succession or mutation orders, and any name correction." },
+      { "label": "Village and survey", "example": "Sample Village · 73/1A", "meaning": "The jurisdiction and complete parcel reference.", "verify": "Check the full subdivision against the LPM and deed schedule." },
+      { "label": "Extent and land detail", "example": "0.20 acre · agricultural", "meaning": "The recorded area and category for the entry.", "verify": "Compare area units and boundaries with survey and registration evidence." },
+      { "label": "History and restrictions", "example": "Mutation pending · review", "meaning": "Current status, history, or prohibited-property information may affect use or transfer.", "verify": "Open the official status and underlying order; do not infer clearance from a passbook alone." },
+      { "label": "Issue / retrieval date", "example": "Viewed 2026-10-01", "meaning": "The version of the record used for the learning file.", "verify": "Preserve the date because mutation and correction can change the display." }
+    ],
+    "watchFor": ["Old ePPB after a mutation", "A passbook number mistaken for a survey number", "An assigned-land or prohibited-list flag ignored"],
+    "practice": "Compare fictional ePPB and ROR details with a deed and LPM; mark a pending mutation as unresolved.",
+    "sourceIds": ["ts-bhu-bharati", "ts-bhu-bharati-farmer-services", "ts-bhu-bharati-act"],
+    "videoTakeaways": ["Telangana Bhu Bharati provides Record of Rights and passbook services. Capture the version you actually viewed.", "Match the ePPB or khata, Pattadar, village, and complete survey subdivision.", "Compare extent, history, and any transaction or prohibited-property status with deeds and the LPM.", "A passbook display is one record layer. A disputed claim or restriction needs the competent authority and qualified review."]
+  },
+  {
+    "stateCode": "TS", "slug": "pahani", "title": "Pahani and cultivation history", "shortTitle": "Pahani", "kind": "Village account", "lessonId": "ts-ror", "courseSlug": "understanding-telangana-land-records", "graphic": "register",
+    "summary": "Pahani is a dated village account for land and cultivation. Historical copies may be available through Telangana revenue services.",
+    "purpose": "Read holder, occupant or cultivator, extent, classification, and crop entries in their own year, then compare with current ROR.",
+    "limit": "Cultivation or possession entries are not a standalone title judgment.",
+    "fields": [
+      { "label": "Pahani year", "example": "2023–24", "meaning": "The accounting period for the entry.", "verify": "Keep every year's page separate to avoid a false continuous history." },
+      { "label": "Survey and subdivision", "example": "73/1A", "meaning": "The parcel whose village account is shown.", "verify": "Confirm the same village and exact subdivision in current ROR." },
+      { "label": "Pattadar", "example": "Kavya Reddy", "meaning": "The recorded holder name in that year's account.", "verify": "Compare with the current holder and mutation trail." },
+      { "label": "Occupant / cultivator", "example": "R. Kumar", "meaning": "A different person may be recorded in occupation or cultivation.", "verify": "Do not silently turn an occupation entry into a transfer of ownership." },
+      { "label": "Extent and land nature", "example": "0.20 acre · dry", "meaning": "The area and category stated for this period.", "verify": "Compare with the ROR, survey record, and later changes." },
+      { "label": "Crop and water source", "example": "Cotton · rain-fed", "meaning": "The use and irrigation context described by the village account.", "verify": "Treat as period-specific evidence, not a current inspection." }
+    ],
+    "watchFor": ["A 2023 Pahani called the current record", "Cultivator treated as owner", "Two years with different extents merged without explanation"],
+    "practice": "Compare two fictional Pahani years and identify which changes need a mutation or survey explanation.",
+    "sourceIds": ["ts-meeseva-record-services", "ts-bhu-bharati-rules", "ts-bhu-bharati"],
+    "videoTakeaways": ["A Pahani belongs to a particular year. Keep the year visible when making a comparison.", "Match the exact survey subdivision and read Pattadar separately from occupant or cultivator.", "Extent, land nature, crop, and water source can explain use; they may change over time.", "A Pahani is not a title verdict. Compare it with current ROR, orders, deed evidence, and a site check."]
+  },
+  {
+    "stateCode": "TS", "slug": "old-records-khasra-sethwar", "title": "Khasra Pahani, Sethwar and old records", "shortTitle": "Old records", "kind": "Historical record", "lessonId": "ts-survey", "courseSlug": "understanding-telangana-land-records", "graphic": "timeline",
+    "summary": "Telangana services list old Pahani, Khasra Pahani, Sethwar, supplementary Sethwar, and other settlement records as distinct historical sources.",
+    "purpose": "Use certified copies to reconstruct survey lineage and explain what changed before the current ROR or LPM.",
+    "limit": "A historic name or extent is evidence from its period, not an automatic present right.",
+    "fields": [
+      { "label": "Record type and date", "example": "Sethwar · historical", "meaning": "Identifies which old register and period is being read.", "verify": "Request the exact certified record rather than a loosely labelled scan." },
+      { "label": "Village and old survey", "example": "Sample Village · 73", "meaning": "The original survey identity in the older register.", "verify": "Find official subdivision or resurvey records linking it to 73/1A." },
+      { "label": "Historic extent", "example": "1.10 acre (parent)", "meaning": "The area of the old survey unit or holding in its own context.", "verify": "Do not assign the parent area to one modern child parcel." },
+      { "label": "Classification / remarks", "example": "Dry · note in margin", "meaning": "Historic category and annotations that may explain later changes.", "verify": "Preserve wording and page context; seek orders behind corrections." },
+      { "label": "Link to current record", "example": "73 → 73/1A", "meaning": "The documented sequence of subdivision, correction, or transfer.", "verify": "Compare later Pahani, ROR, Tippan and deed references." }
+    ],
+    "watchFor": ["Khasra and current ROR treated as the same date", "Missing certified pages", "Old parent survey mistaken for a present subdivision"],
+    "practice": "Build a fictional 1950s-to-current survey timeline; mark every step lacking an official bridge.",
+    "sourceIds": ["ts-meeseva-record-services", "ts-survey-records", "ts-bhu-bharati-farmer-services"],
+    "videoTakeaways": ["Telangana has several old record families. Name the record and its year before interpreting a field.", "Trace old survey numbers through certified Sethwar, Tippan, subdivision, and later ROR evidence.", "Historic extent and classification belong to the older survey unit; they may not describe one present child parcel.", "A historic name does not settle today's rights. Preserve gaps and seek the record room or survey office for certified links."]
+  },
+  {
+    "stateCode": "TS", "slug": "tippan-lpm-village-map", "title": "Tippan, LPM and village maps", "shortTitle": "Survey maps", "kind": "Survey record", "lessonId": "ts-survey", "courseSlug": "understanding-telangana-land-records", "graphic": "map",
+    "summary": "Tippan or FMB records measurement detail, village maps provide context, and Bhu Bharati's LPM service shows available parcel-map information.",
+    "purpose": "Use survey sources to understand parcel geometry and old-to-new survey references before a field demarcation request.",
+    "limit": "A displayed LPM or screenshot cannot by itself resolve a boundary or prove legal access on the ground.",
+    "fields": [
+      { "label": "District, mandal, village", "example": "Sample Village · Sample Mandal", "meaning": "The map's survey jurisdiction.", "verify": "Select the right village before searching a survey number." },
+      { "label": "Survey / subdivision", "example": "73/1A", "meaning": "The exact mapped parcel reference.", "verify": "Match the complete suffix with current ROR and deed schedule." },
+      { "label": "Tippan measurements", "example": "Sides A–B, B–C", "meaning": "Field measurement detail in the survey record.", "verify": "Use certified copies for serious discrepancies; do not scale a screenshot by eye." },
+      { "label": "LPM outline and extent", "example": "Parcel 73/1A outlined", "meaning": "A geo-referenced parcel depiction and area where available.", "verify": "Check the capture date and whether later corrections are pending." },
+      { "label": "Adjacent plots and access", "example": "73/1B · road shown", "meaning": "Neighbouring survey context can help orient the map.", "verify": "A drawn path does not independently establish an access right." }
+    ],
+    "watchFor": ["One map version treated as a ground survey", "Wrong village with the same survey number", "A path on a map called a legal right of way"],
+    "practice": "Compare a fictional Tippan and LPM; list the identifiers that match and the questions for an authorised demarcation.",
+    "sourceIds": ["ts-survey-records", "ts-bhu-bharati-gis", "ts-bhu-bharati-farmer-services"],
+    "videoTakeaways": ["Tippan, village maps, and LPM answer related but different survey questions.", "Match district, mandal, village, and full survey subdivision before comparing shapes.", "Read dimensions and adjacent plots from the correct source and preserve the version or capture date.", "A map view is not field demarcation or an access-right decision. Take a dispute to the authorised survey process."]
+  },
+  {
+    "stateCode": "TS", "slug": "ec-registration", "title": "EC, registration and certified deed copies", "shortTitle": "EC & deeds", "kind": "Registration record", "lessonId": "ts-registration", "courseSlug": "understanding-telangana-land-records", "graphic": "timeline",
+    "summary": "Telangana's registration and MeeSeva services provide EC and certified-copy routes; Bhu Bharati provides related agricultural-land transaction information.",
+    "purpose": "Create a dated chain of registered instruments and compare their property schedules with ROR and survey records.",
+    "limit": "An EC result is bounded by the search inputs, index, office, and period; unregistered arrangements or disputed facts require separate review.",
+    "fields": [
+      { "label": "SRO and search details", "example": "Sample SRO · 73/1A", "meaning": "The registration office and property identifiers used in the search.", "verify": "Confirm jurisdiction and older parcel references." },
+      { "label": "Search period", "example": "2018–2026", "meaning": "The dates for which entries were sought.", "verify": "Compare with the first known acquisition and extend the search when years are missing." },
+      { "label": "Document number / year", "example": "EX-88/2020", "meaning": "The index reference for a registered instrument.", "verify": "Order a certified deed copy to read its full terms and schedule." },
+      { "label": "Parties and instrument", "example": "R. Kumar → K. Reddy · sale", "meaning": "The transaction participants and document category.", "verify": "Compare identities, authority to sign, and later cancellation or transfer records." },
+      { "label": "Parcel schedule", "example": "73/1A · 0.20 acre", "meaning": "The property description attached to the document.", "verify": "Compare survey, village, boundaries, and extent with ROR and LPM." },
+      { "label": "Result and receipt", "example": "Search receipt · dated 2026", "meaning": "Evidence of the query and its returned entries or no-entry wording.", "verify": "Keep the receipt and exact period; do not call a no-entry result complete title clearance." }
+    ],
+    "watchFor": ["No-entry EC interpreted as no claims anywhere", "Certified copy not checked against the index", "Old survey number absent from the search"],
+    "practice": "Build a fictional Telangana registration chronology and identify the missing certified copies and search periods.",
+    "sourceIds": ["ts-state-services", "ts-meeseva-record-services", "ts-bhu-bharati", "dolr-registration-faq"],
+    "videoTakeaways": ["An EC is a search result for chosen property details, office, and time period.", "Use document numbers to obtain certified copies and inspect parties, document type, and property schedule.", "Compare each deed's survey, extent, and boundaries with Bhu Bharati ROR and the relevant survey map.", "A no-entry EC does not settle unregistered agreements or civil disputes. Preserve gaps for qualified review."]
+  }
+]

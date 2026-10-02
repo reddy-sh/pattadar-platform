@@ -5,11 +5,13 @@ import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import LaunchRounded from '@mui/icons-material/LaunchRounded';
 import MapOutlined from '@mui/icons-material/MapOutlined';
 import PolicyOutlined from '@mui/icons-material/PolicyOutlined';
+import PlayCircleOutlineRounded from '@mui/icons-material/PlayCircleOutlineRounded';
 import SourceOutlined from '@mui/icons-material/SourceOutlined';
 import { useMemo } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
 import { PageMeta } from '../components/PageMeta';
 import { stateLearningGuideByCode } from '../data/stateGuideContent';
+import { recordGuidePath, recordGuides } from '../data/recordGuides';
 import {
   indiaLandRecordSources,
   landRecordAvailabilityLabels,
@@ -79,6 +81,7 @@ export function StateGuidePage() {
     [guide, profile],
   );
   const courseParams = new URLSearchParams({ state: profile.code });
+  const videos = recordGuides.filter((record) => record.stateCode === profile.code);
 
   return (
     <main className="page-shell state-guide-page">
@@ -105,6 +108,7 @@ export function StateGuidePage() {
 
       <nav className="state-guide-jump" aria-label={`${profile.name} guide sections`}>
         <a href="#records">Key records</a>
+        {videos.length > 0 && <a href="#videos">Video lessons</a>}
         <a href="#official-access">Official access</a>
         <a href="#workflow">Mutation and survey</a>
         <a href="#checklist">Review checklist</a>
@@ -150,6 +154,18 @@ export function StateGuidePage() {
           </div>
         </aside>
       </div>
+
+      {videos.length > 0 && <section className="state-record-videos" id="videos" aria-labelledby="state-record-videos-title">
+        <header className="section-heading section-heading--compact">
+          <div><span className="context-line">Self-learning videos</span><h2 id="state-record-videos-title">Learn every key field</h2><p>Original narrated graphics, fictional samples, transcripts, and official source trails.</p></div>
+          <Link className="button button--quiet" to={`/states/${profile.slug}/records`}>Open {profile.name} library <ArrowForwardRounded /></Link>
+        </header>
+        <div className="state-record-videos__grid">
+          {videos.map((record) => <Link key={record.slug} to={recordGuidePath(record)}>
+            <PlayCircleOutlineRounded aria-hidden="true" /><span><strong>{record.shortTitle}</strong><small>{record.fields.length} fields · {record.kind}</small></span><ArrowForwardRounded aria-hidden="true" />
+          </Link>)}
+        </div>
+      </section>}
 
       <section className="official-access-steps" aria-labelledby="access-steps-title">
         <header className="section-heading section-heading--compact">

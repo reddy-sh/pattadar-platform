@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { courses, campuses } from '../src/data/catalog';
+import { officialReferencesById } from '../src/data/officialReferences';
+import { recordGuidePath, recordGuides, recordGuidesForState, recordVideoUrl } from '../src/data/recordGuides';
 import { stateLearningGuideByCode } from '../src/data/stateGuideContent';
 import { publishedStateLandRecordProfiles } from '../src/data/stateLandRecords';
 import {
@@ -91,6 +93,55 @@ function renderDirectorySnapshot(): string {
   </div>`;
 }
 
+function renderRecordLibrarySnapshot(profile: (typeof publishedStateLandRecordProfiles)[number]): string {
+  const records = profile.code === 'AP' || profile.code === 'TS' ? recordGuidesForState(profile.code) : [];
+  return `<div id="root"><main class="page-shell record-library-page seo-snapshot">
+    <h1>${escapeHtml(profile.name)} record learning videos</h1>
+    <p>Original narrated teaching graphics, fictional field examples, transcripts, and government sources.</p>
+    <ul>${records.map((record) => `<li><a href="${recordGuidePath(record)}">${escapeHtml(record.title)}</a> - ${escapeHtml(record.summary)}</li>`).join('')}</ul>
+  </main></div>`;
+}
+
+function renderRecordSnapshot(record: (typeof recordGuides)[number]): string {
+  const sources = officialReferencesById(record.sourceIds);
+  return `<div id="root"><main class="page-shell record-detail-page seo-snapshot">
+    <h1>${escapeHtml(record.title)}</h1>
+    <p>${escapeHtml(record.summary)}</p>
+    <p>Fictional training example. Not a government record.</p>
+    <section><h2>Key fields and checks</h2>${record.fields.map((field) =>
+      `<h3>${escapeHtml(field.label)}</h3><p>Example: ${escapeHtml(field.example)}. ${escapeHtml(field.meaning)} ${escapeHtml(field.verify)}</p>`).join('')}</section>
+    <section><h2>Limits</h2><p>${escapeHtml(record.limit)}</p></section>
+    <section><h2>Government sources</h2><ul>${sources.map((source) =>
+      `<li><a href="${escapeHtml(source.url)}">${escapeHtml(source.title)}</a> - ${escapeHtml(source.authority)}</li>`).join('')}</ul></section>
+  </main></div>`;
+}
+
+function recordSchema(record: (typeof recordGuides)[number]): Record<string, unknown>[] {
+  const pageUrl = canonicalUrl(recordGuidePath(record));
+  const stateName = record.stateCode === 'AP' ? 'Andhra Pradesh' : 'Telangana';
+  return [{
+    '@context': 'https://schema.org',
+    '@type': 'LearningResource',
+    name: `${record.title} explained`,
+    description: record.summary,
+    url: pageUrl,
+    inLanguage: 'en-IN',
+    educationalLevel: 'Beginner',
+    learningResourceType: 'Visual lesson and field guide',
+    about: `${stateName} land records`,
+    citation: officialReferencesById(record.sourceIds).map((source) => source.url),
+    video: {
+      '@type': 'VideoObject',
+      name: `${record.title} visual lesson`,
+      description: `Original narrated fictional example explaining ${record.title} in ${stateName}.`,
+      thumbnailUrl: canonicalUrl(recordVideoUrl(record, 'jpg')),
+      contentUrl: canonicalUrl(recordVideoUrl(record, 'mp4')),
+      uploadDate: '2026-10-01',
+      inLanguage: 'en-IN',
+    },
+  }];
+}
+
 function injectPage(
   template: string,
   title: string,
@@ -124,6 +175,8 @@ const sitemapEntries = [
   ...courses.map((course) => ({ path: `/courses/${course.slug}`, lastmod: '2026-09-20' })),
   ...campuses.map((campus) => ({ path: `/locations/${campus.slug}`, lastmod: campus.slug === 'markapuram' ? '2026-09-30' : '2026-09-20' })),
   ...publishedStateLandRecordProfiles.map((profile) => ({ path: `/states/${profile.slug}`, lastmod: profile.reviewedOn })),
+  ...publishedStateLandRecordProfiles.map((profile) => ({ path: `/states/${profile.slug}/records`, lastmod: '2026-10-01' })),
+  ...recordGuides.map((record) => ({ path: recordGuidePath(record), lastmod: '2026-10-01' })),
 ];
 
 const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
@@ -150,6 +203,10 @@ The initial jurisdiction library covers Andhra Pradesh and Telangana. Each revie
 
 - [Reviewed jurisdiction library](${universitySiteUrl}/states)
 ${publishedStateLandRecordProfiles.map((profile) => `- [${profile.name} land records](${universitySiteUrl}/states/${profile.slug})`).join('\n')}
+
+## Record video libraries
+
+${publishedStateLandRecordProfiles.map((profile) => `- [${profile.name} visual record lessons](${universitySiteUrl}/states/${profile.slug}/records)`).join('\n')}
 
 ## Important boundary
 
@@ -191,6 +248,32 @@ if (isDistribution) {
         `/states/${profile.slug}`,
         buildStateGuideStructuredData(profile, guide),
         renderStateSnapshot(profile.code),
+      ),
+    );
+    await write(
+      `states/${profile.slug}/records/index.html`,
+      injectPage(
+        template,
+        `${profile.name} record learning videos | Pattadar University`,
+        `Original visual lessons on ${profile.name} land records, with fictional field examples and official sources.`,
+        `/states/${profile.slug}/records`,
+        [],
+        renderRecordLibrarySnapshot(profile),
+      ),
+    );
+  }));
+  await Promise.all(recordGuides.map(async (record) => {
+    const stateSlug = record.stateCode === 'AP' ? 'andhra-pradesh' : 'telangana';
+    const stateName = record.stateCode === 'AP' ? 'Andhra Pradesh' : 'Telangana';
+    await write(
+      `states/${stateSlug}/records/${record.slug}/index.html`,
+      injectPage(
+        template,
+        `${record.title} explained | ${stateName} | Pattadar University`,
+        record.summary,
+        recordGuidePath(record),
+        recordSchema(record),
+        renderRecordSnapshot(record),
       ),
     );
   }));

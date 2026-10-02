@@ -20,7 +20,7 @@ Independent React/Vite product shell for `university.pattadar.com`.
 - Course enrollment and module progress saved locally behind a repository port.
 - Personal learning record and completion state.
 - Downloadable browser-generated course handbooks containing the full lesson material, plus clearly marked completion-record previews.
-- Honest video placeholders: the current reading is complete, while reviewed video lessons are planned for a later release.
+- Eleven original narrated visual lessons for Andhra Pradesh and Telangana records, each with English captions, a transcript, a fictional field-by-field sample, and government source links.
 - Proposed opportunity, mentor-role, and location discovery without presenting them as live offerings.
 - Grounded demo AI tutor with explicit human escalation for live legal, survey, safety, and property decisions.
 - Shared Cognito OIDC/PKCE configuration for Pattadar accounts.
@@ -29,6 +29,13 @@ Independent React/Vite product shell for `university.pattadar.com`.
 Course progress and saved opportunity interest use local prototype adapters, not the production source of truth. Curriculum, mentor roles, location plans, opportunity paths, and completion records are visibly marked as preview content. English is the current source language; Telugu publication remains planned and requires human terminology review. The production API and DynamoDB migration path are defined in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 The current product and launch gaps are ordered in [REVIEW.md](./REVIEW.md). No verified certificate is issued by this preview.
+
+## State record video libraries
+
+- Andhra Pradesh: `/states/andhra-pradesh/records` covers passbook, 1-B, Adangal, old RSR records, FMB and village maps, and EC with deeds.
+- Telangana: `/states/telangana/records` covers ePPB and ROR, Pahani, old Khasra and Sethwar records, Tippan and LPM, and EC with registration.
+
+The canonical teaching data is `src/data/recordGuides.json`. Its fictional examples are never copied from a real landowner. `scripts/renderRecordVideos.py` renders the MP4s, posters, WebVTT captions, and transcripts into `public/record-videos/`. It needs Pillow, ffmpeg, [Piper](https://github.com/OHF-Voice/piper1-gpl), and the [en_US-ljspeech-medium voice model](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/ljspeech/medium). Download the `.onnx` and matching `.onnx.json` files to a local directory, then set `PATTADAR_PIPER_BIN` and `PATTADAR_PIPER_MODEL` before running the script. The model card identifies the [LJ Speech dataset](https://keithito.com/LJ-Speech-Dataset/) as public domain. The model is used only to render audio; neither Piper nor model weights are shipped with the site. A production content review should verify any changed government service, the English narration's pronunciation, and a human-reviewed Telugu version before claiming bilingual coverage.
 
 ## Run it
 

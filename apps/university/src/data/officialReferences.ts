@@ -12,6 +12,7 @@ export interface OfficialReference {
 
 const reviewedOn = '2026-09-20';
 const verifiedOn = '2026-09-30';
+const recordReviewOn = '2026-10-01';
 
 export const officialReferences: OfficialReference[] = [
   {
@@ -40,6 +41,42 @@ export const officialReferences: OfficialReference[] = [
     kind: 'law',
     description: 'Official text governing preparation, maintenance, amendment, inspection, and copies of the Record of Rights.',
     reviewedOn: verifiedOn,
+  },
+  {
+    id: 'ap-ror-1b-manual',
+    title: 'GSWS ROR-1B service and field example',
+    authority: 'GSWS, Government of Andhra Pradesh',
+    url: 'https://apseva.ap.gov.in/assets/User-Manuals/CSP-User-Manual.pdf',
+    kind: 'manual',
+    description: 'Shows the ROR-1B service and a field example with holder, father name, khata, survey, classification, extent, and tax.',
+    reviewedOn: recordReviewOn,
+  },
+  {
+    id: 'ap-adangal-manual',
+    title: 'GSWS computerized and old Adangal services',
+    authority: 'GSWS, Government of Andhra Pradesh',
+    url: 'https://apseva.ap.gov.in/assets/User-Manuals/CSP-User-Manual.pdf',
+    kind: 'manual',
+    description: 'Describes computerized Adangal and old Adangal services and the official record request workflow.',
+    reviewedOn: recordReviewOn,
+  },
+  {
+    id: 'ap-revenue-administration',
+    title: 'Revenue land administration and Pahani field work',
+    authority: 'SPSR Nellore District, Government of Andhra Pradesh',
+    url: 'https://spsnellore.ap.gov.in/revenue-land-administration/',
+    kind: 'service',
+    description: 'District explanation of village revenue administration, field inspection, crop entries, and Pattadar passbooks.',
+    reviewedOn: recordReviewOn,
+  },
+  {
+    id: 'ap-passbook-2026',
+    title: 'Pattadar passbook verification and QR details',
+    authority: 'West Godavari District, Government of Andhra Pradesh',
+    url: 'https://westgodavari.ap.gov.in/%E0%B0%B0%E0%B0%BE%E0%B0%9C%E0%B0%AE%E0%B1%81%E0%B0%A6%E0%B1%8D%E0%B0%B0%E0%B0%A4%E0%B1%8B-%E0%B0%AE%E0%B1%81%E0%B0%A6%E0%B1%8D%E0%B0%B0%E0%B0%BF%E0%B0%82%E0%B0%9A%E0%B0%BF%E0%B0%A8-%E0%B0%A4%E0%B0%AA/',
+    kind: 'service',
+    description: 'January 2026 district explanation of the newer passbook, land-detail checks, and QR-linked map information.',
+    reviewedOn: recordReviewOn,
   },
   {
     id: 'ap-gsws-services',
@@ -265,6 +302,33 @@ export const officialReferences: OfficialReference[] = [
     kind: 'portal',
     description: 'Official parcel-map interface using district, division, mandal, village, and survey-number context.',
     reviewedOn,
+  },
+  {
+    id: 'ts-bhu-bharati-farmer-services',
+    title: 'Bhu Bharati farmer information and survey-map services',
+    authority: 'Revenue Department, Government of Telangana',
+    url: 'https://bhubharati.telangana.gov.in/pilot/getFarmerModulesBL',
+    kind: 'service',
+    description: 'Lists ROR-1B, ownership-history, prohibited-property and LPM information services, and record-correction requests.',
+    reviewedOn: recordReviewOn,
+  },
+  {
+    id: 'ts-meeseva-record-services',
+    title: 'MeeSeva revenue and registration service list',
+    authority: 'MeeSeva, Government of Telangana',
+    url: 'https://ts.meeseva.telangana.gov.in/TSDeptPortal/UserInterface/Services.html',
+    kind: 'service',
+    description: 'Lists old Pahani, Khasra Pahani, Sethwar, FMB, village map, ROR-1B, certified deed copy and EC services.',
+    reviewedOn: recordReviewOn,
+  },
+  {
+    id: 'ts-survey-records',
+    title: 'Survey and Land Department record guide',
+    authority: 'Peddapalli District, Government of Telangana',
+    url: 'https://peddapalli.telangana.gov.in/survey-and-land-department/',
+    kind: 'service',
+    description: 'Explains Tippan/FMB, village maps, Sethwar and supplementary survey records, certified copies and demarcation.',
+    reviewedOn: recordReviewOn,
   },
   {
     id: 'ts-state-services',

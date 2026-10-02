@@ -1,6 +1,6 @@
 # Pattadar University product review
 
-Reviewed 30 September 2026 against the current `apps/university` preview and its architecture contract. This is the working order for buyer and seller education, Pattadar employee training, service training, and credentials.
+Reviewed 1 October 2026 against the current `apps/university` preview and its architecture contract. This is the working order for buyer and seller education, Pattadar employee training, service training, and credentials.
 
 ## Current inventory
 
@@ -9,6 +9,7 @@ Reviewed 30 September 2026 against the current `apps/university` preview and its
 | Curriculum | 11 courses and 60 structured lessons, practice activities, and single-question knowledge checks. |
 | Learning order | Four suggested paths: buyer, seller, employee, and service professional. All catalog courses appear in at least one path. |
 | Jurisdiction | Detailed record courses and published guides for Andhra Pradesh and Telangana. A national jurisdiction registry exists, but the other 34 guides are not published. |
+| Record literacy media | Eleven original narrated visual lessons and annotated fictional record guides: six Andhra Pradesh, five Telangana. Each has captions, a transcript, and government source links. English narration and terminology still need human editorial and Telugu review. |
 | Learning record | Enrollment and module completion are stored in browser local storage. |
 | Credentials | A browser-generated completion **preview** is available at 100% module progress. Separately, the Pattadar associate desk can issue signed internal training certificates with a public verifier and revocation. The two systems are not connected. |
 | Workforce | Governance lessons and a compliance-to-training matrix exist. Training is not connected to live staff clearance or provider dispatch permission. |
@@ -39,7 +40,7 @@ These are suggested sequences. The current app does not enforce prerequisites or
 2. **Seller curriculum:** add a Telangana sale course, plus disclosure, negotiation handoff, lien or loan closure, document release, and post-sale record update where the jurisdiction supports it.
 3. **Employee curriculum:** add role-based onboarding for support, field operations, document handling, case escalation, incident response, privacy, and periodic requalification. Connect the training matrix to the live Admin policy version.
 4. **Service curriculum:** add real field submissions, supervisor observation, equipment and safety checks, customer communication, quality review, remediation, and renewal intervals per discipline.
-5. **Language and accessibility:** publish human-reviewed Telugu lessons, captions and transcripts for any videos, keyboard and screen-reader acceptance checks, and equivalent reading access where video is unavailable.
+5. **Language and accessibility:** publish human-reviewed Telugu lessons and narration, check current English narration for pronunciation, run keyboard and screen-reader acceptance checks, and keep captions, transcripts, and equivalent reading access for every video.
 
 ### P2 — expand and operate the University
 

@@ -10,6 +10,11 @@ The initial jurisdiction library covers Andhra Pradesh and Telangana. Each revie
 - [Andhra Pradesh land records](https://university.pattadar.com/states/andhra-pradesh)
 - [Telangana land records](https://university.pattadar.com/states/telangana)
 
+## Record video libraries
+
+- [Andhra Pradesh visual record lessons](https://university.pattadar.com/states/andhra-pradesh/records)
+- [Telangana visual record lessons](https://university.pattadar.com/states/telangana/records)
+
 ## Important boundary
 
 The guides are education, not title certificates, legal opinions, survey demarcations, or government services. Portal records must be reconciled with certified records, registration, mutation, survey, restrictions, and competent professional or authority review where needed.

@@ -18,6 +18,8 @@ import { LocationsPage } from './pages/LocationsPage';
 import { LessonPage } from './pages/LessonPage';
 import { OpportunitiesPage } from './pages/OpportunitiesPage';
 import { PathwaysPage } from './pages/PathwaysPage';
+import { RecordDetailPage } from './pages/RecordDetailPage';
+import { RecordLibraryPage } from './pages/RecordLibraryPage';
 import { StateGuidePage } from './pages/StateGuidePage';
 import { StateGuidesPage } from './pages/StateGuidesPage';
 
@@ -77,6 +79,8 @@ export function App() {
         <Route path="/locations" element={<LocationsPage />} />
         <Route path="/locations/:slug" element={<LocationPage />} />
         <Route path="/states" element={<StateGuidesPage />} />
+        <Route path="/states/:slug/records" element={<RecordLibraryPage />} />
+        <Route path="/states/:slug/records/:recordSlug" element={<RecordDetailPage />} />
         <Route path="/states/:slug" element={<StateGuidePage />} />
         <Route path="*" element={(
           <main className="page-shell empty-page">
