@@ -28,7 +28,7 @@ export function RecordLibraryPage() {
             ? 'Six Andhra Pradesh lessons cover the Pattadar passbook, 1-B, Adangal, old settlement records, FMB, and EC.'
             : 'Five Telangana lessons cover ePPB and ROR, Pahani, old records, Tippan and LPM, and EC.'}</p>
         </div>
-        <div className="record-library-count"><strong>{guides.length}</strong><span>visual lessons<br />with narration and captions</span></div>
+        <div className="record-library-count"><strong>{guides.length}</strong><span>caption-first lessons<br />with optional narration</span></div>
       </header>
       <div className="record-library-note">
         All illustrated names, numbers and parcels are fictional. The videos teach how to read records; check the linked government source and obtain competent review for a real property.

@@ -3,8 +3,9 @@
 
 The diagrams are fictional teaching examples. Government pages are cited in the
 University record library, not reproduced in the video frames.
-Requires Pillow, ffmpeg/ffprobe, and Piper with a separately downloaded
-en_US-ljspeech-medium model. The LJ Speech training data is public domain.
+Requires Pillow, ffmpeg/ffprobe, Kokoro, soundfile, and the English spaCy model.
+Kokoro's Apache-licensed model is used only while rendering; its weights are
+not shipped to the website.
 """
 
 from __future__ import annotations
@@ -12,19 +13,22 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
+import soundfile as sf
 from PIL import Image, ImageDraw, ImageFont
+from kokoro import KPipeline
 
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDES = json.loads((ROOT / "src/data/recordGuides.json").read_text())
 OUT = ROOT / "public/record-videos"
-PIPER = os.environ.get("PATTADAR_PIPER_BIN", "piper")
-PIPER_MODEL = os.environ.get("PATTADAR_PIPER_MODEL", "")
+VOICE = os.environ.get("PATTADAR_VIDEO_VOICE", "af_heart")
 FONT_DIR = Path("/System/Library/Fonts/Supplemental")
 W, H = 1600, 900
 NAVY = "#102a34"
@@ -33,6 +37,48 @@ INK = "#18313a"
 RUST = "#bc5924"
 SAGE = "#d7e5d7"
 MUTED = "#a8bdc0"
+_pipeline: KPipeline | None = None
+
+
+def speech_text(value: str) -> str:
+    """Expand record shorthand for clearer speech and matching captions."""
+    replacements = {
+        r"\bePPB\b": "electronic Pattadar passbook",
+        r"\bROR\b": "record of rights",
+        r"\b1-B\b": "one B",
+        r"\bFMB\b": "field measurement book",
+        r"\bRSR\b": "re settlement register",
+        r"\bEC\b": "encumbrance certificate",
+        r"\bQR\b": "Q R",
+        r"\bLPM\b": "land parcel map",
+        r"\bSRO\b": "sub registrar office",
+        r"\bBhuNaksha\b": "Bhu Naksha",
+    }
+    for pattern, replacement in replacements.items():
+        value = re.sub(pattern, replacement, value)
+    return value
+
+
+def pronunciation_text(value: str) -> str:
+    """Keep official spelling in captions while guiding local-name speech."""
+    value = speech_text(value)
+    for pattern, phonemes in (
+        (r"\bBhu Bharati\b", "bˈuː bɑːɹˈɑːti"),
+        (r"\bPattadar\b", "pətˈɑːdɑːɹ"),
+        (r"\bkhata\b", "kˈɑːtɑː"),
+    ):
+        value = re.sub(pattern, lambda match: f"[{match.group()}](/{phonemes}/)", value)
+    return value
+
+
+def synthesize(narration: str, destination: Path) -> None:
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
+    chunks = [result.audio.numpy() for result in _pipeline(pronunciation_text(narration), voice=VOICE, speed=0.94)]
+    if not chunks:
+        raise RuntimeError(f"No narration generated for: {narration}")
+    sf.write(destination, np.concatenate(chunks), 24000)
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -197,8 +243,6 @@ def timestamp(t: float) -> str:
 
 
 def render(guide: dict) -> None:
-    if not PIPER_MODEL or not Path(PIPER_MODEL).is_file():
-        raise RuntimeError("Set PATTADAR_PIPER_MODEL to the en_US-ljspeech-medium.onnx file")
     destination = OUT / guide["stateCode"]
     destination.mkdir(parents=True, exist_ok=True)
     slug = guide["slug"]
@@ -215,8 +259,7 @@ def render(guide: dict) -> None:
             audio = temp / f"voice-{index}.wav"
             segment = temp / f"segment-{index}.mp4"
             frame.save(png, optimize=True)
-            subprocess.run([PIPER, "-m", PIPER_MODEL, "-f", str(audio)], input=narration,
-                           text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            synthesize(narration, audio)
             duration = math.ceil((seconds(audio) + 0.9) * 24) / 24
             # A small zoom gives the graphic motion while captions and narrated
             # chapters keep the lesson understandable with or without sound.
@@ -227,7 +270,7 @@ def render(guide: dict) -> None:
                  "-preset", "veryfast", "-crf", "27", "-c:a", "aac", "-b:a", "96k",
                  "-movflags", "+faststart", str(segment)])
             parts.append(segment)
-            cues.append((elapsed, elapsed + duration, narration))
+            cues.append((elapsed, elapsed + duration, speech_text(narration)))
             elapsed += duration
         concat = temp / "concat.txt"
         concat.write_text("".join(f"file '{part}'\n" for part in parts))

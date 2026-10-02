@@ -1,7 +1,7 @@
 Tippan, LPM and village maps | Pattadar University | TS
 Fictional training example. Not a government record.
 
-Tippan, village maps, and LPM answer related but different survey questions.
+Tippan, village maps, and land parcel map answer related but different survey questions.
 
 Match district, mandal, village, and full survey subdivision before comparing shapes.
 

@@ -41,11 +41,11 @@ export function RecordDetailPage() {
         <div className="record-film__copy">
           <span className="context-line">Watch · pause · check</span>
           <h2 id="record-film-title">A guided visual lesson</h2>
-          <p>Follow the annotated example with narration and English captions. Pause at each field, then inspect its meaning below.</p>
+          <p>Follow the annotated example with English captions. The video starts muted; unmute it only if you want narration. Pause at each field, then inspect its meaning below.</p>
           <a className="record-film__transcript" href={recordVideoUrl(guide, 'txt')} download><DownloadRounded /> Download transcript</a>
         </div>
         <div className="record-film__player">
-          <video controls playsInline preload="metadata" poster={recordVideoUrl(guide, 'jpg')} aria-label={`${guide.title} visual lesson`}>
+          <video controls muted playsInline preload="metadata" poster={recordVideoUrl(guide, 'jpg')} aria-label={`${guide.title} visual lesson`}>
             <source src={recordVideoUrl(guide, 'mp4')} type="video/mp4" />
             <track kind="captions" src={recordVideoUrl(guide, 'vtt')} srcLang="en" label="English captions" default />
             Your browser cannot play this video. Use the downloadable transcript and field guide below.

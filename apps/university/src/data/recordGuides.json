@@ -121,7 +121,7 @@
     "watchFor": ["Old ePPB after a mutation", "A passbook number mistaken for a survey number", "An assigned-land or prohibited-list flag ignored"],
     "practice": "Compare fictional ePPB and ROR details with a deed and LPM; mark a pending mutation as unresolved.",
     "sourceIds": ["ts-bhu-bharati", "ts-bhu-bharati-farmer-services", "ts-bhu-bharati-act"],
-    "videoTakeaways": ["Telangana Bhu Bharati provides Record of Rights and passbook services. Capture the version you actually viewed.", "Match the ePPB or khata, Pattadar, village, and complete survey subdivision.", "Compare extent, history, and any transaction or prohibited-property status with deeds and the LPM.", "A passbook display is one record layer. A disputed claim or restriction needs the competent authority and qualified review."]
+    "videoTakeaways": ["Telangana Bhu Bharati provides Record of Rights and passbook services. Capture the version you actually viewed.", "Match the passbook or khata number. Then check the Pattadar, village, and complete survey subdivision.", "Compare extent, history, and any transaction or prohibited-property status with deeds and the LPM.", "A passbook display is one record layer. A disputed claim or restriction needs the competent authority and qualified review."]
   },
   {
     "stateCode": "TS", "slug": "pahani", "title": "Pahani and cultivation history", "shortTitle": "Pahani", "kind": "Village account", "lessonId": "ts-ror", "courseSlug": "understanding-telangana-land-records", "graphic": "register",

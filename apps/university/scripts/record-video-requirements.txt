@@ -1,0 +1,4 @@
+kokoro==0.9.4
+transformers>=4.40,<5
+soundfile>=0.13
+Pillow>=11

@@ -5,7 +5,7 @@ A passbook starts your search. It records a holder and parcels, but it is one da
 
 Match the khata, Pattadar name, village, and complete survey subdivision before comparing any other record.
 
-Read the extent and issue date. If a QR link exists, inspect the current official result and preserve its date.
+Read the extent and issue date. If a Q R link exists, inspect the current official result and preserve its date.
 
 A passbook does not settle title, transfer restrictions, or ground boundaries. Escalate a conflict before payment.
 

@@ -1,7 +1,7 @@
 FMB, village map and BhuNaksha | Pattadar University | AP
 Fictional training example. Not a government record.
 
-FMB is measurement evidence. Village maps show context; BhuNaksha is a digital cadastral view.
+field measurement book is measurement evidence. Village maps show context; Bhu Naksha is a digital cadastral view.
 
 Match the exact village and subdivision. A parent sketch cannot silently stand in for a child parcel.
 
