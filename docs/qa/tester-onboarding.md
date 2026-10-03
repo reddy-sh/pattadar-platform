@@ -77,6 +77,19 @@ plus an optional local-only `IDENTITY_LEGACY_BINDINGS` entry that maps your
 Cognito principal to your local owner key, are read from the gitignored
 `.local/cognito-local.env`. Never copy that binding into a deployed environment.
 
+Aadhaar scans and saves need a local field key. The gitignored
+`.local/aadhaar-key.env` defines `AADHAAR_ENC_KEY` as one line,
+`AADHAAR_ENC_KEY=<key>`, without `export`. Generate a key once with
+`python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+(any Python with `cryptography`, such as `.local/api-venv/bin/python`).
+`start-local.sh` passes the key to the API process only; the gateway, assistant
+and web servers never receive it, and the file wins over an `AADHAAR_ENC_KEY`
+already exported in your shell. The startup banner names the file, never the
+value. Without the file, an Aadhaar scan returns a 503 "Aadhaar reading is not
+available on this server: Aadhaar protection is not configured. Nothing was sent
+for reading." before any provider call. Use synthetic numbers only, such as
+`1234 1234 1234`; screens and API responses show the last 4 digits only.
+
 Cloud storage is MinIO standing in for S3. A document upload that fails because
 MinIO is not up is an outage, not a UI defect; check the service before filing.
 

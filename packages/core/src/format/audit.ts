@@ -49,6 +49,7 @@ const ACTION_LABELS: Record<string, string> = {
   invite_member: 'Invited a member',
   update_invitation_status: 'Updated an invitation',
   reveal_aadhaar: 'Viewed an Aadhaar number',
+  link_aadhaar_card: 'Kept an Aadhaar card',
   apply_my_kyc: 'Updated your identity from Aadhaar',
   update_profile: 'Updated your profile',
   update_parcel: 'Updated a parcel',
@@ -147,7 +148,7 @@ export function isDestructiveAction(action: string): boolean {
  * it beside "added a parcel".
  */
 export function isSecurityAction(action: string): boolean {
-  return action === 'reveal_aadhaar' || action === 'apply_my_kyc';
+  return action === 'reveal_aadhaar' || action === 'apply_my_kyc' || action === 'link_aadhaar_card';
 }
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;

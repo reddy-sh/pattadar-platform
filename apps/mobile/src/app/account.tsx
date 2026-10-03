@@ -21,7 +21,6 @@ import { PhotoField } from '@/components/PhotoField';
 import { extractAadhaar } from '@/api/client';
 import { useGroups, useMyAadhaar } from '@/data/hooks';
 import { aadhaarPrefill } from '@/lib/aadhaar';
-import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
 import { isAllowedApiUrl } from '@/lib/urlScheme';
 import { useAppTheme } from '@/theme/paper';
 import { formatAadhaarMask, isoToDmy } from '@pattadar/core';
@@ -221,33 +220,16 @@ export default function AccountScreen() {
                   : 'Not added — scan your card to fill your name, date of birth, gender and address'
               }
               left={(p) => <List.Icon {...p} icon="shield-account-outline" />}
-              right={() =>
-                myMask ? (
-                  <Button
-                    mode="text"
-                    compact
-                    icon="content-copy"
-                    loading={myAadhaar.reveal.isPending}
-                    onPress={async () => {
-                      // H-8a: every reveal re-authenticates — a single unlock
-                      // must not let the full number be copied repeatedly.
-                      if (!(await authenticateForReveal('Copy your Aadhaar number'))) return;
-                      try {
-                        const r = await myAadhaar.reveal.mutateAsync();
-                        await copySensitive(r.revealMyAadhaar);
-                        setNote('Aadhaar copied — the clipboard clears in a minute, or when you come back here.');
-                      } catch (e) {
-                        setNote(e instanceof Error ? e.message : "Couldn't copy the number");
-                      }
-                    }}
-                  >
-                    Copy
-                  </Button>
-                ) : (
-                  <Button mode="text" compact icon="camera" onPress={scanMyCard}>
-                    Add
-                  </Button>
-                )
+              // Only the last 4 digits are kept for display: there is no full
+              // number to show or copy, so a stored Aadhaar has no action here.
+              right={
+                myMask
+                  ? undefined
+                  : () => (
+                      <Button mode="text" compact icon="camera" onPress={scanMyCard}>
+                        Add
+                      </Button>
+                    )
               }
               onPress={myMask ? undefined : scanMyCard}
             />

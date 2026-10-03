@@ -16,8 +16,6 @@ import {
   CREATE_GROUP_MUTATION,
   SET_MEMBER_SHARE_MUTATION,
   UPDATE_MEMBER_MUTATION,
-  REVEAL_AADHAAR_MUTATION,
-  REVEAL_MY_AADHAAR_MUTATION,
   ADD_PARCEL_PHOTO_MUTATION,
   ALL_PARCEL_PHOTOS_QUERY,
   APPLY_MY_KYC_MUTATION,
@@ -661,16 +659,12 @@ export function useMemberActions() {
       }),
     onSuccess: invalidate,
   });
-  const revealAadhaar = useMutation({
-    mutationFn: (id: string) =>
-      api.gql<{ revealMemberAadhaar: string }>(REVEAL_AADHAAR_MUTATION, { id }),
-  });
   const removeMember = useMutation({
     mutationFn: (id: string) =>
       api.gql<{ removeMember: boolean }>(REMOVE_MEMBER_MUTATION, { id }),
     onSuccess: invalidate,
   });
-  return { addMember, updateMember, revealAadhaar, removeMember, createGroup, updateGroup, deleteGroup, setShare };
+  return { addMember, updateMember, removeMember, createGroup, updateGroup, deleteGroup, setShare };
 }
 
 // --- verify (public) ---------------------------------------------------------
@@ -698,9 +692,6 @@ export function useMyAadhaar() {
       }),
     onSuccess: invalidate,
   });
-  const reveal = useMutation({
-    mutationFn: () => api.gql<{ revealMyAadhaar: string }>(REVEAL_MY_AADHAAR_MUTATION, {}),
-  });
   /** Apply chosen fields to the profile AND every self member row. */
   const apply = useMutation({
     mutationFn: (v: {
@@ -719,7 +710,7 @@ export function useMyAadhaar() {
     mutationFn: () => api.gql<{ clearMyKyc: { name: string } }>(CLEAR_MY_KYC_MUTATION, {}),
     onSuccess: invalidate,
   });
-  return { save, reveal, apply, clear };
+  return { save, apply, clear };
 }
 
 // --- parcel photos (CL-561..563/568/569) -------------------------------------

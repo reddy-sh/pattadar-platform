@@ -63,6 +63,10 @@ async def submit(request: Request, file: UploadFile, operation: str):
     from .. import account
     await account.require_purpose(uid, 'document_processing')
     await account.require_purpose(uid, 'ai_extraction')
+    # Refuse before anything is stored or queued: without a write path the
+    # reading could never be kept, and the paid call would be wasted.
+    if operation == "extract-aadhaar" and not aadhaar.write_path_available():
+        return JSONResponse(status_code=503, content={"error": aadhaar.UNAVAILABLE_MESSAGE})
     content = await file.read(MAX_BYTES + 1)
     if len(content) > MAX_BYTES:
         raise HTTPException(413, "File too large (max 25 MB)")
@@ -163,7 +167,7 @@ async def run_one() -> bool:
         code = response.status_code if isinstance(response, JSONResponse) else 200
         result = json.loads(response.body) if isinstance(response, JSONResponse) else response
         if code == 200 and row["operation"] == "extract-aadhaar":
-            result = await aadhaar.secure_extraction_result(row["owner_user_id"], result)
+            result = await aadhaar.secure_extraction_result(row["owner_user_id"], result, job_id=row["id"])
     except asyncio.CancelledError:
         if not dispatch["dispatched"]:
             # A deploy or scale-in that lands before the paid call was sent has
@@ -180,6 +184,11 @@ async def run_one() -> bool:
         detail = exc.detail
         message = detail.get("message") if isinstance(detail, dict) else detail
         code, result = exc.status_code, {"error": str(message or "The document could not be read.")}
+    except aadhaar.ProtectionUnavailable as exc:
+        # The read may already be paid for; say why it cannot be kept rather
+        # than invite a retry that would fail and charge again.
+        log.warning("Aadhaar protection unavailable (job=%s)", row["id"])
+        code, result = 503, {"error": str(exc) + ". Nothing was saved."}
     except Exception:
         log.exception("Document reading failed (job=%s)", row["id"])
         code, result = 502, {"error": "The document could not be read. You can try again."}

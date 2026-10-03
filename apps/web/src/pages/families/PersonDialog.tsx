@@ -27,7 +27,9 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
-import { apiFetch } from '../../api/client';
+import { LINK_AADHAAR_CARD_MUTATION, formatAadhaarMask } from '@pattadar/core';
+import { apiErrorMessage, apiFetch, gql } from '../../api/client';
+import { ddmmyyyy } from '../../w360/ui';
 import {
   RELATIONS,
   cropSquareDataUrl,
@@ -73,6 +75,42 @@ const EMPTY: FormValues = {
   fatherId: '', motherId: '', spouseId: '',
 };
 
+/** What the scan read off the card, shown back read-only. The number is only
+ *  ever the server's mask; the full digits never reach this form. */
+interface CardReading {
+  name: string;
+  dob: string;
+  gender: string;
+  masked: string;
+}
+
+/** Extensions for the kept card, by MIME type. The gateway decides HEIC and
+ *  image handling by the file NAME, so the extension has to be right. */
+const CARD_EXTENSIONS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+  'image/webp': 'webp',
+};
+
+/** The safe name a kept Aadhaar card is filed under in My Drive. The original
+ *  filename is never used: it often carries the holder's name or number. */
+export function cardName(mime: string): string {
+  return `Aadhaar card.${CARD_EXTENSIONS[String(mime || '').trim().toLowerCase()] || 'bin'}`;
+}
+
+/** A mask as the owner reads it ("XXXX XXXX 1234"), digits in fixed columns. */
+function MaskedAadhaar({ masked }: { masked: string }) {
+  return (
+    <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+      {formatAadhaarMask(masked)}
+    </Box>
+  );
+}
+
 export function PersonDialog({
   open,
   editing,
@@ -102,6 +140,7 @@ export function PersonDialog({
   const [aadhaarCandidateId, setAadhaarCandidateId] = useState('');
   const [aadhaarMasked, setAadhaarMasked] = useState('');
   const [retainAadhaarCard, setRetainAadhaarCard] = useState(false);
+  const [cardReading, setCardReading] = useState<CardReading | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -133,6 +172,7 @@ export function PersonDialog({
     setAadhaarCandidateId('');
     setAadhaarMasked('');
     setRetainAadhaarCard(false);
+    setCardReading(null);
     if (editing) {
       const { cc, national } = splitPhone(editing.phone);
       setPhoneCc(cc);
@@ -174,7 +214,8 @@ export function PersonDialog({
     }
   }, [open, editing, hasTree, groupType]);
 
-  // Aadhaar scan → masked KMS candidate → optional SSE-KMS Drive copy.
+  // Aadhaar scan → masked reading → optional SSE-KMS Drive copy, filed as
+  // "Aadhaar card.<ext>" and linked to the reading with linkAadhaarCard.
   const handleAadhaar = useCallback(
     async (file: File) => {
       setAadhaarUploading(true);
@@ -186,7 +227,7 @@ export function PersonDialog({
           body: fd,
         });
         if (!res.ok) {
-          notify('Could not read the Aadhaar', 'error');
+          notify(await apiErrorMessage(res, 'Could not read the Aadhaar'), 'error');
           return;
         }
         const f = ((await res.json()) as { fields?: Record<string, string> }).fields || {};
@@ -201,20 +242,41 @@ export function PersonDialog({
         const maskMatch = String(f.aadhaarMasked || '').trim()
           .match(/^X{4}[-\s]X{4}[-\s]([0-9]{4})$/i);
         const masked = maskMatch ? `XXXX-XXXX-${maskMatch[1]}` : '';
-        setAadhaarCandidateId(masked ? (f.aadhaarCandidateId || '') : '');
+        const candidateId = masked ? (f.aadhaarCandidateId || '') : '';
+        setAadhaarCandidateId(candidateId);
         setAadhaarMasked(masked);
+        setCardReading({ name: f.name || '', dob: f.dob || '', gender: f.gender || '', masked });
 
+        // The card is kept only when the owner ticked the box AND the read
+        // produced a record to link it to; a card with no reading behind it
+        // would be a copy of the number nothing points at.
         let cardSaved = false;
-        if (retainAadhaarCard) {
+        let cardWarning = '';
+        if (retainAadhaarCard && !candidateId) {
+          cardWarning = 'No Aadhaar number was read, so the card was not kept';
+        } else if (retainAadhaarCard) {
           const drive = new FormData();
-          drive.append('file', file);
+          drive.append('file', new File([file], cardName(file.type), { type: file.type }));
           const saved = await apiFetch('/api/gateway/storage/files?appId=pattadar&onConflict=duplicate', {
             method: 'POST', body: drive,
           });
-          cardSaved = saved.ok;
-          if (!saved.ok) notify('The details were read, but the card was not saved to My Drive', 'warning');
+          if (!saved.ok) {
+            cardWarning = 'The details were read, but the card was not saved to My Drive';
+          } else {
+            try {
+              const node = (await saved.json()) as { id?: string; currentVersionId?: string };
+              if (!node.id || !node.currentVersionId) throw new Error('The upload did not name the file');
+              await gql(LINK_AADHAAR_CARD_MUTATION, {
+                candidateId, nodeId: node.id, versionId: node.currentVersionId,
+              });
+              cardSaved = true;
+            } catch {
+              cardWarning = 'The card was saved to My Drive but could not be linked to this reading';
+            }
+          }
         }
-        notify(cardSaved
+        if (cardWarning) notify(cardWarning, 'warning');
+        else notify(cardSaved
           ? 'Aadhaar read securely — masked details filled and card saved to My Drive'
           : 'Aadhaar read securely — masked details filled; the card was not retained');
       } catch {
@@ -367,8 +429,33 @@ export function PersonDialog({
             />
             {aadhaarMasked && (
               <Alert severity="success" sx={{ mb: 1 }}>
-                Read securely as {aadhaarMasked}. Full digits were not returned to this form.
+                Read securely as <MaskedAadhaar masked={aadhaarMasked} />. Full digits were not returned to this form.
               </Alert>
+            )}
+            {cardReading && (
+              <Box
+                role="group"
+                aria-label="Read from the card"
+                sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5, mb: 1 }}
+              >
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Read from the card
+                </Typography>
+                {([
+                  ['Name', cardReading.name],
+                  ['Date of birth', ddmmyyyy(cardReading.dob)],
+                  ['Gender', cardReading.gender],
+                ] as const).map(([label, value]) => (
+                  <Typography key={label} variant="body2">
+                    <Box component="span" sx={{ color: 'text.secondary' }}>{label}: </Box>
+                    <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>{value || '—'}</Box>
+                  </Typography>
+                ))}
+                <Typography variant="body2">
+                  <Box component="span" sx={{ color: 'text.secondary' }}>Aadhaar: </Box>
+                  {cardReading.masked ? <MaskedAadhaar masked={cardReading.masked} /> : '—'}
+                </Typography>
+              </Box>
             )}
             {photo ? (
               <Box sx={{ textAlign: 'center' }}>
@@ -635,7 +722,7 @@ export function PersonDialog({
                   }}
                   error={!!errors.aadhaar}
                   helperText={errors.aadhaar || (aadhaarMasked
-                    ? `Secure scan ready: ${aadhaarMasked}`
+                    ? <>Secure scan ready: <MaskedAadhaar masked={aadhaarMasked} /></>
                     : 'Stored encrypted; lists show only the last 4 digits')}
                   slotProps={{ htmlInput: { maxLength: 14, inputMode: 'numeric' } }}
                 />

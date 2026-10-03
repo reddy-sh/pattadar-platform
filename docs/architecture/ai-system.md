@@ -32,7 +32,8 @@ flowchart LR
   API --> J[(document_read_jobs)]
   J -->|reading finished| IN[(inbox_items)]
   API -.empty Web Push, opt-in.-> PS[browser push service]
-  API --> AC[(aadhaar_candidates<br/>KMS ciphertext, 30 min)]
+  API --> AC[(aadhaar_candidates<br/>records, last 4)]
+  AC -->|vault_token| AV[(aadhaar_vault<br/>KMS ciphertext only)]
   API --> AKMS[(dedicated Aadhaar KMS key)]
   AST --> R[(conversations / runs /<br/>attachments)]
   CAT --> M[(platform_models)]
@@ -158,8 +159,13 @@ just the local CodeGraph index. None of it is loaded by any running service.
 4. An Aadhaar provider response may contain full digits only transiently inside
    the API process. Public responses and completed job results contain only
    `aadhaarMasked` plus an owner-scoped, one-use `aadhaarCandidateId`; provider
-   raw text and unexpected fields are discarded. Persisted final digits are
-   versioned direct-KMS ciphertext, and deed output remains masked.
+   raw text and unexpected fields are discarded. The candidate id resolves to a
+   record in `aadhaar_candidates` (extracted fields, last 4); the digits exist
+   only as versioned direct-KMS ciphertext in `aadhaar_vault`, nothing decrypts
+   them at runtime, and reveal is retired. Records persist until no person or
+   account references them (retention change pending Reddy's compliance
+   review). The synchronous route is used by native iOS. Deed output remains
+   masked.
 5. The acres/cents rule reaches every prompt that extracts an extent.
 6. Built-in SDK tools (shell, file, web, task) stay denied.
 7. Public-record results are historical reference data, never proof of identity,

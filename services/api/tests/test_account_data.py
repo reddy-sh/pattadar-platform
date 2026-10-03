@@ -182,3 +182,17 @@ def test_s3_partial_failure_cannot_be_reported_complete():
             return {"Errors":[{"Code":"AccessDenied"}]}
     with pytest.raises(RuntimeError,match="incomplete"):
         erase.delete_prefix(S3(),"bucket","owner/")
+
+
+def test_aadhaar_records_export_their_fields_but_never_the_vault_pointer_or_ciphertext():
+    record_columns = {"id", "owner_user_id", "ciphertext", "masked", "expires_at", "consumed_at", "created_at",
+                      "origin", "job_id", "name", "dob", "gender", "address", "confidence", "last4",
+                      "vault_token", "card_node_id", "card_version_id", "updated_at"}
+    exported = account.export_columns(record_columns)
+    assert "vault_token" not in exported and "ciphertext" not in exported
+    assert {"origin", "last4", "masked", "name", "dob", "card_node_id"} <= set(exported)
+
+
+def test_the_aadhaar_vault_exports_only_that_a_number_exists_and_when():
+    assert account.export_columns({"token", "owner_user_id", "ciphertext", "created_at"}) == \
+        ["created_at", "owner_user_id"]

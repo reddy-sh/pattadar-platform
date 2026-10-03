@@ -286,6 +286,13 @@ public enum Mutations {
     mutation($kyc:String!){ updateProfile(kycRef:$kyc){ id kycRefMasked } }
     """
 
+    /// Twin of `LINK_AADHAAR_CARD_MUTATION` in packages/core: links an opt-in
+    /// kept Aadhaar card (a My Drive file) to the reading it came from. No
+    /// iOS caller yet; the card opt-in is a `sync-ios` follow-up.
+    public static let linkAadhaarCard = """
+    mutation($candidateId:String!,$nodeId:String!,$versionId:String!){ linkAadhaarCard(candidateId:$candidateId,nodeId:$nodeId,versionId:$versionId) }
+    """
+
     public static let updatePassbook = """
     mutation($id:String!,$pattadarNo:String!,$ownerName:String!,$fatherHusbandName:String!,$state:String!,$district:String!,$mandal:String!,$village:String!){
       updatePassbook(id:$id,pattadarNo:$pattadarNo,ownerName:$ownerName,fatherHusbandName:$fatherHusbandName,state:$state,district:$district,mandal:$mandal,village:$village){ id }

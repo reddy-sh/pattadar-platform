@@ -43,7 +43,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import PersonAddAltOutlinedIcon from '@mui/icons-material/PersonAddAltOutlined';
 import SmsOutlinedIcon from '@mui/icons-material/SmsOutlined';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
-import { formatArea } from '@pattadar/core';
+import { formatAadhaarMask, formatArea } from '@pattadar/core';
 import type { Group } from '@pattadar/core';
 import { ExportMenu } from '../../export/ExportMenu';
 import type { ExportBrand, ExportCol } from '../../export/ExportMenu';
@@ -524,7 +524,7 @@ function MembersTab({
                     )}
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                    {m.aadhaarMasked || '—'}
+                    {formatAadhaarMask(m.aadhaarMasked) || '—'}
                   </TableCell>
                   <TableCell>
                     {st.label === '—' ? (

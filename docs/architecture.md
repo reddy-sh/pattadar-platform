@@ -145,17 +145,26 @@ proxy timeout and still no retries.
 
 Aadhaar reading is a stricter sub-flow. The provider may transiently read the
 12 digits, but `services/api/src/aadhaar.py` immediately replaces them with a
-masked value and an owner-scoped, KMS-encrypted, 30-minute one-use candidate.
+masked value and an owner-scoped record in `aadhaar_candidates` (extracted
+fields, last 4), usable once for 30 minutes; the full number is encrypted once
+into `aadhaar_vault`.
 Neither clients nor completed `document_read_jobs.result` receive provider raw
 text or full extracted digits. Queued source bytes still live temporarily in the
 KMS-encrypted RDS job row and are nulled on completion/failure; moving that
 transient source to S3 is a recorded follow-up, not an implied property of this
 change.
 
-Persisted account/member numbers use versioned direct KMS ciphertext under a
-dedicated Aadhaar key and non-PII encryption context. Legacy Fernet ciphertext
-is read-only compatible during migration. The active web retains a scanned card
-only after explicit opt-in; Expo Aadhaar forms do not copy scans to Drive or
+Accounts and members point at a record (`users.kyc_aadhaar_record_id`,
+`family_members.aadhaar_record_id`); the full number exists only in
+`aadhaar_vault` as versioned direct KMS ciphertext under a dedicated Aadhaar
+key and non-PII encryption context (`purpose=aadhaar-vault`). Nothing decrypts
+it at runtime and reveal is retired, so every surface shows the last 4 digits.
+Records persist until no subject references them (retention change pending
+Reddy's compliance review). Legacy Fernet columns are no longer read and are
+cleared by `services/api/scripts/clear_aadhaar.py` (see
+[the Aadhaar runbook](runbooks/aadhaar-kms-rollout.md)). The active web retains
+a scanned card, under the safe name `Aadhaar card.<ext>` and linked with
+`linkAadhaarCard`, only after explicit opt-in; Expo Aadhaar forms do not copy scans to Drive or
 plaintext local storage. Any retained document is written by the gateway with
 explicit SSE-KMS key and bucket-key parameters.
 

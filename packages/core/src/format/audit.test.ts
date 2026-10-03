@@ -127,6 +127,12 @@ describe('isSecurityAction', () => {
     expect(isSecurityAction('apply_my_kyc')).toBe(true);
   });
 
+  test('keeping an Aadhaar card is a security event with its own copy', () => {
+    expect(actionLabel('link_aadhaar_card')).toBe('Kept an Aadhaar card');
+    expect(isSecurityAction('link_aadhaar_card')).toBe(true);
+    expect(isDestructiveAction('link_aadhaar_card')).toBe(false);
+  });
+
   test('ordinary activity is not', () => {
     for (const ok of ['create_parcel', 'delete_passbook', 'update_profile', '']) {
       expect(isSecurityAction(ok)).toBe(false);

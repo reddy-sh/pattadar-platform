@@ -141,18 +141,22 @@ capabilities:
       - { name: extract-aadhaar,             sync: POST /extract-aadhaar,             durable: POST /extract-aadhaar-async,             prompt: AADHAAR_SYSTEM }
     consumers:
       - { client: apps/web,       status: active,        mode: durable,      note: api/client.ts rewrites the sync path to -async and polls }
-      - { client: apps/ios,       status: active,        mode: mixed,        note: durable for registered documents only; treats queued as terminal (gap) }
+      - { client: apps/ios,       status: active,        mode: mixed,        note: durable for registered documents only; treats queued as terminal (gap); Aadhaar via the synchronous route (deviation) }
       - { client: apps/mobile,    status: compatibility, mode: durable for Aadhaar; synchronous for other reads, note: Aadhaar upload polls an owner-scoped job with one request id }
     data_classes: [deed content, passbook content, Aadhaar KYC, property documents]
     privacy:
+      # Retention change pending Reddy's compliance review.
       aadhaar: >
         Provider full digits are transient API-process input only. Public and
         durable results expose aadhaarMasked plus an owner-scoped 30-minute
-        one-use candidate id; candidate/final values are direct-KMS ciphertext
-        and provider raw text/unexpected fields are discarded.
+        one-use candidate id that resolves to a record in aadhaar_candidates
+        (extracted fields, last 4); the full number is direct-KMS ciphertext
+        only in aadhaar_vault (purpose=aadhaar-vault), never decrypted at
+        runtime; reveal is retired; provider raw text/unexpected fields are
+        discarded.
       source_bytes: deleted from the queue row on completion/failure
       known_source_gap: queued/running Aadhaar jobs temporarily retain source bytes in KMS-encrypted RDS
-      candidate_store: services/api/src/aadhaar.py -> aadhaar_candidates
+      candidate_store: services/api/src/aadhaar.py -> aadhaar_candidates + aadhaar_vault
     cost_controls: [cacheable system prompt, single low-effort retry only on max_tokens, per-read usd logging]
     tests:
       - services/api/tests/test_ai_reading.py

@@ -61,6 +61,35 @@ them here, so the next sweep does not re-open a closed question.
   64 m side, orders of magnitude below what either head prints. Revisit only if
   a native screen begins computing side lengths for a user-traced ring.
 
+- **Aadhaar vault (`api/operations.ts` → `LINK_AADHAAR_CARD_MUTATION`)** — the
+  web and core now keep the full number only as vault ciphertext, show the last
+  4 digits, retire the server reveals and link an opt-in kept card with
+  `linkAadhaarCard`. No iOS behaviour changed: only a doc comment in
+  `DocSpine.swift` (its example digits) and the `DocSpineTests.swift` fixture
+  became synthetic. Reddy approved one more iOS source edit as a deviation
+  from the design's "no iOS source change": an inert
+  `Queries.linkAadhaarCard` twin of `LINK_AADHAAR_CARD_MUTATION`, with no
+  caller, so the `operations.ts` twin check passes. Recorded here, each open
+  for Reddy:
+  - *Deviation:* iOS reads Aadhaar through the synchronous
+    `POST /extract-aadhaar` route, not a durable async job with authenticated
+    status polls. The server makes its failure shape safe (the "Nothing was
+    saved." 503) but not durable. Moving iOS to `extract-aadhaar-async` plus
+    `import-status` is a `sync-ios` follow-up and a decision for Reddy.
+  - *Known divergence:* iOS has an on-device tap-to-reveal of the full number
+    read from the user's own scan (`PattadarKit/Format/DocSpine.swift`
+    `firstIdentityNumber`, used by `AllDetailsScreen.swift:108`; the
+    `DocumentViewer.swift` reveal toggle, ~336–384). It conflicts with "show
+    only the last 4 digits", though the full number never comes from the
+    server. Retire it (removing the reveal, `firstIdentityNumber` and its
+    `DocSpineTests`) or accept it as on-device only: a decision for Reddy.
+  - *Follow-ups (`sync-ios`):* an iOS card opt-in with the safe
+    `Aadhaar card.<ext>` name that calls the existing
+    `Queries.linkAadhaarCard`; a `link_aadhaar_card` "Kept an Aadhaar card"
+    label in `Display.swift`'s audit map.
+  - *Follow-up (`mobile-feature-delivery`):* an Expo card opt-in with
+    `linkAadhaarCard`. Expo's reveal/copy UI is already removed.
+
 ## Three bands of change
 
 Not every web change has an iOS consequence, and pretending otherwise is how an

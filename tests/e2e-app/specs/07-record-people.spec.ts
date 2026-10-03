@@ -1502,6 +1502,9 @@ async function legacyFamilies(page: Page, members: Row[] = [], opts: LegacyOpts 
       { query?: string; variables?: Row };
     const q = body.query ?? '';
     if (/\bweb\s*\{/.test(q)) return route.fallback();   // the W360 surface is the world's
+    // Linking a kept Aadhaar card is a root-schema mutation the world answers
+    // as `root.linkAadhaarCard`, so a test can see and refuse it there.
+    if (/\blinkAadhaarCard\s*\(/.test(q)) return route.fallback();
 
     let data: Row = {};
     if (/\bgroups\s*\{/.test(q)) {
@@ -1740,7 +1743,9 @@ test.describe('the other person editor, on the previous interface', () => {
     // The reading is an ASYNC read (api/client.ts:33): the POST goes to
     // `-async` and the answer is collected from import-status, so both have to
     // be answered here — the seed only knows the import-* pair.
-    world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: { id: 'file-aadhaar', nodeId: 'file-aadhaar' } }));
+    world.route(/\/api\/gateway\/storage\/files\?/, () => ({
+      json: { id: 'file-aadhaar', currentVersionId: 'ver-aadhaar' },
+    }));
     world.route(/\/api\/gateway\/pattadar\/extract-aadhaar-async/, () => ({ json: { job: 'w-aadhaar' } }));
     world.route(/\/api\/gateway\/pattadar\/import-status\//, () => ({
       json: {
@@ -1752,6 +1757,7 @@ test.describe('the other person editor, on the previous interface', () => {
         },
       },
     }));
+    world.set('root.linkAadhaarCard', true);
     await legacyFamilies(page);
     await openPersonDialog(page);
     await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
@@ -1763,30 +1769,96 @@ test.describe('the other person editor, on the previous interface', () => {
     await expect(page.getByLabel('Date of birth')).toHaveValue('1985-03-14');
     await expect(page.getByRole('combobox', { name: 'Gender' })).toHaveText('Female');
     await expect(page.getByLabel('Aadhaar (KYC)')).toHaveValue('');
-    await expect(page.getByText(/Read securely as XXXX-XXXX-9012/)).toBeVisible();
+    await expect(page.getByText(/Read securely as XXXX XXXX 9012\./)).toBeVisible();
+    // What the scan read is shown back read-only, the date in DD/MM/YYYY and
+    // the number only as its last four digits.
+    const summary = page.getByRole('group', { name: 'Read from the card' });
+    await expect(summary).toContainText('Lakshmi Devi');
+    await expect(summary).toContainText('14/03/1985');
+    await expect(summary).toContainText('XXXX XXXX 9012');
     await expect(page.getByRole('textbox', { name: 'Present address' }))
       .toHaveValue('Katragunta, Markapur');
     await expect(page.getByText(/the card was not retained/)).toBeVisible();
     expect(world.restCalls(/storage\/files/)).toHaveLength(0);
+    expect(world.calls('root.linkAadhaarCard')).toHaveLength(0);
 
     await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
     await input.setInputFiles(AADHAAR_SCAN);
     await expect(page.getByText(/card saved to My Drive/)).toBeVisible();
+    const uploads = world.restCalls(/storage\/files/);
+    expect(uploads).toHaveLength(1);
+    // The card is filed under the safe name, never the name it was picked as.
+    expect(uploads[0].body).toContain('filename="Aadhaar card.pdf"');
+    expect(uploads[0].body).not.toContain('filename="aadhaar.pdf"');
+    const links = world.calls('root.linkAadhaarCard');
+    expect(links).toHaveLength(1);
+    expect(links[0].vars).toEqual({
+      candidateId: 'candidate-opaque', nodeId: 'file-aadhaar', versionId: 'ver-aadhaar',
+    });
+    expect(links[0].at).toBeGreaterThan(uploads[0].at);
+
+    // Nothing on the page is a full twelve-digit number.
+    const text = await page.locator('body').innerText();
+    expect(text).not.toMatch(/\d{4}[\s-]?\d{4}[\s-]?\d{4}/);
+  });
+
+  test('a kept Aadhaar card that cannot be linked says it is in My Drive', async ({ page, world }) => {
+    world.route(/\/api\/gateway\/storage\/files\?/, () => ({
+      json: { id: 'file-aadhaar', currentVersionId: 'ver-aadhaar' },
+    }));
+    world.route(/\/api\/gateway\/pattadar\/extract-aadhaar-async/, () => ({ json: { job: 'w-aadhaar' } }));
+    world.route(/\/api\/gateway\/pattadar\/import-status\//, () => ({
+      json: {
+        state: 'done',
+        fields: { name: 'Lakshmi Devi', aadhaarMasked: 'XXXX-XXXX-9012', aadhaarCandidateId: 'candidate-opaque' },
+      },
+    }));
+    world.set('root.linkAadhaarCard', World.gqlError('The Aadhaar reading is no longer available'));
+    await legacyFamilies(page);
+    await openPersonDialog(page);
+
+    await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
+    await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles(AADHAAR_SCAN);
+
+    await expect(page.getByText('The card was saved to My Drive but could not be linked to this reading'))
+      .toBeVisible();
     expect(world.restCalls(/storage\/files/)).toHaveLength(1);
+    expect(world.calls('root.linkAadhaarCard')).toHaveLength(1);
+  });
+
+  test('a ticked Aadhaar scan that read no number keeps no card', async ({ page, world }) => {
+    world.route(/\/api\/gateway\/storage\/files\?/, () => ({
+      json: { id: 'file-aadhaar', currentVersionId: 'ver-aadhaar' },
+    }));
+    world.route(/\/api\/gateway\/pattadar\/extract-aadhaar-async/, () => ({ json: { job: 'w-aadhaar' } }));
+    world.route(/\/api\/gateway\/pattadar\/import-status\//, () => ({
+      json: { state: 'done', fields: { name: 'Lakshmi Devi', aadhaarMasked: '', aadhaarCandidateId: '' } },
+    }));
+    world.set('root.linkAadhaarCard', true);
+    await legacyFamilies(page);
+    await openPersonDialog(page);
+
+    await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
+    await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles(AADHAAR_SCAN);
+
+    await expect(page.getByText('No Aadhaar number was read, so the card was not kept')).toBeVisible();
+    expect(world.restCalls(/storage\/files/)).toHaveLength(0);
+    expect(world.calls('root.linkAadhaarCard')).toHaveLength(0);
   });
 
   test('an Aadhaar that cannot be read says so and leaves what was typed alone', async ({ page, world }) => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: { id: 'file-aadhaar' } }));
     world.route(/\/api\/gateway\/pattadar\/extract-aadhaar-async/, () => ({ json: { job: 'w-aadhaar' } }));
-    // The seeded reading answers "nothing could be read" (fixtures/seed.ts:896),
-    // which is the failure this screen has to survive.
+    // The seeded reading answers "nothing could be read" (fixtures/seed.ts:1294),
+    // which is the failure this screen has to survive, and the toast carries
+    // the server's reason rather than a fixed sentence.
     await legacyFamilies(page);
     await openPersonDialog(page);
     await page.getByLabel('Full name').fill('Lakshmi Devi');
 
     await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles(AADHAAR_SCAN);
 
-    await expect(page.getByText('Could not read the Aadhaar')).toBeVisible();
+    await expect(page.getByText('Nothing could be read from that file.')).toBeVisible();
     await expect(page.getByLabel('Full name')).toHaveValue('Lakshmi Devi');
     // And the button is usable again rather than stuck on its own spinner.
     await expect(page.getByRole('button', { name: 'Upload & extract Aadhaar' })).toBeEnabled();

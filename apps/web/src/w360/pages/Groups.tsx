@@ -49,7 +49,7 @@ import SmsOutlined from '@mui/icons-material/SmsOutlined';
 import WhatsApp from '@mui/icons-material/WhatsApp';
 import WorkOutlineOutlined from '@mui/icons-material/WorkOutlineOutlined';
 
-import { formatArea } from '@pattadar/core';
+import { formatAadhaarMask, formatArea } from '@pattadar/core';
 
 import { fmtLocal } from '../../lib/format';
 import {
@@ -829,7 +829,7 @@ function MembersTab({ group }: { group: GroupRow }) {
                       {m.isBeneficiary ? (KIND_WORD[m.kind] ?? (cap(m.kind) || '—')) : '—'}
                     </td>
                     )}
-                    {cols.aadhaar && <td className="mono" style={{ whiteSpace: 'nowrap' }}>{m.aadhaarMasked || '—'}</td>}
+                    {cols.aadhaar && <td className="mono" style={{ whiteSpace: 'nowrap' }}>{formatAadhaarMask(m.aadhaarMasked) || '—'}</td>}
                     {cols.status && (
                     <td>
                       {st.label === '—'

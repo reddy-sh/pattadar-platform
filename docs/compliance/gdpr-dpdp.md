@@ -6,11 +6,11 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 
 | Data class | Examples | Where | Sensitivity | Processors |
 |---|---|---|---|---|
-| Identity | Name, DOB, gender, masked Aadhaar display, dedicated-KMS Aadhaar ciphertext, short-lived encrypted candidates, photos (data-URLs in DB) | RDS | Very high | AWS |
+| Identity | Name, DOB, gender, masked Aadhaar display, Aadhaar records (`aadhaar_candidates`) with the full number only as dedicated-KMS ciphertext in `aadhaar_vault` *(retention change pending Reddy's compliance review)*, photos (data-URLs in DB) | RDS | Very high | AWS |
 | Contact | Phone (+country code), email, addresses | RDS | Medium | AWS, notification providers |
 | Land/property records | Parcels, passbooks, deeds, non-ag properties, market values | RDS | Medium–High | AWS |
 | Uploaded documents | User-retained Aadhaar card images, land deeds, passbooks — **most sensitive class** | S3 (versioned; gateway explicitly requests SSE-KMS) | Very high | AWS, Anthropic (extraction only, transient) |
-| AI reading source/result | Source bytes while queued/running; masked-only Aadhaar result and 30-minute candidate | RDS (`document_read_jobs`, `aadhaar_candidates`) | Very high | AWS, Anthropic |
+| AI reading source/result | Source bytes while queued/running; masked-only Aadhaar result; `aadhaar_candidates` holds Aadhaar records (name, DOB, gender, address, last 4, job id, card link); `aadhaar_vault` holds the full number as ciphertext only *(retention change pending Reddy's compliance review)* | RDS (`document_read_jobs`, `aadhaar_candidates`, `aadhaar_vault`) | Very high | AWS, Anthropic |
 | Group/family membership | Typed groups, member roles, minor→guardian links, legal-heir flags | RDS | High (includes minors) | AWS |
 | notification_log | Channel, recipient, message, delivery status | RDS | Medium | AWS, Resend/MSG91/Meta WhatsApp |
 | Inbox and browser push | `inbox_items` (reading finished/failed, the uploaded file's name, read state; deleted after 30 days); `push_subscriptions` (browser push endpoint URL only) | RDS | Low–Medium | AWS; the browser's push service (Google/Mozilla/Microsoft/Apple) receives an **empty** push — no document name or content |
@@ -43,7 +43,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | Data | Retention | Rationale |
 |---|---|---|
 | Uploaded documents (S3) | Life of account when the user explicitly retains them; deleted (all versions) on erasure request | User's own records |
-| Aadhaar extraction candidates | 30 minutes for use; consumed rows are cleanup-eligible after 1 day | Complete the selected KYC write without returning full digits to a client |
+| Aadhaar records and vault | Until the last subject reference is removed; unconsumed readings 30 minutes; orphan backstop 5 minutes *(retention change pending Reddy's compliance review)* | Keep the person's Aadhaar record without returning full digits to a client |
 | AI reading source bytes/results | Source nulled on completion/failure; terminal job deleted after 1 day | Durable non-replayed processing and short troubleshooting window |
 | notification_log | 12 months, then purge (enforced by the hourly `audit.maintenance` sweep) | Delivery troubleshooting |
 | audit_events (legacy) | ≥ 1 year (target 3) | SOC 2 evidence, dispute resolution; survives erasure (carve-out) |
@@ -75,18 +75,22 @@ TODO(Phase 3): evaluate Amazon Bedrock in ap-south-1 as an in-country alternativ
 Pattadar processes **user-uploaded** Aadhaar scans and derived data for the user's
 own record-keeping. It does **not** perform UIDAI authentication or eKYC, and is
 not an AUA/KUA. During extraction the provider may transiently return the full
-number to the API process; the API immediately creates an owner-scoped,
-KMS-encrypted, 30-minute one-use candidate and returns only its opaque ID plus a
-last-four mask. Provider raw text and full digits are excluded from clients and
-completed job results.
+number to the API process; the API immediately stores an owner-scoped Aadhaar
+record (extracted fields and last 4) with the full number encrypted once in
+`aadhaar_vault`, and returns only the record's opaque ID plus a last-four mask.
+An unconsumed reading is usable once for 30 minutes. Provider raw text and full
+digits are excluded from clients and completed job results.
 
-When the user accepts the candidate, the recoverable number is stored as
-versioned direct-KMS ciphertext under a dedicated Aadhaar key and displayed
-masked. Full reveal remains an explicit owner-only, audited action; therefore
-“masked display” must not be described as irreversible truncation. Legacy
-Fernet ciphertext remains readable only for migration/rollback. The active web
-retains the original card in private document storage only after explicit
-opt-in; Expo Aadhaar forms do not copy it to Drive or plaintext local storage.
+When the user saves the reading, the record becomes durable and is kept until
+no person or account references it *(retention change pending Reddy's compliance review)*. The full number exists only as
+versioned direct-KMS ciphertext under the dedicated Aadhaar key in
+`aadhaar_vault`, and is displayed by its last 4 digits only. Reveal is retired;
+no API returns the full number. The ciphertext is kept, so masked display is
+still not irreversible truncation. Legacy Fernet ciphertext is no longer read
+and is cleared rather than migrated. The active web retains the original card
+in private document storage only after explicit opt-in; that kept card holds
+the full printed number. Expo Aadhaar forms do not copy it to Drive or
+plaintext local storage.
 Retained objects are written with explicit SSE-KMS parameters. These are
 implemented repository controls, not proof of deployed IAM/key/bucket policy or
 legal sufficiency; rollout and migration evidence is governed by the

@@ -38,7 +38,6 @@ import { PhotoField } from '@/components/PhotoField';
 import { InlinePicker } from '@/components/InlinePicker';
 import { SheetDialog } from '@/components/SheetDialog';
 import { displayName } from '@/lib/family';
-import { authenticateForReveal, copySensitive } from '@/lib/secureReveal';
 import { choosePhotoSource, pickImage } from '@/lib/photoPicker';
 import { RequireSignIn } from '@/components/RequireSignIn';
 import { useGroups, useIdentity, useMemberActions } from '@/data/hooks';
@@ -67,7 +66,7 @@ export default function AddMemberScreen() {
     groupName?: string;
     memberId?: string;
   }>();
-  const { addMember, updateMember, removeMember, revealAadhaar } = useMemberActions();
+  const { addMember, updateMember, removeMember } = useMemberActions();
   const { data: groupsResult } = useGroups();
   const existing = memberId
     ? (groupsResult?.data.members ?? []).find((m) => m.id === memberId)
@@ -452,45 +451,21 @@ export default function AddMemberScreen() {
             <Pressable
               style={styles.growShrink}
               accessibilityRole="button"
-              accessibilityLabel="Reveal and edit the Aadhaar number"
-              onPress={async () => {
-                if (!existing) return;
-                if (!(await authenticateForReveal('Show this Aadhaar number'))) return;
-                try {
-                  const full = await revealAadhaar.mutateAsync(existing.id);
-                  setAadhaar(formatAadhaar(full.revealMemberAadhaar));
-                  setReplacingAadhaar(true);
-                } catch (e) {
-                  setNote(e instanceof Error ? e.message : "Couldn't read the number");
-                }
+              accessibilityLabel="Replace the Aadhaar number"
+              onPress={() => {
+                // Only the last 4 digits are kept for display, so replacing
+                // starts from an empty field rather than the old number.
+                setAadhaar('');
+                setReplacingAadhaar(true);
               }}
             >
               <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Aadhaar on record · tap to reveal or edit
+                Aadhaar on record · tap to replace
               </Text>
               <Text variant="bodyMedium" style={styles.mono}>
                 {formatAadhaarMask(storedAadhaar)}
               </Text>
             </Pressable>
-            <Button
-              mode="text"
-              compact
-              icon="content-copy"
-              loading={revealAadhaar.isPending}
-              onPress={async () => {
-                if (!existing) return;
-                if (!(await authenticateForReveal('Copy this Aadhaar number'))) return;
-                try {
-                  const full = await revealAadhaar.mutateAsync(existing.id);
-                  await copySensitive(full.revealMemberAadhaar);
-                  setNote('Aadhaar number copied — the clipboard clears in a minute, or when you come back here.');
-                } catch (e) {
-                  setNote(e instanceof Error ? e.message : "Couldn't copy the number");
-                }
-              }}
-            >
-              Copy
-            </Button>
           </View>
         ) : (
           <TextInput
@@ -521,7 +496,7 @@ export default function AddMemberScreen() {
         )}
         {!!aadhaarCandidateId && !!aadhaarMasked && (
           <HelperText type="info" visible>
-            Secure card reading ready: {aadhaarMasked}. Full digits were not returned to this form.
+            Secure card reading ready: {formatAadhaarMask(aadhaarMasked)}. Full digits were not returned to this form.
           </HelperText>
         )}
         {aadhaarBad && (

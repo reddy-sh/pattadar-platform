@@ -55,6 +55,11 @@ async def database():
             await account.ensure_schema(conn)
             await inbox.ensure_schema(conn)
             await aadhaar.ensure_schema(conn)   # the sweep also clears expired candidates
+            # The Aadhaar sweep asks whether a subject still points at a record.
+            await conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY)")
+            await conn.execute("CREATE TABLE family_members (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL)")
+            for statement in aadhaar.SUBJECT_DDL:
+                await conn.execute(statement)
         yield pool
     finally:
         jobs.pool, jobs.handlers, account._pool, inbox.pool = old
@@ -113,7 +118,13 @@ def test_a_failed_reading_is_announced_as_failed():
     asyncio.run(run())
 
 
-def test_readings_without_the_purpose_and_aadhaar_are_never_announced():
+def test_readings_without_the_purpose_and_aadhaar_are_never_announced(monkeypatch):
+    # An Aadhaar submission is refused without a write path, so give it one.
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv('APP_ENV', 'local')
+    monkeypatch.setenv('ALLOW_INSECURE_LOCAL', '1')
+    monkeypatch.setenv('AADHAAR_ENC_KEY', Fernet.generate_key().decode())
+
     async def run():
         async with database():
             async def read(file):

@@ -130,6 +130,7 @@ _SPECS: dict = {s.action: s for s in [
           metadata_keys=("method",)),
     _spec("apply_my_kyc", CLASS_SECURITY, "user", "security", security=True),
     _spec("clear_my_kyc", CLASS_SECURITY, "user", "security", security=True),
+    _spec("link_aadhaar_card", CLASS_SECURITY, "person", "security", security=True),
     _spec("update_profile", CLASS_PERSONAL, "user", "short",
           metadata_keys=("fields",)),
 

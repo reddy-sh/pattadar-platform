@@ -25,6 +25,11 @@ Startup DDL runs under a PostgreSQL advisory lock and uses additive/idempotent
 revisions may coexist during rollout; destructive schema/data changes require a
 separately reviewed migration plan.
 
+`scripts/clear_aadhaar.py` clears every stored Aadhaar record, vault row and
+mask (and, with verification, linked card files). It is a counts-only dry run
+unless `--execute`; `--environment {local,dev,prod}` is required, and dev/prod
+need Reddy's separate approval per `docs/runbooks/aadhaar-kms-rollout.md`.
+
 ### 3. AI readings
 
 The active web uses durable import/read jobs with authenticated polling.
