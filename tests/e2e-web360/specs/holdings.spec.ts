@@ -1,7 +1,7 @@
 /**
- * Combined views · made, read, changed and unmade through the real UI.
+ * Holdings · made, read, changed and unmade through the real UI.
  *
- * A combined property is several records an owner holds as one piece of ground.
+ * A holding is several records an owner holds as one piece of ground.
  * The feature is only safe if two things are true at once, so both are asserted
  * here rather than argued for in a comment:
  *
@@ -105,13 +105,13 @@ async function select(page: Pg, titles: string[]): Promise<void> {
 async function combine(page: Pg, titles: string[], name: string): Promise<string> {
   await select(page, titles);
   await page.getByRole('button', { name: 'Combine…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Combine into one view' });
+  const dialog = page.getByRole('dialog', { name: 'Combine into one holding' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('What do you call it').fill(name);
   await dialog.getByRole('button', { name: /^Combine \d+ records$/ }).click();
-  await page.waitForURL(/\/app\/combined\/cp-/);
+  await page.waitForURL(/\/app\/holdings\/cp-/);
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
-  const id = page.url().split('/app/combined/')[1].split(/[/?]/)[0];
+  const id = page.url().split('/app/holdings/')[1].split(/[/?]/)[0];
   MADE.push(id);
   return id;
 }
@@ -128,7 +128,7 @@ async function portfolioLine(page: Pg): Promise<string> {
 
 test.afterEach(async ({ request }) => { await sweep(request); });
 
-test.describe('Combined views', () => {
+test.describe('Holdings', () => {
   test('two records become one holding, and the records are untouched', async ({ page }) => {
     const before = await portfolioLine(page);
     const id = await combine(page, ['Sy 88', 'Sy 331/2'], 'E2E Kondapur Estate');
@@ -139,7 +139,7 @@ test.describe('Combined views', () => {
     // belongs to the tab strip and the totals; three copies of "2 records" in
     // four lines is what this assertion exists to keep out.
     await expect(page.locator('.rechead-extent')).toHaveText('34.53 ac');
-    await expect(page.locator('.rechead-kind')).toHaveText('COMBINED VIEW');
+    await expect(page.locator('.rechead-kind')).toHaveText('HOLDING');
 
     // Overview names both members and links to the records themselves.
     await expect(page.getByRole('link', { name: 'Sy 88' })).toBeVisible();
@@ -152,12 +152,13 @@ test.describe('Combined views', () => {
     // Surveys lists them as a table, with what each still owes.
     await page.getByRole('link', { name: /^Records/ }).click();
     await expect(page.locator('table.rectable tbody tr')).toHaveCount(2);
-    await expect(page.getByRole('heading', { name: 'Records in this view' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Records in this holding' })).toBeVisible();
 
     // It is in the list screen, and the rail entry reaches it.
-    await page.goto('/app/combined');
+    await page.goto('/app/holdings');
     await expect(page.getByRole('link', { name: 'E2E Kondapur Estate' })).toBeVisible();
-    await expect(page.getByText('34.53 ac', { exact: false })).toBeVisible();
+    // The card's own extent, not the page summary ("1 holding · 34.53 ac · …").
+    await expect(page.getByText('34.53 ac', { exact: true })).toBeVisible();
 
     // The records are unchanged: still on Properties, still their own extents.
     await page.goto('/app/properties?view=list');
@@ -184,13 +185,13 @@ test.describe('Combined views', () => {
       ['expenses', 'document'],
       ['services', 'document'],
     ] as const) {
-      await page.goto(`/app/combined/${id}${path ? `/${path}` : ''}`);
+      await page.goto(`/app/holdings/${id}${path ? `/${path}` : ''}`);
       const main = page.locator('.w360 main');
       await expect(main).toHaveAttribute('data-tab-layout', layout);
       await expect(main.locator('main')).toHaveCount(0);
       const overflow = await page.evaluate(() =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      expect(overflow, `combined ${path || 'overview'} at 390px`).toBeLessThanOrEqual(1);
+      expect(overflow, `holding ${path || 'overview'} at 390px`).toBeLessThanOrEqual(1);
     }
   });
 
@@ -203,7 +204,7 @@ test.describe('Combined views', () => {
       // Land this account only looks after is left out, and said so out loud.
       await select(page, ['Sy 88', 'Sy 402/1']);
       await page.getByRole('button', { name: 'Combine…' }).click();
-      const dialog = page.getByRole('dialog', { name: 'Combine into one view' });
+      const dialog = page.getByRole('dialog', { name: 'Combine into one holding' });
       await expect(dialog).toContainText('not held in your own name');
       await expect(dialog).toContainText('Sy 402/1');
       // …so what is left is one record, and the dialog will not file it.
@@ -212,7 +213,7 @@ test.describe('Combined views', () => {
       await expect(dialog.getByRole('button', { name: /^Combine \d+ records$/ })).toBeDisabled();
       await dialog.getByRole('button', { name: 'Cancel' }).click();
 
-      await page.goto('/app/combined');
+      await page.goto('/app/holdings');
       await expect(page.getByRole('link', { name: 'E2E Should Not Exist' })).toHaveCount(0);
     });
 
@@ -221,15 +222,15 @@ test.describe('Combined views', () => {
 
     await select(page, ['Sy 88', 'Sy 189/1a']);
     await page.getByRole('button', { name: 'Combine…' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Combine into one view' });
+    const dialog = page.getByRole('dialog', { name: 'Combine into one holding' });
     await dialog.getByLabel('What do you call it').fill('E2E Second Holding');
     await dialog.getByRole('button', { name: /^Combine \d+ records$/ }).click();
     // Refused, and the dialog stays open saying why rather than closing on a
     // holding that was never created.
-    await expect(dialog).toContainText('part of another combined view');
+    await expect(dialog).toContainText('part of another holding');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 
-    await page.goto('/app/combined');
+    await page.goto('/app/holdings');
     await expect(page.getByRole('link', { name: 'E2E Second Holding' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'E2E First Holding' })).toBeVisible();
   });
@@ -237,7 +238,7 @@ test.describe('Combined views', () => {
   test('a cost against the whole holding is recorded, read back and removed',
     async ({ page }) => {
       const id = await combine(page, ['Sy 88', 'Sy 331/2'], 'E2E Cost Holding');
-      await page.goto(`/app/combined/${id}/expenses`);
+      await page.goto(`/app/holdings/${id}/expenses`);
 
       // Exactly one control opens this flow, on the tab that owns it.
       await expect(page.getByRole('button', { name: 'Record a cost' })).toHaveCount(1);
@@ -263,7 +264,7 @@ test.describe('Combined views', () => {
       await expect(page.getByText('E2E Boundary fence')).toHaveCount(0);
 
       // Remove it again.
-      await page.goto(`/app/combined/${id}/expenses`);
+      await page.goto(`/app/holdings/${id}/expenses`);
       await page.locator('table.rectable tbody tr', { hasText: 'E2E Boundary fence' })
         .getByRole('button', { name: 'Remove' }).click();
       await page.reload();
@@ -274,8 +275,8 @@ test.describe('Combined views', () => {
     async ({ page }) => {
       const id = await combine(page, ['Sy 214/3', 'Sy 189/1a'], 'E2E Paper Holding');
 
-      await page.goto(`/app/combined/${id}/papers`);
-      await expect(page.getByRole('heading', { name: 'All documents in this view' }))
+      await page.goto(`/app/holdings/${id}/papers`);
+      await expect(page.getByRole('heading', { name: 'All documents in this holding' }))
         .toBeVisible();
       // The seed files papers against both of these records, and the point of a
       // gathered list is that every row still says which survey it belongs to.
@@ -286,7 +287,7 @@ test.describe('Combined views', () => {
       await expect(rows.filter({ hasText: 'Sy 214/3' }).first()).toBeVisible();
       await expect(rows.filter({ hasText: 'Sy 189/1a' }).first()).toBeVisible();
 
-      await page.goto(`/app/combined/${id}/services`);
+      await page.goto(`/app/holdings/${id}/services`);
       await expect(page.getByRole('heading', { name: 'Services on these records' })).toBeVisible();
       await expect(page.getByRole('group', { name: 'Which services' })).toBeVisible();
     });
@@ -298,7 +299,7 @@ test.describe('Combined views', () => {
       await setRing(request, SMALL, plot(BIG_W, SMALL_W));
       try {
         const id = await combine(page, ['Sy 88', 'Sy 331/2'], 'E2E Map Holding');
-        await page.goto(`/app/combined/${id}/fmb`);
+        await page.goto(`/app/holdings/${id}/fmb`);
 
         // ONE map, with both surveys in it — drawn as two outlines, so the
         // boundary between them stays on the picture.
@@ -396,7 +397,7 @@ test.describe('Combined views', () => {
       await setRing(request, SMALL, plot(10_000, SMALL_W));
       try {
         const id = await combine(page, ['Sy 88', 'Sy 331/2'], 'E2E Apart Holding');
-        await page.goto(`/app/combined/${id}/fmb`);
+        await page.goto(`/app/holdings/${id}/fmb`);
 
         // One map, both outlines in it, with the same surveyed-boundary
         // treatment as each record's own Location screen.
@@ -481,17 +482,17 @@ test.describe('Combined views', () => {
       .toContainText('4.53 ac');
 
     // Ungroup, and read the promise the dialog makes before agreeing to it.
-    await page.goto(`/app/combined/${id}`);
+    await page.goto(`/app/holdings/${id}`);
     await expect(page.getByRole('heading', { level: 1, name: 'E2E Renamed Holding' })).toBeVisible();
     await page.getByRole('button', { name: 'Actions for E2E Renamed Holding' }).click();
-    await page.getByRole('menuitem', { name: 'Remove this combined view' }).click();
-    const bye = page.getByRole('dialog', { name: 'Remove the combined view E2E Renamed Holding?' });
+    await page.getByRole('menuitem', { name: 'Remove this holding' }).click();
+    const bye = page.getByRole('dialog', { name: 'Remove the holding E2E Renamed Holding?' });
     await expect(bye).toContainText('go back to standing on');
     // What survives, named — this is the promise the button is agreed against.
     await expect(bye).toContainText('Papers, boundaries, photographs, people');
     await expect(bye).toContainText('each record’s own costs all stay');
     await bye.getByRole('button', { name: 'Remove' }).click();
-    await page.waitForURL('**/app/combined');
+    await page.waitForURL('**/app/holdings');
     await expect(page.getByRole('link', { name: 'E2E Renamed Holding' })).toHaveCount(0);
 
     // Both records survive with their extents and are still openable.

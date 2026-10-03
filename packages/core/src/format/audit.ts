@@ -32,7 +32,7 @@ const ACTION_LABELS: Record<string, string> = {
   reclassify_document: 'Changed a document type',
   create_property: 'Added a property',
   delete_property: 'Deleted a property',
-  // Owners count properties; "record" is for the members of a combined view
+  // Owners count properties; "record" is for the members of a holding
   // (design.md § App vocabulary).
   archive_record: 'Archived a property',
   tag_record: 'Tagged a property',
@@ -95,12 +95,12 @@ const ACTION_LABELS: Record<string, string> = {
   update_purchase: 'Corrected a purchase',
   delete_purchase: 'Removed a purchase',
   'record.corrected': 'Corrected a field',
-  create_combined_property: 'Created a combined view',
-  update_combined_property: 'Edited a combined view',
-  delete_combined_property: 'Deleted a combined view',
-  set_combined_members: 'Changed who is in a combined view',
-  add_combined_expense: 'Recorded a combined view cost',
-  delete_combined_expense: 'Removed a combined view cost',
+  create_combined_property: 'Created a holding',
+  update_combined_property: 'Edited a holding',
+  delete_combined_property: 'Deleted a holding',
+  set_combined_members: 'Changed the records in a holding',
+  add_combined_expense: 'Recorded a holding cost',
+  delete_combined_expense: 'Removed a holding cost',
   add_joint_fmb: 'Filed a joint FMB',
   // audit_events_v2 names its actions `area.verb`. Owners see "order", never
   // "ticket" or "job" (design.md, App vocabulary). Money verbs follow the

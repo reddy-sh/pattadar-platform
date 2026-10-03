@@ -111,7 +111,7 @@ final class PhotoImageStore {
 /// and coordinates for images nobody could see. Queued photos render from
 /// their outbox bytes with a waiting badge; the moment a drain lands them the
 /// dossier refetch swaps in the server row.
-struct HoldingPhotoGallery: View {
+struct PropertyPhotoGallery: View {
     @Environment(AppModel.self) private var app
     let photos: [GalleryPhoto]
     /// `.parcel(id)` or `.property(id)` — what an added photo evidences.
@@ -304,7 +304,7 @@ struct HoldingPhotoGallery: View {
 /// — so opening a property leads with its pictures instead of hiding them a
 /// tab away. Tapping any opens the same full-screen, swipeable pager the grid
 /// uses; empty, it invites the first photo and points at the tab that adds it.
-struct HoldingPhotoStrip: View {
+struct PropertyPhotoStrip: View {
     let photos: [GalleryPhoto]
     /// `.parcel(id)` or `.property(id)` — whose photos these are.
     let target: FilingLink

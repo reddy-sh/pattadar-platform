@@ -40,6 +40,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
@@ -58,12 +59,12 @@ import type { FacetGroup, PropertyFilter, PropertyList, RecordCard } from '../ap
 import { mintKey } from '../orderFlow';
 import type { MenuItem } from '../ui';
 import {
-  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, Tag,
+  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, SortCycle, Tag,
   coords, csvCell, inr, inrOr, num, plural, statusWord,
 } from '../ui';
 import { Sk, SkPortfolioMap, SkRecordCards, SkRecordTable } from '../skeletons';
 import { RecordDrawer, ConfirmDialog, TagDialog } from './PropertyActions';
-import { CombineDialog } from './CombinedActions';
+import { CombineDialog } from './HoldingActions';
 import { PortfolioCanvas } from '../PortfolioCanvasLazy';
 import type { PortfolioCanvasHandle, PortfolioPin } from '../PortfolioCanvasLazy';
 import { hasBoundaryRing, isLocated, pairRing } from '../portfolioGeo';
@@ -579,6 +580,18 @@ export function Properties() {
     setParams(next, { replace: true });
   };
 
+  /** "New holding" on the Holdings list lands here with `?combine=1`, because
+   *  a holding is made of records and the records are here. The flag stays in
+   *  the URL while the hint shows, so a reload or a shared link keeps it, and
+   *  it is not a facet: Clear filters leaves it, and dismissing deletes only
+   *  `combine`, so the view, the search and every facet survive. */
+  const combineHint = params.get('combine') === '1';
+  const dropCombine = () => {
+    const next = new URLSearchParams(params);
+    next.delete('combine');
+    setParams(next, { replace: true });
+  };
+
   /** Everything that narrows the list, off at once — which is what the label
    *  says. It used to leave `?q=` on, so "Clear all filters" on a search that
    *  matched nothing left the reader looking at the same empty grid. */
@@ -1031,17 +1044,30 @@ export function Properties() {
               onRemove: dropQ,
             }] : []}
             trailing={(
-              <button
-                type="button" className="sortcycle"
-                onClick={() => {
+              <SortCycle
+                label={sortLabel(sort)}
+                onNext={() => {
                   const at = SORT_PRESETS.findIndex((p) => p.label === sortLabel(sort));
                   setSort(SORT_PRESETS[(at + 1 + SORT_PRESETS.length) % SORT_PRESETS.length].sort);
                 }}
-              >
-                Sort: {sortLabel(sort)} ⌄
-              </button>
+              />
             )}
           />
+        )}
+
+        {/* The combine hand-off from the Holdings list. While it shows, the
+            grid's checkboxes stand at full strength, as they do once something
+            is ticked; the list view always shows them. */}
+        {combineHint && data && !virgin && (
+          <div className="callout" role="status"
+               style={{ gridTemplateColumns: '1fr auto', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
+            <p className="note" style={{ margin: 0 }}>
+              Select two or more properties, then choose Combine to make a holding.
+            </p>
+            <button type="button" className="iconbtn" aria-label="Dismiss the combine hint" onClick={dropCombine}>
+              <CloseOutlined sx={{ fontSize: 16 }} />
+            </button>
+          </div>
         )}
 
         {/* Loading looks like whatever you were looking at. A reader who
@@ -1135,7 +1161,7 @@ export function Properties() {
         )}
 
         {data && !virgin && cards.length > 0 && view === 'grid' && (
-          <div className={`cards ${selected.size > 0 ? 'selecting' : ''}`} style={settling}>
+          <div className={`cards ${selected.size > 0 || combineHint ? 'selecting' : ''}`} style={settling}>
             {paged.map((r) => (
               <Card key={r.id} rec={r}
                     a={{ ...cardActions, selected: selected.has(r.id) }} />
@@ -1421,8 +1447,8 @@ export function Properties() {
             setSelected(new Set());
             // Onto the holding it just made. Staying on the list would leave the
             // owner with a dialog closing and nothing on screen to say a
-            // combined property now exists.
-            nav(`/app/combined/${id}`);
+            // holding now exists.
+            nav(`/app/holdings/${id}`);
           }}
           onClose={() => setCombineIds(null)}
         />

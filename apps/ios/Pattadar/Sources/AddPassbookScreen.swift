@@ -67,7 +67,7 @@ struct AddPassbookScreen: View {
                             VStack(alignment: .leading, spacing: Space.sm) {
                                 Label("You already have this passbook", systemImage: "doc.on.doc.fill")
                                     .font(.subheadline.weight(.medium))
-                                Text("Khata \(dup.pattadarNo) in \(dup.village)\(dup.ownerName.isEmpty ? "" : " · \(dup.ownerName)"). Saving again would split one holding into two and double-count the acres.")
+                                Text("Khata \(dup.pattadarNo) in \(dup.village)\(dup.ownerName.isEmpty ? "" : " · \(dup.ownerName)"). Saving again would split one parcel into two and double-count the acres.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }

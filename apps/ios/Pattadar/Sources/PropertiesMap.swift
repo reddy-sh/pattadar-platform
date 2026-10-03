@@ -10,11 +10,11 @@ import SwiftUI
 /// fastest way to see which holdings have never been pinned, because they are
 /// simply absent.
 struct PropertiesMap: View {
-    let holdings: [Holding]
+    let holdings: [PropertyRecord]
     @State private var camera: MapCameraPosition = .automatic
-    @State private var selected: Holding?
+    @State private var selected: PropertyRecord?
 
-    private var pinned: [(holding: Holding, coord: CLLocationCoordinate2D)] {
+    private var pinned: [(holding: PropertyRecord, coord: CLLocationCoordinate2D)] {
         holdings.compactMap { h in
             guard let p = h.pin else { return nil }
             return (h, CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude))
@@ -52,7 +52,7 @@ struct PropertiesMap: View {
             } else if pinned.isEmpty {
                 unpinnedNotice
             } else if unpinnedCount > 0 {
-                Text("\(unpinnedCount) holding\(unpinnedCount == 1 ? "" : "s") not on the map — no location pinned yet")
+                Text("\(unpinnedCount) \(unpinnedCount == 1 ? "property" : "properties") not on the map — no location pinned yet")
                     .font(.caption).foregroundStyle(.secondary)
                     .padding(Space.md)
                     .background(.regularMaterial, in: Capsule())
@@ -64,10 +64,10 @@ struct PropertiesMap: View {
 
     private var unpinnedCount: Int { holdings.count - pinned.count }
 
-    private func selectedCard(_ h: Holding) -> some View {
+    private func selectedCard(_ h: PropertyRecord) -> some View {
         NavigationLink {
             switch h {
-            case .parcel(let p, let pb): HoldingDetailScreen(parcel: p, passbook: pb)
+            case .parcel(let p, let pb): ParcelDetailScreen(parcel: p, passbook: pb)
             case .property(let p): PropertyDetailScreen(property: p)
             }
         } label: {
@@ -94,7 +94,7 @@ struct PropertiesMap: View {
         ContentUnavailableView(
             "Nothing pinned yet",
             systemImage: "mappin.slash",
-            description: Text("Open a holding and set its location — then it appears here.")
+            description: Text("Open a property and set its location — then it appears here.")
         )
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
         .padding(Space.xxl)

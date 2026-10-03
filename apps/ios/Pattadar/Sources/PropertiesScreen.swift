@@ -7,7 +7,7 @@ import SwiftUI
 /// the person holding the phone they are all "things I own". Wrapping them
 /// lets one list filter, group and sort across both — which is what makes the
 /// separate Passbooks tab redundant rather than merely duplicated.
-enum Holding: Identifiable {
+enum PropertyRecord: Identifiable {
     case parcel(Parcel, Passbook?)
     case property(Property)
 
@@ -143,7 +143,7 @@ enum Holding: Identifiable {
 }
 
 /// How the list is cut.
-enum HoldingFilter: String, CaseIterable, Identifiable {
+enum PropertyFilter: String, CaseIterable, Identifiable {
     case all = "All"
     /// A passbook is not a holding — it is how farmland is FILED — so
     /// selecting it shows the passbooks themselves rather than the land under
@@ -160,7 +160,7 @@ enum HoldingFilter: String, CaseIterable, Identifiable {
     /// else entirely.
     var listsHoldings: Bool { self != .passbooks }
 
-    func matches(_ h: Holding) -> Bool {
+    func matches(_ h: PropertyRecord) -> Bool {
         switch self {
         case .passbooks: false
         // Favourites is answered by the store, not by the holding — see
@@ -176,7 +176,7 @@ enum HoldingFilter: String, CaseIterable, Identifiable {
     }
 }
 
-enum HoldingGrouping: String, CaseIterable, Identifiable {
+enum PropertyGrouping: String, CaseIterable, Identifiable {
     case none = "No grouping"
     case village = "Village"
     case passbook = "Passbook"
@@ -184,7 +184,7 @@ enum HoldingGrouping: String, CaseIterable, Identifiable {
     case type = "Type"
     var id: String { rawValue }
 
-    func key(for h: Holding) -> String {
+    func key(for h: PropertyRecord) -> String {
         switch self {
         case .village: h.village.isEmpty ? "No village" : h.village
         case .passbook: h.passbook.isEmpty ? "No passbook (plots & buildings)" : h.passbook
@@ -197,13 +197,13 @@ enum HoldingGrouping: String, CaseIterable, Identifiable {
 
 /// How the list is ordered (M02's "Sort:" chip). The comp's default is the
 /// survey number — the order the records themselves are spoken in.
-enum HoldingSort: String, CaseIterable, Identifiable {
+enum PropertySort: String, CaseIterable, Identifiable {
     case surveyNo = "Survey no."
     case extent = "Extent"
     case village = "Village"
     var id: String { rawValue }
 
-    func ordered(_ items: [Holding]) -> [Holding] {
+    func ordered(_ items: [PropertyRecord]) -> [PropertyRecord] {
         switch self {
         case .surveyNo:
             items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -219,7 +219,7 @@ enum HoldingSort: String, CaseIterable, Identifiable {
     }
 }
 
-struct HoldingsScreen: View {
+struct PropertiesScreen: View {
     @Environment(AppModel.self) private var app
     @State private var holdings: HoldingsResponse?
     @State private var passbooks: [PassbookDetail] = []
@@ -227,11 +227,11 @@ struct HoldingsScreen: View {
     /// screen's query, and never set by a cancellation.
     @State private var ownFailure: String?
     @State private var search = ""
-    @State private var filter: HoldingFilter = .all
+    @State private var filter: PropertyFilter = .all
     @State private var facetVillage: String?
     @State private var facetPassbook: String?
-    @State private var grouping: HoldingGrouping = .none
-    @State private var sort: HoldingSort = .surveyNo
+    @State private var grouping: PropertyGrouping = .none
+    @State private var sort: PropertySort = .surveyNo
     /// All | Mine (M02/M22). Everything on file today IS yours; the segment
     /// is where shared and assigned holdings land when the API carries them,
     /// and Mine is the only state that shows the portfolio totals.
@@ -384,7 +384,7 @@ struct HoldingsScreen: View {
                 }
             }
             .sheet(isPresented: $showFilterSheet) {
-                HoldingFilterSheet(filter: $filter,
+                PropertyFilterSheet(filter: $filter,
                                    village: $facetVillage,
                                    passbook: $facetPassbook,
                                    villages: villageNames,
@@ -392,7 +392,7 @@ struct HoldingsScreen: View {
                                    count: countMatching)
             }
             .sheet(isPresented: $showAdd) {
-                AddHoldingScreen(passbooks: passbooks, parcels: holdings?.parcels ?? []).onDisappear { Task { await load() } }
+                AddFromScanScreen(passbooks: passbooks, parcels: holdings?.parcels ?? []).onDisappear { Task { await load() } }
             }
             .sheet(item: $editParcel) { p in EditParcelScreen(parcel: p) { Task { await load() } } }
             .sheet(item: $editProperty) { p in EditPropertyScreen(property: p) { Task { await load() } } }
@@ -474,7 +474,7 @@ struct HoldingsScreen: View {
     private func deepLinkedScreen(_ id: String) -> some View {
         if let h = all.first(where: { "\($0.entityType):\($0.entityId)" == id }) {
             switch h {
-            case .parcel(let p, let pb): HoldingDetailScreen(parcel: p, passbook: pb)
+            case .parcel(let p, let pb): ParcelDetailScreen(parcel: p, passbook: pb)
             case .property(let p): PropertyDetailScreen(property: p)
             }
         } else {
@@ -482,7 +482,7 @@ struct HoldingsScreen: View {
             // pushing a blank screen somebody has to work out for themselves.
             ContentUnavailableView("Not in your records",
                                    systemImage: "questionmark.folder",
-                                   description: Text("This holding is no longer on file."))
+                                   description: Text("This property is no longer on file."))
         }
     }
 
@@ -523,7 +523,7 @@ struct HoldingsScreen: View {
             HStack(spacing: Space.sm) {
                 Menu {
                     Picker("Group by", selection: $grouping) {
-                        ForEach(HoldingGrouping.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(PropertyGrouping.allCases) { Text($0.rawValue).tag($0) }
                     }
                 } label: {
                     chip("Group: \(grouping == .none ? "None" : grouping.rawValue)")
@@ -531,7 +531,7 @@ struct HoldingsScreen: View {
                 .disabled(filter == .passbooks)
                 Menu {
                     Picker("Sort", selection: $sort) {
-                        ForEach(HoldingSort.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(PropertySort.allCases) { Text($0.rawValue).tag($0) }
                     }
                 } label: {
                     chip("Sort: \(sort.rawValue)")
@@ -619,7 +619,7 @@ struct HoldingsScreen: View {
 
     /// Live count for the sheet's footer button — the sheet promises "Show N
     /// properties" and N must be the truth.
-    private func countMatching(_ f: HoldingFilter, _ v: String?, _ pb: String?) -> Int {
+    private func countMatching(_ f: PropertyFilter, _ v: String?, _ pb: String?) -> Int {
         all.filter { h in
             if f == .favourites, !app.isFavourite(h.entityType, h.entityId) { return false }
             guard f.matches(h) else { return false }
@@ -652,18 +652,18 @@ struct HoldingsScreen: View {
         .buttonStyle(.plain)
         .padding(.trailing, Space.lg)
         .padding(.bottom, Space.lg)
-        .accessibilityLabel("Add a holding")
+        .accessibilityLabel("Add a property")
     }
 
     @ViewBuilder
-    private func row(_ h: Holding, hero: Bool = false) -> some View {
+    private func row(_ h: PropertyRecord, hero: Bool = false) -> some View {
         if hero {
             // The card IS the row: the link rides invisibly underneath so the
             // List's own chevron and inset chrome never draw over it.
             ZStack {
-                NavigationLink { HoldingDestination(holding: h) } label: { EmptyView() }
+                NavigationLink { PropertyDestination(holding: h) } label: { EmptyView() }
                     .opacity(0)
-                HoldingHeroCard(holding: h,
+                PropertyHeroCard(holding: h,
                                 starred: app.isFavourite(h.entityType, h.entityId))
             }
             .listRowInsets(EdgeInsets(top: Space.xs, leading: Space.lg,
@@ -673,8 +673,8 @@ struct HoldingsScreen: View {
             .swipeActions(edge: .leading) { starButton(h) }
             .swipeActions(edge: .trailing) { trailingActions(h) }
         } else {
-            NavigationLink { HoldingDestination(holding: h) } label: {
-                HoldingRow(holding: h, showPassbook: grouping != .passbook)
+            NavigationLink { PropertyDestination(holding: h) } label: {
+                PropertyRow(holding: h, showPassbook: grouping != .passbook)
             }
             .swipeActions(edge: .leading) { starButton(h) }
             .swipeActions(edge: .trailing) { trailingActions(h) }
@@ -682,7 +682,7 @@ struct HoldingsScreen: View {
     }
 
     @ViewBuilder
-    private func trailingActions(_ h: Holding) -> some View {
+    private func trailingActions(_ h: PropertyRecord) -> some View {
         switch h {
         case .parcel(let parcel, _):
             Button(role: .destructive) { confirmParcel = parcel } label: {
@@ -700,7 +700,7 @@ struct HoldingsScreen: View {
     }
 
     /// Leading swipe, the way Mail flags a message.
-    private func starButton(_ h: Holding) -> some View {
+    private func starButton(_ h: PropertyRecord) -> some View {
         Button {
             Task { await app.toggleFavourite(h.entityType, h.entityId) }
         } label: {
@@ -717,7 +717,7 @@ struct HoldingsScreen: View {
     /// it produced a village header of "121000 sq. yd" — a number nobody in
     /// India says. People know their fields in acres and their sites in
     /// square yards; a mixed village reads "25.00 ac · 191 sq. yd".
-    private func subtotal(_ items: [Holding]) -> String {
+    private func subtotal(_ items: [PropertyRecord]) -> String {
         var acres = 0.0
         var sqyd = 0.0
         for h in items {
@@ -759,15 +759,15 @@ struct HoldingsScreen: View {
 
     // MARK: - Data
 
-    private var all: [Holding] {
+    private var all: [PropertyRecord] {
         guard let h = holdings else { return [] }
         let parcels = h.parcels.map { p in
-            Holding.parcel(p, h.passbooks.first { $0.id == p.passbookId })
+            PropertyRecord.parcel(p, h.passbooks.first { $0.id == p.passbookId })
         }
-        return parcels + h.properties.map { Holding.property($0) }
+        return parcels + h.properties.map { PropertyRecord.property($0) }
     }
 
-    private var visible: [Holding] {
+    private var visible: [PropertyRecord] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         return all.filter { h in
             if filter == .favourites, !app.isFavourite(h.entityType, h.entityId) { return false }
@@ -782,9 +782,9 @@ struct HoldingsScreen: View {
 
     /// Grouped, rows in the chosen sort order; groups themselves still land
     /// biggest first — the order that answers "where is most of it".
-    private var groups: [(String, [Holding])] {
+    private var groups: [(String, [PropertyRecord])] {
         guard grouping != .none else { return [("", sort.ordered(visible))] }
-        var buckets: [String: [Holding]] = [:]
+        var buckets: [String: [PropertyRecord]] = [:]
         for h in visible { buckets[grouping.key(for: h), default: []].append(h) }
         return buckets
             .map { ($0.key, sort.ordered($0.value)) }
@@ -833,8 +833,8 @@ struct HoldingsScreen: View {
     }
 }
 
-struct HoldingRow: View {
-    let holding: Holding
+struct PropertyRow: View {
+    let holding: PropertyRecord
     let showPassbook: Bool
 
     var body: some View {
@@ -897,8 +897,8 @@ struct PassbookRow: View {
 /// The first holding of the list, given the M02 hero treatment: a category
 /// wash with the kind's own motif ghosted large, then the record's facts.
 /// A card inside the List is allowed here — a holding is a genuine unit.
-struct HoldingHeroCard: View {
-    let holding: Holding
+struct PropertyHeroCard: View {
+    let holding: PropertyRecord
     let starred: Bool
 
     private var tint: Color { Palette.tint(for: holding.kind) }
@@ -1003,13 +1003,13 @@ struct HoldingHeroCard: View {
 /// state, then where and how it is filed — and the footer button counts what
 /// it will show, so an empty result is never a surprise. "My stake" and
 /// "Your tags" join when shared holdings and tags exist server-side.
-struct HoldingFilterSheet: View {
-    @Binding var filter: HoldingFilter
+struct PropertyFilterSheet: View {
+    @Binding var filter: PropertyFilter
     @Binding var village: String?
     @Binding var passbook: String?
     let villages: [String]
     let passbookNos: [String]
-    let count: (HoldingFilter, String?, String?) -> Int
+    let count: (PropertyFilter, String?, String?) -> Int
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1055,7 +1055,7 @@ struct HoldingFilterSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    private func facetChips(_ options: [HoldingFilter]) -> some View {
+    private func facetChips(_ options: [PropertyFilter]) -> some View {
         FlowLayout(spacing: Space.sm) {
             ForEach(options) { option in
                 let selected = filter == option

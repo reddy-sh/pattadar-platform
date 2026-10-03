@@ -8,7 +8,7 @@ import SwiftUI
 /// and the footnote says so — the two were one muddled feature everywhere
 /// else this app has lived.
 struct SearchScreen: View {
-    let holdings: [Holding]
+    let holdings: [PropertyRecord]
     let documents: [RegisteredDocument]
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -27,7 +27,7 @@ struct SearchScreen: View {
                     if !matchedHoldings.isEmpty {
                         Section("Properties") {
                             ForEach(matchedHoldings) { h in
-                                NavigationLink { HoldingDestination(holding: h) } label: {
+                                NavigationLink { PropertyDestination(holding: h) } label: {
                                     HStack(spacing: Space.md) {
                                         Image(systemName: h.kind.icon)
                                             .font(.scaled(15))
@@ -111,7 +111,7 @@ struct SearchScreen: View {
         query.trimmingCharacters(in: .whitespaces)
     }
 
-    private var matchedHoldings: [Holding] {
+    private var matchedHoldings: [PropertyRecord] {
         let q = trimmed.lowercased()
         guard !q.isEmpty else { return [] }
         return holdings.filter { h in

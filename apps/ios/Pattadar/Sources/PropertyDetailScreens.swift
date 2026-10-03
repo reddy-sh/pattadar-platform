@@ -35,7 +35,7 @@ func allBlank(_ values: String...) -> Bool {
     values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
-struct HoldingDetailScreen: View {
+struct ParcelDetailScreen: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     let parcel: Parcel
@@ -290,7 +290,7 @@ struct HoldingDetailScreen: View {
         NeedsYouCard(readiness: readiness) { fixing = $0 }
 
         // Photos, up front — the land as it looks, not a tab you have to find.
-        HoldingPhotoStrip(photos: (dossier?.parcelPhotos ?? []).map(GalleryPhoto.init),
+        PropertyPhotoStrip(photos: (dossier?.parcelPhotos ?? []).map(GalleryPhoto.init),
                           target: .parcel(parcel.id),
                           villageCentroid: villageCentroid,
                           placeName: passbook?.village ?? "",
@@ -499,7 +499,7 @@ struct HoldingDetailScreen: View {
                          features: features,
                          onChanged: { Task { await loadDossier() } })
 
-        HoldingPhotoGallery(photos: (dossier?.parcelPhotos ?? []).map(GalleryPhoto.init),
+        PropertyPhotoGallery(photos: (dossier?.parcelPhotos ?? []).map(GalleryPhoto.init),
                             target: .parcel(parcel.id),
                             villageCentroid: villageCentroid,
                             placeName: passbook?.village ?? "",
@@ -1016,7 +1016,7 @@ struct PropertyDetailScreen: View {
         // village centroid here (a property is addressed, not surveyed), so
         // the plausibility check stays quiet and coordinates speak for
         // themselves — same as the land/property tab's gallery.
-        HoldingPhotoStrip(photos: (dossier?.propertyPhotos ?? []).map(GalleryPhoto.init),
+        PropertyPhotoStrip(photos: (dossier?.propertyPhotos ?? []).map(GalleryPhoto.init),
                           target: .property(property.id),
                           villageCentroid: nil,
                           placeName: property.city.isEmpty ? property.locality : property.city,
@@ -1254,7 +1254,7 @@ struct PropertyDetailScreen: View {
         // No village centroid on this side — a property is addressed, not
         // surveyed — so the plausibility check stays quiet and the
         // coordinates speak for themselves.
-        HoldingPhotoGallery(photos: (dossier?.propertyPhotos ?? []).map(GalleryPhoto.init),
+        PropertyPhotoGallery(photos: (dossier?.propertyPhotos ?? []).map(GalleryPhoto.init),
                             target: .property(property.id),
                             villageCentroid: nil,
                             placeName: property.city.isEmpty ? property.locality : property.city,

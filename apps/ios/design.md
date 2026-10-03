@@ -37,7 +37,7 @@ idioms were in use — 20 `Form`, 18 `List`, 6 card-`ScrollView` — with nothin
 saying which belonged where, so Home was bespoke cards, You was stock Settings,
 and the Vault was a `List` with cards inside its sections.
 
-- **A record you read** → `List`, platform grouped surfaces. Holdings, the
+- **A record you read** → `List`, platform grouped surfaces. Properties, the
   vault, You, activity. The platform's grouped background and row chrome are
   adaptive, accessible and correct by default; do not repaint them. The brand
   shows through the accent, the type and the hero.

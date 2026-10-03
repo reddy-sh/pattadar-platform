@@ -279,7 +279,7 @@ test.describe('filters, tags and links', () => {
     await expect(page.getByRole('heading', { level: 2, name: /^All folders · 2 files$/ })).toBeVisible();
   });
 
-  test('a combined view finds the files of every property in it, and files linked to the view itself',
+  test('a holding finds the files of every property in it, and files linked to the holding itself',
     async ({ page, world }) => {
       world.set('combinedProperties', [{
         id: 'cv-farm', name: 'Katragunta farm', members: [{ id: 'm1', recordId: ID.parcel, title: 'Sy 214/2' }],
@@ -295,7 +295,7 @@ test.describe('filters, tags and links', () => {
       await expect(filter(page).getByRole('button', { name: /^Sy 214\/2\s*2$/ })).toBeVisible();
       await filter(page).getByRole('button', { name: /^Katragunta farm\s*3$/ }).click();
       await page.keyboard.press('Escape');
-      await expect(page.getByRole('button', { name: 'Remove filter Combined view Katragunta farm' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Remove filter Holding Katragunta farm' })).toBeVisible();
       await expect(rowOf(page, 'Joint FMB.pdf')).toBeVisible();
       await expect(rowOf(page, 'Crop ledger.xlsx')).toBeVisible();
       await expect(rowOf(page, 'Sale Deed 3325/2022')).toBeVisible();

@@ -235,7 +235,7 @@ final class AppModel {
 
     /// What the Properties list should show when something else opens it.
     /// Consumed once, so returning to the tab later does not re-apply it.
-    var holdingsFilter: HoldingFilter?
+    var holdingsFilter: PropertyFilter?
 
     /// The doors most recently walked through — "type:id" keys, the same
     /// vocabulary favourites and widget links use. Home's "Recently opened"
@@ -724,9 +724,9 @@ final class AppModel {
 
 extension WidgetLink.Filter {
     /// The list's own filter. The mapping lives here rather than in the Kit
-    /// because `HoldingFilter`'s raw values are the words printed on the
+    /// because `PropertyFilter`'s raw values are the words printed on the
     /// filter chips, and a widget's URL must not depend on a display string.
-    var appFilter: HoldingFilter {
+    var appFilter: PropertyFilter {
         switch self {
         case .all: .all
         case .agricultural: .agricultural
@@ -891,7 +891,7 @@ struct RootTabs: View {
     private func screen(_ slot: BarTab) -> some View {
         switch slot {
         case .home: HomeScreen()
-        case .properties: HoldingsScreen()
+        case .properties: PropertiesScreen()
         // "Papers" keeps the `.documents` tab case — WidgetLink URLs and
         // installed widgets speak that vocabulary and must keep working.
         case .papers: DocumentsScreen()

@@ -1,5 +1,5 @@
 /**
- * UX conformance · every Record tab and every Combined tab, in a real browser.
+ * UX conformance · every Record tab and every Holding tab, in a real browser.
  *
  * Why this file exists. `design.md:7` makes Google Material 3 the authority for
  * "accessible hierarchy, adaptive layout, expressive shape, purposeful motion,
@@ -21,9 +21,9 @@
  * resolve.
  *
  * Scope. Both frames that share the tab-strip contract: `/app/records/:id`
- * (nine tabs) and `/app/combined/:id` (six). The strips are read out of the DOM
+ * (nine tabs) and `/app/holdings/:id` (six). The strips are read out of the DOM
  * rather than imported, so this file cannot drift from `TABS` /
- * `COMBINED_TABS`; `ux-guards.ts` already pins those inventories at nine and six.
+ * `HOLDING_TABS`; `ux-guards.ts` already pins those inventories at nine and six.
  *
  * Two of the checks below are expected to FAIL and carry `test.fail()` with the
  * diagnosis, which is this repo's convention for a defect that is recorded
@@ -46,7 +46,7 @@ type Req = import('@playwright/test').APIRequestContext;
  *  A record with empty tabs would pass a layout audit by having no layout. */
 const RECORD = 'w360-p-214-2';
 
-/** Two OWNED seeded records, the same pair `combined.spec.ts` uses: a holding
+/** Two OWNED seeded records, the same pair `holdings.spec.ts` uses: a holding
  *  may only be built from records held outright. */
 const MEMBERS = ['Sy 88', 'Sy 331/2'];
 
@@ -68,7 +68,7 @@ const gql = (request: Req, query: string, variables: Record<string, unknown> = {
     .then((r) => r.json());
 
 /** Holdings this file made, swept whether the test passed or failed — the same
- *  discipline combined.spec.ts keeps, because screens.spec.ts asserts the
+ *  discipline holdings.spec.ts keeps, because screens.spec.ts asserts the
  *  seeded portfolio totals and a holding left behind would break that file
  *  rather than this one. */
 const MADE: string[] = [];
@@ -90,13 +90,13 @@ async function combine(page: Pg, name: string): Promise<string> {
     await page.getByRole('checkbox', { name: `Select ${title}` }).check();
   }
   await page.getByRole('button', { name: 'Combine…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Combine into one view' });
+  const dialog = page.getByRole('dialog', { name: 'Combine into one holding' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('What do you call it').fill(name);
   await dialog.getByRole('button', { name: /^Combine \d+ records$/ }).click();
-  await page.waitForURL(/\/app\/combined\/cp-/);
+  await page.waitForURL(/\/app\/holdings\/cp-/);
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
-  const id = page.url().split('/app/combined/')[1].split(/[/?]/)[0];
+  const id = page.url().split('/app/holdings/')[1].split(/[/?]/)[0];
   MADE.push(id);
   return id;
 }
@@ -230,13 +230,13 @@ test.describe('every Record tab', () => {
   });
 });
 
-test.describe('every Combined tab', () => {
+test.describe('every Holding tab', () => {
   test.beforeEach(() => { test.slow(); });
 
   test('draws one main and one h1, and never skips a heading level', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
     const id = await combine(page, 'UX audit holding');
-    await openTab(page, `/app/combined/${id}`);
+    await openTab(page, `/app/holdings/${id}`);
     for (const tab of await tabsOf(page)) {
       await openTab(page, tab.href);
       await expect(page.locator('main'), `${tab.label}: one main landmark`).toHaveCount(1);
@@ -254,7 +254,7 @@ test.describe('every Combined tab', () => {
     const id = await combine(page, 'UX audit overflow');
     for (const size of [DESKTOP, PHONE]) {
       await page.setViewportSize(size);
-      await openTab(page, `/app/combined/${id}`);
+      await openTab(page, `/app/holdings/${id}`);
       for (const tab of await tabsOf(page)) {
         await openTab(page, tab.href);
         const { scroll, client } = await overflowsSideways(page);
@@ -267,7 +267,7 @@ test.describe('every Combined tab', () => {
   test('names every control that shows only an icon', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
     const id = await combine(page, 'UX audit names');
-    await openTab(page, `/app/combined/${id}`);
+    await openTab(page, `/app/holdings/${id}`);
     for (const tab of await tabsOf(page)) {
       await openTab(page, tab.href);
       expect(await unnamedControls(page), `${tab.label}: unnamed icon control`).toEqual([]);

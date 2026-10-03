@@ -32,8 +32,8 @@ import FullscreenOutlined from '@mui/icons-material/FullscreenOutlined';
 
 import { LENGTH_FT } from '@pattadar/core';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
-import { useCombinedFmb, useDeleteJointFmb } from '../api';
-import type { CombinedJointSheet, CombinedRelation, CombinedSurveyShape } from '../api';
+import { useHoldingFmb, useDeleteJointFmb } from '../api';
+import type { HoldingJointSheet, HoldingRelation, HoldingSurveyShape } from '../api';
 import { BoundaryMeasurementsCard } from '../BoundaryMeasurementsCard';
 import {
   Card, Empty, Failed, KV, Menu, MultiSelect, Pill, num, pairs, plural, useFullscreen,
@@ -42,8 +42,8 @@ import { SkPortfolioMap } from '../skeletons';
 import { PortfolioCanvas } from '../PortfolioCanvasLazy';
 import type { PortfolioCanvasHandle, PortfolioPin } from '../PortfolioCanvasLazy';
 import { hasBoundaryRing, isLocated } from '../portfolioGeo';
-import { useCombinedCtx } from './CombinedProperty';
-import { JointFmbDialog, JointOutlinesDialog } from './CombinedActions';
+import { useHoldingCtx } from './Holding';
+import { JointFmbDialog, JointOutlinesDialog } from './HoldingActions';
 import type { GeoPdfReading } from '@pattadar/core';
 import { fetchFileBlob } from '../../pages/documents/storage';
 import { readGeoPdfFile } from '../geoPdfFile';
@@ -58,9 +58,9 @@ const RELATION_PILL: Record<string, { kind: string; word: string }> = {
   apart: { kind: 'archived', word: 'Apart' },
 };
 
-export function CombinedFmbTab() {
-  const combined = useCombinedCtx();
-  const { data, isLoading, error } = useCombinedFmb(combined.id);
+export function HoldingFmbTab() {
+  const holding = useHoldingCtx();
+  const { data, isLoading, error } = useHoldingFmb(holding.id);
   const [satellite, setSatellite] = useState(true);
   const [lengthUnit, setLengthUnit] = useState<'m' | 'ft'>('m');
   const [picked, setPicked] = useState<string | null>(null);
@@ -147,7 +147,7 @@ export function CombinedFmbTab() {
     </button>
   );
   const jointDialog = addingJoint && (
-    <JointFmbDialog combined={combined} onClose={() => setAddingJoint(false)} />
+    <JointFmbDialog holding={holding} onClose={() => setAddingJoint(false)} />
   );
 
   if (data.drawnCount === 0) {
@@ -164,7 +164,7 @@ export function CombinedFmbTab() {
             spacing instead of meeting border to border. */}
         <div className="stack">
           <Empty boxed h="22rem" icon="parcel" title="No boundaries saved yet">
-            None of the {plural(combined.memberCount, 'record')} in this view has a
+            None of the {plural(holding.memberCount, 'record')} in this holding has a
             saved boundary.
           </Empty>
           <JointSheets sheets={data.jointSheets} />
@@ -213,14 +213,14 @@ export function CombinedFmbTab() {
           Land that is miles apart is small at a zoom that fits both, so the
           list in the rail beside the map zooms to a record on click, and the
           rail carries the corners, the lengths and the areas that do not depend
-          on zoom at all. That is the single-record view's substance, combined:
+          on zoom at all. That is the single-record view's substance, holding:
           one picture of the holding, and every record's own numbers. */}
       <div className="pf-body measured">
           <div className="plot live pf-stage" ref={stage.ref}>
             <PortfolioCanvas
               ref={mapRef}
               appearance="surveyed"
-              label="Map of this combined view"
+              label="Map of this holding"
               // Only the surveys that are ticked, plus any member that has a pin
               // and no outline: those carry no tick because there is nothing to
               // draw or hide, and leaving them on keeps the holding's context.
@@ -246,7 +246,7 @@ export function CombinedFmbTab() {
                 {/* The record map's Recentre glyph. The crosshair this chip used
                     to wear means "where this device is" there
                     (RecordBoundary.tsx, the zoom stack). */}
-                <button type="button" className="chip" title="Frame the whole view again"
+                <button type="button" className="chip" title="Frame the whole holding again"
                         onClick={() => { setPicked(null); mapRef.current?.fit(); }}>
                   <FitScreenOutlined sx={{ fontSize: 14 }} /> Fit all
                 </button>
@@ -291,7 +291,7 @@ export function CombinedFmbTab() {
               table. More than one: one AGGREGATE panel — how many are shown,
               then Sides / Around, each summed / Measured / On record — because a
               stack of full side tables is a wall nobody reads, and the sum is
-              the fact the combined view adds. Which boundaries are shown is
+              the fact the holding adds. Which boundaries are shown is
               chosen from the header dropdown, not from here. */}
           <aside className={`pf-results pf-measures${railShapes.length === 1 ? ' single' : ''}`}
                  aria-label="Measurements">
@@ -356,7 +356,7 @@ export function CombinedFmbTab() {
  * sentence here; structure, formatting, comparison copy, unit switch, and table
  * all come from the shared component. */
 function SurveyMeasure({ shape: s, lengthUnit, onLengthUnit }: {
-  shape: CombinedSurveyShape;
+  shape: HoldingSurveyShape;
   lengthUnit: 'm' | 'ft';
   onLengthUnit: (unit: 'm' | 'ft') => void;
 }) {
@@ -396,14 +396,14 @@ function SurveyMeasure({ shape: s, lengthUnit, onLengthUnit }: {
  *  one outline; this says "Measured", in acres, for a sum of several.
  *
  *  A stack of full Side / Length / Direction tables was a wall nobody reads; the
- *  sum is the fact the combined view adds over opening each record. Two things
+ *  sum is the fact the holding adds over opening each record. Two things
  *  are said honestly here: "On record" is shown only when every selected record
  *  is measured in acres (a flat's square feet cannot be added to an acreage),
  *  and there is no summed area BAND — a per-record outline can be 0.6% out and
  *  the sum still land on the register, so a combined percentage would hide which
  *  record is wrong. That is what each record's own panel is for. */
 function AggregateMeasure({ shapes, picked, onPick, onHover }: {
-  shapes: CombinedSurveyShape[];
+  shapes: HoldingSurveyShape[];
   picked: string | null;
   onPick: (id: string) => void;
   onHover: (id: string | null) => void;
@@ -447,7 +447,7 @@ function AggregateMeasure({ shapes, picked, onPick, onHover }: {
   );
 }
 
-function RelationRow({ r }: { r: CombinedRelation }) {
+function RelationRow({ r }: { r: HoldingRelation }) {
   const pill = RELATION_PILL[r.relation] ?? { kind: 'archived', word: r.relation };
   return (
     <div className="row">
@@ -466,7 +466,7 @@ function RelationRow({ r }: { r: CombinedRelation }) {
  *  A scanned or photographed FMB carries a picture, not coordinates — the record
  *  screen says the same thing in the same words. Nothing here tries to place it
  *  by eye: a sheet stretched onto imagery looks convincing and is wrong. */
-function MissingList({ shapes }: { shapes: CombinedSurveyShape[] }) {
+function MissingList({ shapes }: { shapes: HoldingSurveyShape[] }) {
   if (shapes.length === 0) return null;
   return (
     <Card title="No boundary yet">
@@ -501,10 +501,10 @@ function MissingList({ shapes }: { shapes: CombinedSurveyShape[] }) {
  *  button, and Remove behind the row's ⋮ in the danger tone. Remove unfiles
  *  every copy, so it is not drawn as a peer of the two actions that change
  *  nothing, and it still asks first. */
-function JointSheets({ sheets }: { sheets: CombinedJointSheet[] }) {
-  const combined = useCombinedCtx();
+function JointSheets({ sheets }: { sheets: HoldingJointSheet[] }) {
+  const holding = useHoldingCtx();
   const del = useDeleteJointFmb(false);
-  const [removing, setRemoving] = useState<CombinedJointSheet | null>(null);
+  const [removing, setRemoving] = useState<HoldingJointSheet | null>(null);
   const [err, setErr] = useState('');
   const [reading, setReading] = useState<string | null>(null);
   const [readErr, setReadErr] = useState<{ id: string; msg: string } | null>(null);
@@ -513,7 +513,7 @@ function JointSheets({ sheets }: { sheets: CombinedJointSheet[] }) {
 
   /** Open the stored sheet in the browser and read its georeference. Free
    *  and local — the file is not sent to the document reader for this. */
-  const place = async (s: CombinedJointSheet) => {
+  const place = async (s: HoldingJointSheet) => {
     setReadErr(null);
     setReading(s.id);
     try {
@@ -594,11 +594,11 @@ function JointSheets({ sheets }: { sheets: CombinedJointSheet[] }) {
         />
       )}
       {outlines && (
-        <JointOutlinesDialog combined={combined} reading={outlines}
+        <JointOutlinesDialog holding={holding} reading={outlines}
                              onClose={() => setOutlines(null)} />
       )}
     </Card>
   );
 }
 
-export default CombinedFmbTab;
+export default HoldingFmbTab;

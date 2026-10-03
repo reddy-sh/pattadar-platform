@@ -324,7 +324,7 @@ struct SetLocationScreen: View {
             .filter { !$0.isEmpty }
         guard !parts.isEmpty else {
             if saved == nil {
-                aimNote = "No village recorded for this holding — search for the place."
+                aimNote = "No village recorded for this property — search for the place."
             }
             return
         }

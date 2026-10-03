@@ -157,7 +157,7 @@ function CompositionBar({ d }: { d: DashboardData }) {
   );
   const go = (name: string) =>
     name !== 'Other' && name !== '—'
-      ? () => router.push(`/holdings?q=${encodeURIComponent(name)}` as never)
+      ? () => router.push(`/properties?q=${encodeURIComponent(name)}` as never)
       : undefined;
   return (
     <View style={styles.composition}>
@@ -207,14 +207,14 @@ function buildAttention(d: DashboardData): AttentionItem[] {
         key: `lit-${p.id}`,
         label: `Litigation flagged on Sy ${p.surveyNo || '—'}`,
         severity: 'error',
-        href: `/holding/${p.id}?kind=parcel`,
+        href: `/property/${p.id}?kind=parcel`,
       });
     } else if (!p.surveyNo || !(Number(p.extent) > 0)) {
       items.push({
         key: `inc-${p.id}`,
         label: `Parcel ${p.surveyNo ? `Sy ${p.surveyNo}` : '(no survey no)'} is missing details`,
         severity: 'warning',
-        href: `/holding/${p.id}?kind=parcel`,
+        href: `/property/${p.id}?kind=parcel`,
       });
     }
   }
@@ -317,7 +317,7 @@ function buildAttention(d: DashboardData): AttentionItem[] {
       key: 'no-geo',
       label: `${unpinned} parcel${unpinned === 1 ? ' has' : 's have'} no location set`,
       severity: 'warning',
-      href: '/holdings',
+      href: '/properties',
     });
   }
   const order = { error: 0, warning: 1 };
@@ -578,7 +578,7 @@ export default function HomeScreen() {
                 ) : (
                   <Pressable
                     accessibilityRole="button"
-                    onPress={() => router.push('/holdings' as never)}
+                    onPress={() => router.push('/properties' as never)}
                     style={styles.moneyLine}
                   >
                     <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -671,7 +671,7 @@ export default function HomeScreen() {
               <Card.Content style={styles.gap}>
                 <SectionHeader title="Portfolio" linkLabel="View all" href="/portfolio" />
                 <View style={styles.chipGrid}>
-                  <StatChip label="Parcels" value={String(d.stats.totalParcels)} href="/holdings" />
+                  <StatChip label="Parcels" value={String(d.stats.totalParcels)} href="/properties" />
                   <StatChip label="Passbooks" value={String(d.stats.totalPassbooks)} href="/passbooks" />
                   <StatChip
                     label="Locations"
@@ -683,7 +683,7 @@ export default function HomeScreen() {
                         ].filter(Boolean),
                       ).size,
                     )}
-                    href="/holdings"
+                    href="/properties"
                   />
                   <StatChip label="Beneficiaries" value={String(d.stats.totalBeneficiaries)} href="/family" />
                   {/* CL-248 */}
@@ -697,7 +697,7 @@ export default function HomeScreen() {
 
         {/* CL-245: no pins yet → say how to get the map, don't just omit it */}
         {!isGuest && !isEmpty && geoParcels.length === 0 && (
-          <Card mode="outlined" style={styles.section} onPress={() => router.push('/holdings')}>
+          <Card mode="outlined" style={styles.section} onPress={() => router.push('/properties')}>
             <Card.Content style={styles.mapPrompt}>
               <List.Icon icon="map-marker-plus-outline" color={theme.colors.onSurfaceVariant} />
               <Text variant="bodySmall" style={[styles.grow, { color: theme.colors.onSurfaceVariant }]}>
@@ -709,7 +709,7 @@ export default function HomeScreen() {
         {/* CL-12: map thumbnail */}
         {!isGuest && geoParcels.length > 0 && (
           <View>
-            <Card mode="outlined" style={styles.section} onPress={() => router.push('/holdings')}>
+            <Card mode="outlined" style={styles.section} onPress={() => router.push('/properties')}>
               <MapView
                 style={styles.mapThumb}
                 pointerEvents="none"

@@ -51,8 +51,8 @@ state and is recreated by reviewed lifecycle scripts.
 
 ## Feature domains
 
-Auth/identity; public/auth/legal routes; portfolio/record 360; combined
-properties (a W360-only aggregate OVER parcel/property records — its own tables,
+Auth/identity; public/auth/legal routes; portfolio/record 360; holdings
+(`/app/holdings`; server `combined_*`) (a W360-only aggregate OVER parcel/property records — its own tables,
 name, membership and whole-holding costs; never in `_cards`, never in portfolio
 totals, and it merges no boundary or title); legacy land
 records; families/groups/beneficiaries; vault/storage/reader; durable AI import;

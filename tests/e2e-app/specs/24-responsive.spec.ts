@@ -97,7 +97,7 @@ const DESK = { width: 1280, height: 900 };
  *  test in this file. Nineteen entries, grouped; Help & resources (Tools,
  *  Pattadar University, Help & support) is pinned to the foot of the rail. */
 const SECTIONS = [
-  'Dashboard', 'Properties', 'Combined views', 'Cadastral maps', 'Documents',
+  'Dashboard', 'Properties', 'Holdings', 'Cadastral maps', 'Documents',
   'Shared with me', 'Waiting on you', 'Invitations', 'Families & groups', 'Invite & earn',
   'Services', 'Wallet',
   // Notifications is a topbar bell beside the assistant now, not a rail entry.

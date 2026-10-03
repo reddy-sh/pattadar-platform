@@ -88,7 +88,7 @@ struct AttentionWidgetView: View {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundStyle(Palette.success)
-                    Text("Every holding on file would stand up to scrutiny today.")
+                    Text("Every property on file would stand up to scrutiny today.")
                         .font(.bodyCopy).foregroundStyle(Palette.ink)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -128,7 +128,7 @@ struct AttentionWidgetView: View {
         VStack(alignment: .leading, spacing: Space.hair) {
             Text("Record-ready \(s.readiness)%").font(.caption).widgetAccentable()
             if s.worst.isEmpty {
-                Text("All holdings in order").font(.headline)
+                Text("All properties in order").font(.headline)
             } else {
                 Text(s.worst).font(.caption2).lineLimit(2)
             }

@@ -1,12 +1,12 @@
 /**
- * Combined map · /app/combined/:id/fmb — a holding's boundaries on one map.
+ * Combined map (a Holding tab) · /app/holdings/:id/fmb — a holding's boundaries on one map.
  *
  * Written with the second heuristic audit of this tab (28/09/2026). Each test
  * is one thing the tab owes an owner, and every write it offers is exercised
  * with its failure path: adding and removing a joint FMB, and renaming or
- * removing the combined view from its head.
+ * removing the holding from its head.
  *
- * The seed has no combined view, so each test sets one: Sy 214/2 (the seeded
+ * The seed has no holding, so each test sets one: Sy 214/2 (the seeded
  * parcel) and an invented neighbour, Sy 214/3, share an edge; Sy 88 has no
  * boundary. Neither neighbour is ever opened, so it needs no record of its own.
  */
@@ -16,7 +16,7 @@ import { ID } from '../fixtures/ids';
 
 const CP = 'cp-katragunta';
 const EAST = 'w-sy-214-3';
-const TAB = `/app/combined/${CP}/fmb`;
+const TAB = `/app/holdings/${CP}/fmb`;
 /** A storage UUID, so the sheet's bytes are actually fetched (isStorageRef). */
 const SHEET_REF = '3f0c5a8e-2b1d-4c6e-9f7a-1d2e3f4a5b6c';
 const UPLOADED = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
@@ -115,7 +115,7 @@ test.describe('Combined map', () => {
     const chooser = page.getByRole('button', { name: /^Which boundaries to show/ });
     await expect(chooser).toHaveText(/All 2 boundaries/);
     await expect(chooser).toHaveAccessibleName(/^Which boundaries to show\s+All 2 boundaries$/);
-    await expect(page.getByRole('region', { name: 'Map of this combined view' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Map of this holding' })).toBeVisible();
 
     await expect(rail(page).getByText('2 boundaries shown')).toBeVisible();
     await expect(rail(page).getByRole('button', { name: /Sy 214\/2/ }))
@@ -270,13 +270,13 @@ test.describe('Combined map', () => {
 
     await kebab.click();
     const menu = page.getByRole('menu', { name: 'Actions for Katragunta Land' });
-    await expect(menu.getByRole('menuitem', { name: 'Remove this combined view' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Remove this holding' })).toBeVisible();
     const m = (await menu.boundingBox())!;
     expect(m.x).toBeGreaterThanOrEqual(0);
     expect(m.x + m.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     await page.keyboard.press('Escape');
 
-    const strip = page.getByRole('navigation', { name: 'This combined view' });
+    const strip = page.getByRole('navigation', { name: 'This holding' });
     const tab = strip.getByRole('link', { name: /^Combined map/ });
     const [s, a] = [(await strip.boundingBox())!, (await tab.boundingBox())!];
     expect(a.x).toBeGreaterThanOrEqual(s.x - 1);
@@ -326,7 +326,7 @@ test.describe('Combined map', () => {
     });
     await dialog.getByRole('button', { name: 'Add to records' }).click();
     await expect(dialog.getByRole('alert')).toHaveText(
-      'The sheet was uploaded but not filed. One of those records may have left this view — reload the page and try again.');
+      'The sheet was uploaded but not filed. One of those records may have left this holding — reload the page and try again.');
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(1);
 
     world.set('addJointFmb', 'jf-2');
@@ -347,7 +347,7 @@ test.describe('Combined map', () => {
     expect(world.restCalls(new RegExp(`storage/files/${SHEET_REF}/content`))).toHaveLength(1);
   });
 
-  test('renaming the combined view from its head saves the name, and a refused rename says nothing changed @phone', async ({ page, world }) => {
+  test('renaming the holding from its head saves the name, and a refused rename says nothing changed @phone', async ({ page, world }) => {
     world.set('updateCombinedProperty', false);
     await openMap(page);
     await page.getByRole('button', { name: 'Actions for Katragunta Land' }).click();
@@ -366,24 +366,24 @@ test.describe('Combined map', () => {
     expect(world.calls('setCombinedMembers')).toHaveLength(0);
   });
 
-  test('removing the combined view asks first, keeps it when refused, and goes back to the list when done @phone', async ({ page, world }) => {
+  test('removing the holding asks first, keeps it when refused, and goes back to the list when done @phone', async ({ page, world }) => {
     world.set('deleteCombinedProperty', false);
     world.set('combinedProperties', []);
     await openMap(page);
     await page.getByRole('button', { name: 'Actions for Katragunta Land' }).click();
-    await page.getByRole('menuitem', { name: 'Remove this combined view' }).click();
+    await page.getByRole('menuitem', { name: 'Remove this holding' }).click();
 
-    const ask = page.getByRole('dialog', { name: 'Remove the combined view Katragunta Land?' });
+    const ask = page.getByRole('dialog', { name: 'Remove the holding Katragunta Land?' });
     await expect(ask).toContainText('3 records go back to standing on their own.');
     await ask.getByRole('button', { name: 'Remove' }).click();
     await expect(ask.getByRole('alert')).toHaveText(
-      'That combined view could not be removed — it may already be gone. Reload the page.');
+      'That holding could not be removed — it may already be gone. Reload the page.');
     await expect(page).toHaveURL(new RegExp(`${TAB}$`));
 
     world.set('deleteCombinedProperty', true);
     await ask.getByRole('button', { name: 'Remove' }).click();
-    await expect(page).toHaveURL(/\/app\/combined$/);
-    await expect(page.getByText('No combined views yet')).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/holdings$/);
+    await expect(page.getByText('No holdings yet')).toBeVisible();
     expect(world.lastVars('deleteCombinedProperty')).toEqual({ id: CP });
   });
 

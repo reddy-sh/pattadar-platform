@@ -150,7 +150,7 @@ struct MoreScreen: View {
             .sheet(item: $displacedShowing) { tab in
                 switch tab {
                 case .home: HomeScreen()
-                case .properties: HoldingsScreen()
+                case .properties: PropertiesScreen()
                 default: EmptyView()
                 }
             }
@@ -167,12 +167,12 @@ struct MoreScreen: View {
         return groups.isEmpty ? "" : "\(groups.count) groups"
     }
 
-    private var allHoldings: [Holding] {
+    private var allHoldings: [PropertyRecord] {
         guard let h = holdings else { return [] }
         let parcels = h.parcels.map { p in
-            Holding.parcel(p, h.passbooks.first { $0.id == p.passbookId })
+            PropertyRecord.parcel(p, h.passbooks.first { $0.id == p.passbookId })
         }
-        return parcels + h.properties.map { Holding.property($0) }
+        return parcels + h.properties.map { PropertyRecord.property($0) }
     }
 
     private func load() async {
@@ -187,7 +187,7 @@ struct MoreScreen: View {
 /// Everything you own, on one map — the M24 "Maps" row's destination, and no
 /// more than that: the map itself is the shared `PropertiesMap`.
 struct MapsScreen: View {
-    let holdings: [Holding]
+    let holdings: [PropertyRecord]
 
     var body: some View {
         PropertiesMap(holdings: holdings)

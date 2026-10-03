@@ -35,6 +35,7 @@ import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import { RequireAuth } from './auth/RequireAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { holdingsPathFrom } from './w360/holdingPath';
 
 // Public chunks.
 const LandingPage = lazy(() =>
@@ -77,31 +78,31 @@ const PaymentsCheckout = lazy(() => import('./pages/PaymentsCheckout').then(m=>(
 const W360Shell = lazy(() => import('./w360/Shell').then((m) => ({ default: m.Shell })));
 const W360Dashboard = lazy(() => import('./w360/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const W360Properties = lazy(() => import('./w360/pages/Properties').then((m) => ({ default: m.Properties })));
-// Combined properties: several records an owner holds as one piece of ground.
+// Holdings: several records an owner holds as one piece of ground.
 // A separate route family from `records/:id` on purpose — a holding is not a
 // legal record and must not inherit Share / Order / Archive, which all act on
-// a parcel or property row. See CombinedProperty.tsx.
-const W360Combined = lazy(() => import('./w360/pages/Combined').then((m) => ({ default: m.Combined })));
-const W360CombinedProperty = lazy(() =>
-  import('./w360/pages/CombinedProperty').then((m) => ({ default: m.CombinedProperty })),
+// a parcel or property row. See Holding.tsx.
+const W360Holdings = lazy(() => import('./w360/pages/Holdings').then((m) => ({ default: m.Holdings })));
+const W360Holding = lazy(() =>
+  import('./w360/pages/Holding').then((m) => ({ default: m.Holding })),
 );
-const W360CombinedOverview = lazy(() =>
-  import('./w360/pages/CombinedProperty').then((m) => ({ default: m.CombinedOverview })),
+const W360HoldingOverview = lazy(() =>
+  import('./w360/pages/Holding').then((m) => ({ default: m.HoldingOverview })),
 );
-const W360CombinedSurveys = lazy(() =>
-  import('./w360/pages/CombinedProperty').then((m) => ({ default: m.CombinedSurveys })),
+const W360HoldingSurveys = lazy(() =>
+  import('./w360/pages/Holding').then((m) => ({ default: m.HoldingSurveys })),
 );
-const W360CombinedFmb = lazy(() =>
-  import('./w360/pages/CombinedFmb').then((m) => ({ default: m.CombinedFmbTab })),
+const W360HoldingFmb = lazy(() =>
+  import('./w360/pages/HoldingFmb').then((m) => ({ default: m.HoldingFmbTab })),
 );
-const W360CombinedPapers = lazy(() =>
-  import('./w360/pages/CombinedLedger').then((m) => ({ default: m.CombinedPapersTab })),
+const W360HoldingPapers = lazy(() =>
+  import('./w360/pages/HoldingLedger').then((m) => ({ default: m.HoldingPapersTab })),
 );
-const W360CombinedExpenses = lazy(() =>
-  import('./w360/pages/CombinedLedger').then((m) => ({ default: m.CombinedExpensesTab })),
+const W360HoldingExpenses = lazy(() =>
+  import('./w360/pages/HoldingLedger').then((m) => ({ default: m.HoldingExpensesTab })),
 );
-const W360CombinedServices = lazy(() =>
-  import('./w360/pages/CombinedLedger').then((m) => ({ default: m.CombinedServicesTab })),
+const W360HoldingServices = lazy(() =>
+  import('./w360/pages/HoldingLedger').then((m) => ({ default: m.HoldingServicesTab })),
 );
 const W360MapFind = lazy(() => import('./w360/pages/MapFind').then((m) => ({ default: m.MapFind })));
 const W360VillageMaps = lazy(() => import('./w360/pages/VillageMaps').then((m) => ({ default: m.VillageMaps })));
@@ -312,6 +313,13 @@ function ToTools({ tab }: { tab?: string }) {
   return <Navigate to={tab ? `/app/tools?tab=${tab}` : `/app/tools${search}`} replace />;
 }
 
+/** `/app/combined…` was the Holdings address until 03/10/2026. Bookmarks and
+ *  shared links keep working: the id, the tab, the query and the hash ride along. */
+function FromCombined() {
+  const { pathname, search, hash } = useLocation();
+  return <Navigate to={`${holdingsPathFrom(pathname)}${search}${hash}`} replace />;
+}
+
 export const router = createBrowserRouter([
   { path: '/', element: suspended(LandingPage) },
   { path: '/pricing', element: suspended(PricingPage) },
@@ -337,23 +345,26 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: suspended(W360Dashboard) },
       { path: 'properties', element: suspended(W360Properties) },
-      // Several records held as one property. `combined/:id` is a frame with
-      // six tabs of its own, like a record — but it is an aggregate, so its
-      // members' own screens stay under `records/:id` and everything here
-      // links there rather than editing a survey in two places.
-      { path: 'combined', element: suspended(W360Combined) },
+      // Holdings: several records held as one property. `holdings/:id` is a
+      // frame with six tabs of its own, like a record — but it is an aggregate,
+      // so its members' own screens stay under `records/:id` and everything
+      // here links there rather than editing a survey in two places.
+      { path: 'holdings', element: suspended(W360Holdings) },
       {
-        path: 'combined/:id',
-        element: suspended(W360CombinedProperty),
+        path: 'holdings/:id',
+        element: suspended(W360Holding),
         children: [
-          { index: true, element: suspended(W360CombinedOverview) },
-          { path: 'surveys', element: suspended(W360CombinedSurveys) },
-          { path: 'papers', element: suspended(W360CombinedPapers) },
-          { path: 'fmb', element: suspended(W360CombinedFmb) },
-          { path: 'expenses', element: suspended(W360CombinedExpenses) },
-          { path: 'services', element: suspended(W360CombinedServices) },
+          { index: true, element: suspended(W360HoldingOverview) },
+          { path: 'surveys', element: suspended(W360HoldingSurveys) },
+          { path: 'papers', element: suspended(W360HoldingPapers) },
+          { path: 'fmb', element: suspended(W360HoldingFmb) },
+          { path: 'expenses', element: suspended(W360HoldingExpenses) },
+          { path: 'services', element: suspended(W360HoldingServices) },
         ],
       },
+      // The old Holdings address; see FromCombined.
+      { path: 'combined', element: <FromCombined /> },
+      { path: 'combined/*', element: <FromCombined /> },
       { path: 'map', element: suspended(W360MapFind) },
       { path: 'maps', element: suspended(W360VillageMaps) },
       // Bookmarks and links sent before the cadastral naming change still land

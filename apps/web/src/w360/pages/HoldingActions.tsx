@@ -1,4 +1,4 @@
-/** The dialogs a combined property is made, unmade and filed into with.
+/** The dialogs a holding is made, unmade and filed into with.
  *
  *  All of them are Dialogs rather than the record drawer: each is one short form or
  *  one decision, and the thing being acted on has to stay visible behind it —
@@ -14,10 +14,10 @@ import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import { Dialog } from '../Dialog';
 import type { GeoPdfReading } from '@pattadar/core';
 import {
-  useAddJointFmb, useCreateCombined, useDeleteCombined, useRenameCombined,
-  useSetBoundary, useSetCombinedMembers, useSaveCombinedExpense,
+  useAddJointFmb, useCreateHolding, useDeleteHolding, useRenameHolding,
+  useSetBoundary, useSetHoldingMembers, useSaveHoldingExpense,
 } from '../api';
-import type { Combined, RecordCard } from '../api';
+import type { HoldingCard, RecordCard } from '../api';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { readGeoPdfFile } from '../geoPdfFile';
 import { uploadToDrive } from '../../pages/documents/storage';
@@ -49,7 +49,7 @@ export function CombineDialog({ records, onDone, onClose }: {
   onDone: (id: string) => void;
   onClose: () => void;
 }) {
-  const create = useCreateCombined(false);
+  const create = useCreateHolding(false);
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
@@ -74,7 +74,7 @@ export function CombineDialog({ records, onDone, onClose }: {
         // these records is already in another holding, or stopped being this
         // account's between the tick and the press.
         setErr('These records could not be combined. One of them may already be '
-          + 'part of another combined view. Reload the list and try again.');
+          + 'part of another holding. Reload the list and try again.');
         return;
       }
       onDone(id);
@@ -85,7 +85,7 @@ export function CombineDialog({ records, onDone, onClose }: {
 
   return (
     <Dialog
-      title="Combine into one view"
+      title="Combine into one holding"
       onClose={onClose}
       busy={create.isPending}
       // A typed name is typed work: a pointer that slips onto the scrim must
@@ -144,7 +144,7 @@ export function CombineDialog({ records, onDone, onClose }: {
       )}
       {!enough && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-          A combined view needs at least two records you hold in your own name.
+          A holding needs at least two records you hold in your own name.
         </p>
       )}
       {err && (
@@ -163,19 +163,19 @@ export function CombineDialog({ records, onDone, onClose }: {
  * The list is every record you hold in your own name, with the ones already in
  * another holding shown as unavailable rather than missing.
  */
-export function CombinedEditDialog({ combined, candidates, onClose }: {
-  combined: Combined;
+export function HoldingEditDialog({ holding, candidates, onClose }: {
+  holding: HoldingCard;
   /** Every record the account holds, from the same query the Properties list
    *  runs — so this picker can never disagree with that screen. */
   candidates: RecordCard[];
   onClose: () => void;
 }) {
-  const rename = useRenameCombined(false);
-  const setMembers = useSetCombinedMembers(false);
-  const [name, setName] = useState(combined.name);
-  const [note, setNote] = useState(combined.note);
+  const rename = useRenameHolding(false);
+  const setMembers = useSetHoldingMembers(false);
+  const [name, setName] = useState(holding.name);
+  const [note, setNote] = useState(holding.note);
   const [picked, setPicked] = useState<ReadonlySet<string>>(
-    () => new Set(combined.members.map((m) => m.recordId)),
+    () => new Set(holding.members.map((m) => m.recordId)),
   );
   const [err, setErr] = useState('');
 
@@ -185,9 +185,9 @@ export function CombinedEditDialog({ combined, candidates, onClose }: {
   );
   const busy = rename.isPending || setMembers.isPending;
   const enough = picked.size >= 2;
-  const renamed = name.trim() !== combined.name || note.trim() !== combined.note;
+  const renamed = name.trim() !== holding.name || note.trim() !== holding.note;
   const remembered = [...picked].sort().join(',')
-    !== combined.members.map((m) => m.recordId).sort().join(',');
+    !== holding.members.map((m) => m.recordId).sort().join(',');
 
   const toggle = (id: string) => setPicked((prev) => {
     const next = new Set(prev);
@@ -201,7 +201,7 @@ export function CombinedEditDialog({ combined, candidates, onClose }: {
     try {
       if (renamed) {
         const ok = (await rename.mutateAsync({
-          id: combined.id, name: name.trim(), note: note.trim(),
+          id: holding.id, name: name.trim(), note: note.trim(),
         })).web.updateCombinedProperty;
         if (!ok) {
           setErr('That name could not be saved. Nothing has changed.');
@@ -214,14 +214,14 @@ export function CombinedEditDialog({ combined, candidates, onClose }: {
         // owner thinks of it in rather than being re-sorted by survey number.
         const wanted = mine.filter((r) => picked.has(r.id)).map((r) => r.id);
         const ok = (await setMembers.mutateAsync({
-          id: combined.id, recordIds: wanted,
+          id: holding.id, recordIds: wanted,
         })).web.setCombinedMembers;
         if (!ok) {
           setErr(renamed
             ? 'The name was saved, but the records were not changed — one of them '
-              + 'may already be in another combined view.'
+              + 'may already be in another holding.'
             : 'Those records could not be saved. One of them may already be in '
-              + 'another combined view. Nothing was changed.');
+              + 'another holding. Nothing was changed.');
           return;
         }
       }
@@ -233,7 +233,7 @@ export function CombinedEditDialog({ combined, candidates, onClose }: {
 
   return (
     <Dialog
-      title={`Edit ${combined.name}`}
+      title={`Edit ${holding.name}`}
       onClose={onClose}
       busy={busy}
       dismissable={false}
@@ -282,7 +282,7 @@ export function CombinedEditDialog({ combined, candidates, onClose }: {
       </fieldset>
       {!enough && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-          Keep at least two records, or remove the combined view instead.
+          Keep at least two records, or remove the holding instead.
         </p>
       )}
       {err && (
@@ -300,20 +300,20 @@ export function CombinedEditDialog({ combined, candidates, onClose }: {
  * costs recorded against the WHOLE holding, which have nowhere else to live.
  * Every record survives. The dialog counts both, out loud, before the button.
  */
-export function CombinedDeleteDialog({ combined, onDone, onClose }: {
-  combined: Combined;
+export function HoldingDeleteDialog({ holding, onDone, onClose }: {
+  holding: HoldingCard;
   onDone: () => void;
   onClose: () => void;
 }) {
-  const del = useDeleteCombined(false);
+  const del = useDeleteHolding(false);
   const [err, setErr] = useState('');
 
   const go = async () => {
     setErr('');
     try {
-      const ok = (await del.mutateAsync({ id: combined.id })).web.deleteCombinedProperty;
+      const ok = (await del.mutateAsync({ id: holding.id })).web.deleteCombinedProperty;
       if (!ok) {
-        setErr('That combined view could not be removed — it may already be gone. Reload the page.');
+        setErr('That holding could not be removed — it may already be gone. Reload the page.');
         return;
       }
       onDone();
@@ -324,7 +324,7 @@ export function CombinedDeleteDialog({ combined, onDone, onClose }: {
 
   return (
     <Dialog
-      title={`Remove the combined view ${combined.name}?`}
+      title={`Remove the holding ${holding.name}?`}
       onClose={onClose}
       busy={del.isPending}
       footer={(
@@ -338,16 +338,16 @@ export function CombinedDeleteDialog({ combined, onDone, onClose }: {
       )}
     >
       <p className="note" style={{ margin: 0 }}>
-        {plural(combined.memberCount, 'record')} {combined.memberCount === 1 ? 'goes' : 'go'} back
-        to standing on {combined.memberCount === 1 ? 'its' : 'their'} own.
+        {plural(holding.memberCount, 'record')} {holding.memberCount === 1 ? 'goes' : 'go'} back
+        to standing on {holding.memberCount === 1 ? 'its' : 'their'} own.
       </p>
       <p className="note" style={{ margin: 0 }}>
         Papers, boundaries, photographs, people, and each record’s own costs all stay
         with their records.
       </p>
-      {combined.combinedSpend > 0 && (
+      {holding.combinedSpend > 0 && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-warn)' }}>
-          {inr(combined.combinedSpend)} recorded as shared costs is deleted
+          {inr(holding.combinedSpend)} recorded as shared costs is deleted
           with it.
         </p>
       )}
@@ -366,11 +366,11 @@ export function CombinedDeleteDialog({ combined, onDone, onClose }: {
  * and would make the per-survey ledgers wrong in a way nothing could undo. The
  * form says which scope it is filing at, above the fields.
  */
-export function CombinedExpenseDialog({ combined, onClose }: {
-  combined: Combined;
+export function HoldingExpenseDialog({ holding, onClose }: {
+  holding: HoldingCard;
   onClose: () => void;
 }) {
-  const save = useSaveCombinedExpense(false);
+  const save = useSaveHoldingExpense(false);
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [spentOn, setSpentOn] = useState(() => new Date().toISOString().slice(0, 10));
@@ -387,7 +387,7 @@ export function CombinedExpenseDialog({ combined, onClose }: {
     setErr('');
     try {
       const id = (await save.mutateAsync({
-        combinedId: combined.id, title: title.trim(), amount: rupees, spentOn,
+        combinedId: holding.id, title: title.trim(), amount: rupees, spentOn,
         kind, category: category.trim() || 'other', paidBy: paidBy.trim(),
         vendor: '', note: '', recoverable: false,
       })).web.saveCombinedExpense;
@@ -419,7 +419,7 @@ export function CombinedExpenseDialog({ combined, onClose }: {
       )}
     >
       <p className="note" style={{ marginTop: 0 }}>
-        Filed against all {combined.extentLine} of <strong>{combined.name}</strong>.
+        Filed against all {holding.extentLine} of <strong>{holding.name}</strong>.
         This cost is not divided between its records.
       </p>
       <div className="field">
@@ -479,15 +479,15 @@ export function CombinedExpenseDialog({ combined, onClose }: {
  * outlines are read in the browser afterwards and the owner assigns each one
  * to a survey (JointOutlinesDialog); nothing is saved as a boundary until then.
  */
-export function JointFmbDialog({ combined, onClose }: {
-  combined: Combined;
+export function JointFmbDialog({ holding, onClose }: {
+  holding: HoldingCard;
   onClose: () => void;
 }) {
   const add = useAddJointFmb(false);
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<string>>(
-    () => new Set(combined.members.map((m) => m.recordId)),
+    () => new Set(holding.members.map((m) => m.recordId)),
   );
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
@@ -527,16 +527,16 @@ export function JointFmbDialog({ combined, onClose }: {
       setUploading(false);
     }
     try {
-      const recordIds = combined.members
+      const recordIds = holding.members
         .filter((m) => picked.has(m.recordId)).map((m) => m.recordId);
       const id = (await add.mutateAsync({
-        combinedId: combined.id, fileRef: node.id, name: node.name || file.name,
+        combinedId: holding.id, fileRef: node.id, name: node.name || file.name,
         mimeType: node.mimeType || file.type || '', sizeBytes: node.sizeBytes || file.size,
         recordIds,
       })).web.addJointFmb;
       if (!id) {
         setErr('The sheet was uploaded but not filed. One of those records may have '
-          + 'left this view — reload the page and try again.');
+          + 'left this holding — reload the page and try again.');
         return;
       }
     } catch {
@@ -552,7 +552,7 @@ export function JointFmbDialog({ combined, onClose }: {
   };
 
   if (outlines) {
-    return <JointOutlinesDialog combined={combined} reading={outlines} onClose={onClose} />;
+    return <JointOutlinesDialog holding={holding} reading={outlines} onClose={onClose} />;
   }
 
   return (
@@ -592,7 +592,7 @@ export function JointFmbDialog({ combined, onClose }: {
 
       <fieldset className="share-paper-picker">
         <legend>Which records it covers</legend>
-        {combined.members.map((m) => (
+        {holding.members.map((m) => (
           <label key={m.recordId}>
             <input type="checkbox" checked={picked.has(m.recordId)}
                    disabled={busy} onChange={() => toggle(m.recordId)} />
@@ -619,12 +619,12 @@ export function JointFmbDialog({ combined, onClose }: {
 /** Suggest which survey each outline is, by area — only where one survey is
  *  clearly the nearest (within 10%) and nobody else wants it. A suggestion is
  *  a pre-filled choice the owner can see and change, never a save. */
-function suggest(reading: GeoPdfReading, combined: Combined): string[] {
+function suggest(reading: GeoPdfReading, holding: HoldingCard): string[] {
   const out = reading.outlines.map(() => '');
   const taken = new Set<string>();
   const pairs: Array<{ o: number; id: string; off: number }> = [];
   reading.outlines.forEach((o, i) => {
-    for (const m of combined.members) {
+    for (const m of holding.members) {
       if (m.extentUnit !== 'ac' || !(m.extent > 0)) continue;
       pairs.push({ o: i, id: m.recordId, off: Math.abs(o.areaAc - m.extent) / m.extent });
     }
@@ -686,18 +686,18 @@ function OutlinePreview({ reading, active }: { reading: GeoPdfReading; active: n
  * that record's own boundary, exactly as a KML import would be; a survey that
  * already has a saved boundary is marked, because this replaces it.
  */
-export function JointOutlinesDialog({ combined, reading, onClose }: {
-  combined: Combined;
+export function JointOutlinesDialog({ holding, reading, onClose }: {
+  holding: HoldingCard;
   reading: GeoPdfReading;
   onClose: () => void;
 }) {
   const setBoundary = useSetBoundary();
-  const [assign, setAssign] = useState<string[]>(() => suggest(reading, combined));
+  const [assign, setAssign] = useState<string[]>(() => suggest(reading, holding));
   const [active, setActive] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const chosen = assign.filter(Boolean).length;
-  const byId = new Map(combined.members.map((m) => [m.recordId, m]));
+  const byId = new Map(holding.members.map((m) => [m.recordId, m]));
 
   const pick = (i: number, id: string) => setAssign((prev) =>
     prev.map((v, j) => (j === i ? id : v === id && id ? '' : v)));
@@ -772,7 +772,7 @@ export function JointOutlinesDialog({ combined, reading, onClose }: {
                       onFocus={() => setActive(i)} onBlur={() => setActive(null)}
                       onChange={(e) => pick(i, e.target.value)}>
                 <option value="">Not one of these</option>
-                {combined.members.map((mm) => (
+                {holding.members.map((mm) => (
                   // Two members can share a title ("Sy 1" in two villages), so
                   // the extent rides along to tell them apart.
                   <option key={mm.recordId} value={mm.recordId}>
