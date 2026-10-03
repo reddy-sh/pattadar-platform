@@ -1,4 +1,4 @@
-/** One combined property, and the frame its six tabs are drawn in.
+/** One holding, and the frame its six tabs are drawn in.
  *
  *  Deliberately NOT the record shell. `Record.tsx` and `RecordHead.tsx` are
  *  structurally about one legal record: they offer Share, Order a service,
@@ -18,16 +18,16 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useOutletContext, useParams, useNavigate } from 'react-router';
-import { useCombined, useProperties, EMPTY_FILTER } from '../api';
-import type { Combined, CombinedMember } from '../api';
-import { Cell, Crumbs, Failed, Icon, Menu, Pill, inr, inrOr, num, plural, statusWord } from '../ui';
+import { useHolding, useProperties, EMPTY_FILTER } from '../api';
+import type { HoldingCard, HoldingMember } from '../api';
+import { Cell, Crumbs, Failed, HOLDING_WORD, Icon, Menu, Pill, inr, inrOr, num, plural, statusWord } from '../ui';
 import { Sk } from '../skeletons';
-import { CombinedDeleteDialog, CombinedEditDialog } from './CombinedActions';
+import { HoldingDeleteDialog, HoldingEditDialog } from './HoldingActions';
 
-interface Ctx { combined: Combined }
+interface Ctx { holding: HoldingCard }
 
-export function useCombinedCtx(): Combined {
-  return useOutletContext<Ctx>().combined;
+export function useHoldingCtx(): HoldingCard {
+  return useOutletContext<Ctx>().holding;
 }
 
 /** The six tabs, and what each one counts.
@@ -37,8 +37,8 @@ export function useCombinedCtx(): Combined {
  *  number in permanent chrome is worse than none — the record strip settled the
  *  same question the same way.
  */
-export const COMBINED_TABS: {
-  to: string; label: string; end?: boolean; count: (c: Combined) => number | null;
+export const HOLDING_TABS: {
+  to: string; label: string; end?: boolean; count: (c: HoldingCard) => number | null;
 }[] = [
   { to: '', label: 'Overview', end: true, count: () => null },
   { to: 'surveys', label: 'Records', count: (c) => c.memberCount },
@@ -48,12 +48,12 @@ export const COMBINED_TABS: {
   { to: 'services', label: 'Services', count: () => null },
 ];
 
-export function tabForCombined(pathname: string) {
-  const tail = pathname.replace(/\/+$/, '').split('/app/combined/')[1]?.split('/')[1] ?? '';
-  return COMBINED_TABS.find((t) => t.to === tail);
+export function tabForHolding(pathname: string) {
+  const tail = pathname.replace(/\/+$/, '').split('/app/holdings/')[1]?.split('/')[1] ?? '';
+  return HOLDING_TABS.find((t) => t.to === tail);
 }
 
-function CombinedHead({ combined, here }: { combined: Combined; here?: string }) {
+function HoldingHead({ holding, here }: { holding: HoldingCard; here?: string }) {
   const nav = useNavigate();
   const [panel, setPanel] = useState<'' | 'edit' | 'delete'>('');
   // The same unfiltered query the Properties list runs, so the edit picker and
@@ -66,8 +66,8 @@ function CombinedHead({ combined, here }: { combined: Combined; here?: string })
     <>
       <Crumbs
         trail={[
-          { label: 'Combined views', to: '/app/combined' },
-          { label: combined.name, to: here ? `/app/combined/${combined.id}` : undefined },
+          { label: HOLDING_WORD.many, to: '/app/holdings' },
+          { label: holding.name, to: here ? `/app/holdings/${holding.id}` : undefined },
           ...(here ? [{ label: here }] : []),
         ]}
       />
@@ -76,17 +76,17 @@ function CombinedHead({ combined, here }: { combined: Combined; here?: string })
         <div className="grow rechead">
           <div className="rechead-name">
             <Icon name="parcel" size={26} className="rechead-glyph" />
-            <h1>{combined.name}</h1>
+            <h1>{holding.name}</h1>
             {/* The extent, and only the extent. The record count is on the tab
                 strip and in the totals; a pill that also carried it made the
                 head say "2 records" three times in four lines. */}
-            <span className="chip static num rechead-extent">{combined.extentLine}</span>
-            {!combined.isComplete && <Pill kind="disputed">Incomplete</Pill>}
+            <span className="chip static num rechead-extent">{holding.extentLine}</span>
+            {!holding.isComplete && <Pill kind="disputed">Incomplete</Pill>}
           </div>
-          <p className="eyebrow rechead-kind">COMBINED VIEW</p>
+          <p className="eyebrow rechead-kind">{HOLDING_WORD.one.toUpperCase()}</p>
           <p className="lede rechead-place">
-            {combined.placeLine || 'Place not recorded on its records'}
-            {combined.note && <> · {combined.note}</>}
+            {holding.placeLine || 'Place not recorded on its records'}
+            {holding.note && <> · {holding.note}</>}
           </p>
         </div>
         <div className="actions">
@@ -94,10 +94,10 @@ function CombinedHead({ combined, here }: { combined: Combined; here?: string })
               strip and owns the real control; a second button that only
               NAVIGATES to it is the same action twice, and the one in the head
               cannot do what its label promises. */}
-          <Menu label={`Actions for ${combined.name}`} items={[
+          <Menu label={`Actions for ${holding.name}`} items={[
             { label: 'Edit name & records', onClick: () => setPanel('edit') },
             {
-              label: 'Remove this combined view',
+              label: 'Remove this holding',
               danger: true,
               rule: true,
               onClick: () => setPanel('delete'),
@@ -109,24 +109,24 @@ function CombinedHead({ combined, here }: { combined: Combined; here?: string })
       {/* A holding whose member was deleted elsewhere. Said here, on every tab,
           because its totals and its costs are now about fewer records than the
           owner set up — and nothing else on the screen could explain the drop. */}
-      {!combined.isComplete && (
+      {!holding.isComplete && (
         <p className="note" role="status" style={{ color: 'var(--w-warn)' }}>
-          This combined view is down to {plural(combined.memberCount, 'record')}. A record
+          This holding is down to {plural(holding.memberCount, 'record')}. A record
           in it was deleted.
         </p>
       )}
 
       {panel === 'edit' && (
-        <CombinedEditDialog
-          combined={combined}
+        <HoldingEditDialog
+          holding={holding}
           candidates={portfolio?.cards ?? []}
           onClose={() => setPanel('')}
         />
       )}
       {panel === 'delete' && (
-        <CombinedDeleteDialog
-          combined={combined}
-          onDone={() => { setPanel(''); nav('/app/combined'); }}
+        <HoldingDeleteDialog
+          holding={holding}
+          onDone={() => { setPanel(''); nav('/app/holdings'); }}
           onClose={() => setPanel('')}
         />
       )}
@@ -134,7 +134,7 @@ function CombinedHead({ combined, here }: { combined: Combined; here?: string })
   );
 }
 
-function CombinedTabs({ combined }: { combined: Combined }) {
+function HoldingTabs({ holding }: { holding: HoldingCard }) {
   const strip = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
   // Six tabs do not fit a phone: the strip scrolls sideways, and arriving on
@@ -145,12 +145,12 @@ function CombinedTabs({ combined }: { combined: Combined }) {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [pathname]);
   return (
-    <nav ref={strip} className="tabs" aria-label="This combined view">
-      {COMBINED_TABS.map((t) => {
-        const n = t.count(combined);
+    <nav ref={strip} className="tabs" aria-label="This holding">
+      {HOLDING_TABS.map((t) => {
+        const n = t.count(holding);
         return (
           <NavLink key={t.label} end={t.end}
-                   to={t.to ? `/app/combined/${combined.id}/${t.to}` : `/app/combined/${combined.id}`}>
+                   to={t.to ? `/app/holdings/${holding.id}/${t.to}` : `/app/holdings/${holding.id}`}>
             {t.label}
             {n !== null && <span className={n > 0 ? 'n' : 'n zero'}>{n}</span>}
           </NavLink>
@@ -160,15 +160,15 @@ function CombinedTabs({ combined }: { combined: Combined }) {
   );
 }
 
-export function CombinedProperty() {
+export function Holding() {
   const { id } = useParams();
   const { pathname } = useLocation();
-  const { data, isLoading, error } = useCombined(id);
+  const { data, isLoading, error } = useHolding(id);
 
   if (isLoading) {
     return (
       <main>
-        <Crumbs trail={[{ label: 'Combined views', to: '/app/combined' }, { label: 'Loading' }]} />
+        <Crumbs trail={[{ label: HOLDING_WORD.many, to: '/app/holdings' }, { label: 'Loading' }]} />
         <Sk w="18rem" h="2rem" r="var(--radius-xs)" />
         <Sk w="100%" h="14rem" r="var(--radius-md)" style={{ marginTop: '1rem' }} />
       </main>
@@ -180,28 +180,28 @@ export function CombinedProperty() {
   if (error) {
     return (
       <main>
-        <Crumbs trail={[{ label: 'Combined views', to: '/app/combined' }, { label: 'Combined view' }]} />
-        <Failed what="This combined view" error={error} boxed h="26rem" />
+        <Crumbs trail={[{ label: HOLDING_WORD.many, to: '/app/holdings' }, { label: HOLDING_WORD.one }]} />
+        <Failed what="This holding" error={error} boxed h="26rem" />
       </main>
     );
   }
   if (!data) {
     return (
       <main>
-        <Crumbs trail={[{ label: 'Combined views', to: '/app/combined' }, { label: 'Not found' }]} />
-        <h1>This combined view isn't in your account</h1>
+        <Crumbs trail={[{ label: HOLDING_WORD.many, to: '/app/holdings' }, { label: 'Not found' }]} />
+        <h1>This holding isn't in your account</h1>
         <p className="lede">It may have been ungrouped.</p>
       </main>
     );
   }
 
-  const tab = tabForCombined(pathname);
-  const ctx = { combined: data } satisfies Ctx;
+  const tab = tabForHolding(pathname);
+  const ctx = { holding: data } satisfies Ctx;
   const layout = tab?.to === 'fmb' ? 'split-instrument' : 'document';
   return (
     <main data-tab-layout={layout}>
-      <CombinedHead combined={data} here={tab?.to ? tab.label : undefined} />
-      <CombinedTabs combined={data} />
+      <HoldingHead holding={data} here={tab?.to ? tab.label : undefined} />
+      <HoldingTabs holding={data} />
       <Outlet context={ctx} />
     </main>
   );
@@ -210,7 +210,7 @@ export function CombinedProperty() {
 /** The holding in four figures, then the records they came from.
  *
  *  This screen used to explain itself: a "What this is" card carrying two
- *  paragraphs of rationale about what a combined property does not do. That
+ *  paragraphs of rationale about what a holding does not do. That
  *  belongs in the spec. A screen that argues its own case reads as uncertain,
  *  and it pushed the records — the thing the reader came for — below the fold.
  *
@@ -218,36 +218,36 @@ export function CombinedProperty() {
  *  explaining what it would have meant is three lines to say "nothing yet";
  *  the cell says that instead, and offers the way to change it.
  */
-export function CombinedOverview() {
-  const combined = useCombinedCtx();
-  const surveyed = combined.surveyedCount === combined.memberCount
+export function HoldingOverview() {
+  const holding = useHoldingCtx();
+  const surveyed = holding.surveyedCount === holding.memberCount
     ? 'all with boundaries'
-    : `${combined.surveyedCount} of ${combined.memberCount} with boundaries`;
+    : `${holding.surveyedCount} of ${holding.memberCount} with boundaries`;
   return (
     <>
       <div className="strip">
-        <Cell k="Extent" v={combined.extentLine}
-              note={`${plural(combined.memberCount, 'record')} · ${surveyed}`} />
+        <Cell k="Extent" v={holding.extentLine}
+              note={`${plural(holding.memberCount, 'record')} · ${surveyed}`} />
         <Cell k="Estimated value"
-              v={combined.marketValue > 0 ? inr(combined.marketValue) : 'Not valued'}
-              note={combined.invested > 0 ? `${inr(combined.invested)} paid` : undefined} />
+              v={holding.marketValue > 0 ? inr(holding.marketValue) : 'Not valued'}
+              note={holding.invested > 0 ? `${inr(holding.invested)} paid` : undefined} />
         <Cell k="Shared costs"
-              v={combined.combinedSpend > 0 ? inr(combined.combinedSpend) : 'Nothing yet'}
-              to={`/app/combined/${combined.id}/expenses`} />
+              v={holding.combinedSpend > 0 ? inr(holding.combinedSpend) : 'Nothing yet'}
+              to={`/app/holdings/${holding.id}/expenses`} />
         <Cell k="Costs on its records"
-              v={combined.memberSpend > 0 ? inr(combined.memberSpend) : 'Nothing yet'}
-              to={`/app/combined/${combined.id}/expenses?scope=record`} />
+              v={holding.memberSpend > 0 ? inr(holding.memberSpend) : 'Nothing yet'}
+              to={`/app/holdings/${holding.id}/expenses?scope=record`} />
       </div>
 
       <div className="cards">
-        {combined.members.map((m) => <MemberCard key={m.id} member={m} />)}
+        {holding.members.map((m) => <MemberCard key={m.id} member={m} />)}
       </div>
     </>
   );
 }
 
 /** One member. The title links to the RECORD, because that is where its papers,
- *  boundary, people and own costs live — a combined property never becomes a
+ *  boundary, people and own costs live — a holding never becomes a
  *  second place to edit a survey.
  *
  *  Three things were cut. The second extent reading ("3 Acres 1.6 Guntas · 324
@@ -257,7 +257,7 @@ export function CombinedOverview() {
  *  (4).pdf" — a filename is not a fact about land. And the place was repeated on
  *  every card although the head already names where the holding is; only the
  *  village stays, because that is what tells two members apart. */
-function MemberCard({ member }: { member: CombinedMember }) {
+function MemberCard({ member }: { member: HoldingMember }) {
   const ground = member.ground === 'surveyed' ? 'Boundary on file'
     : member.ground === 'pinned' ? 'Pin only' : 'Not located';
   return (
@@ -298,17 +298,17 @@ function MemberCard({ member }: { member: CombinedMember }) {
 }
 
 /** The records this holding is made of, and what each still owes. */
-export function CombinedSurveys() {
-  const combined = useCombinedCtx();
-  const short = combined.members.filter((m) => m.ground !== 'surveyed');
+export function HoldingSurveys() {
+  const holding = useHoldingCtx();
+  const short = holding.members.filter((m) => m.ground !== 'surveyed');
   return (
     <>
       <header className="sechead">
         <div className="grow">
-          <h2>Records in this view</h2>
+          <h2>Records in this holding</h2>
           <p className="note" style={{ margin: '0.25rem 0 0' }}>
-            {plural(combined.memberCount, 'record')} · {combined.surveyedCount} with a
-            boundary · {plural(combined.paperCount, 'document')} between them.
+            {plural(holding.memberCount, 'record')} · {holding.surveyedCount} with a
+            boundary · {plural(holding.paperCount, 'document')} between them.
           </p>
         </div>
       </header>
@@ -327,7 +327,7 @@ export function CombinedSurveys() {
             </tr>
           </thead>
           <tbody>
-            {combined.members.map((m) => (
+            {holding.members.map((m) => (
               <tr key={m.id}>
                 <td>
                   <Link to={`/app/records/${m.recordId}`} className="accent"
@@ -360,4 +360,4 @@ export function CombinedSurveys() {
   );
 }
 
-export default CombinedProperty;
+export default Holding;

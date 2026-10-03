@@ -2722,7 +2722,8 @@ export const useCloseDeskTask = () =>
     'Closing that task',
   );
 
-// ── Combined properties ────────────────────────────────────────────────
+// Server contract: GraphQL fields/args, response fields, query keys and the `combined_*` tables keep the server's `combined` name; only web identifiers say Holding (Reddy, 03/10/2026).
+// ── Holdings ─────────────────────────────────────────────────────────────
 //
 // Several records held as one property: thirty acres and thirty acres, two
 // khatas, one fence. Every figure below is a SUM of member figures and every
@@ -2730,9 +2731,9 @@ export const useCloseDeskTask = () =>
 // filed against — which is why `recordTitle` rides along on almost everything
 // here. Nothing in this section is a new legal record, and none of it reaches
 // the portfolio: `usePortfolio` reads the records themselves, so an acre inside
-// a combined property is counted exactly once.
+// a holding is counted exactly once.
 
-export interface CombinedMember {
+export interface HoldingMember {
   /** The membership row. Removing this does not touch the record. */
   id: string;
   recordId: string;
@@ -2755,7 +2756,7 @@ export interface CombinedMember {
   sort: number;
 }
 
-export interface Combined {
+export interface HoldingCard {
   id: string;
   name: string;
   note: string;
@@ -2782,10 +2783,10 @@ export interface Combined {
   isComplete: boolean;
   createdAt: string;
   updatedAt: string;
-  members: CombinedMember[];
+  members: HoldingMember[];
 }
 
-export interface CombinedPaper {
+export interface HoldingPaper {
   id: string;
   title: string;
   detail: string;
@@ -2799,7 +2800,7 @@ export interface CombinedPaper {
   recordTitle: string;
 }
 
-export interface CombinedSurveyShape {
+export interface HoldingSurveyShape {
   recordId: string;
   title: string;
   kind: string;
@@ -2812,7 +2813,7 @@ export interface CombinedSurveyShape {
   sheetId: string;
   ground: string;
   note: string;
-  /** The outline's own measurements, so a combined view is at least as useful
+  /** The outline's own measurements, so a holding is at least as useful
    *  as the record it gathers. `sideLengths` is metres in corner order and is
    *  rounded to whole metres when drawn — a boundary traced over imagery and
    *  stored at six decimals cannot support a centimetre. */
@@ -2833,7 +2834,7 @@ export interface CombinedSurveyShape {
 
 /** One joint FMB: a single sheet covering several members, filed as a copy on
  *  each. `paperIds` line up with `recordIds`. */
-export interface CombinedJointSheet {
+export interface HoldingJointSheet {
   id: string;
   name: string;
   recordIds: string[];
@@ -2844,7 +2845,7 @@ export interface CombinedJointSheet {
   fileRef: string;
 }
 
-export interface CombinedRelation {
+export interface HoldingRelation {
   fromRecordId: string;
   toRecordId: string;
   fromTitle: string;
@@ -2856,11 +2857,11 @@ export interface CombinedRelation {
   detail: string;
 }
 
-export interface CombinedFmb {
+export interface HoldingFmb {
   id: string;
   name: string;
-  shapes: CombinedSurveyShape[];
-  relations: CombinedRelation[];
+  shapes: HoldingSurveyShape[];
+  relations: HoldingRelation[];
   drawnCount: number;
   surveyedCount: number;
   sheetCount: number;
@@ -2872,10 +2873,10 @@ export interface CombinedFmb {
   measuredAc: number;
   recordedAc: number;
   comparable: boolean;
-  jointSheets: CombinedJointSheet[];
+  jointSheets: HoldingJointSheet[];
 }
 
-export interface CombinedExpenseRow {
+export interface HoldingExpenseRow {
   id: string;
   title: string;
   subtitle: string;
@@ -2901,7 +2902,7 @@ export interface CombinedExpenseRow {
   receiptSizeBytes: number;
 }
 
-export interface CombinedExpenseView {
+export interface HoldingExpenseView {
   id: string;
   name: string;
   year: string;
@@ -2917,27 +2918,27 @@ export interface CombinedExpenseView {
   perAcreRunning: number;
   categories: FacetOption[];
   scopes: FacetOption[];
-  rows: CombinedExpenseRow[];
+  rows: HoldingExpenseRow[];
 }
 
-const COMBINED_FIELDS = `id name note memberCount parcelCount propertyCount
+const HOLDING_FIELDS = `id name note memberCount parcelCount propertyCount
   farmExtent plotExtent builtExtent extentLine marketValue invested paperCount
   surveyedCount combinedSpend memberSpend placeLine isComplete createdAt updatedAt`;
 
-const COMBINED_MEMBER_FIELDS = `id recordId recordKind title placeLine khataNo
+const HOLDING_MEMBER_FIELDS = `id recordId recordKind title placeLine khataNo
   ownerName status extent extentUnit extentDetail marketValue paperCount ground
   sheetTitle sheetId archived sort`;
 
-const Q_COMBINED_LIST = `{ web { combinedProperties {
-  ${COMBINED_FIELDS} members { ${COMBINED_MEMBER_FIELDS} } } } }`;
+const Q_HOLDING_LIST = `{ web { combinedProperties {
+  ${HOLDING_FIELDS} members { ${HOLDING_MEMBER_FIELDS} } } } }`;
 
-const Q_COMBINED = `query CP($id:String!) { web { combinedProperty(id:$id) {
-  ${COMBINED_FIELDS} members { ${COMBINED_MEMBER_FIELDS} } } } }`;
+const Q_HOLDING = `query CP($id:String!) { web { combinedProperty(id:$id) {
+  ${HOLDING_FIELDS} members { ${HOLDING_MEMBER_FIELDS} } } } }`;
 
-const Q_COMBINED_PAPERS = `query CPP($id:String!) { web { combinedPapers(id:$id) {
+const Q_HOLDING_PAPERS = `query CPP($id:String!) { web { combinedPapers(id:$id) {
   id title detail shelf icon tags shared pageCount fileRef recordId recordTitle } } }`;
 
-const Q_COMBINED_FMB = `query CPF($id:String!) { web { combinedFmb(id:$id) {
+const Q_HOLDING_FMB = `query CPF($id:String!) { web { combinedFmb(id:$id) {
   id name drawnCount surveyedCount sheetCount pieceCount caption missing
   measuredAc recordedAc comparable
   shapes { recordId title kind ring lat lon extentLabel sheetTitle sheetId ground note
@@ -2947,7 +2948,7 @@ const Q_COMBINED_FMB = `query CPF($id:String!) { web { combinedFmb(id:$id) {
   jointSheets { id name recordIds recordTitles paperIds createdAt fileRef }
 } } }`;
 
-const Q_COMBINED_EXPENSES = `query CPE($id:String!,$year:String) {
+const Q_HOLDING_EXPENSES = `query CPE($id:String!,$year:String) {
   web { combinedExpenses(id:$id,year:$year) {
     id name year years spent capital running income owedBack combinedSpend
     memberSpend farmExtent perAcreRunning
@@ -2958,46 +2959,46 @@ const Q_COMBINED_EXPENSES = `query CPE($id:String!,$year:String) {
            warrantyUntil receiptFileRef receiptFileName receiptMimeType receiptSizeBytes }
   } } }`;
 
-export function useCombinedProperties() {
+export function useHoldings() {
   return useQuery({
     queryKey: [KEY, 'combined'],
     queryFn: async () =>
-      (await gql<Wrapped<'combinedProperties', Combined[]>>(Q_COMBINED_LIST))
+      (await gql<Wrapped<'combinedProperties', HoldingCard[]>>(Q_HOLDING_LIST))
         .web.combinedProperties,
   });
 }
 
-export function useCombined(id: string | undefined) {
+export function useHolding(id: string | undefined) {
   return useQuery({
     enabled: !!id,
     queryKey: [KEY, 'combined', id],
     queryFn: async () =>
-      (await gql<Wrapped<'combinedProperty', Combined | null>>(Q_COMBINED, { id }))
+      (await gql<Wrapped<'combinedProperty', HoldingCard | null>>(Q_HOLDING, { id }))
         .web.combinedProperty,
   });
 }
 
-export function useCombinedPapers(id: string | undefined) {
+export function useHoldingPapers(id: string | undefined) {
   return useQuery({
     enabled: !!id,
     queryKey: [KEY, 'combined-papers', id],
     queryFn: async () =>
-      (await gql<Wrapped<'combinedPapers', CombinedPaper[]>>(Q_COMBINED_PAPERS, { id }))
+      (await gql<Wrapped<'combinedPapers', HoldingPaper[]>>(Q_HOLDING_PAPERS, { id }))
         .web.combinedPapers,
   });
 }
 
-export function useCombinedFmb(id: string | undefined) {
+export function useHoldingFmb(id: string | undefined) {
   return useQuery({
     enabled: !!id,
     queryKey: [KEY, 'combined-fmb', id],
     queryFn: async () =>
-      (await gql<Wrapped<'combinedFmb', CombinedFmb | null>>(Q_COMBINED_FMB, { id }))
+      (await gql<Wrapped<'combinedFmb', HoldingFmb | null>>(Q_HOLDING_FMB, { id }))
         .web.combinedFmb,
   });
 }
 
-export function useCombinedExpenses(id: string | undefined, year?: string) {
+export function useHoldingExpenses(id: string | undefined, year?: string) {
   return useQuery({
     enabled: !!id,
     queryKey: [KEY, 'combined-expenses', id, year ?? ''],
@@ -3005,18 +3006,18 @@ export function useCombinedExpenses(id: string | undefined, year?: string) {
     // record's own ledger: changing the year must not unmount the page.
     placeholderData: keepPreviousData,
     queryFn: async () =>
-      (await gql<Wrapped<'combinedExpenses', CombinedExpenseView | null>>(
-        Q_COMBINED_EXPENSES, { id, year: year ?? null })).web.combinedExpenses,
+      (await gql<Wrapped<'combinedExpenses', HoldingExpenseView | null>>(
+        Q_HOLDING_EXPENSES, { id, year: year ?? null })).web.combinedExpenses,
   });
 }
 
-/** What a combined holding's Services tab draws of an order.
+/** What a holding's Services tab draws of an order.
  *
  *  A narrow `Pick` rather than `Order`, because the selection set below is
  *  narrow: this is a read-only list that links to the order's own page, and
  *  claiming the full `Order` shape while asking for a third of it would put
  *  `assignedResource: undefined` behind a type that says it is never missing. */
-export type CombinedOrder = Pick<Order,
+export type HoldingOrder = Pick<Order,
   'id' | 'ref' | 'kind' | 'serviceKey' | 'title' | 'detail' | 'recordId' | 'recordTitle'
   | 'status' | 'statusLabel' | 'statusState' | 'stage' | 'stageLabel' | 'needsYou'
   | 'dueDate' | 'cost' | 'held' | 'pendingReview'>;
@@ -3028,12 +3029,12 @@ export type CombinedOrder = Pick<Order,
  *  copy is issued for a survey number, not for whatever the owner calls the
  *  group, so this gathers the members' orders rather than inventing an order
  *  against the aggregate. */
-export function useCombinedOrders(id: string | undefined, includeClosed = false) {
+export function useHoldingOrders(id: string | undefined, includeClosed = false) {
   return useQuery({
     enabled: !!id,
     queryKey: [KEY, 'combined-orders', id, includeClosed],
     queryFn: async () =>
-      (await gql<Wrapped<'orders', CombinedOrder[]>>(
+      (await gql<Wrapped<'orders', HoldingOrder[]>>(
         `query CPO($id:String!,$includeClosed:Boolean!) {
            web { orders(combinedId:$id,includeClosed:$includeClosed) {
              id ref kind serviceKey title detail recordId recordTitle status statusLabel
@@ -3042,16 +3043,16 @@ export function useCombinedOrders(id: string | undefined, includeClosed = false)
   });
 }
 
-export const useCreateCombined = (reportError = true) =>
+export const useCreateHolding = (reportError = true) =>
   useW360Mutation<{ name: string; recordIds: string[]; note?: string },
                    Wrapped<'createCombinedProperty', string>>(
     `mutation CCP($name:String!,$recordIds:[String!]!,$note:String! = "") {
        web { createCombinedProperty(name:$name,recordIds:$recordIds,note:$note) } }`,
-    'That combined property',
+    'That holding',
     reportError,
   );
 
-export const useRenameCombined = (reportError = true) =>
+export const useRenameHolding = (reportError = true) =>
   useW360Mutation<{ id: string; name: string; note?: string },
                    Wrapped<'updateCombinedProperty', boolean>>(
     `mutation UCP($id:String!,$name:String!,$note:String! = "") {
@@ -3062,7 +3063,7 @@ export const useRenameCombined = (reportError = true) =>
 
 /** The whole membership list in one write. A refusal leaves the holding exactly
  *  as it was rather than half-changed. */
-export const useSetCombinedMembers = (reportError = true) =>
+export const useSetHoldingMembers = (reportError = true) =>
   useW360Mutation<{ id: string; recordIds: string[] },
                    Wrapped<'setCombinedMembers', boolean>>(
     `mutation SCM($id:String!,$recordIds:[String!]!) {
@@ -3071,17 +3072,17 @@ export const useSetCombinedMembers = (reportError = true) =>
     reportError,
   );
 
-export const useDeleteCombined = (reportError = true) =>
+export const useDeleteHolding = (reportError = true) =>
   useW360Mutation<{ id: string }, Wrapped<'deleteCombinedProperty', boolean>>(
     `mutation DCP($id:String!) { web { deleteCombinedProperty(id:$id) } }`,
-    'Removing that combined view',
+    'Removing that holding',
     reportError,
   );
 
-/** One cost against the whole holding — the thing a combined property exists
+/** One cost against the whole holding — the thing a holding exists
  *  for. It is not divided between the members: dividing it would invent a split
  *  nobody agreed. */
-export const useSaveCombinedExpense = (reportError = true) =>
+export const useSaveHoldingExpense = (reportError = true) =>
   useW360Mutation<{
     combinedId: string; title: string; amount: number; spentOn: string; kind: string;
     category: string; paidBy: string; vendor: string; note: string; recoverable: boolean;
@@ -3097,7 +3098,7 @@ export const useSaveCombinedExpense = (reportError = true) =>
     reportError,
   );
 
-export const useDeleteCombinedExpense = (reportError = true) =>
+export const useDeleteHoldingExpense = (reportError = true) =>
   useW360Mutation<{ expenseId: string }, Wrapped<'deleteCombinedExpense', boolean>>(
     `mutation DCE($expenseId:String!) { web { deleteCombinedExpense(expenseId:$expenseId) } }`,
     'Removing that cost',

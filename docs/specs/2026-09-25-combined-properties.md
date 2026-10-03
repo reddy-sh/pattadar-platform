@@ -251,11 +251,50 @@ when every selected extent is comparable.
 
 ## Screens
 
-`/app/combined` lists the holdings. It is deliberately thin — no faceted rail, no
-map view, no sort chip — because there are a handful of these, not four hundred.
-It has no create button either: a holding is made OF records, so it is made where
-the records are. **Combine…** is a control on the Properties selection bar, which
-is the one place a set of records is already chosen.
+> Renamed in code 03/10/2026 (Reddy): `pages/Combined.tsx` → `Holdings.tsx`, `CombinedProperty.tsx` → `Holding.tsx`, `Combined{Actions,Ledger,Fmb}.tsx` → `Holding*`, `combinedList.ts` → `holdingList.ts`; routes `/app/holdings[/:id]`, old `/app/combined…` links redirect (`w360/holdingPath.ts`); e2e specs `27-holding-map`, `28-holding-overview`, `29-holdings-list`, e2e-web360 `holdings.spec.ts`, `ux-record-holding.spec.ts`. GraphQL/API/tables keep `combined`. The paths below are as written on 25/09/2026.
+
+`/app/combined` lists the holdings with the same page chrome as Properties,
+composed from the same `apps/web/src/w360/ui.tsx` components:
+
+- `PageHead` with the eyebrow "Several properties held as one", the title
+  **Holdings**, an ⓘ saying where holdings are made, and a summary line over
+  the rows shown ("2 holdings · 62.86 ac · 400 Sq.yd · ₹… valued"). Acres, Sq.yd and Sq.ft are separate
+  figures, never one sum.
+- Head actions: **Export** (CSV of the shown rows through `downloadCsv`) and
+  **New holding**, a link to `/app/properties?combine=1`. There Properties
+  shows a dismissable hint ("Select two or more properties, then choose
+  Combine to make a holding.") and raises the card checkboxes; dismissing it
+  removes only `combine` from the URL. There is still no second
+  creation path: a holding is made OF records, so it is made where the records
+  are, and **Combine…** on the Properties selection bar is the one place a set
+  of records is already chosen.
+- `FacetFilter` with three groups built from the list — Records (all present /
+  missing a record), Boundaries (all / some missing / none on map) and Land
+  (farmland / plots / built area) — written to `?complete=`, `?ground=` and
+  `?land=`, the "N of M shown" tally, and the shared `SortCycle` chip: Newest
+  first (the server order), Name A–Z, Largest extent, Most records, Recently
+  updated. The rules live in `apps/web/src/w360/combinedList.ts`.
+- On an account with none, only the Empty state and its "Go to Properties"
+  (the same `?combine=1` hand-off). Filtered to nothing, the `emptypanel`
+  says "No holdings match these filters", a note that the list is only
+  narrowed ("All 3 holdings are hidden by the filters above."), and
+  **Clear filters**, the same structure as Properties.
+
+Still absent: a Grid/List/Map toggle (the list query carries no geometry — it
+is per view in `combinedFmb` — and there is no combined card for a grid) and a
+district/mandal facet (`placeLine` is a compressed display string; a Place facet
+needs structured places on `Combined`, a backend contract change).
+
+The visible noun lives in `HOLDING_WORD` (`ui.tsx`), which also names the CSV
+(`holdings-YYYY-MM-DD.csv`). A rename also has to touch the prose in
+`pages/CombinedActions.tsx`, the error copy in `w360/api.ts`, design.md § App
+vocabulary, `scripts/vocab-tests.ts` and the e2e strings.
+Renamed 03/10/2026 (Reddy): the visible noun is Holding/Holdings, superseding
+"Combined view". Routes, GraphQL fields and identifiers keep `combined`.
+
+Superseded 03/10/2026 after the owner reported the list did not follow the
+list-page standard; it was previously deliberately thin (no faceted rail, no
+sort chip, no create button).
 
 `/app/combined/:id` is a frame with its own head and six tabs: Overview,
 Surveys, Papers, Combined FMB, Expenses, Services. It is a separate route family

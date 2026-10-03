@@ -17,21 +17,21 @@ import AddOutlined from '@mui/icons-material/AddOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 
 import {
-  useCombinedExpenses, useCombinedOrders, useCombinedPapers, useDeleteCombinedExpense,
+  useHoldingExpenses, useHoldingOrders, useHoldingPapers, useDeleteHoldingExpense,
 } from '../api';
-import type { CombinedExpenseRow } from '../api';
+import type { HoldingExpenseRow } from '../api';
 import {
   Cell, Chip, Empty, Failed, Icon, Loading, Pill, SHELF_WORD, Tag, csvCell, ddmmyyyy,
   inr, inrOr, num, plural,
 } from '../ui';
-import { useCombinedCtx } from './CombinedProperty';
-import { CombinedExpenseDialog } from './CombinedActions';
+import { useHoldingCtx } from './Holding';
+import { HoldingExpenseDialog } from './HoldingActions';
 
 // ── Papers ────────────────────────────────────────────────────────────
 
-export function CombinedPapersTab() {
-  const combined = useCombinedCtx();
-  const { data, isLoading, error } = useCombinedPapers(combined.id);
+export function HoldingPapersTab() {
+  const holding = useHoldingCtx();
+  const { data, isLoading, error } = useHoldingPapers(holding.id);
   const [shelf, setShelf] = useState('all');
 
   const shelves = useMemo(() => {
@@ -46,7 +46,7 @@ export function CombinedPapersTab() {
     <>
       <header className="sechead">
         <div className="grow">
-          <h2>All documents in this view</h2>
+          <h2>All documents in this holding</h2>
           {/* The count waits for the read. `data?.length ?? 0` stated "0 papers"
               as a fact beside the spinner, and again beside the failure box —
               the `data ?? []` shape the service-detail spec bans outright,
@@ -56,7 +56,7 @@ export function CombinedPapersTab() {
               header at all. */}
           {data && (
             <p className="note" style={{ margin: '0.25rem 0 0' }}>
-              {plural(data.length, 'document')} in this combined view
+              {plural(data.length, 'document')} in this holding
             </p>
           )}
         </div>
@@ -67,7 +67,7 @@ export function CombinedPapersTab() {
 
       {data && data.length === 0 && (
         <Empty boxed h="18rem" icon="title" title="No documents yet">
-          No document is linked to this combined view or its properties.
+          No document is linked to this holding or its properties.
         </Empty>
       )}
 
@@ -105,8 +105,8 @@ export function CombinedPapersTab() {
                 {p.tags.map((t) => <Tag key={t}>{t}</Tag>)}
                 {p.shared && <Pill kind="for_sale">Shared</Pill>}
                 <Link className="chip"
-                      to={p.recordId === combined.id
-                        ? `/app/combined/${combined.id}` : `/app/records/${p.recordId}`}>
+                      to={p.recordId === holding.id
+                        ? `/app/holdings/${holding.id}` : `/app/records/${p.recordId}`}>
                   {p.recordTitle}
                 </Link>
               </div>
@@ -125,16 +125,16 @@ const SCOPE_WORD: Record<string, string> = {
   record: 'One survey',
 };
 
-export function CombinedExpensesTab() {
-  const combined = useCombinedCtx();
+export function HoldingExpensesTab() {
+  const holding = useHoldingCtx();
   const [params, setParams] = useSearchParams();
   const year = params.get('year') ?? undefined;
   const scope = params.get('scope') ?? 'all';
   const category = params.get('cat') ?? 'all';
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState('');
-  const { data, isFetching, error } = useCombinedExpenses(combined.id, year);
-  const del = useDeleteCombinedExpense(false);
+  const { data, isFetching, error } = useHoldingExpenses(holding.id, year);
+  const del = useDeleteHoldingExpense(false);
 
   const set = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -146,7 +146,7 @@ export function CombinedExpensesTab() {
     (scope === 'all' || r.scope === scope)
     && (category === 'all' || r.category === category));
 
-  const remove = async (row: CombinedExpenseRow) => {
+  const remove = async (row: HoldingExpenseRow) => {
     setErr('');
     try {
       const ok = (await del.mutateAsync({ expenseId: row.id })).web.deleteCombinedExpense;
@@ -169,7 +169,7 @@ export function CombinedExpensesTab() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${combined.name.replace(/\s+/g, '-').toLowerCase()}-costs-${data?.year ?? ''}.csv`;
+    a.download = `${holding.name.replace(/\s+/g, '-').toLowerCase()}-costs-${data?.year ?? ''}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -186,7 +186,7 @@ export function CombinedExpensesTab() {
     <>
       <header className="sechead">
         <div className="grow">
-          <h2>Costs for this view</h2>
+          <h2>Costs for this holding</h2>
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={exportCsv} disabled={rows.length === 0}>
@@ -207,7 +207,7 @@ export function CombinedExpensesTab() {
               v={data.farmExtent > 0 ? inrOr(data.perAcreRunning) : '—'}
               note={data.farmExtent > 0
                 ? `over ${num(data.farmExtent, 2)} ac of land`
-                : 'no agricultural land in this view'} />
+                : 'no agricultural land in this holding'} />
       </div>
 
       <div className="row tight" style={{ marginBottom: 'var(--space-sm)' }}>
@@ -300,7 +300,7 @@ export function CombinedExpensesTab() {
       )}
 
       {adding && (
-        <CombinedExpenseDialog combined={combined} onClose={() => setAdding(false)} />
+        <HoldingExpenseDialog holding={holding} onClose={() => setAdding(false)} />
       )}
     </>
   );
@@ -308,10 +308,10 @@ export function CombinedExpensesTab() {
 
 // ── Services ──────────────────────────────────────────────────────────
 
-export function CombinedServicesTab() {
-  const combined = useCombinedCtx();
+export function HoldingServicesTab() {
+  const holding = useHoldingCtx();
   const [closed, setClosed] = useState(false);
-  const { data, isLoading, error } = useCombinedOrders(combined.id, closed);
+  const { data, isLoading, error } = useHoldingOrders(holding.id, closed);
 
   return (
     <>
@@ -333,7 +333,7 @@ export function CombinedServicesTab() {
       {data && data.length === 0 && (
         <Empty boxed h="18rem" icon="unsorted" title={closed ? 'Nothing ordered yet' : 'Nothing open'}>
           {closed
-            ? 'No service has been ordered against any record in this view.'
+            ? 'No service has been ordered against any record in this holding.'
             : 'Nothing is in progress.'}
         </Empty>
       )}

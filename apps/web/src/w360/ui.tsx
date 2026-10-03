@@ -714,6 +714,21 @@ export const SHELF_WORD: Record<string, string> = {
   identity: 'Identity', old: 'Old record', photos: 'Photos & video', unsorted: 'Unsorted',
 };
 
+/** What the app calls several properties held as one piece of ground.
+ *
+ *  The rail, the list's head, its crumbs, its CSV filename
+ *  (`holdings-YYYY-MM-DD.csv`) and the Documents section all print this noun.
+ *  "Holding" was approved by Reddy on 03/10/2026, superseding "Combined view"
+ *  (design.md § App vocabulary). Web files, identifiers and routes say holding
+ *  (`/app/holdings`; old `/app/combined…` links redirect); GraphQL fields,
+ *  query keys and tables keep `combined`. Never "your holdings" to
+ *  mean all of an owner's land, and never "Holdings" for the Properties list. */
+export const HOLDING_WORD = {
+  one: 'Holding',
+  many: 'Holdings',
+  eyebrow: 'Several properties held as one',
+} as const;
+
 /** One cell of a CSV, safe to hand to a spreadsheet.
  *
  *  Four screens export a CSV and each had written this out. The guard is not
@@ -883,7 +898,7 @@ const sameAnchor = (a: ListAnchor | null, b: ListAnchor) =>
  *
  *  `Menu` and `MultiSelect` open their list LEFTWARD from the trigger's right
  *  edge, over the page the trigger belongs to. A trigger near the left edge —
- *  the combined view's ⋮ once its head wraps on a phone — opened the list off
+ *  a holding's ⋮ once its head wraps on a phone — opened the list off
  *  the screen, and both of its items were cut off. So a list that would cross
  *  the left edge opens rightward from the trigger's left edge instead.
  *  Measured, not guessed: `.menu-list` is `width: max-content`, so its width is

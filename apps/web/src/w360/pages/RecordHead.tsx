@@ -24,7 +24,7 @@ import {
   useProperties,
 } from '../api';
 import type { RecordDetail } from '../api';
-import { Crumbs, Icon, InfoTip, Menu, Pill, num, statusWord } from '../ui';
+import { Crumbs, HOLDING_WORD, Icon, InfoTip, Menu, Pill, num, statusWord } from '../ui';
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { RecordDrawer } from './PropertyActions';
@@ -162,8 +162,8 @@ export function RecordCrumbs({ rec, here, hereTo, leaf }: {
       trail={[
         ...(rec.combinedId
           ? [
-            { label: 'Combined views', to: '/app/combined' },
-            { label: rec.combinedName || 'Combined view', to: `/app/combined/${rec.combinedId}` },
+            { label: HOLDING_WORD.many, to: '/app/holdings' },
+            { label: rec.combinedName || HOLDING_WORD.one, to: `/app/holdings/${rec.combinedId}` },
           ]
           : [{ label: 'Properties', to: '/app/properties' }]),
         { label: rec.title, to: here ? `/app/records/${rec.id}` : undefined },

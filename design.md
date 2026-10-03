@@ -358,15 +358,16 @@ verb + object actions. `/legacy/*` keeps its own older copy until retired.
 
 | Concept | Say | Not |
 |---|---|---|
-| Everything the owner holds | **Properties** (a parcel, plot, flat or house when known) | holdings, records, land, portfolio items |
+| Everything the owner holds | **Properties** (a parcel, plot, flat or house when known). **Holdings** must never be used for the Properties list | holdings, records, land, portfolio items |
 | Stored papers | **Documents** (item: document; bytes: file) | Papers, Vault, My Drive |
-| Several records viewed together | **Combined view** — official records stay separate | combined property, holding |
+| Several properties held as one | **Holding** (list: **Holdings**) — official records stay separate. Inside one, use the singular ("This holding"). Never write "your holdings" to mean all of an owner's land. Web: one constant, `HOLDING_WORD` in `apps/web/src/w360/ui.tsx` | combined view, combined property, estate, portfolio |
 | Village / cadastral maps | **Cadastral maps** | Village maps, Maps |
 | One property's pin and boundary | **Location & boundary** — "Boundary saved", never "surveyed" | Where this land is |
 | Things physically on the land | **Site features** | Features, assets |
 | Owner's paid work | **Service order** (the desk's operational unit stays a **job**) | ticket, request, job (on owner screens) |
 | Owner-facing trail | **Activity** (Audit log is reserved for a compliance surface) | Audit Log, History, Timeline |
 | Pattadar's people | **Member** / **provider** | associate, somebody |
+Holding approved by Reddy on 03/10/2026, superseding the 26/09/2026 "Combined view" entry (research: `.agents/tasks/pattadar-platform-combined-views-standardize-2026-10-27/naming-research.md`). Web files, identifiers and routes say holding (`/app/holdings`; `/app/combined…` redirects); GraphQL fields, operations, query keys and the `combined_*` tables keep `combined` (server contract). `scripts/vocab-tests.ts` (VOC-1..7) holds the web to it, and holds iOS (which has no Holdings feature) to "property" for one property.
 
 Rail groups: **Your portfolio · Shared** (ends with Invite & earn) **· Money · Account** (Profile, Privacy &
 your data, Activity), then **Operations** (platform admin: Pattadar desk) and
@@ -382,7 +383,7 @@ Explanatory lines follow the same rule as subheaders: one short, factual
 sentence or a dot-separated status line, never a paragraph. "You pay only
 after you accept the work", not "Nothing is taken when you order. Money is
 owed only once you accept the work." Owners count **properties**; "record"
-is used only for the members of a combined view.
+is used only for the members of a holding.
 
 ### Property tabs (founder decision, 28/09/2026)
 
@@ -530,7 +531,7 @@ again.
   tally. Pages supply domain groups and values; they do not introduce their own
   select bars, filter drawers, search-as-filter layouts, or dismissal behavior.
 
-- **A tab declares who owns vertical space.** Every active Record and Combined
+- **A tab declares who owns vertical space.** Every active Record and Holding
   frame exposes `data-tab-layout`: `document`, `viewport`, or
   `split-instrument`. Document tabs size panels from content and leave vertical
   scrolling to the document; they never use `window.innerHeight - guessedChrome`.
