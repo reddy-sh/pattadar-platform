@@ -987,7 +987,7 @@ struct DocumentDetailScreen: View {
                 // direction too — otherwise a document is a dead end.
                 if !coveredHoldings.isEmpty {
                     VStack(alignment: .leading, spacing: Space.sm) {
-                        Text("COVERS \(coveredHoldings.count) \(coveredHoldings.count == 1 ? "HOLDING" : "HOLDINGS")")
+                        Text("COVERS \(coveredHoldings.count) \(coveredHoldings.count == 1 ? "PROPERTY" : "PROPERTIES")")
                             .font(.caption.weight(.medium)).kerning(1.1)
                             .foregroundStyle(.secondary)
                         ForEach(coveredHoldings, id: \.0) { name, detail in

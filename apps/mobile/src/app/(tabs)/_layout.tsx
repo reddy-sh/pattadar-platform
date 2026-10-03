@@ -78,7 +78,7 @@ export default function TabsLayout() {
           options={{ title: 'Passbooks', tabBarIcon: tabIcon('notebook-outline') }}
         />
         <Tabs.Screen
-          name="holdings"
+          name="properties"
           options={{ title: 'Properties', tabBarIcon: tabIcon('home-city-outline') }}
         />
         <Tabs.Screen

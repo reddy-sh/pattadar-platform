@@ -48,11 +48,11 @@ struct PassbookDetailScreen: View {
                 } else {
                     ForEach(parcels) { p in
                         NavigationLink {
-                            HoldingDetailScreen(parcel: p, passbook: nil)
+                            ParcelDetailScreen(parcel: p, passbook: nil)
                         } label: {
                             // The same row the Properties list uses, so a
                             // parcel looks identical wherever it appears.
-                            HoldingRow(holding: .parcel(p, nil), showPassbook: false)
+                            PropertyRow(holding: .parcel(p, nil), showPassbook: false)
                         }
                     }
                 }

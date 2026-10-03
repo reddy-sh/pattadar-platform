@@ -141,7 +141,7 @@ struct HomeScreen: View {
                 }
             }
             .sheet(item: $reviewToAdd) { entry in
-                AddHoldingScreen(passbooks: [], parcels: holdings?.parcels ?? [], review: entry)
+                AddFromScanScreen(passbooks: [], parcels: holdings?.parcels ?? [], review: entry)
                     .onDisappear { Task { await load() } }
             }
             .refreshable { await load() }
@@ -287,10 +287,10 @@ struct HomeScreen: View {
     }
 
     /// Every holding as the list/map type — parcels joined to their passbooks.
-    private var allHoldings: [Holding] {
+    private var allHoldings: [PropertyRecord] {
         guard let h = holdings else { return [] }
-        let parcels = h.parcels.map { p in Holding.parcel(p, h.passbooks.first { $0.id == p.passbookId }) }
-        return parcels + h.properties.map { Holding.property($0) }
+        let parcels = h.parcels.map { p in PropertyRecord.parcel(p, h.passbooks.first { $0.id == p.passbookId }) }
+        return parcels + h.properties.map { PropertyRecord.property($0) }
     }
 
     /// One chip in the welcome state, saying what already exists.
@@ -391,7 +391,7 @@ struct HomeScreen: View {
 
     /// `HoldingLine.id` is "parcel:<uuid>" / "property:<uuid>" — the same key
     /// favourites and widget deep links use. Resolved against the loaded list.
-    private func holding(forLineID lineID: String) -> Holding? {
+    private func holding(forLineID lineID: String) -> PropertyRecord? {
         let parts = lineID.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return nil }
         return allHoldings.first { $0.entityType == parts[0] && $0.entityId == parts[1] }
@@ -399,8 +399,8 @@ struct HomeScreen: View {
 
     /// The doors most recently walked through, resolved against what still
     /// exists — a deleted holding silently leaves the card.
-    private var recentHoldings: [Holding] {
-        app.recents.compactMap { key -> Holding? in
+    private var recentHoldings: [PropertyRecord] {
+        app.recents.compactMap { key -> PropertyRecord? in
             let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { return nil }
             return allHoldings.first { $0.entityType == parts[0] && $0.entityId == parts[1] }

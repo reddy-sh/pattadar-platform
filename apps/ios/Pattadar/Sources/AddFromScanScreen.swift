@@ -7,7 +7,7 @@ import SwiftUI
 /// "farmland under a passbook" and "passbook" BEFORE anything had been read —
 /// a classification question put to the person least able to answer it, at the
 /// only moment when nobody knew. The document already says what it is.
-struct AddHoldingScreen: View {
+struct AddFromScanScreen: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     /// What you already hold, for the duplicate detector. Callers pass what
@@ -86,11 +86,11 @@ struct AddHoldingScreen: View {
                             Label("Enter without a document", systemImage: "square.and.pencil")
                         }
                     } footer: {
-                        Text("You will be asked what kind of holding it is.")
+                        Text("You will be asked what kind of property it is.")
                     }
                 }
             }
-            .navigationTitle("Add a holding")
+            .navigationTitle("Add a property")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -185,7 +185,7 @@ struct AddHoldingScreen: View {
 
     private func headline(for r: Route) -> String {
         switch r {
-        case .passbook: "This is a passbook — it lists several holdings"
+        case .passbook: "This is a passbook — it lists several parcels"
         case .parcel: "This is agricultural land"
         case .property: "This is a plot or building"
         case .vault: "This is a paper for your vault"
@@ -210,7 +210,7 @@ struct AddHoldingScreen: View {
         case .property:
             "Sites, flats and buildings are recorded on their own."
         case .vault:
-            "It is filed as a document — attach it to a holding or a person whenever you need."
+            "It is filed as a document — attach it to a property or a person whenever you need."
         }
     }
 }

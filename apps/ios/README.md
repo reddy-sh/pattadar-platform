@@ -56,8 +56,8 @@ it also performs signed builds and installs onto a physical iPhone.
 | | Families | Shows |
 |---|---|---|
 | **Your land** | small, medium, large, inline, rectangular | Total acres, then each kind in its own unit |
-| **Needs attention** | small, medium, circular, rectangular | Record-ready %, and the holdings failing a check |
-| **A holding** | small, medium, rectangular | One survey number you pick, with its verdict |
+| **Needs attention** | small, medium, circular, rectangular | Record-ready %, and the properties failing a check |
+| **A property** | small, medium, rectangular | One survey number you pick, with its verdict |
 | **File a paper** | Control Centre, Lock Screen | Opens the camera on a locked phone |
 
 They read `SharedSnapshot` from the App Group and never fetch: an extension has

@@ -144,7 +144,7 @@ struct LinkedDocumentsSection: View {
             Text("Documents")
         } footer: {
             if onAttach != nil {
-                Text("Checked against this holding before anything is changed.")
+                Text("Checked against this property before anything is changed.")
             }
         }
     }

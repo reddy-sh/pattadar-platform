@@ -181,7 +181,7 @@ struct SegChips: View {
                         .opacity(locked.contains(tab) ? 0.45 : 1)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint(locked.contains(tab) ? "Not available on a shared holding" : "")
+                    .accessibilityHint(locked.contains(tab) ? "Not available on a shared property" : "")
                 }
             }
             .padding(.horizontal, Space.lg)
@@ -212,7 +212,7 @@ struct RecordActionBar: View {
                     .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                         .fill(Palette.accentWash))
             }
-            .accessibilityLabel("Services for this holding")
+            .accessibilityLabel("Services for this property")
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.sm)
@@ -668,7 +668,7 @@ struct StillExpectedSection: View {
             } header: {
                 Text("Still expected")
             } footer: {
-                Text("The papers this kind of holding is asked for. File one and it leaves this list.")
+                Text("The papers this kind of property is asked for. File one and it leaves this list.")
             }
         }
     }

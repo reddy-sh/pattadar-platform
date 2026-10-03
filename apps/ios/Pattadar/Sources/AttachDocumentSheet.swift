@@ -49,7 +49,7 @@ struct AttachDocumentSheet: View {
                     Section {
                         ScanFirstCard(
                             title: "Attach a document",
-                            body_: "A sale deed, an EC, a tax receipt. It is checked against this holding before anything is changed.",
+                            body_: "A sale deed, an EC, a tax receipt. It is checked against this property before anything is changed.",
                             endpoint: .registeredDocument,
                             manualOpen: $manualOpen,
                             result: $scanned,
@@ -102,9 +102,9 @@ struct AttachDocumentSheet: View {
                                 }
                             }
                         } header: {
-                            Text("Update this holding")
+                            Text("Update this property")
                         } footer: {
-                            Text("A deed conveys what was sold, which may be part of the holding. Off unless you choose it.")
+                            Text("A deed conveys what was sold, which may be part of the property. Off unless you choose it.")
                         }
                     }
 
@@ -172,14 +172,14 @@ struct AttachDocumentSheet: View {
                 Button("Go back", role: .cancel) { }
             } message: {
                 Text((match?.conflicts ?? []).joined(separator: "\n")
-                     + "\n\nNothing about the holding will be changed — only the document is filed against it.")
+                     + "\n\nNothing about the property will be changed — only the document is filed against it.")
             }
         }
     }
 
     private func verdictTitle(_ m: DocumentMatch) -> String {
         switch m.level {
-        case .strong: "This document matches this holding"
+        case .strong: "This document matches this property"
         case .weak: "Cannot confirm this is the same land"
         case .mismatch: "This document describes different land"
         }

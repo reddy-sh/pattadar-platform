@@ -48,7 +48,7 @@ export function upcomingFromRecords(
       if (!Number.isNaN(d.getTime()) && d.getTime() < now.getTime()) {
         out.push({
           label: `Land revenue: paid only up to ${d.getFullYear()} (Sy ${p.surveyNo ?? '—'})`,
-          href: `/holding/${p.id}?kind=parcel`,
+          href: `/property/${p.id}?kind=parcel`,
           daysOver: Math.floor((now.getTime() - d.getTime()) / day),
         });
       }
@@ -58,7 +58,7 @@ export function upcomingFromRecords(
       if (!Number.isNaN(d.getTime()) && now.getTime() - d.getTime() > 365 * day) {
         out.push({
           label: `EC is over a year old (Sy ${p.surveyNo ?? '—'}) — consider a fresh one`,
-          href: `/holding/${p.id}?kind=parcel`,
+          href: `/property/${p.id}?kind=parcel`,
           daysOver: Math.floor((now.getTime() - d.getTime()) / day) - 365,
         });
       }

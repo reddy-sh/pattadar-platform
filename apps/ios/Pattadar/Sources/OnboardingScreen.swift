@@ -129,7 +129,7 @@ struct OnboardingScreen: View {
             Button {
                 advance()
             } label: {
-                Text(isLast ? "Add my first holding" : "Continue")
+                Text(isLast ? "Add my first property" : "Continue")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)

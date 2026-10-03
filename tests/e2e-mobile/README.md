@@ -6,7 +6,7 @@ any workflow and not gated**, and the reason is below rather than left implied.
 | flow | what it drives |
 |---|---|
 | `01_app_launch.yaml` | the app launches and reaches the signed-in dashboard (`Namaste`) |
-| `02_tabs_navigation.yaml` | all five tabs — Passbooks, Holdings, Family, More, Home |
+| `02_tabs_navigation.yaml` | all five tabs — Passbooks, Properties, Groups, More, Home |
 | `03_account_flow.yaml` | the account sheet opens from the avatar and closes again |
 
 ## Running them

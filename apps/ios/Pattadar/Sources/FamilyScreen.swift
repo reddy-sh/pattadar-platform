@@ -16,7 +16,7 @@ struct FamilyScreen: View {
                     NavigationLink { GroupDetailScreen(group: g) } label: {
                         VStack(alignment: .leading, spacing: Space.xs) {
                             Text(g.name).fontWeight(.semibold)
-                            Text("\(g.memberCount) member\(g.memberCount == 1 ? "" : "s") · \(g.landCount) holding\(g.landCount == 1 ? "" : "s")")
+                            Text("\(g.memberCount) member\(g.memberCount == 1 ? "" : "s") · \(g.landCount) \(g.landCount == 1 ? "property" : "properties")")
                                 .font(.caption).foregroundStyle(.secondary)
                             // Succession is the single most consequential thing
                             // here, so it is stated, not left to be inferred.
@@ -95,7 +95,7 @@ struct GroupDetailScreen: View {
                 Fact(label: "Type", value: humanize(group.type))
                 Fact(label: "Note", value: group.description)
                 Fact(label: "Land", value: String(format: "%.2f ac", group.totalExtent), mono: true)
-                Fact(label: "Holdings", value: "\(group.landCount)")
+                Fact(label: "Properties", value: "\(group.landCount)")
                 Fact(label: "Members", value: "\(group.memberCount)")
                 LabeledContent("Allocated") {
                     // Over or under 100% is the thing that voids a succession,

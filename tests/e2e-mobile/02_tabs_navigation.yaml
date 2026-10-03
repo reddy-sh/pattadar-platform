@@ -2,11 +2,11 @@ appId: ${APP_ID}
 ---
 - launchApp
 - tapOn: "Passbooks"
-- assertVisible: "Khata Books"
-- tapOn: "Holdings"
-- assertVisible: "Land Parcels"
-- tapOn: "Family"
-- assertVisible: "Family & Heirs"
+- assertVisible: "Passbooks"
+- tapOn: "Properties"
+- assertVisible: "Land & Properties"
+- tapOn: "Groups"
+- assertVisible: "Groups"
 - tapOn: "More"
 - assertVisible: "Documents"
 - tapOn: "Home"
