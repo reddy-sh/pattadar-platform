@@ -58,7 +58,7 @@ import type { FacetGroup, PropertyFilter, PropertyList, RecordCard } from '../ap
 import { mintKey } from '../orderFlow';
 import type { MenuItem } from '../ui';
 import {
-  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, Tag,
+  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, SortCycle, Tag,
   coords, csvCell, inr, inrOr, num, plural, statusWord,
 } from '../ui';
 import { Sk, SkPortfolioMap, SkRecordCards, SkRecordTable } from '../skeletons';
@@ -1031,15 +1031,13 @@ export function Properties() {
               onRemove: dropQ,
             }] : []}
             trailing={(
-              <button
-                type="button" className="sortcycle"
-                onClick={() => {
+              <SortCycle
+                label={sortLabel(sort)}
+                onNext={() => {
                   const at = SORT_PRESETS.findIndex((p) => p.label === sortLabel(sort));
                   setSort(SORT_PRESETS[(at + 1 + SORT_PRESETS.length) % SORT_PRESETS.length].sort);
                 }}
-              >
-                Sort: {sortLabel(sort)} ⌄
-              </button>
+              />
             )}
           />
         )}

@@ -633,6 +633,23 @@ export function FacetFilter({
   );
 }
 
+/** The sort chip at the end of a filter row: "Sort: Newest first ⌄", and a
+ *  press moves to the next order. It sits in `FacetFilter`'s `trailing` slot.
+ *
+ *  Properties and Documents had each written this button out by hand, and the
+ *  Holdings list would have been the third copy. The page owns the
+ *  orders and which one is next; this owns how the chip looks and reads.
+ *  With no `ariaLabel` the accessible name is the visible text. */
+export function SortCycle({ label, onNext, ariaLabel }: {
+  label: string; onNext: () => void; ariaLabel?: string;
+}) {
+  return (
+    <button type="button" className="sortcycle" aria-label={ariaLabel} onClick={onNext}>
+      Sort: {label} ⌄
+    </button>
+  );
+}
+
 // ── Atoms ──────────────────────────────────────────────────────────────
 
 export function Chip({

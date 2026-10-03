@@ -28,7 +28,7 @@ import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { reasonOf, useToast } from '../Toast';
 import {
-  Chip, Crumbs, Empty, FacetFilter, Failed, InfoTip, Loading, PageHead, PhotoImg, Tag, VideoThumb, ddmmyyyy,
+  Chip, Crumbs, Empty, FacetFilter, Failed, InfoTip, Loading, PageHead, PhotoImg, SortCycle, Tag, VideoThumb, ddmmyyyy,
   plural,
 } from '../ui';
 import type { FacetFilterGroup } from '../ui';
@@ -1111,15 +1111,15 @@ export function Vault() {
                        placeholder="Search files, tags or properties"
                        aria-label="Search files, tags or linked properties" />
               </span>
-              <button type="button" className="sortcycle"
-                      aria-label={`Sort: ${SORTS.find((x) => x.key === sortMode)?.label}. Press to change.`}
-                      onClick={() => {
-                        const at = SORTS.findIndex((x) => x.key === sortMode);
-                        setSortMode(SORTS[(at + 1) % SORTS.length].key);
-                        setPage(1);
-                      }}>
-                Sort: {SORTS.find((x) => x.key === sortMode)?.label} ⌄
-              </button>
+              <SortCycle
+                label={SORTS.find((x) => x.key === sortMode)?.label ?? ''}
+                ariaLabel={`Sort: ${SORTS.find((x) => x.key === sortMode)?.label}. Press to change.`}
+                onNext={() => {
+                  const at = SORTS.findIndex((x) => x.key === sortMode);
+                  setSortMode(SORTS[(at + 1) % SORTS.length].key);
+                  setPage(1);
+                }}
+              />
               <span className="segmented" role="group" aria-label="Layout">
                 <button type="button" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>List</button>
                 <button type="button" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}>Grid</button>
