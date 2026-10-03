@@ -122,7 +122,7 @@ spec files — 46 bare `test.fail();`, 68 in declaration form
 (`test.fail('title', async ...)`) and 4 conditional inline, all four in
 `23-resilience.spec.ts`. `tests/e2e-web360/specs` carries 9 more: `gap-shell` 3,
 `gap-services` 2, and one each in `crud-360`, `gap-maps`, `gap-vault` and
-`ux-record-combined`. They are expected failures, so repairing the underlying
+`ux-record-holding`. They are expected failures, so repairing the underlying
 defect makes the case surface as a run failure until the marker is removed with
 the fix. Read the marker's comment before blaming your change.
 

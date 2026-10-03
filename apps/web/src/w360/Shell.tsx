@@ -55,7 +55,7 @@ import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined';
 
 import { useDesk, useOrders, usePortfolio, useSearch } from './api';
-import { Icon, Menu, plural } from './ui';
+import { HOLDING_WORD, Icon, Menu, plural } from './ui';
 import { ToastHost } from './Toast';
 import { InboxWatcher } from './InboxWatcher';
 import { Face } from './Face';
@@ -351,10 +351,10 @@ export function Shell() {
       items: [
         { to: '/app', label: 'Home', icon: HomeOutlined, end: true },
         { to: '/app/properties', label: 'Properties', icon: MapOutlined },
-        // Records viewed as one piece of ground. Beside Properties because it
-        // is the same land seen another way. "Views", not "properties": it
-        // merges no title, boundary or record — each member stays separate.
-        { to: '/app/combined', label: 'Combined views', icon: JoinFullOutlined },
+        // Holdings: several properties held as one piece of ground. Beside
+        // Properties because it is the same land seen another way. It merges
+        // no title, boundary or record — each member stays separate.
+        { to: '/app/holdings', label: HOLDING_WORD.many, icon: JoinFullOutlined },
         // Cadastral maps: village and plot geometry, distinct from the
         // Properties Map view and each record's Location tab.
         { to: '/app/maps', label: 'Cadastral maps', icon: LayersOutlined },

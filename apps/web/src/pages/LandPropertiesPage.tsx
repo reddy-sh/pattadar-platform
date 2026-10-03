@@ -297,7 +297,7 @@ export function LandPropertiesPage() {
     watermark: 'PATTADAR',
   };
   const exportName =
-    tab === 'parcels' ? 'pattadar-parcels' : tab === 'properties' ? 'pattadar-properties' : 'pattadar-holdings';
+    tab === 'parcels' ? 'pattadar-parcels' : tab === 'properties' ? 'pattadar-properties' : 'pattadar-all-properties';
 
   // ── actions ─────────────────────────────────────────────────────────────
   const confirmDelete = async () => {
@@ -428,26 +428,26 @@ export function LandPropertiesPage() {
     <>
       {firstRun ? (
         <>
-        <PageHeader eyebrow="Your holdings" title="Land & Properties" />
+        <PageHeader eyebrow="Your properties" title="Land & Properties" />
         <EmptyLanding
           icon="🌍"
-          title="Add your first holding"
+          title="Add your first property"
           body="Farmland parcels, plots, flats or commercial spaces — upload the deed, passbook or allotment letter and it's read, classified and filed in the right place automatically."
-          ctaText="＋ Add a holding"
+          ctaText="＋ Add a property"
           onCta={() => setAddOpen(true)}
         />
         </>
       ) : (
         <>
-          {/* Header: eyebrow + title + holdings chip + composition subtitle. */}
+          {/* Header: eyebrow + title + properties chip + composition subtitle. */}
           <PageHeader
-            eyebrow="Your holdings"
+            eyebrow="Your properties"
             title="Land & Properties"
             sample={isSample}
             /* Outlined, not filled: a count is a fact, not a call to action —
                a solid amber chip competed with the page's real amber CTA. */
             titleChips={
-              <Chip size="small" color="primary" variant="outlined" label={`${t.parcels + t.properties} holdings`} />
+              <Chip size="small" color="primary" variant="outlined" label={`${t.parcels + t.properties} ${t.parcels + t.properties === 1 ? 'property' : 'properties'}`} />
             }
             subtitle={`${t.parcels} land parcel${t.parcels !== 1 ? 's' : ''} (${formatArea(t.acres)}) · ${t.properties} propert${t.properties !== 1 ? 'ies' : 'y'}${t.managed ? ` · ${t.managed} managed` : ''}${t.watch ? ` · ${t.watch} watched` : ''}.`}
           />
@@ -473,7 +473,7 @@ export function LandPropertiesPage() {
               </>
             ) : (
               <>
-                <StatCard label="Holdings" value={t.parcels + t.properties} />
+                <StatCard label="Properties" value={t.parcels + t.properties} />
                 <StatCard label="Farmland" value={t.acres > 0 ? formatArea(t.acres) : '—'} />
                 <StatCard
                   label="Plots & Sites"
@@ -494,7 +494,7 @@ export function LandPropertiesPage() {
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <TextField
                 size="small"
-                placeholder="Search holdings…"
+                placeholder="Search properties…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 sx={{ minWidth: 190 }}

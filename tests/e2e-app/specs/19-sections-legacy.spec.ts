@@ -482,10 +482,10 @@ test.describe('the previous app with nothing behind it', () => {
     await expect(page.getByText('Up to 5 documents at once · or enter the details manually')).toBeVisible();
   });
 
-  test('the old holdings screen, with no service, offers the first holding', async ({ page }) => {
+  test('the old properties screen, with no service, offers the first property', async ({ page }) => {
     await page.goto('/legacy/parcels');
     await expect(page.getByRole('heading', { level: 1, name: 'Land & Properties' })).toBeVisible();
-    await expect(page.getByText('Add your first holding')).toBeVisible();
+    await expect(page.getByText('Add your first property')).toBeVisible();
   });
 
   test('the old vault, with no service, still says which two shelves it has', async ({ page }) => {

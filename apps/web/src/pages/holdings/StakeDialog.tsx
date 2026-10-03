@@ -63,7 +63,7 @@ export function StakeDialog({
 
   return (
     <Dialog open={Boolean(target)} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>My stake in this holding</DialogTitle>
+      <DialogTitle>My stake in this property</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary">
           {target?.title}

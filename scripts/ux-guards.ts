@@ -968,12 +968,12 @@ check(
 );
 
 // ── Web360 tab height and scroll ownership ───────────────────────────────
-// Every active record/combined tab declares its layout contract at the frame.
+// Every active record/holding tab declares its layout contract at the frame.
 // The runtime geometry is browser-tested; these guards stop the structural
 // regressions that caused it: guessed viewport subtraction, nested main
 // landmarks, a clipped mobile stack, or a heading trapped in one split column.
 const recordFrame = code('apps/web/src/w360/pages/Record.tsx');
-const combinedFrame = code('apps/web/src/w360/pages/CombinedProperty.tsx');
+const holdingFrame = code('apps/web/src/w360/pages/Holding.tsx');
 const ownerChain = code('apps/web/src/w360/pages/OwnerChain.tsx');
 const boundaryTab = code('apps/web/src/w360/pages/RecordBoundary.tsx');
 const moneyTab = code('apps/web/src/w360/pages/RecordMoney.tsx');
@@ -981,8 +981,8 @@ const papersTab = code('apps/web/src/w360/pages/RecordPapers.tsx');
 const webCss = code('apps/web/src/w360/w360.css');
 const recordTabBlock = code('apps/web/src/w360/pages/RecordHead.tsx')
   .split('export const TABS')[1]?.split('= [')[1]?.split('];')[0] ?? '';
-const combinedTabBlock = combinedFrame
-  .split('export const COMBINED_TABS')[1]?.split('= [')[1]?.split('];')[0] ?? '';
+const holdingTabBlock = holdingFrame
+  .split('export const HOLDING_TABS')[1]?.split('= [')[1]?.split('];')[0] ?? '';
 
 check(
   'record tabs declare document, viewport, or split-instrument layout',
@@ -991,15 +991,15 @@ check(
     && /tab\.to === 'photos' \|\| tab\.to === 'people' \? 'viewport' : 'document'/.test(recordFrame),
 );
 check(
-  'combined tabs declare the same layout contract',
-  /data-tab-layout=\{layout\}/.test(combinedFrame)
-    && /tab\?\.to === 'fmb' \? 'split-instrument' : 'document'/.test(combinedFrame),
+  'holding tabs declare the same layout contract',
+  /data-tab-layout=\{layout\}/.test(holdingFrame)
+    && /tab\?\.to === 'fmb' \? 'split-instrument' : 'document'/.test(holdingFrame),
 );
 check(
   'the active tab inventories stay complete',
   (recordTabBlock.match(/\bto:/g) ?? []).length === 9
-    && (combinedTabBlock.match(/\bto:/g) ?? []).length === 6,
-  'there must be nine Record tabs and six Combined tabs',
+    && (holdingTabBlock.match(/\bto:/g) ?? []).length === 6,
+  'there must be nine Record tabs and six Holding tabs',
 );
 check(
   'People chain fills the viewport without a duplicate deed list',

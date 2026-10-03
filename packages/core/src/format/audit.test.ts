@@ -71,7 +71,7 @@ describe('actionLabel', () => {
     expect(actionLabel('add_note')).toBe('Added a note');
     expect(countedActionLabel('add_feature', 3)).toBe('Added 3 site features');
     expect(countedActionLabel('add_person', 2)).toBe('Added someone ×2');
-    // Owners count properties; "record" stays for a combined view's members.
+    // Owners count properties; "record" stays for a holding's members.
     expect(actionLabel('archive_record')).toBe('Archived a property');
   });
 

@@ -148,7 +148,7 @@ what to count first, then the rules that judge the count.
   continuous vertical indexes. design.md § Macrostructure family asks for even
   card grids with no wide or bento spans, the dashed tba card for roadmap items,
   stages as primary tabs and FAQ as native details rows. § App-surface rules
-  makes `FacetFilter` the one filter and gives every Record and Combined tab a
+  makes `FacetFilter` the one filter and gives every Record and Holding tab a
   `data-tab-layout`.
 - Nielsen coverage: 6, 8.
 

@@ -110,8 +110,8 @@ function countIn(source: string, shared: Set<string>): { counts: Counts; where: 
 
 const BUDGET: Record<string, Partial<Counts>> = {
   'apps/web/src/w360/pages/Audit.tsx': { card: 1 },
-  'apps/web/src/w360/pages/CombinedLedger.tsx': { card: 1 },
-  'apps/web/src/w360/pages/CombinedProperty.tsx': { card: 2 },
+  'apps/web/src/w360/pages/HoldingLedger.tsx': { card: 1 },
+  'apps/web/src/w360/pages/Holding.tsx': { card: 2 },
   'apps/web/src/w360/pages/Dashboard.tsx': { card: 2 },
   'apps/web/src/w360/pages/Desk.tsx': { card: 1 },
   'apps/web/src/w360/pages/DeskAssociates.tsx': { card: 2 },

@@ -102,7 +102,7 @@ async function settledW360(page: Page) {
 
 const W360_ROUTES = [
   ...APP_ROUTES,
-  '/app/combined',
+  '/app/holdings',
   '/app/desk',
   '/app/tools?tab=stamp-duty',
   '/app/tools?tab=market-value',
