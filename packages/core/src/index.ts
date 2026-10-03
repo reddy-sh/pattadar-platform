@@ -75,6 +75,8 @@ export {
 } from './format/audit';
 export { formatDate, formatDateTime, parseISOToDisplay } from './format/date';
 export { formatINR, formatINRCompact, formatNumberIN } from './format/inr';
+export { normalizeIndianMobile, PHONE_MAX_RAW } from './format/phone';
+export { looksLikeAadhaar } from './format/idNumber';
 export {
   UNITS,
   UNIT_SQFT,

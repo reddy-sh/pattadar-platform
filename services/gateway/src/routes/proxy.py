@@ -115,7 +115,9 @@ def _response_headers(upstream: httpx.Response) -> dict:
 
 
 def is_public_verify(path: str, method: str, body: bytes) -> bool:
-    """Only one parsed, purpose-bound verification/ack mutation is anonymous."""
+    """Only one parsed public root is anonymous: a purpose-bound
+    verification/ack mutation, the invitation preview, or the credential-less
+    registerNetworkInterest (bounded by the API's ceilings)."""
     return (method.upper() == "POST" and path.strip("/") == "graphql"
             and is_public_verification(body))
 

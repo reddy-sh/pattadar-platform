@@ -1479,6 +1479,68 @@ html:has(.site) body {
   max-width: var(--measure);
 }
 
+/* ── Pattadar Network · coming-soon grid + register-interest form ──── */
+
+.network__note {
+  max-width: var(--measure);
+  margin: var(--space-lg) 0 0;
+  color: var(--color-ink-2);
+}
+
+.network-form {
+  max-width: 48rem;
+  margin-top: var(--space-xl);
+  padding: var(--space-lg);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-md);
+}
+
+.network-form .card__h { margin-top: 0; }
+.network-form__lead { margin: 0 0 var(--space-lg); max-width: var(--measure); }
+
+.network-form__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-md);
+}
+
+@media (min-width: 45rem) {
+  .network-form__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .network-form__wide { grid-column: 1 / -1; }
+}
+
+.network-form__count { font-variant-numeric: tabular-nums; }
+
+/* The consent label's privacy-notice link must read as a link. */
+.network-form .MuiFormControlLabel-label a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  border-radius: var(--radius-xs);
+}
+.network-form .MuiFormControlLabel-label a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.network-form__summary {
+  margin: var(--space-md) 0 0;
+  color: var(--color-error);
+}
+
+.network-form .MuiAlert-root { margin-top: var(--space-md); }
+.network-form__submit { margin-top: var(--space-lg); min-height: 44px; }
+
+/* Honeypot: off-screen rather than display:none, so naive bots still fill
+ * it. Not a general utility and never used for screen-reader-only text. */
+.network-form__hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
 /* ── roadmap · service lane, not another feature grid ─────────────── */
 
 .roadmap__list {
@@ -2047,7 +2109,7 @@ html:has(.site) body {
 /* ── responsive ──────────────────────────────────────────────────── */
 
 @media (max-width: 60rem) {
-  /* The eight section links keep their place on a phone, as one row under the
+  /* The nine section links keep their place on a phone, as one row under the
      bar that scrolls sideways inside itself. Hidden, they left a phone header
      of Pricing and Sign in with no way to any section. */
   .nav__links {

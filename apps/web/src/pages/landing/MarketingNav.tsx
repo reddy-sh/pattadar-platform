@@ -16,7 +16,7 @@ interface MarketingNavProps {
 /** One marketing header for the landing and Pricing pages.
  *
  * Pricing is one route link in one DOM action group at every width. Landing's
- * eight section controls remain separate because they scroll within `/`.
+ * nine section controls remain separate because they scroll within `/`.
  */
 export function MarketingNav({
   sectionLinks = [],

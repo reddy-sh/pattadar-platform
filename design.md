@@ -38,7 +38,7 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
   CTAs open `/signup`; "Sign in" opens `/login`. Nav: **N10
   scroll-morph** (full-width hairline bar at rest → floating pill when
   scrolled; deliberate variation from the source's N5 — Pattadar's landing nav
-  carries 8 section links + one route-level Pricing link + brand + CTA).
+  carries 9 section links + one route-level Pricing link + brand + CTA).
 - **App pages** (`/app/*`): functional shell, tokens-only restyle. No
   decoration ever — function carries the page. Light, Dark, and High Contrast
   remain complete, user-switchable schemes. **Domain structure is allowed**
@@ -336,6 +336,17 @@ the landing content. `landingContent.ts` now uses narrower claims for AI reading
 saved copies, sharing, map boundaries and roadmap services. The hero lead is
 static so it can be read while the illustration plays. Further copy changes
 should still be deliberate product decisions, not incidental visual edits.
+
+**Revision, 03/10/2026:** by founder request, a Pattadar Network section
+(`NETWORK`, `#network`, nav entry `Network`) was added after Pattadar
+University: eight offerings, every one badged `Coming soon`, and the sentence
+that no listings or professionals are on Pattadar today. `Legal connect` and
+`Trusted document writers` moved from Services into it with their wording
+unchanged. Its register-interest form (`NETWORK_INTEREST`) carries DRAFT
+consent wording that needs Reddy's approval before production
+(`docs/specs/TODO-pattadar-network.md`, D4). The form's submit is the ghost
+CTA voice. `scripts/network-interest-tests.ts` guards the claims and the
+consent text/version parity with the API.
 
 The landing page's scripted assistant exchange remains a sample; its
 `· sample conversation` label is what makes invented survey

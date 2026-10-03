@@ -237,6 +237,7 @@ const NAV_SECTIONS: Array<[label: string, heading: string]> = [
   ['Pattadar AI', 'An assistant for your records'],
   ['How it works', 'How Pattadar works'],
   ['Land records', 'What to keep with a property'],
+  ['Network', 'A network around your land'],
   ['Services', "Services we're building next"],
   ['FAQ', 'Asked by families like yours'],
 ];
@@ -1569,6 +1570,181 @@ test.describe('public family capability links', () => {
     await page.goto('/active/not-a-real-token');
     await page.getByRole('button', { name: 'Confirm this message' }).click();
     await expect(page.getByText(/invalid, expired, or has already been used/i)).toBeVisible();
+  });
+});
+
+// ═══ Pattadar Network · coming soon + register interest ═══════════════
+
+test.describe('the Pattadar Network section', () => {
+  const RECEIVED = 'Thanks. We will contact you when Pattadar Network opens near you.';
+  const FAILED = "We couldn't save that. Please try again.";
+  const ID_NUMBER = "Please don't enter Aadhaar or other ID numbers here.";
+
+  /** Stub the one mutation the form sends; everything else falls through. */
+  async function stubRegister(
+    page: Page,
+    answer: { status: string; field?: string } | { httpStatus: number },
+  ): Promise<string[]> {
+    const asked: string[] = [];
+    await page.route(/\/graphql$/, (route) => {
+      const body = route.request().postData() ?? '';
+      if (!body.includes('RegisterNetworkInterest')) return route.fallback();
+      asked.push(body);
+      if ('httpStatus' in answer) return route.fulfill({ status: answer.httpStatus, json: { message: 'Unauthorized' } });
+      return route.fulfill({ json: { data: { registerNetworkInterest: { field: '', ...answer } } } });
+    });
+    return asked;
+  }
+
+  async function fill(page: Page, { phone = '98480 12345', name = 'Ravi Kumar', consent = true } = {}) {
+    const form = page.locator('#network form');
+    await form.getByLabel('I am interested in').selectOption('sell');
+    await form.getByLabel('Your name').fill(name);
+    if (phone) await form.getByLabel('Mobile number').fill(phone);
+    if (consent) await form.getByRole('checkbox', { name: /I agree that Pattadar may contact me/ }).check();
+    return form;
+  }
+
+  test('shows eight coming-soon offerings and says none exist yet', async ({ page }) => {
+    await page.goto('/');
+    const section = page.locator('#network');
+    await expect(section.getByRole('heading', { level: 2, name: 'A network around your land' })).toBeVisible();
+    await expect(section.locator('li.card .badge')).toHaveCount(8);
+    for (const badge of await section.locator('li.card .badge').all()) await expect(badge).toHaveText('Coming soon');
+    await expect(section.getByText('No listings or professionals are on Pattadar today.', { exact: false })).toBeVisible();
+    const roadmap = page.locator('#services');
+    await expect(roadmap).not.toContainText('Legal connect');
+    await expect(roadmap).not.toContainText('Trusted document writers');
+    await expect(roadmap).toContainText('AI Watch Dog');
+    await expect(roadmap).toContainText('On-demand property visits');
+  });
+
+  test('a valid registration is sent once and thanked', async ({ page }) => {
+    const asked = await stubRegister(page, { status: 'received' });
+    await page.goto('/');
+    const form = await fill(page);
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(page.locator('#network').getByRole('status')).toHaveText(RECEIVED);
+    expect(asked).toHaveLength(1);
+    const sent = JSON.parse(asked[0]).variables.input;
+    expect(sent).toMatchObject({ interest: 'sell', name: 'Ravi Kumar', consent: true, consentVersion: '2026-10-03', website: '' });
+  });
+
+  test('without consent nothing is sent and the box says why', async ({ page }) => {
+    const asked = await stubRegister(page, { status: 'received' });
+    await page.goto('/');
+    const form = await fill(page, { consent: false });
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByRole('alert')).toHaveText('Tick the box to agree before you register.');
+    await expect(form.getByRole('checkbox', { name: /I agree/ })).toBeFocused();
+    expect(asked).toHaveLength(0);
+  });
+
+  test('an invalid or non-ASCII phone is refused before sending', async ({ page }) => {
+    const asked = await stubRegister(page, { status: 'received' });
+    await page.goto('/');
+    const form = await fill(page, { phone: '+91 5123456789' });
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByRole('alert')).toHaveText('Enter a 10-digit Indian mobile number.');
+    await form.getByLabel('Mobile number').fill('９８４８０１２３４５');
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByRole('alert')).toHaveText('Enter a 10-digit Indian mobile number.');
+    expect(asked).toHaveLength(0);
+  });
+
+  test('neither phone nor email marks both', async ({ page }) => {
+    await stubRegister(page, { status: 'received' });
+    await page.goto('/');
+    const form = await fill(page, { phone: '' });
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByText('Give a mobile number or an email.')).toHaveCount(3); // phone, email, summary
+  });
+
+  test('an Aadhaar-like number in the name is refused on that field', async ({ page }) => {
+    const asked = await stubRegister(page, { status: 'received' });
+    await page.goto('/');
+    const form = await fill(page, { name: 'Ravi 1234 5678 9012' });
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByRole('alert')).toHaveText(ID_NUMBER);
+    await expect(form.getByLabel('Your name')).toBeFocused();
+    expect(asked).toHaveLength(0);
+  });
+
+  test('a server-side field error lands on that field', async ({ page }) => {
+    await stubRegister(page, { status: 'invalid', field: 'phone' });
+    await page.goto('/');
+    const form = await fill(page);
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByRole('alert')).toHaveText('Enter a 10-digit Indian mobile number.');
+  });
+
+  test('the hourly ceiling asks to try later', async ({ page }) => {
+    await stubRegister(page, { status: 'rate_limited' });
+    await page.goto('/');
+    const form = await fill(page);
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByText('Too many requests right now. Please try again later.')).toBeVisible();
+  });
+
+  test.describe('a stale session', () => {
+    // The stubbed 401 is logged by Chromium itself; nothing else may be.
+    test.use({ allowConsole: true });
+    test.afterEach(async ({ consoleErrors }) => refusalsOnly(consoleErrors));
+
+    test('a 401 keeps the values, stays on the page and says it could not save', async ({ page }) => {
+      await stubRegister(page, { httpStatus: 401 });
+      await page.goto('/');
+      const form = await fill(page);
+      await form.getByRole('button', { name: 'Register interest' }).click();
+      await expect(form.getByText(FAILED)).toBeVisible();
+      await expect(page.getByText('Your session has ended')).toHaveCount(0);
+      await expect(page).toHaveURL(/\/$/);
+      await expect(form.getByLabel('Your name')).toHaveValue('Ravi Kumar');
+    });
+  });
+
+  test('the form completes from the keyboard and the honeypot is never in the Tab order', async ({ page }) => {
+    const asked = await stubRegister(page, { status: 'received' });
+    await page.goto('/');
+    const form = page.locator('#network form');
+    await expect(form.locator('input[name="website"]')).toHaveAttribute('tabindex', '-1');
+    await form.getByLabel('I am interested in').focus();
+    // Type-ahead picks "Sell a property"; ArrowDown on macOS opens the picker
+    // instead of changing the value.
+    await page.keyboard.type('Sell');
+    await expect(form.getByLabel('I am interested in')).toHaveValue('sell');
+    await page.keyboard.press('Tab');
+    await expect(form.getByLabel('Your name')).toBeFocused();
+    await page.keyboard.type('Ravi Kumar');
+    await page.keyboard.press('Tab');
+    await page.keyboard.type('9848012345');
+    for (let i = 0; i < 5; i += 1) await page.keyboard.press('Tab'); // email, district, mandal, note, consent
+    await expect(form.getByRole('checkbox', { name: /I agree/ })).toBeFocused();
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Tab'); // the privacy-notice link inside the label
+    await page.keyboard.press('Tab');
+    await expect(form.getByRole('button', { name: 'Register interest' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#network').getByRole('status')).toHaveText(RECEIVED);
+    expect(asked).toHaveLength(1);
+  });
+
+  test('@phone the network section and its form reflow onto a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.locator('#network form').scrollIntoViewIfNeeded();
+    await expect(page.locator('#network li.card .badge')).toHaveCount(8);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+
+  test('the privacy notice describes Network interest in English and Telugu', async ({ page }) => {
+    await page.goto('/privacy');
+    await expect(page.getByRole('heading', { level: 2, name: 'Pattadar Network interest' })).toBeVisible();
+    await page.getByRole('button', { name: 'తెలుగులో చదవండి' }).click();
+    await expect(page.getByRole('heading', { level: 2, name: 'పట్టాదార్ నెట్‌వర్క్ ఆసక్తి' })).toBeVisible();
   });
 });
 

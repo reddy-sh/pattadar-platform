@@ -135,6 +135,35 @@ explicit click so email-link scanners cannot close a cycle by issuing a GET.
 until all API tasks understand the capability tables. Provider configuration and
 repository source are not proof of deployment or recipient delivery.
 
+## Pattadar Network interest (credential-less public write)
+
+The landing page's Pattadar Network section offers a register-interest form
+(`apps/web/src/pages/landing/NetworkInterestForm.tsx`). It is the one public
+write that carries **no credential** — every other anonymous write consumes a
+hashed token or an HMAC signature — so it is a separate trust class, approved
+by Reddy on 03/10/2026 (decision D1, `docs/specs/TODO-pattadar-network.md`).
+
+```mermaid
+sequenceDiagram
+  participant V as Signed-out visitor
+  participant G as Gateway
+  participant A as API (network.py)
+  participant D as PostgreSQL
+  V->>G: registerNetworkInterest(input), no bearer
+  G->>G: AST allow exactly one public root
+  G->>A: proxied; identity headers stripped, none injected
+  A->>A: honeypot → validate (ASCII phone, no Aadhaar-like runs)
+  A->>D: advisory lock → hourly ceiling → lookup → insert once / touch updated_at
+  A-->>V: status only (received | invalid | consent_required | rate_limited)
+```
+
+`network_interest` lives in the API database with no owner or identity
+column, so account export/erasure are unaffected. Abuse bounds are API-side
+only (honeypot, insert-once, 60-second cool-down, global hourly ceiling
+`NETWORK_INTEREST_HOURLY_CAP`, default 200); there is no per-IP or WAF limit
+(D2, D3). Logs carry the interest key, a field name or the outcome, never a
+value. Implemented in code, not deployed; consent wording is a draft (D4).
+
 ## Durable AI work
 
 Active web document reading submits a durable job and polls authenticated status.

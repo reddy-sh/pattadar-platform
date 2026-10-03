@@ -18,6 +18,8 @@ Concrete work items tied to this codebase. Phase tags are historical planning la
 - [x] [phase-1] Fail-closed super-admin checks on AI/model admin routes — deny on missing/unknown role, never default-allow
 - [ ] [phase-2] Rate limiting at the gateway (per-user + per-IP), tightest on auth-adjacent and extraction endpoints
 - [x] [phase-2] Review share-token routes (`verify/:token` and any document-share links) — unauthenticated **by design**; confirm tokens are single-purpose, unguessable, expiring, and leak nothing beyond their purpose
+- [x] Credential-less public write `registerNetworkInterest` (approved D1, 03/10/2026): single-root in both allowlists (gateway `public_graphql.py`, API `RequireAuthenticatedRoot`), honeypot, insert-once/no-revival, cool-down, global hourly ceiling before the per-contact lookup, no PII in logs, masked DB errors; guarded by `scripts/network-interest-tests.ts`. Implemented in code, not deployed.
+- [ ] Network interest: per-IP limiting (D2) and WAF/ALB-origin restriction (D3) — not in v1 by decision; revisit if the hourly ceiling trips
 
 ## Data protection
 

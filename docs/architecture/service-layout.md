@@ -95,13 +95,15 @@ services/api/src/
     jobs.py                the durable queue and document_read_jobs
     providers/anthropic.py the only provider call in this service
   account.py associates.py capabilities.py ticketing.py notify.py
+  network.py               Pattadar Network interest capture (anonymous, bounded)
   payments.py payments_provider.py     (candidate for a payments/ package)
   village_map.py fmb_geometry.py web360.py
 
 services/gateway/src/
   main.py database.py auth.py cognito_jwt.py local_issuer.py
   storage.py               storage domain logic
-  public_graphql.py        the one parsed anonymous mutation surface
+  public_graphql.py        the one parsed anonymous mutation surface (capability
+                           roots + credential-less registerNetworkInterest)
   routes/                  account.py capabilities.py storage.py proxy.py
   ai_catalog/              routes.py providers/{base,anthropic}.py
 

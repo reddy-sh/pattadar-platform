@@ -44,11 +44,24 @@ no retry for those non-idempotent calls.
 It is guarded by `x-cron-secret`; `CRON_SECRET` must always be set except in
 explicit insecure local development.
 
-### 5. Public verification
+### 5. Public operations
 
 Beneficiary/member invite links use `{APP_PUBLIC_URL}/verify/{token}` and work
 without login through the gateway's narrowly parsed public operation. Other API
 operations require validated gateway identity.
+
+The anonymous roots are `verifyBeneficiary`, `acknowledgeInactivity` (each
+consumes a hashed, single-use token), `invitePreview`, `trainingCertificate`,
+and one credential-less mutation, `registerNetworkInterest` (`src/network.py`,
+the landing page's Pattadar Network form). It ignores identity, returns only a
+status, and is bounded in SQL: honeypot first, insert-once per contact and
+interest (no anonymous overwrite, no revival of a withdrawn row), a 60-second
+cool-down, and a global hourly ceiling checked before the existing-row lookup.
+`NETWORK_INTEREST_HOURLY_CAP` sets the ceiling (default 200); it is read once
+at import, and an invalid or non-positive value fails closed to 0. Rows live in
+`network_interest` (boot DDL), carry no account link, and are never logged by
+value. Implemented in code; consent wording is a draft pending Reddy's
+approval (`docs/specs/TODO-pattadar-network.md`).
 
 ### 6. Notifications
 

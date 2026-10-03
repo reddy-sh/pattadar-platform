@@ -22,6 +22,8 @@ from . import geography
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
 from . import village_map, web360
 from . import growth
+# Pattadar Network register-interest capture (credential-less public root).
+from . import network
 from psycopg.conninfo import make_conninfo
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
@@ -1227,15 +1229,18 @@ def _internal_proxy_ok(request) -> bool:
 
 
 class RequireAuthenticatedRoot(SchemaExtension):
-    """API defense in depth: only purpose-bound capability mutations are public.
+    """API defense in depth: only purpose-bound capability mutations are public,
+    plus one credential-less root, registerNetworkInterest, bounded by the API's
+    own ceilings (network.py: honeypot, insert-once, cool-down, hourly cap).
 
     The API is private behind the gateway; only its stripped/injected identity
-    header is trusted. Public roots validate and consume their own scoped token.
+    header is trusted. The capability roots validate and consume their own
+    scoped token; registerNetworkInterest ignores identity and returns no rows.
     """
     def resolve(self, next_, root, info, *args, **kwargs):
         if info.parent_type.name in {"Query", "Mutation"}:
             public_queries = {"trainingCertificate", "invitePreview"}
-            public_mutations = {"verifyBeneficiary", "acknowledgeInactivity"}
+            public_mutations = {"verifyBeneficiary", "acknowledgeInactivity", "registerNetworkInterest"}
             public = (info.parent_type.name == "Query" and info.field_name in public_queries) or \
                 (info.parent_type.name == "Mutation" and info.field_name in public_mutations)
             if not public:
@@ -3116,8 +3121,39 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
     return summary
 
 
+@strawberry.input
+class NetworkInterestInput:
+    """Pattadar Network register-interest form (network.py). Optional fields
+    default to "" so the SDL is `String! = ""` and an explicit null is refused
+    by GraphQL validation before the resolver runs."""
+    interest: str
+    name: str
+    consent: bool
+    consent_version: str
+    phone: str = ""
+    email: str = ""
+    district: str = ""
+    mandal: str = ""
+    note: str = ""
+    website: str = ""  # honeypot; real users never see or fill it
+
+
+@strawberry.type
+class NetworkInterestResult:
+    """received | invalid | consent_required | rate_limited. Never echoes
+    input and never says whether the contact was already registered."""
+    status: str
+    field: str = ""
+
+
 @strawberry.type
 class Mutation:
+    @strawberry.mutation
+    async def register_network_interest(
+        self, info: strawberry.Info, input: NetworkInterestInput,
+    ) -> NetworkInterestResult:
+        return await network.register(info, input)
+
     @strawberry.mutation
     async def web(self) -> web360.WebMutation:
         """Record-360 writes for the web app (W01–W15). See web360.py."""
@@ -7000,6 +7036,8 @@ async def init_db() -> None:
         web360.bind(pool, _uid_from_info)
         await web360.ensure_schema(conn)
         await account.ensure_schema(conn)
+        # Pattadar Network interest rows (network.py), additive IF NOT EXISTS.
+        await network.ensure_schema(conn)
         # Invitee claims, setup tasks and referrals (growth.py).
         await growth.ensure_schema(conn)
         # Centralized audit read model + transactional outbox (phase 1).

@@ -48,6 +48,46 @@ def test_operation_name_must_match_and_batches_are_rejected():
     assert not is_public_verify("graphql", "POST", json.dumps([{"query": q}]).encode())
 
 
+_NETWORK_SEL = 'registerNetworkInterest(input:$input){ status field }'
+_NETWORK_VARS = '($input:NetworkInterestInput!)'
+
+
+@pytest.mark.parametrize("query", [
+    # The exact document the landing form sends.
+    f'mutation RegisterNetworkInterest{_NETWORK_VARS} {{ {_NETWORK_SEL} }}',
+    f'mutation{_NETWORK_VARS} {{ ...N }} fragment N on Mutation {{ {_NETWORK_SEL} }}',
+    f'mutation{_NETWORK_VARS} {{ ... on Mutation {{ {_NETWORK_SEL} }} }}',
+    f'mutation{_NETWORK_VARS} {{ saved: {_NETWORK_SEL} }}',
+])
+def test_network_interest_is_public_as_a_single_root(query):
+    """AC 16: the credential-less root takes the same single-root forms as
+    verifyBeneficiary — plain, fragment, inline fragment and alias."""
+    assert allowed(query)
+
+
+@pytest.mark.parametrize("query", [
+    # A second root by fragment, inline fragment or alias.
+    f'mutation{_NETWORK_VARS} {{ {_NETWORK_SEL} ...P }} fragment P on Mutation {{ deleteInvitation(id:"x") }}',
+    f'mutation{_NETWORK_VARS} {{ {_NETWORK_SEL} ... on Mutation {{ createUser(mobile:"",email:"",name:"",language:"") {{ id }} }} }}',
+    f'mutation{_NETWORK_VARS} {{ a: {_NETWORK_SEL} b: {_NETWORK_SEL} }}',
+    f'mutation{_NETWORK_VARS} {{ {_NETWORK_SEL} again: {_NETWORK_SEL} }}',
+    # Batched beside a capability root or a private root.
+    f'mutation{_NETWORK_VARS} {{ {_NETWORK_SEL} verifyBeneficiary(token:"t") {{ id }} }}',
+    f'mutation{_NETWORK_VARS} {{ {_NETWORK_SEL} createUser(mobile:"",email:"",name:"",language:"") {{ id }} }}',
+    # Two operations in one document.
+    f'mutation A{_NETWORK_VARS} {{ {_NETWORK_SEL} }} query B {{ pendingInvitations {{ token }} }}',
+    # It is a mutation root, never a query root.
+    'query { registerNetworkInterest { status } }',
+])
+def test_network_interest_cannot_carry_a_second_root(query):
+    assert not allowed(query)
+
+
+def test_network_interest_batch_array_is_rejected():
+    q = f'mutation RegisterNetworkInterest{_NETWORK_VARS} {{ {_NETWORK_SEL} }}'
+    assert not is_public_verify("graphql", "POST", json.dumps([{"query": q}, {"query": q}]).encode())
+
+
 @pytest.mark.parametrize("path", ["internal/capabilities/shares/token/files/id", "%69nternal/capabilities", "%2569nternal/capabilities", "public/../internal/capabilities"])
 def test_internal_resolution_routes_are_never_generically_proxied(path):
     import asyncio

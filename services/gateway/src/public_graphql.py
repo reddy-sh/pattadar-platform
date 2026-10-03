@@ -1,4 +1,12 @@
-"""Conservative AST policy for single-purpose public capability operations."""
+"""Conservative AST policy for single-purpose public operations.
+
+The anonymous roots are the capability operations (verifyBeneficiary and
+acknowledgeInactivity consume a hashed, single-use token; invitePreview reads
+by one) plus one credential-less mutation, registerNetworkInterest, which
+carries no credential and is bounded by the API's own ceilings (honeypot,
+insert-once, cool-down, hourly cap — services/api/src/network.py). Whatever the
+root, a document may name exactly one of them.
+"""
 import json
 
 from graphql import parse
@@ -17,7 +25,8 @@ def is_public_verification(body: bytes) -> bool:
             return False
         document = parse(payload["query"], max_tokens=4096)
         operations = [n for n in document.definitions if isinstance(n, OperationDefinitionNode)]
-        # A public credential can execute one mutation. Reject batches and
+        # A public credential can execute one mutation, and the credential-less
+        # registerNetworkInterest is likewise one root. Reject batches and
         # multiple operation documents rather than guessing which gets run.
         # The one public query is the invitation preview, which returns only
         # who invited you and for what (growth.preview).
@@ -55,7 +64,7 @@ def is_public_verification(body: bytes) -> bool:
             return fields
 
         public_roots = ({"invitePreview"} if operation.operation == OperationType.QUERY
-                        else {"verifyBeneficiary", "acknowledgeInactivity"})
+                        else {"verifyBeneficiary", "acknowledgeInactivity", "registerNetworkInterest"})
         fields = roots(operation.selection_set)
         return len(fields) == 1 and fields[0] in public_roots
     except (ValueError, TypeError, RecursionError):

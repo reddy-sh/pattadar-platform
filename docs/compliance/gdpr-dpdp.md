@@ -17,6 +17,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | audit_events | Who did what, when | RDS | Medium | AWS |
 | Inactivity heartbeats | last_active timestamps, dead-man's-switch escalation state | RDS | Medium | AWS |
 | Auth data | Credentials, MFA, login history | Amazon Cognito (ap-south-1 — in-India) | High | AWS (Cognito, processor) |
+| Pattadar Network interest | Interest choice, name, phone and/or email, optional district/mandal/note, consent version + time; no account link. Residual risk (D8): contact ownership is unverified — anyone can enter another person's number or email; insert-once and no-revival limit misuse, nothing is sent automatically, and consent is confirmed at first outreach. *(Implemented in code, not deployed; consent wording a draft pending Reddy's approval, `docs/specs/TODO-pattadar-network.md`)* | RDS (`network_interest`) | Medium | AWS |
 
 ## Purpose and lawful basis
 
@@ -26,6 +27,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | AI document extraction (Aadhaar/deed/passbook → structured data) | Contract; explicit consent for ID documents | Explicit consent at upload; purpose stated in notice |
 | Family/heir management incl. minors | Contract + consent of guardian | **Verifiable parental consent required for minors.** The app already models minor→guardian; TODO(Phase 2): capture and record the guardian's verifiable consent at member creation. |
 | Notifications incl. inactivity escalation | Consent | Head reminders require both the account email preference and a safeguard-specific head flag. A family member separately opts in during membership verification; delivery requires verified email plus active purpose-specific consent. The acknowledgement page withdraws only safeguard email. Working-tree code is not deployment or legal-completeness evidence. |
+| Contacting people who registered interest in Pattadar Network | Consent (Art. 6(1)(a)) | Purpose-specific, versioned consent (`network.CONSENT_VERSION`) at submission with a link to the privacy notice; draft wording (D4) |
 | Security/audit logging | Legitimate interest (Art. 6(1)(f)) | Reasonable-purposes / legal-obligation carve-out |
 
 ## Data-subject rights — implementation plan
@@ -37,6 +39,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | Rectification | Exists — users edit their own records via the UI | Done |
 | Consent withdrawal | Head and family recipients can withdraw future inactivity email through purpose-specific state reached from the acknowledgement capability; unrelated account email preferences are unchanged. Full processing-consent withdrawal still ties into erasure. | Partially implemented; local/live acceptance pending |
 | Grievance (DPDP) | Grievance-officer contact + response SLA in app/notice | [organizational] |
+| Network interest withdrawal / deletion | By request to grievance@pattadar.com; the operator matches `phone` OR `email` OR `contact_key` across all interests (never `contact_key` alone). An anonymous resubmission never revives a withdrawn row. | Operator process; no self-service or read surface (D5) |
 
 ## Retention schedule
 
@@ -48,6 +51,7 @@ DPDP Act 2023 (+ DPDP Rules) is the primary regime — users are in India. GDPR 
 | notification_log | 12 months, then purge (enforced by the hourly `audit.maintenance` sweep) | Delivery troubleshooting |
 | audit_events (legacy) | ≥ 1 year (target 3) | SOC 2 evidence, dispute resolution; survives erasure (carve-out) |
 | audit_events_v2 (central trail) | Per-event retention class: security/standard = 3 years, low-signal = 1 year (defaults in `src/audit.RETENTION_DAYS`); on erasure only a de-identified tombstone is retained for the reviewed window | SOC 2 / DPDP evidence with data-class-aware lifetime; duration is a governance decision, not yet enforced by a WORM/insert-only control in production |
+| network_interest | 24 months from `updated_at`, or earlier on withdrawal/request (D6) — **purge job not built (TODO)** | Contact about Pattadar Network only |
 | RDS backups | 7-day PITR window; erased data ages out of backups within the window | Recovery |
 | CloudWatch logs | 365 days | Operations + evidence |
 | Cognito user | Deleted on erasure request (`AdminDeleteUser`) | Processor deletion |

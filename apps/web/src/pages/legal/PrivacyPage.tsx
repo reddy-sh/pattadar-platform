@@ -12,6 +12,9 @@ const sections = {
     ['Sharing with another person', 'Sharing creates access to the files and boundary information you select. Anyone with an active recipient link can use that access until it expires or you revoke it. Revocation prevents further access through Pattadar; it cannot recall copies someone has already downloaded.'],
     ['Your records and choices', 'You can correct records in the app, download an account export and file manifest, and request deletion from account settings. Deletion requires a recent sign-in and is processed in tracked stages across records, file versions, assistant data and the sign-in account. A request is complete only when the required stages succeed.'],
     ['Retention and deletion', 'Records remain available while you use the service until you delete them or request account deletion. Backups follow their configured retention and may retain earlier copies until they expire. Security or transaction records that need to be retained are handled separately from your active account. A deletion receipt reports the processing state.'],
+    // DRAFT (decision D4, docs/specs/TODO-pattadar-network.md): wording needs
+    // Reddy's approval before production, in both languages.
+    ['Pattadar Network interest', 'If you register interest in Pattadar Network on our home page, we keep the interest you chose, your name, the phone number or email you give, and any district, mandal or note you add. We use it only to contact you about Pattadar Network. It is not linked to a Pattadar account. We keep it for 24 months from your last registration, or delete it sooner when you ask. To withdraw or delete it, write to grievance@pattadar.com from that email or quoting that phone number.'],
     ['Questions and requests', 'Contact grievance@pattadar.com about access, correction, deletion, consent or a privacy concern. Include the request reference when one is available; do not email a password or a full identity-document number.'],
   ],
   te: [
@@ -22,6 +25,8 @@ const sections = {
     ['ఇతరులతో పంచుకోవడం', 'మీరు ఎంచుకున్న పత్రాలు, హద్దుల సమాచారానికే లింక్ ప్రవేశం ఇస్తుంది. క్రియాశీల లింక్ ఉన్నవారు గడువు ముగిసే వరకు లేదా మీరు రద్దు చేసే వరకు ఉపయోగించవచ్చు. రద్దు చేసినా వారు ఇప్పటికే డౌన్‌లోడ్ చేసిన ప్రతులను వెనక్కి తీసుకోలేము.'],
     ['మీ రికార్డులు, ఎంపికలు', 'యాప్‌లో రికార్డులను సరిచేయవచ్చు. ఖాతా సమాచారం, ఫైళ్ల జాబితాను డౌన్‌లోడ్ చేయవచ్చు. ఖాతా తొలగింపును అభ్యర్థించవచ్చు. ఇటీవల సైన్-ఇన్ చేసి ఉండాలి. రికార్డులు, ఫైల్ సంస్కరణలు, సహాయకుడి సమాచారం, సైన్-ఇన్ ఖాతా దశలవారీగా తొలగించబడతాయి. అవసరమైన దశలన్నీ విజయవంతమైతేనే అభ్యర్థన పూర్తవుతుంది.'],
     ['నిల్వ కాలం, తొలగింపు', 'మీరు తొలగించే వరకు లేదా ఖాతా తొలగింపును కోరే వరకు రికార్డులు అందుబాటులో ఉంటాయి. బ్యాకప్ ప్రతులు అమర్చిన నిల్వ కాలం ముగిసే వరకు ఉండవచ్చు. నిలుపుకోవాల్సిన భద్రతా లేదా లావాదేవీ నమోదులు క్రియాశీల ఖాతా నుండి వేరుగా నిర్వహించబడతాయి. అభ్యర్థన రసీదులో స్థితిని చూడవచ్చు.'],
+    // DRAFT (D4) — Telugu wording needs Reddy's approval before production.
+    ['పట్టాదార్ నెట్‌వర్క్ ఆసక్తి', 'మా హోమ్ పేజీలో పట్టాదార్ నెట్‌వర్క్ పట్ల ఆసక్తిని నమోదు చేస్తే, మీరు ఎంచుకున్న ఆసక్తి, మీ పేరు, మీరు ఇచ్చిన ఫోన్ నంబర్ లేదా ఈమెయిల్, మీరు జోడించిన జిల్లా, మండలం లేదా గమనికను నిల్వ చేస్తాము. పట్టాదార్ నెట్‌వర్క్ గురించి మిమ్మల్ని సంప్రదించడానికి మాత్రమే దీన్ని ఉపయోగిస్తాము. ఇది పట్టాదార్ ఖాతాతో అనుసంధానించబడదు. మీ చివరి నమోదు నుండి 24 నెలలు నిల్వ చేస్తాము, లేదా మీరు కోరితే అంతకంటే ముందే తొలగిస్తాము. ఉపసంహరించుకోవడానికి లేదా తొలగించడానికి ఆ ఈమెయిల్ నుండి లేదా ఆ ఫోన్ నంబర్‌ను పేర్కొంటూ grievance@pattadar.com కు రాయండి.'],
     ['సందేహాలు, అభ్యర్థనలు', 'ప్రవేశం, సవరణ, తొలగింపు, సమ్మతి లేదా గోప్యత సమస్యల కోసం grievance@pattadar.com కు రాయండి. అభ్యర్థన సంఖ్య ఉంటే చేర్చండి. పాస్‌వర్డ్ లేదా పూర్తి గుర్తింపు పత్ర సంఖ్యను ఈమెయిల్ చేయవద్దు.'],
   ],
 };
