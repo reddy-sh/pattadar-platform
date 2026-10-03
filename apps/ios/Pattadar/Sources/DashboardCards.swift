@@ -11,14 +11,14 @@ import SwiftUI
 /// Mine face of Properties, M22). Each column is a door to the list it counts.
 struct StatTripleCard: View {
     let totals: [KindTotal]
-    let onOpen: (HoldingFilter) -> Void
+    let onOpen: (PropertyFilter) -> Void
 
     private struct Column: Identifiable {
         let id: String
         let label: String
         let value: String
         let unit: String
-        let filter: HoldingFilter
+        let filter: PropertyFilter
     }
 
     var body: some View {
@@ -166,7 +166,7 @@ struct WorthTodayCard: View {
                 }
             }
 
-            Text("Owned holdings only — the values recorded on your own papers, not appraisals.")
+            Text("Owned properties only — the values recorded on your own papers, not appraisals.")
                 .font(.note).foregroundStyle(.secondary)
                 .padding(.top, Space.hair)
 
@@ -206,7 +206,7 @@ struct UpcomingRow: Identifiable {
     let icon: String
     let title: String
     let subtitle: String
-    let holding: Holding
+    let holding: PropertyRecord
 }
 
 /// Upcoming (M01) — the failures with a date on them: tax behind, EC stale.
@@ -218,7 +218,7 @@ struct UpcomingCard: View {
     var body: some View {
         HomeListCard(title: "Upcoming") {
             ForEach(rows) { row in
-                NavigationLink { HoldingDestination(holding: row.holding) } label: {
+                NavigationLink { PropertyDestination(holding: row.holding) } label: {
                     HStack(alignment: .top, spacing: Space.md) {
                         Image(systemName: row.icon)
                             .font(.scaled(16))
@@ -252,7 +252,7 @@ struct NeedsAttentionCard: View {
     var body: some View {
         HomeListCard(title: "Needs attention") {
             ForEach(rows) { row in
-                NavigationLink { HoldingDestination(holding: row.holding) } label: {
+                NavigationLink { PropertyDestination(holding: row.holding) } label: {
                     HStack(alignment: .center, spacing: Space.md) {
                         Image(systemName: row.icon)
                             .font(.scaled(16))
@@ -279,7 +279,7 @@ struct NeedsAttentionCard: View {
 /// Recently opened (M01) — the doors most recently walked through, because
 /// the record you looked at yesterday is the record you want today.
 struct RecentlyOpenedCard: View {
-    let items: [Holding]
+    let items: [PropertyRecord]
     let onAll: () -> Void
 
     var body: some View {
@@ -291,7 +291,7 @@ struct RecentlyOpenedCard: View {
                     .font(.subheadline)
             }
             ForEach(items) { h in
-                NavigationLink { HoldingDestination(holding: h) } label: {
+                NavigationLink { PropertyDestination(holding: h) } label: {
                     HStack(spacing: Space.md) {
                         Image(systemName: h.kind.icon)
                             .font(.scaled(16))
@@ -364,12 +364,12 @@ struct OutboxStrip: View {
 
 /// The one place a Home row becomes a screen — every card above deep-links
 /// through this, so a holding opens the same way from every door.
-struct HoldingDestination: View {
-    let holding: Holding
+struct PropertyDestination: View {
+    let holding: PropertyRecord
 
     var body: some View {
         switch holding {
-        case .parcel(let p, let pb): HoldingDetailScreen(parcel: p, passbook: pb)
+        case .parcel(let p, let pb): ParcelDetailScreen(parcel: p, passbook: pb)
         case .property(let p): PropertyDetailScreen(property: p)
         }
     }

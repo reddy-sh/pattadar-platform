@@ -163,12 +163,12 @@ struct MapsTabScreen: View {
         }
     }
 
-    private var allHoldings: [Holding] {
+    private var allHoldings: [PropertyRecord] {
         guard let h = holdings else { return [] }
         let parcels = h.parcels.map { p in
-            Holding.parcel(p, h.passbooks.first { $0.id == p.passbookId })
+            PropertyRecord.parcel(p, h.passbooks.first { $0.id == p.passbookId })
         }
-        return parcels + h.properties.map { Holding.property($0) }
+        return parcels + h.properties.map { PropertyRecord.property($0) }
     }
 }
 

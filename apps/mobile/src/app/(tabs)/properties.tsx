@@ -97,7 +97,7 @@ function HoldingRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${h.title}, ${extentText}${showStatus ? `, ${status}` : ''}`}
-      onPress={() => router.push({ pathname: '/holding/[id]', params: { id: h.id, kind: h.kind } })}
+      onPress={() => router.push({ pathname: '/property/[id]', params: { id: h.id, kind: h.kind } })}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: theme.colors.surfaceVariant }]}
     >
       {/* CL-575: ONE leading slot, same size and same x for every row. A cover
@@ -193,7 +193,7 @@ function HoldingRow({
   );
 }
 
-export default function HoldingsScreen() {
+export default function PropertiesScreen() {
   const theme = useTheme();
   const qc = useQueryClient();
   const identity = useIdentity();
@@ -655,7 +655,7 @@ export default function HoldingsScreen() {
                       title={g.h.title}
                       description={g.h.extentLabel}
                       onCalloutPress={() =>
-                        router.push({ pathname: '/holding/[id]', params: { id: g.h.id, kind: g.h.kind } })
+                        router.push({ pathname: '/property/[id]', params: { id: g.h.id, kind: g.h.kind } })
                       }
                     />
                   ))}

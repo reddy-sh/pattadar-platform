@@ -61,7 +61,7 @@ with its own tests.
 | 10 | Status words | ui.tsx `STATUS_WORD`; detail/common.tsx `StatusChip`; Groups.tsx `STATE_OF`; DeskAssociates.tsx `STATE_CHIPS`; PropertyDetailPage.tsx `HOLDING_STATUSES` | core (words) + ui.tsx (render) | M | Low–med |
 | 11 | Inline styles | ~955 `style={{` in w360/pages, ~528 `sx={{` in legacy pages | w360.css utilities and component props | L | Low per edit; measure the recurring patterns first |
 | 12 | Two UI systems | `/legacy/*` MUI screens still routed; W360 imports `pages/documents/*` and `families/familiesData` as a data layer | W360 + a `data/` module | L | High — Reddy's architecture decision |
-| 13 | Mobile | screen-local `StatChip`, `SectionHeader`, `CompositionBar` ((tabs)/index), `HoldingRow`, `PassbookCard`, `Row`/`Section` (holding/[id]); the EmptyState guard skips activity.tsx; `UNIT_LABELS`/`pluralize` belong in core | `apps/mobile/src/components`, core | M | Low–med |
+| 13 | Mobile | screen-local `StatChip`, `SectionHeader`, `CompositionBar` ((tabs)/index), `HoldingRow`, `PassbookCard`, `Row`/`Section` (property/[id]); the EmptyState guard skips activity.tsx; `UNIT_LABELS`/`pluralize` belong in core | `apps/mobile/src/components`, core | M | Low–med |
 | 14 | University | its own AppHeader, Footer, AuthProvider; no `@pattadar/*` dependency | Reddy decides whether the rule covers it | L | Med |
 | 15 | Guard helpers | ux-guards.ts, a11y-web-tests.ts and provenance-tests.ts each carry a comment-stripping scanner | `scripts/lib/source-scan.ts` (the new guards already use it) | S | Low |
 | 16 | Docs drift | web-next references in the web-next-cutover skill; the component-kit contract is web-next-only | skills + a re-based contract if adopted | S | Low |

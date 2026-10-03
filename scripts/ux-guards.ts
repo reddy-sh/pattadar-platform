@@ -163,7 +163,7 @@ check(
 // ── CL-537/541: every empty state is the shared component ──────────────────
 const SCREENS = [
   'apps/mobile/src/app/(tabs)/passbooks.tsx',
-  'apps/mobile/src/app/(tabs)/holdings.tsx',
+  'apps/mobile/src/app/(tabs)/properties.tsx',
   'apps/mobile/src/app/(tabs)/family.tsx',
   'apps/mobile/src/app/documents.tsx',
 ];
@@ -185,7 +185,7 @@ check(
 );
 check(
   'CL-538/616 Properties hides grouping, sort and map when the SEGMENT is empty',
-  /\{!segmentEmpty && \(/.test(code('apps/mobile/src/app/(tabs)/holdings.tsx')),
+  /\{!segmentEmpty && \(/.test(code('apps/mobile/src/app/(tabs)/properties.tsx')),
   'keyed on the account being empty, "Plots (0)" still rendered a full control bar',
 );
 check(
@@ -196,7 +196,7 @@ check(
 // ── CL-540: one empty message per screen ──────────────────────────────────
 check(
   'CL-540 Properties no longer stacks two empty messages',
-  !/Nothing to show/.test(code('apps/mobile/src/app/(tabs)/holdings.tsx')),
+  !/Nothing to show/.test(code('apps/mobile/src/app/(tabs)/properties.tsx')),
 );
 
 // ── CL-557: one word for documents, everywhere the user can read it ───────
@@ -220,7 +220,7 @@ check(
 );
 
 // ── CL-565: a GPS reading is a claim, not the parcel's location ───────────
-const holding = code('apps/mobile/src/app/holding/[id].tsx');
+const holding = code('apps/mobile/src/app/property/[id].tsx');
 check(
   'CL-565 the saved pin is checked against the village',
   /const savedSanity = checkLocation\(geo, approx/.test(holding),
@@ -305,7 +305,7 @@ check(
 );
 
 // ── CL-575..584: parcel rows line up whatever their content ───────────────
-const holdings = code('apps/mobile/src/app/(tabs)/holdings.tsx');
+const holdings = code('apps/mobile/src/app/(tabs)/properties.tsx');
 check(
   'CL-575 one leading slot serves both a cover and an icon',
   /<View\s+style=\{\[\s*styles\.leading/.test(holdings) && !/styles\.rowCover/.test(holdings),
@@ -396,7 +396,7 @@ for (const f of ['apps/mobile/src/app/add-parcel.tsx', 'apps/mobile/src/app/add-
 }
 check(
   'the Plots tab does not send people to scan a passbook',
-  !/No plots yet[\s\S]{0,400}Scan passbook/.test(code('apps/mobile/src/app/(tabs)/holdings.tsx')),
+  !/No plots yet[\s\S]{0,400}Scan passbook/.test(code('apps/mobile/src/app/(tabs)/properties.tsx')),
   'a plot has no passbook — that route cannot work',
 );
 check(
@@ -409,9 +409,9 @@ check(
 // "Holding" and "item" were third and fourth synonyms for the same things.
 // Property is the umbrella; a parcel is farmland under a passbook; a plot is
 // non-agricultural and comes from a deed.
-for (const f of [...SCREENS, 'apps/mobile/src/app/allocation.tsx']) {
+for (const f of [...SCREENS, 'apps/mobile/src/app/allocation.tsx', 'apps/mobile/src/app/property/[id].tsx']) {
   // Only text the user can read. `['pattadar', 'holdings']` is a cache key and
-  // `/holdings` is a route — neither is copy.
+  // `/holdings` is a route (now a redirect to `/properties`) — neither is copy.
   const rendered = (code(f).match(/>[^<>{}]*[Hh]olding[^<>{}]*</g) ?? []).concat(
     (code(f).match(/(?:title|label|placeholder|accessibilityLabel)=["'][^"']*[Hh]olding[^"']*["']/g) ?? []),
   );
@@ -431,7 +431,7 @@ check(
 // ── No floating action buttons; creation is inline + overflow ────────────
 const LIST_SCREENS = [
   'apps/mobile/src/app/(tabs)/passbooks.tsx',
-  'apps/mobile/src/app/(tabs)/holdings.tsx',
+  'apps/mobile/src/app/(tabs)/properties.tsx',
   'apps/mobile/src/app/(tabs)/family.tsx',
   'apps/mobile/src/app/(tabs)/index.tsx',
 ];
@@ -489,7 +489,7 @@ check(
 check('CL-621 Home has an inline title', /title="Home"/.test(code('apps/mobile/src/app/(tabs)/index.tsx')));
 check(
   'CL-620 the summary pins with the title where there is one',
-  /subtitle=\{/.test(code('apps/mobile/src/app/(tabs)/holdings.tsx')) &&
+  /subtitle=\{/.test(code('apps/mobile/src/app/(tabs)/properties.tsx')) &&
     /subtitle=\{/.test(code('apps/mobile/src/app/(tabs)/passbooks.tsx')),
 );
 
@@ -566,7 +566,7 @@ for (const f of LIST_SCREENS) {
 // "3 Acres 20 Ce…", "27 Acr…", "Katr…" — in every case a fixed-width or
 // freely-shrinking numeric column lost space to text beside it, truncating the
 // one thing the row exists to show.
-for (const f of ['apps/mobile/src/app/(tabs)/holdings.tsx', 'apps/mobile/src/app/(tabs)/passbooks.tsx']) {
+for (const f of ['apps/mobile/src/app/(tabs)/properties.tsx', 'apps/mobile/src/app/(tabs)/passbooks.tsx']) {
   check(
     `${f} lets the extent column keep its width`,
     /extentCol: \{ minWidth: \d+, textAlign: 'right', flexShrink: 0/.test(code(f)),
@@ -805,14 +805,14 @@ for (const f of ['apps/mobile/src/app/add-property.tsx', 'apps/mobile/src/app/ad
 }
 check(
   'a holding shows the deeds it was made from',
-  /linkedDeeds/.test(code('apps/mobile/src/app/holding/[id].tsx')),
+  /linkedDeeds/.test(code('apps/mobile/src/app/property/[id].tsx')),
 );
 
 // ── Attaching a document keeps what was read from it ─────────────────────
 // The holding screen's Add-document button spent ~100s having the deed read
 // by AI and then kept only `doc_type`, filing a bare row that could say
 // nothing about itself and had no file off the phone.
-const holdingSrc = code('apps/mobile/src/app/holding/[id].tsx');
+const holdingSrc = code('apps/mobile/src/app/property/[id].tsx');
 check(
   'Add document files a registered document, not a bare row',
   /fileDocument\.mutateAsync\(\{ \.\.\.fields, _fileRef: fileRef \}\)/.test(holdingSrc),

@@ -141,5 +141,37 @@ const coreSources = walk(join(ROOT, 'packages/core/src'), /\.tsx?$/)
   check('VOC-6 nothing else links to /app/combined', found.length === 0, found.join(', '));
 }
 
+// VOC-7: on iOS "holding" was the word for one property. The web now uses it
+// for several held as one, a feature iOS does not have, so no Swift string may
+// print it. The deep-link tokens (SharedSnapshot.swift) and the widget kind
+// (HoldingWidget.swift) are identifiers already installed on phones, and are
+// the only literals allowed, each in its own file. A `\(…)` interpolation is
+// code, so `"Khata \(holding.passbook)"` is not a hit, but the strings inside
+// one are copy (`\(n == 1 ? "HOLDING" : "HOLDINGS")`) and are read too.
+{
+  const IOS = ['apps/ios/Pattadar/Sources', 'apps/ios/PattadarWidget', 'apps/ios/Shared', 'apps/ios/PattadarKit/Sources'];
+  const allowed: Record<string, string[]> = {
+    'apps/ios/PattadarKit/Sources/PattadarKit/Storage/SharedSnapshot.swift': ['"holding"', '"holdings"'],
+    'apps/ios/PattadarWidget/HoldingWidget.swift': ['"PattadarHolding"'],
+  };
+  const interp = /\\\((?:[^()\n]|\([^()\n]*\))*\)/g;
+  const found = IOS.flatMap((d) => walk(join(ROOT, d), /\.swift$/)).flatMap((f) => {
+    const rel = relative(ROOT, f);
+    const src = stripComments(readFileSync(f, 'utf8'));
+    // Interpolations are blanked to equal-length spaces, so `"\(n == 1 ? "" : "s")"`
+    // is one string and every index (and so every line number) still holds.
+    const inner: { text: string; index: number }[] = [];
+    const code = src.replace(interp, (m, at: number) => {
+      for (const s of m.matchAll(/"[^"\n]*"/g)) inner.push({ text: s[0], index: at + (s.index ?? 0) });
+      return ' '.repeat(m.length);
+    });
+    const strings = [...[...code.matchAll(/"[^"\n]*"/g)].map((m) => ({ text: m[0], index: m.index ?? 0 })), ...inner];
+    return strings
+      .filter((s) => /\bholdings?\b/i.test(s.text) && !(allowed[rel] ?? []).includes(s.text))
+      .map((s) => `${rel}:${lineAt(src, s.index)} ${s.text}`);
+  });
+  check('VOC-7 no Swift string says "holding" for a property', found.length === 0, found.join(', '));
+}
+
 console.log(failures === 0 ? 'VOCAB TESTS PASS' : `VOCAB TESTS FAILED (${failures})`);
 process.exit(failures === 0 ? 0 : 1);

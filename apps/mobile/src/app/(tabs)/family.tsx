@@ -309,7 +309,7 @@ export default function FamilyScreen() {
                       title="View properties"
                       onPress={() => {
                         setGroupMenu('');
-                        router.push(`/holdings?q=${encodeURIComponent(g.name)}` as never);
+                        router.push(`/properties?q=${encodeURIComponent(g.name)}` as never);
                       }}
                     />
                   )}

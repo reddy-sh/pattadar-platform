@@ -16,7 +16,7 @@ struct HoldingWidget: Widget {
             HoldingWidgetView(entry: entry)
                 .widgetCanvas(entry.line.map { Palette.tint(for: $0.kind) } ?? Palette.accent)
         }
-        .configurationDisplayName("A holding")
+        .configurationDisplayName("A property")
         .description("Pin one survey number or property, with what it still needs.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
     }
@@ -30,7 +30,7 @@ struct HoldingEntity: AppEntity {
     let name: String
     let place: String
 
-    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Holding"
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Property"
     static let defaultQuery = HoldingQuery()
 
     var displayRepresentation: DisplayRepresentation {
@@ -60,10 +60,10 @@ struct HoldingQuery: EntityQuery {
 }
 
 struct PickHolding: WidgetConfigurationIntent {
-    static let title: LocalizedStringResource = "Choose a holding"
+    static let title: LocalizedStringResource = "Choose a property"
     static let description = IntentDescription("Pick which property this widget shows.")
 
-    @Parameter(title: "Holding")
+    @Parameter(title: "Property")
     var holding: HoldingEntity?
 
     init() {}

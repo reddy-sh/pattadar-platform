@@ -138,7 +138,7 @@ public func readinessBlurb(_ items: [(name: String, readiness: Readiness)]) -> S
     guard !failing.isEmpty else {
         return items.isEmpty
             ? "Nothing recorded yet."
-            : "Every holding on file would stand up to scrutiny today."
+            : "Every property on file would stand up to scrutiny today."
     }
     let named = failing.prefix(3).map { item -> String in
         let worst = item.readiness.blocking.first ?? item.readiness.failures.first
@@ -146,7 +146,7 @@ public func readinessBlurb(_ items: [(name: String, readiness: Readiness)]) -> S
         return "\(item.name) — \(problem.prefix(1).lowercased() + problem.dropFirst())"
     }
     let count = failing.count
-    let noun = count == 1 ? "holding" : "holdings"
+    let noun = count == 1 ? "property" : "properties"
     let more = count > 3 ? ", and \(count - 3) more" : ""
     return "\(count) \(noun) would not survive a bank's scrutiny today: "
         + named.joined(separator: "; ") + more + "."

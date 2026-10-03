@@ -11,9 +11,9 @@ export default function PortfolioScreen() {
   const { data } = useDashboard();
   const d = data?.data;
   const rows: { label: string; value: string; icon: string; href?: string }[] = [
-    { label: 'Parcels', value: String(d?.stats.totalParcels ?? 0), icon: 'map-outline', href: '/holdings' },
+    { label: 'Parcels', value: String(d?.stats.totalParcels ?? 0), icon: 'map-outline', href: '/properties' },
     { label: 'Passbooks', value: String(d?.stats.totalPassbooks ?? 0), icon: 'notebook-outline', href: '/passbooks' },
-    { label: 'Properties', value: String(d?.properties.length ?? 0), icon: 'home-city-outline', href: '/holdings' },
+    { label: 'Properties', value: String(d?.properties.length ?? 0), icon: 'home-city-outline', href: '/properties' },
     { label: 'Documents', value: String(d?.stats.totalDocuments ?? 0), icon: 'file-document-outline', href: '/documents' },
     { label: 'Groups', value: String(d?.stats.totalGroups ?? 0), icon: 'account-group-outline', href: '/family' },
     { label: 'Beneficiaries', value: String(d?.stats.totalBeneficiaries ?? 0), icon: 'account-heart-outline', href: '/family' },

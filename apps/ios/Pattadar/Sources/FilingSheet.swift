@@ -116,7 +116,7 @@ struct FilingSheet: View {
             }
             .fullScreenCover(item: $route) { r in
                 switch r {
-                case .holding: AddHoldingScreen(passbooks: [], parcels: [])
+                case .holding: AddFromScanScreen(passbooks: [], parcels: [])
                         .onDisappear { dismiss() }
                 case .passbook: AddPassbookScreen().onDisappear { dismiss() }
                 case .document: AddDocumentSheet { dismiss() }
