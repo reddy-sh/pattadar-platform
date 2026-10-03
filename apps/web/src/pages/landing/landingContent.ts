@@ -343,7 +343,8 @@ export const ROADMAP = {
  * offering is future work: nothing in the network is onboarded yet, so the
  * copy never claims a listing or a professional exists. The two former
  * ROADMAP items (legal professionals, document writers) live here now, with
- * their wording unchanged. Guarded by scripts/network-interest-tests.ts. */
+ * their wording unchanged; Legal connect is one card with lawyers, not two
+ * (Reddy, follow-up 2). Guarded by scripts/network-interest-tests.ts. */
 export const NETWORK = {
   eyebrow: 'Pattadar Network',
   h2: 'A network around your land',
@@ -355,11 +356,11 @@ export const NETWORK = {
     { icon: 'sell', title: 'Sell a property', body: 'A planned way to list a property from your Pattadar record, publishing only the details you choose.' },
     { icon: 'buy', title: 'Buy a property', body: 'A planned way to find properties listed by their owners in Andhra Pradesh and Telangana.' },
     { icon: 'rent', title: 'Rent or lease', body: 'A planned way to offer or find land and property for rent or lease.' },
-    { icon: 'gavel', title: 'Lawyers and advocates', body: 'A planned way to find a legal professional and share the documents relevant to your question.' },
+    { icon: 'gavel', title: 'Lawyers and legal connect', body: 'A planned way to find a legal professional and share the documents relevant to your question.' },
     { icon: 'straighten', title: 'Licensed surveyors', body: 'A planned way to find a licensed surveyor for measurement and boundary work.' },
     { icon: 'historyEdu', title: 'Document writers', body: 'A planned directory of document writers for families preparing a transaction.' },
     { icon: 'developer', title: 'Land developers', body: 'A planned way to reach land and landscape developers for your plot.' },
-    { icon: 'more', title: 'Valuers, builders and more', body: 'More property services will follow as the network grows.' },
+    { icon: 'calculate', title: 'Property valuers', body: 'A planned way to reach a property valuer for an independent valuation of your land.' },
   ],
 };
 

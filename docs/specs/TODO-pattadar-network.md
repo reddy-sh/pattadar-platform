@@ -50,11 +50,11 @@ separate object the owner creates from it.
 | Sell a property | List a property from a Pattadar record, publishing only owner-chosen details | That Pattadar verified title, extent or ownership |
 | Buy a property | Find properties listed by their owners in Andhra Pradesh and Telangana | That a listing replaces checking official records |
 | Rent or lease | Offer or find land and property for rent or lease | That a listing is a registered lease |
-| Lawyers and advocates | Find a legal professional and share relevant documents | That Pattadar gives legal advice |
+| Lawyers and legal connect | Find a legal professional and share relevant documents (one card: "Legal connect" is not listed separately) | That Pattadar gives legal advice |
 | Licensed surveyors | Find a licensed surveyor for measurement and boundary work | That a drawn outline is an official survey |
 | Document writers | A directory of document writers for families preparing a transaction | That a listing is a licence check |
 | Land developers | Reach land and landscape developers for a plot | Any RERA or approval status |
-| Valuers, builders and more | Further property services as the network grows | A valuation Pattadar stands behind |
+| Property valuers | Reach a property valuer for an independent valuation | A valuation Pattadar stands behind |
 
 ## 3. Built now: interest capture
 
@@ -135,6 +135,9 @@ Each needs options and a recommendation before its phase starts.
 - New storage object keys stay `{node}/{version}` with authorization in SQL.
 - No Aadhaar or deed content is ever published.
 - Dates render DD/MM/YYYY.
+- No submitted value in any log line: `network.py` logs field names and outcomes,
+  and GraphQL errors on `registerNetworkInterest` log only error class and path
+  (`services/api/src/main.py` `PattadarSchema`, AC 18).
 
 ## 7. Phasing
 

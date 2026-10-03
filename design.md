@@ -347,6 +347,10 @@ consent wording that needs Reddy's approval before production
 (`docs/specs/TODO-pattadar-network.md`, D4). The form's submit is the ghost
 CTA voice. `scripts/network-interest-tests.ts` guards the claims and the
 consent text/version parity with the API.
+**Revision, follow-up 2:** by Reddy's decision the card list is sell, buy,
+rent or lease, lawyers and legal connect (one card, not two), licensed
+surveyors, document writers, land developers and property valuers; the guard
+pins the list and the form's interest choices against `network.INTERESTS`.
 
 The landing page's scripted assistant exchange remains a sample; its
 `· sample conversation` label is what makes invented survey

@@ -284,6 +284,7 @@ def test_database_errors_are_masked_and_pii_free(monkeypatch, caplog, exc):
     messages = [r.getMessage() for r in caplog.records]
     assert f"network.interest_save_failed error={type(exc).__name__}" in messages
     unexpected = [m for m in messages if m.startswith("graphql.unexpected_error")]
-    assert unexpected and "NetworkSaveFailed('network interest save failed')" in unexpected[0]
+    # registerNetworkInterest errors log the class only (main._value_free_error).
+    assert unexpected and unexpected[0].endswith(": NetworkSaveFailed")
     for text in (NAME, "value too long", "couldn't get a connection", "98480"):
         assert text not in caplog.text

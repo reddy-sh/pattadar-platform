@@ -85,14 +85,18 @@ function check(v: Values): Errors {
   return e;
 }
 
-/** The server names one field; show its sentence (Aadhaar-like text gets the
- * ID-number sentence, `contact` marks both phone and email). */
+/** The server names one field; show its sentence (`contact` marks both phone
+ * and email). A free-text field the server refused although every client
+ * check passed was refused for an ID-like run the ASCII-only client mirror
+ * cannot see (e.g. Telugu or full-width digits), so it gets the ID-number
+ * sentence rather than that field's length sentence. */
 function serverError(field: string, v: Values): Errors {
   if (field === 'contact') return { phone: COPY.errors.contact, email: COPY.errors.contact };
   if (!(ORDER as string[]).includes(field)) return {};
   const f = field as Field;
-  const text = typeof v[f] === 'string' ? (v[f] as string) : '';
-  const idLike = ['name', 'district', 'mandal', 'note'].includes(f) && looksLikeAadhaar(text);
+  const freeText = ['name', 'district', 'mandal', 'note'].includes(f);
+  const own = check(v)[f];
+  const idLike = freeText && (own === undefined || own === COPY.errors.idNumber);
   return { [f]: idLike ? COPY.errors.idNumber : COPY.errors[f] };
 }
 

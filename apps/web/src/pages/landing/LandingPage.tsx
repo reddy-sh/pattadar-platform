@@ -34,7 +34,6 @@ import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
-import MoreHorizOutlinedIcon from '@mui/icons-material/MoreHorizOutlined';
 import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
 import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
@@ -101,7 +100,6 @@ const ICONS: Record<string, ReactElement> = {
   buy: <ShoppingBagOutlinedIcon />,
   rent: <KeyOutlinedIcon />,
   developer: <AgricultureOutlinedIcon />,
-  more: <MoreHorizOutlinedIcon />,
 };
 
 /** One icon per Pattadar AI point, in order: it reads YOUR records, it acts on

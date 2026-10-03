@@ -60,7 +60,9 @@ cool-down, and a global hourly ceiling checked before the existing-row lookup.
 `NETWORK_INTEREST_HOURLY_CAP` sets the ceiling (default 200); it is read once
 at import, and an invalid or non-positive value fails closed to 0. Rows live in
 `network_interest` (boot DDL), carry no account link, and are never logged by
-value. Implemented in code; consent wording is a draft pending Reddy's
+value — including GraphQL parse, validation and coercion errors on this root,
+which `PattadarSchema.process_errors` and `MaskUnexpectedErrors` log as error
+class and path only. Implemented in code; consent wording is a draft pending Reddy's
 approval (`docs/specs/TODO-pattadar-network.md`).
 
 ### 6. Notifications

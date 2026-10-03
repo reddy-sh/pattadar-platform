@@ -1612,6 +1612,11 @@ test.describe('the Pattadar Network section', () => {
     await expect(section.locator('li.card .badge')).toHaveCount(8);
     for (const badge of await section.locator('li.card .badge').all()) await expect(badge).toHaveText('Coming soon');
     await expect(section.getByText('No listings or professionals are on Pattadar today.', { exact: false })).toBeVisible();
+    await expect(section.locator('li.card .card__h')).toHaveText([
+      'Sell a property', 'Buy a property', 'Rent or lease', 'Lawyers and legal connect',
+      'Licensed surveyors', 'Document writers', 'Land developers', 'Property valuers',
+    ]);
+    await expect(section.locator('li.card .card__h', { hasText: /^Legal connect$/ })).toHaveCount(0);
     const roadmap = page.locator('#services');
     await expect(roadmap).not.toContainText('Legal connect');
     await expect(roadmap).not.toContainText('Trusted document writers');
@@ -1676,6 +1681,16 @@ test.describe('the Pattadar Network section', () => {
     const form = await fill(page);
     await form.getByRole('button', { name: 'Register interest' }).click();
     await expect(form.getByRole('alert')).toHaveText('Enter a 10-digit Indian mobile number.');
+  });
+
+  test('a server-only ID-number refusal shows the ID-number sentence', async ({ page }) => {
+    // Telugu digits pass the ASCII-only client mirror; the server refuses them.
+    await stubRegister(page, { status: 'invalid', field: 'name' });
+    await page.goto('/');
+    const form = await fill(page, { name: 'Ravi ౧౨౩౪ ౫౬౭౮ ౯౦౧౨' });
+    await form.getByRole('button', { name: 'Register interest' }).click();
+    await expect(form.getByRole('alert')).toHaveText(ID_NUMBER);
+    await expect(form.getByLabel('Your name')).toBeFocused();
   });
 
   test('the hourly ceiling asks to try later', async ({ page }) => {

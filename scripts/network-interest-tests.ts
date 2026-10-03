@@ -21,6 +21,10 @@
  *     allowlist and the API's RequireAuthenticatedRoot must name it — one
  *     without the other either breaks the form or widens a layer silently.
  *  E. The TODO spec keeps every heading the design requires.
+ *  F. The eight cards are the ones Reddy chose (follow-up 2): legal connect
+ *     is one card with lawyers, not two, and valuers have their own card. Each
+ *     professional card has a form choice, and the form's choices are exactly
+ *     the server allowlist network.INTERESTS.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -99,6 +103,26 @@ for (const heading of [
 ]) {
   check(`E1 the TODO spec has "${heading}"`, new RegExp(`^## \\d*\\.? ?${heading.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}`, 'm').test(spec));
 }
+
+// ── F · the card list and the interest allowlist ─────────────────────
+const titles = NETWORK.items.map((i) => i.title);
+const EXPECTED_TITLES = [
+  'Sell a property', 'Buy a property', 'Rent or lease', 'Lawyers and legal connect',
+  'Licensed surveyors', 'Document writers', 'Land developers', 'Property valuers',
+];
+check('F1 the eight cards are sell, buy, rent, lawyers and legal connect, surveyors, document writers, developers, valuers',
+  JSON.stringify(titles) === JSON.stringify(EXPECTED_TITLES), titles.join(' | '));
+check('F2 legal connect is not a separate card',
+  titles.filter((t) => /legal|lawyer|advocate/i.test(t)).length === 1);
+const optionValues = NETWORK_INTEREST.groups.flatMap((g) => g.options.map((o) => o.value));
+for (const value of ['lawyer', 'surveyor', 'document_writer', 'developer', 'valuer']) {
+  check(`F3 the form offers "${value}" for its card`, optionValues.includes(value));
+}
+const interestsPy = /^INTERESTS = frozenset\(\{([^}]*)\}\)/m.exec(networkPy)?.[1] ?? '';
+const serverInterests = [...interestsPy.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+check('F4 the form choices equal network.INTERESTS',
+  JSON.stringify([...optionValues].sort()) === JSON.stringify(serverInterests),
+  `web ${[...optionValues].sort().join(',')}, api ${serverInterests.join(',')}`);
 
 console.log(failures === 0 ? 'NETWORK INTEREST TESTS PASS' : `NETWORK INTEREST TESTS FAILED (${failures})`);
 process.exit(failures === 0 ? 0 : 1);

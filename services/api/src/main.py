@@ -7366,6 +7366,22 @@ async def _graphql_context(request: Request) -> dict:
     return {"request": request}
 
 
+# Anonymous roots whose GraphQL errors are logged value-free (design AC 18).
+_VALUE_FREE_ERROR_ROOTS = ("registerNetworkInterest",)
+_graphql_errors_log = logging.getLogger("strawberry.execution")
+def _value_free_error(error, execution_context=None) -> bool:
+    """True when the request names a value-free root. Textual on purpose: it
+    holds for documents that fail to parse or validate, and a field can only
+    be selected by writing its name. The error's own source is checked first
+    because the masking extension instance is shared across requests."""
+    texts = (getattr(getattr(error, "source", None), "body", None),
+             getattr(execution_context, "query", None))
+    return any(root in (text or "") for text in texts for root in _VALUE_FREE_ERROR_ROOTS)
+def _error_kind(error) -> str:
+    original = getattr(error, "original_error", None)
+    return type(original if original is not None else error).__name__
+def _error_path(error) -> str:
+    return ".".join(str(p) for p in (getattr(error, "path", None) or []))
 class MaskUnexpectedErrors(MaskErrors):
     """Only errors this API meant to say reach the client.
 
@@ -7391,9 +7407,11 @@ class MaskUnexpectedErrors(MaskErrors):
 
     def anonymise_error(self, error):
         ref = uuid.uuid4().hex[:12]
-        _log.error("graphql.unexpected_error ref=%s field=%s: %r",
-                   ref, ".".join(str(p) for p in (error.path or [])),
-                   getattr(error, "original_error", None))
+        # A coercion error's repr carries the caller's value; for a value-free
+        # root log its class only (AC 18).
+        detail = _error_kind(error) if _value_free_error(error, getattr(self, "execution_context", None)) \
+            else repr(getattr(error, "original_error", None))
+        _log.error("graphql.unexpected_error ref=%s field=%s: %s", ref, _error_path(error), detail)
         masked = super().anonymise_error(error)
         masked.message = f"Something went wrong at our end (ref {ref})"
         return masked
@@ -7407,7 +7425,24 @@ _MAX_QUERY_DEPTH = 12
 _MAX_QUERY_ALIASES = 30
 _MAX_QUERY_TOKENS = 4000
 
-schema = strawberry.Schema(
+class PattadarSchema(strawberry.Schema):
+    """Strawberry's default `process_errors` logs str(error) plus the
+    traceback. For a coercion or validation error that text carries the
+    caller's own value — `Variable '$input' got invalid value 9848012345 at
+    'input.phone'`, or the source excerpt of an inline-literal document — so a
+    malformed anonymous registerNetworkInterest request would print a phone,
+    name or email before network.py runs. A request naming that root logs only
+    the error class and path instead. The errors returned to the client are
+    unchanged, and every other request keeps Strawberry's default log line.
+    """
+    def process_errors(self, errors, execution_context=None):
+        for error in errors:
+            if _value_free_error(error, execution_context):
+                _graphql_errors_log.error("graphql.public_error kind=%s path=%s",
+                                          _error_kind(error), _error_path(error) or "-")
+            else:
+                super().process_errors([error], execution_context)
+schema = PattadarSchema(
     query=Query, mutation=Mutation,
     extensions=[
         RequireAuthenticatedRoot,

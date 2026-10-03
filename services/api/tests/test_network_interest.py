@@ -252,3 +252,46 @@ def test_optional_inputs_are_non_null_with_empty_defaults():
                                        "consent": True, "consentVersion": network.CONSENT_VERSION}})
     result = asyncio.run(run())
     assert result.errors and result.data is None
+# ── Strawberry error log is value-free for this root (AC 18, follow-up 2) ──
+ID_LIKE = "1234 5678 9012"
+INLINE_NAME = f"Ravi {ID_LIKE} ravi@example.com 9848012345"
+MALFORMED = [
+    # An int phone in variables: coercion error "got invalid value 9848012345".
+    pytest.param(NETWORK_MUTATION, {"input": {"interest": "sell", "name": NAME, "phone": 9848012345,
+                                              "consent": True, "consentVersion": network.CONSENT_VERSION}},
+                 id="int-phone-variable"),
+    # Inline literals: validation error whose source excerpt carries the name.
+    pytest.param('mutation { registerNetworkInterest(input: {interest: "sell", '
+                 f'name: "{INLINE_NAME}", phone: 9848012345, email: "{EMAIL}", consent: true, '
+                 f'consentVersion: "{network.CONSENT_VERSION}"}}) {{ status field }} }}',
+                 None, id="inline-literals"),
+    # A document that does not parse at all still names the root.
+    pytest.param(f'mutation {{ registerNetworkInterest(input: {{name: "{INLINE_NAME}" phone: 9848012345 ',
+                 None, id="syntax-error"),
+]
+@pytest.mark.parametrize("document,variables", MALFORMED)
+def test_malformed_request_logs_no_submitted_value(monkeypatch, caplog, document, variables):
+    monkeypatch.setattr(network, "_pool", lambda: _NoPool())
+    caplog.set_level(logging.DEBUG)
+    async def run():
+        return await main.schema.execute(document, variable_values=variables, context_value=anonymous())
+    result = asyncio.run(run())
+    # The client still gets GraphQL's own error; only the log line changes.
+    assert result.errors and result.data is None
+    lines = [r.getMessage() for r in caplog.records if r.name == "strawberry.execution"]
+    assert lines and all(line.startswith("graphql.public_error kind=") for line in lines)
+    for value in PII + (ID_LIKE, INLINE_NAME, "9848012345", "ravi@example.com"):
+        assert value not in caplog.text
+def test_other_roots_keep_strawberrys_default_error_log(caplog):
+    caplog.set_level(logging.DEBUG, logger="strawberry.execution")
+    async def run():
+        return await main.schema.execute('mutation { claimInvitation(token:"t") { purpose } }',
+                                         context_value=anonymous())
+    result = asyncio.run(run())
+    assert result.errors
+    lines = [r.getMessage() for r in caplog.records if r.name == "strawberry.execution"]
+    assert lines and not any(line.startswith("graphql.public_error") for line in lines)
+# ── consent text pin (correctness nit, follow-up 2) ─────────────────────
+def test_consent_text_matches_its_pinned_sha256():
+    import hashlib
+    assert hashlib.sha256(network.CONSENT_TEXT.encode("utf-8")).hexdigest() == network.CONSENT_TEXT_SHA256
