@@ -1,34 +1,17 @@
-/* Pattadar Bloom marketing tokens.
- * Project-owned palette and type roles; Material 3-guided accessibility,
- * hierarchy, adaptive layout, and interaction behavior live in design.md.
+/* Pattadar Bloom tokens: type, spacing, motion, rules and layout.
+ * Project-owned roles; Material 3-guided accessibility, hierarchy, adaptive
+ * layout, and interaction behavior live in design.md.
  * fonts self-hosted via @fontsource (founder rule: nothing loads from third-party URLs)
  *
+ * No colour is declared here. Every colour comes from the palette pack
+ * (packages/tokens/src/palette) as MUI's CSS theme variables: the marketing
+ * surface reads them through the `--color-*` aliases site.css declares on
+ * `.site`, and W360 through w360.css's `--w-*` slots.
+ *
  * These are inert custom properties, safe on :root for the whole app.
- * color-scheme is deliberately NOT set here — the app supports light + dark
- * MUI schemes; marketing surfaces opt into dark via the `.site` scope.
  */
 
 :root {
-  /* === Color: Bloom (atmospheric · dark) ======================= */
-  --color-paper:        oklch(13% 0.018 35);
-  --color-paper-2:      oklch(17% 0.020 35);
-  --color-paper-3:      oklch(22% 0.022 35);
-  --color-paper-4:      oklch(28% 0.020 35);
-  --color-ink:          oklch(95% 0.010 70);
-  --color-ink-2:        oklch(78% 0.015 60);
-  --color-ink-3:        oklch(58% 0.015 50);
-  --color-rule:         oklch(28% 0.018 40);
-  --color-rule-strong:  oklch(40% 0.025 40);
-  --color-accent:       oklch(74% 0.180 55);
-  --color-accent-2:     oklch(68% 0.220 18);
-  --color-accent-soft:  oklch(74% 0.060 55);
-  --color-accent-ink:   oklch(15% 0.040 50);
-  --color-focus:        oklch(82% 0.180 55);
-  --color-error:        oklch(70% 0.220 25);
-  --color-success:      oklch(74% 0.160 145);
-  --color-bloom-1:      oklch(74% 0.220 50);
-  --color-bloom-2:      oklch(60% 0.220 15);
-
   /* === Typography ============================================== */
   /* One face, every surface (design.md § Typography). A root names this
      token once; everything else inherits. Repeated verbatim in theme.ts,

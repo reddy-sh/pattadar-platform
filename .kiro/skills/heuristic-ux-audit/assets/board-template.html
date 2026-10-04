@@ -12,6 +12,10 @@
   design.md's documented approximations so a moved board still renders;
   tokens.css wins whenever it loads. System fonts only. No script and no
   external loads.
+
+  One file, two images: board.html renders board.png, the full record, and
+  board.html#compare renders compare.png, the two screens alone for chat.
+  Keep id="compare" on <main> and the Compare view rules in every board.
 -->
 <html lang="en-IN">
 <head>
@@ -55,6 +59,16 @@
   .guard-h, .guard { color: var(--b-warn); }
   .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 28px; padding-top: 14px; border-top: 1px solid var(--b-line); font-family: var(--b-mono); font-size: 13px; color: var(--b-ink-2); }
   .unverified { grid-column: 1 / -1; margin: -26px 0 0; font-size: 14px; color: var(--b-ink-2); }
+
+  /* ── Compare view: board.html#compare renders compare.png, the screens only ── */
+  /* Each card loses its 29px frame and the board narrows to match, so every
+     screen keeps its full-board width and wraps; zoom fits the pair in 1600px,
+     and markers scale back by 1 / 0.849 to read as they do on the board. */
+  body:has(> .board:target) { padding: 24px; }
+  .board:target { width: 1828px; gap: 24px; zoom: 0.849; }
+  .board:target .card { padding: 0; border: 0; background: none; }
+  .board:target :is(.notes, .meta, .unverified) { display: none; }
+  .board:target .pin, .board:target [data-marker]::before { transform: scale(1.18); }
 
   /* ── Markers: a finding's number, in the screen's gutter or inline ──── */
   .n, .pin { display: inline-grid; place-items: center; border-radius: 50%; background: var(--b-mark); color: #fff; font-family: var(--b-sans); font-weight: 700; }
@@ -139,7 +153,7 @@
 </style>
 </head>
 <body>
-<main class="board">
+<main class="board" id="compare">
 
   <!-- ══ CURRENT ══════════════════════════════════════════════════════════ -->
   <section aria-labelledby="current-h">

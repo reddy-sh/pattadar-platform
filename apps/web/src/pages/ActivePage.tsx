@@ -36,7 +36,7 @@ export function ActivePage() {
   };
 
   return (
-    <div className="dark site">
+    <div className="site" data-scheme="dark">
       <main className="legalMain">
         <Stack spacing={3} sx={{ maxWidth: '36rem' }}>
           <Typography variant="h4">Confirm this safeguard message</Typography>

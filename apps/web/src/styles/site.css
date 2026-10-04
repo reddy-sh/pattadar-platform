@@ -6,8 +6,34 @@
  *
  * Scope: everything lives under `.site` — this stylesheet must never leak
  * into the /app MUI surface. Marketing pages wrap themselves in
- * `<div class="dark site">` so scoped MUI children resolve dark vars.
+ * `<div class="site" data-scheme="dark">` so scoped MUI children resolve the
+ * Dark scheme's vars whatever the signed-in app is set to.
  */
+
+/* The marketing colours, as aliases of MUI's CSS theme variables (the palette
+   pack, packages/tokens/src/palette). Every `.site` wrapper carries
+   data-scheme="dark", so MUI declares Bloom Dark's variables on it and each
+   alias resolves to Dark whatever the signed-in app is set to — the ambient
+   blooms (decor) exist in Dark only. Declared on the wrapper, not on :root:
+   nothing outside a marketing page reads them. */
+.site {
+  --color-paper: var(--mui-palette-background-default);
+  --color-paper-2: var(--mui-palette-background-paper);
+  --color-paper-3: var(--mui-palette-background-raised);
+  --color-ink: var(--mui-palette-text-primary);
+  --color-ink-2: var(--mui-palette-text-secondary);
+  --color-ink-3: var(--mui-palette-text-muted);
+  --color-rule: var(--mui-palette-divider);
+  --color-rule-strong: var(--mui-palette-dividerStrong);
+  --color-accent: var(--mui-palette-primary-main);
+  --color-accent-ink: var(--mui-palette-primary-contrastText);
+  --color-accent-soft: var(--mui-palette-decor-accentSoft);
+  --color-focus: var(--mui-palette-focus);
+  --color-success: var(--mui-palette-success-main);
+  --color-error: var(--mui-palette-error-main);
+  --color-bloom-1: var(--mui-palette-decor-bloom1);
+  --color-bloom-2: var(--mui-palette-decor-bloom2);
+}
 
 /* page-level clip, scoped so /app is untouched (slop-test gate 34) */
 html:has(.site),

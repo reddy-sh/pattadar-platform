@@ -33,7 +33,9 @@ import {
 } from '../ui';
 import type { FacetFilterGroup } from '../ui';
 import { PaperPreview } from '../paper/PaperPreview';
+import { displayDetail } from '../paperFiling';
 import { PaperDrawer } from './RecordPapers';
+import { folderLabel } from './vaultFolderLabel';
 import { ConfirmDialog, RecordDrawer, TagDialog } from './PropertyActions';
 import {
   EditTagsDialog, FileKindGlyph, FolderNameDialog, MoveToFolderDialog, folderPath, subtreeOf,
@@ -607,7 +609,7 @@ function readLayout(): Layout {
 /** "PDF · 1.4 MB" — what the file is, when nothing read it into a detail. */
 function fileLine(paper: Paper): string {
   const kind = fileKindOf(paper.mimeType, paper.title);
-  return [paper.detail || FILE_KIND_LABEL[kind], formatBytes(paper.sizeBytes ?? 0)]
+  return [displayDetail(paper.detail) || FILE_KIND_LABEL[kind], formatBytes(paper.sizeBytes ?? 0)]
     .filter(Boolean).join(' · ');
 }
 
@@ -957,10 +959,13 @@ export function Vault() {
   const whereLine = (paper: Paper): ReactNode => {
     if (!filtering) return null;
     const at = placeOf(paper);
+    // "Ravi › Aadhaar" rather than one of several folders called Aadhaar.
+    const label = folderLabel({ folderId: at, linkedProperties: [] }, folderById);
+    const name = label.kind === 'folder' ? label.text : nameOf(at);
     return (
       <button type="button" className="vault-where" onClick={() => openFolder(at)}
-              aria-label={`Open ${nameOf(at)}, where ${paper.title} is kept`}>
-        in {nameOf(at)}
+              aria-label={`Open ${name}, where ${paper.title} is kept`}>
+        in {name}
       </button>
     );
   };
@@ -975,16 +980,23 @@ export function Vault() {
   // What a file is filed against, as words. It used to be a link to the
   // property, and a click meant for the file landed on the land instead: the
   // row belongs to the file. Links are changed from the file's own menu.
-  const linksOf = (paper: Paper): ReactNode => {
-    const linked = linkedPropertiesFor(paper);
-    if (linked.length === 0) return <span className="note vault-link-text unlinked">Not linked</span>;
-    const names = linked.map((property) => property.title).join(', ');
-    return (
-      <span className="vault-link-text" title={names}>
-        {linked[0].title}
-        {linked.length > 1 && <span className="note"> +{linked.length - 1}</span>}
-      </span>
-    );
+  // Where a file lives, as words (vaultFolderLabel.ts): its folder, or the
+  // properties it is filed against, or My files. Inside a folder the path
+  // above the list already says it, so the cell stays empty there. Words, not
+  // a link: a press on the row opens the file; "in …" below the name (while
+  // the list is flat) is the way into the folder.
+  const folderCellOf = (paper: Paper): ReactNode => {
+    if (!filtering && currentFolder) return null;
+    const at = folderLabel({ ...paper, linkedProperties: linkedPropertiesFor(paper) }, folderById);
+    if (at.kind === 'property') {
+      return (
+        <span className="vault-link-text" title={at.all}>
+          {at.text}
+          {at.more > 0 && <span className="note"> +{at.more}</span>}
+        </span>
+      );
+    }
+    return <span className={`vault-link-text${at.kind === 'root' ? ' unlinked' : ''}`} title={at.text}>{at.text}</span>;
   };
   /** A press anywhere on a row or tile that is not one of its own controls
    *  opens the file, the way a file manager does. */
@@ -1023,6 +1035,12 @@ export function Vault() {
           its title (PageHead contract). */}
       <PageHead
         title="Documents"
+        info={(
+          <span className="row tight">
+            <span className="up" style={{ display: 'flex' }}><GppGoodOutlined sx={{ fontSize: 15 }} /></span>
+            {data.regionNote} · Private unless shared
+          </span>
+        )}
         actions={
           <>
             <button type="button" className="btn" onClick={() => setPanel('share')}>
@@ -1034,9 +1052,11 @@ export function Vault() {
           </>
         }
       >
-        <p className="note row tight" style={{ marginTop: '0.375rem' }}>
-          <span className="up" style={{ display: 'flex' }}><GppGoodOutlined sx={{ fontSize: 15 }} /></span>
-          {data.regionNote} · Private unless shared
+        {/* Figures, like every page under Your portfolio. Where the files are
+            kept is standing guidance, so it sits behind the ⓘ by the title. */}
+        <p className="note num" style={{ margin: '0.375rem 0 0' }}>
+          {[plural(files.length, 'file'), folders.length ? plural(folders.length, 'folder') : '']
+            .filter(Boolean).join(' · ')}
         </p>
       </PageHead>
 
@@ -1186,7 +1206,7 @@ export function Vault() {
                       }} />
                   </span>
                   <span role="columnheader">Name</span>
-                  <span role="columnheader">Linked to</span>
+                  <span role="columnheader">Folder</span>
                   <span role="columnheader">Type</span>
                   <span role="columnheader" aria-label="Actions" />
                 </div>
@@ -1233,7 +1253,7 @@ export function Vault() {
                         </span>
                       </span>
                     </span>
-                    <span role="cell" style={{ minWidth: 0 }}>{linksOf(paper)}</span>
+                    <span role="cell" style={{ minWidth: 0 }}>{folderCellOf(paper)}</span>
                     <span role="cell" className="note">
                       {SHELF_FILTERS.find(([key]) => key === paper.shelf)?.[1] ?? 'Unsorted'}
                       {paper.shared && <span style={{ marginLeft: 6 }}>· Shared</span>}
@@ -1281,7 +1301,7 @@ export function Vault() {
                     <span className="note vault-line">{fileLine(paper)}</span>
                     {whereLine(paper)}
                     {tagsOf(paper)}
-                    <span className="vault-tile-links">{linksOf(paper)}</span>
+                    <span className="vault-tile-links">{folderCellOf(paper)}</span>
                   </span>
                   {fileMenuButton(paper)}
                 </span>
@@ -1298,7 +1318,9 @@ export function Vault() {
           }}>Preview</MenuItem>
           {actionMenu && (
             <>
-              {linkedPropertiesFor(actionMenu.paper).length > 0 ? (
+              {/* A kept Aadhaar card is a person's identity, never put on
+                  land (the server refuses it too), so it offers no link. */}
+              {actionMenu.paper.aadhaarCard ? null : linkedPropertiesFor(actionMenu.paper).length > 0 ? (
                 <MenuItem onClick={() => {
                   setViewingLinksId(actionMenu.paper.id); setActionMenu(null);
                 }}>Manage links</MenuItem>

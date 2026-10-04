@@ -23,6 +23,8 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { checkLocation, cornerLabel } from '@pattadar/core';
 
+import { useThemeChoice } from '../components/useThemeChoice';
+import { cssVar } from './cssVar';
 import { loadVillage } from './villageIndex';
 
 /** Two states, because a basemap is what is UNDER the parcel and there are
@@ -102,6 +104,14 @@ export interface MapCanvasProps {
    *  and no stones, so a draft on a surveyed parcel would otherwise be
    *  invisible. */
   draftPin?: { lat: number; lon: number } | null;
+  /** The device's own position from "Use my current location": a "you are
+   *  here" dot, its accuracy circle, and the outline of the village-map plot
+   *  it falls in when one was found. Drawn in a layer of its own so the
+   *  parcel is not redrawn, and framed once per new fix — never again on a
+   *  later render. Shown only; nothing here is saved. */
+  located?: {
+    lat: number; lon: number; accuracyM: number; plot?: Array<[number, number]>;
+  } | null;
   /** Play the one-time reveal: the outline drawn corner by corner. */
   introduce?: boolean;
   /** The revenue village the record is filed in. Always pass it, whether or
@@ -190,13 +200,6 @@ async function geocode(q: string): Promise<Place | null> {
   }
 }
 
-/** Canvas cannot be styled by a stylesheet, so the village layer is the one
- *  place a colour has to cross into Leaflet as a value. Read it off the live
- *  tokens rather than hard-coding, or the layer stops following the theme. */
-function cssVar(name: string, fallback: string): string {
-  if (typeof document === 'undefined') return fallback;
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-}
 
 const OSM = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ESRI =
@@ -349,14 +352,21 @@ export default function MapCanvas({
   place, placeWithin, onPlace, picking = false, onPick, sideLabels, activeSide = null,
   onSideClick, onCornerClick, activeCorner = null, tip, introduce = false,
   village, showVillage = false, onVillagePlot, activePlot = null,
-  findPlot = null, onVillageState, draftPin = null,
+  findPlot = null, onVillageState, draftPin = null, located: device = null,
   drawing = false, editDisabled = false, draft, onDraft, still = false, ref,
 }: MapCanvasProps) {
+  // Canvas cannot be styled by a stylesheet, so the village layer is the one
+  // place a colour has to cross into Leaflet as a value (cssVar). It is drawn
+  // again when the scheme changes, or it would keep the colours it was drawn in.
+  const { choice: scheme } = useThemeChoice();
   const boxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const streetRef = useRef<L.TileLayer | null>(null);
   const imageryRef = useRef<L.TileLayer | null>(null);
   const shapeRef = useRef<L.LayerGroup | null>(null);
+  /** "You are here" — see `located`. */
+  const hereRef = useRef<L.LayerGroup | null>(null);
+  const hereFramedRef = useRef('');
   const boundsRef = useRef<L.LatLngBounds | null>(null);
   const fittedRef = useRef(false);
   // Which parcel the view was framed for. Two surveyed records in a row reuse
@@ -545,6 +555,8 @@ export default function MapCanvas({
 
     L.control.scale({ imperial: false, metric: true, position: 'bottomleft' }).addTo(map);
     shapeRef.current = L.layerGroup().addTo(map);
+    // After the parcel, so where you stand draws above it.
+    hereRef.current = L.layerGroup().addTo(map);
     // Leaflet needs a view before a layer can be added, and this one is a
     // placeholder in the strictest sense: the whole state, at a zoom where no
     // parcel is legible. It used to be [15.66, 79.32] at zoom 15 — Mangalakunta,
@@ -559,6 +571,8 @@ export default function MapCanvas({
       streetRef.current = null;
       imageryRef.current = null;
       shapeRef.current = null;
+      hereRef.current = null;
+      hereFramedRef.current = '';
       boundsRef.current = null;
       villageCanvas.current = null;
       fittedRef.current = false;
@@ -722,6 +736,48 @@ export default function MapCanvas({
     }
   }, [ring, marks, hasRing, hasPin, pin, title, dimOutside, drawing, draftPin]);
 
+  // Where the device is. Its own group, so a fix never redraws the parcel;
+  // framed once per new fix, so a later render never yanks the view back.
+  const hereLat = device?.lat;
+  const hereLon = device?.lon;
+  const hereAcc = device?.accuracyM;
+  const herePlot = device?.plot;
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = hereRef.current;
+    if (!map || !group) return;
+    group.clearLayers();
+    if (hereLat == null || hereLon == null || !Number.isFinite(hereLat) || !Number.isFinite(hereLon)) {
+      hereFramedRef.current = '';
+      return;
+    }
+    const at: L.LatLngTuple = [hereLat, hereLon];
+    const accuracy = L.circle(at, {
+      radius: Math.max(1, hereAcc ?? 0), className: 'w-here-acc', interactive: false,
+    }).addTo(group);
+    if (herePlot && herePlot.length >= 3) {
+      L.polygon(herePlot, { className: 'w-here-plot', interactive: false }).addTo(group);
+    }
+    L.circleMarker(at, { className: 'w-here', radius: 7, interactive: false }).addTo(group);
+    const label = document.createElement('span');
+    label.textContent = 'You are here';
+    // A standing label, not a hover tooltip: the dot is not interactive (a
+    // click on it must still move the draft pin), so a tooltip bound to it
+    // never opened. It is a layer of this group, so clearLayers() takes it
+    // away with the dot. pointer-events: none (Leaflet's own), and -10 clears
+    // the dot and the draft-pin ring drawn at the same point.
+    L.tooltip({
+      permanent: true, direction: 'top', offset: [0, -10], className: 'w-here-tip', opacity: 1,
+    }).setLatLng(at).setContent(label).addTo(group);
+    const key = `${hereLat},${hereLon},${herePlot?.length ?? 0}`;
+    if (hereFramedRef.current === key) return;
+    hereFramedRef.current = key;
+    const frame = herePlot && herePlot.length >= 3
+      ? L.latLngBounds(herePlot).extend(at)
+      : accuracy.getBounds();
+    map.fitBounds(frame, { ...fitOptions(map, still), maxZoom: 18 });
+  }, [hereLat, hereLon, hereAcc, herePlot, still]);
+
   // Where to look, in the order this record can be trusted:
   //
   //   1. a surveyed FMB ring — the only thing that IS the parcel
@@ -879,8 +935,8 @@ export default function MapCanvas({
         const poly = L.polygon(plot.ring as L.LatLngTuple[], {
           renderer: villageCanvas.current,
           // Canvas cannot read the stylesheet, so these are the only colours
-          // in this component given as values. The ink is read off the
-          // resolved tokens so the light/dark toggle still reaches it.
+          // in this component given as values. The accent and the ink are read
+          // off the resolved tokens, so every scheme reaches them.
           //
           // On imagery it is white, and not a token. A hairline of --w-ink-3
           // at half opacity — what this drew before — is the exact grey-brown
@@ -1082,7 +1138,7 @@ export default function MapCanvas({
     // outlines that are invisible on it.
     // The place line is joined so an inline array does not re-run this on
     // every render; it decides WHICH village a shared name means.
-  }, [village, showVillage, activePlot, findPlot, basemap, (placeWithin ?? []).join('|')]);
+  }, [village, showVillage, activePlot, findPlot, basemap, (placeWithin ?? []).join('|'), scheme]);
 
   // Side lengths, written along the boundary itself. Own layer, own effect:
   // switching metres to feet must not touch the ring or the view.

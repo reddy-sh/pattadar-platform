@@ -82,6 +82,8 @@ ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS vault_token TEXT
  REFERENCES aadhaar_vault(token) ON DELETE SET NULL;
 ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_node_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_version_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_mime TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_size BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_aadhaar_candidates_owner
  ON aadhaar_candidates(owner_user_id, expires_at);

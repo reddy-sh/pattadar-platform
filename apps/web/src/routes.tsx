@@ -44,9 +44,6 @@ const LandingPage = lazy(() =>
 const PricingPage = lazy(() =>
   import('./pages/pricing/PricingPage').then((m) => ({ default: m.PricingPage })),
 );
-const ThemeSamplesPage = lazy(() =>
-  import('./pages/landing/ThemeSamplesPage').then((m) => ({ default: m.ThemeSamplesPage })),
-);
 const PrivacyPage = lazy(() =>
   import('./pages/legal/PrivacyPage').then((m) => ({ default: m.PrivacyPage })),
 );
@@ -323,7 +320,6 @@ function FromCombined() {
 export const router = createBrowserRouter([
   { path: '/', element: suspended(LandingPage) },
   { path: '/pricing', element: suspended(PricingPage) },
-  { path: '/theme-samples', element: suspended(ThemeSamplesPage) },
   { path: '/login', element: suspended(LoginPage) },
   { path: '/signup', element: suspended(SignupPage) },
   { path: '/forgot-password', element: suspended(ForgotPasswordPage) },

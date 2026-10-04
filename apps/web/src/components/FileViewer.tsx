@@ -146,8 +146,12 @@ export function FileViewerHost() {
   const many = files.length > 1;
 
   return (
+    // A media viewer is dark in every theme. The Dialog wears Bloom Dark
+    // (data-scheme), so the variables below, and MUI's own controls inside it,
+    // resolve to Dark whatever the app is set to.
     <Dialog
       fullScreen
+      data-scheme="dark"
       open={open}
       onClose={close}
       onKeyDown={(e) => {
@@ -155,7 +159,7 @@ export function FileViewerHost() {
         if (e.key === 'ArrowRight') step(1);
         if (e.key === 'ArrowLeft') step(-1);
       }}
-      slotProps={{ paper: { sx: { bgcolor: 'var(--color-paper)', color: 'var(--color-ink)' } } }}
+      slotProps={{ paper: { sx: { bgcolor: 'var(--mui-palette-background-default)', color: 'var(--mui-palette-text-primary)' } } }}
     >
       {/* Top bar — filename, counter, Download, close. */}
       <Box
@@ -165,7 +169,7 @@ export function FileViewerHost() {
           gap: 1,
           px: 2,
           py: 1,
-          borderBottom: '1px solid var(--color-rule)',
+          borderBottom: '1px solid var(--mui-palette-divider)',
           flexShrink: 0,
         }}
       >
@@ -182,12 +186,12 @@ export function FileViewerHost() {
           startIcon={<FileDownloadOutlinedIcon />}
           onClick={download}
           disabled={cur.state !== 'ready'}
-          sx={{ color: 'var(--color-ink)', borderColor: 'var(--color-rule-strong)', flexShrink: 0 }}
+          sx={{ color: 'var(--mui-palette-text-primary)', borderColor: 'var(--mui-palette-dividerStrong)', flexShrink: 0 }}
           variant="outlined"
         >
           Download
         </Button>
-        <IconButton onClick={close} aria-label="Close viewer" sx={{ color: 'var(--color-ink)', flexShrink: 0 }}>
+        <IconButton onClick={close} aria-label="Close viewer" sx={{ color: 'var(--mui-palette-text-primary)', flexShrink: 0 }}>
           <CloseIcon />
         </IconButton>
       </Box>
@@ -204,7 +208,7 @@ export function FileViewerHost() {
           overflow: 'hidden',
         }}
       >
-        {cur.state === 'loading' && <CircularProgress sx={{ color: 'var(--color-ink)' }} aria-label="Loading file" />}
+        {cur.state === 'loading' && <CircularProgress sx={{ color: 'var(--mui-palette-text-primary)' }} aria-label="Loading file" />}
         {cur.state === 'error' && (
           <Box sx={{ textAlign: 'center', px: 3 }}>
             <Typography sx={{ fontSize: 40 }}>⚠️</Typography>

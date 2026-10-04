@@ -166,51 +166,51 @@
       "apps/web/src/"
     ]
   },
-  "$tokens": "Slots both design systems declare, compared against apps/web/src/theme.ts — which holds the PRE-COMPUTED sRGB hex for both schemes ('hex conversions of tokens.css oklch values'), so nothing here has to re-derive OKLCH. `assert` slots must agree exactly and today all of them do. `derived` slots are reported for information only: apps/ios/design.md says the paper ramp is DERIVED from the same OKLCH source, not copied, and Palette.ground / Palette.caution are deliberate native choices.",
+  "$tokens": "Roles both design systems declare, compared against the palette pack (packages/tokens/src/palette), which apps/web's theme is built from and which already carries the sRGB hex of every Bloom oklch value, so nothing here has to re-derive OKLCH. `assert` roles must agree exactly; a role either side cannot read is an error, not a skip. `derived` roles are reported for information only: apps/ios/design.md says the paper ramp is DERIVED from the same OKLCH source, not copied, and Palette.ground / Palette.caution are deliberate native choices.",
   "tokens": {
-    "theme": "apps/web/src/theme.ts",
+    "pack": "packages/tokens/src/palette",
     "swift": "apps/ios/Pattadar/Sources/DesignSystem.swift",
     "assert": [
       {
-        "theme": "primary.main",
+        "role": "accent",
         "swift": "accent"
       },
       {
-        "theme": "primary.contrastText",
+        "role": "onAccent",
         "swift": "accentInk"
       },
       {
-        "theme": "error.main",
+        "role": "danger",
         "swift": "danger"
       },
       {
-        "theme": "success.main",
+        "role": "ok",
         "swift": "success"
       },
       {
-        "theme": "background.paper",
+        "role": "surface",
         "swift": "card"
       },
       {
-        "theme": "text.primary",
+        "role": "ink",
         "swift": "ink"
       },
       {
-        "theme": "text.secondary",
+        "role": "ink2",
         "swift": "inkSoft"
       },
       {
-        "theme": "divider",
+        "role": "line",
         "swift": "rule"
       }
     ],
     "derived": [
       {
-        "theme": "background.default",
+        "role": "ground",
         "swift": "ground"
       },
       {
-        "theme": "warning.main",
+        "role": "warn",
         "swift": "caution"
       }
     ]

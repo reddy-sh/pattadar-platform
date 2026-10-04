@@ -25,6 +25,7 @@ import {
   inr, inrOr, num, plural,
 } from '../ui';
 import { useHoldingCtx } from './Holding';
+import { displayDetail } from '../paperFiling';
 import { HoldingExpenseDialog } from './HoldingActions';
 
 // ── Papers ────────────────────────────────────────────────────────────
@@ -97,7 +98,7 @@ export function HoldingPapersTab() {
                     {p.title}
                   </Link>
                   <small className="note" style={{ display: 'block' }}>
-                    {[p.detail, SHELF_WORD[p.shelf] ?? p.shelf,
+                    {[displayDetail(p.detail), SHELF_WORD[p.shelf] ?? p.shelf,
                       p.pageCount > 0 && plural(p.pageCount, 'page')]
                       .filter(Boolean).join(' · ')}
                   </small>

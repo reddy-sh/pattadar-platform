@@ -244,7 +244,7 @@ export function LandingPage() {
   if (!isAuthMocked && isAuthenticated) return <Navigate to="/app" replace />;
 
   return (
-    <div className="dark site">
+    <div className="site" data-scheme="dark">
       {/* ── nav · N10 scroll-morph ─────────────────────────────────── */}
       <MarketingNav
         sectionLinks={NAV_LINKS}

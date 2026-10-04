@@ -217,6 +217,11 @@ export function Holding() {
  *  The dashes are gone too. An empty figure printed as "—" with a footnote
  *  explaining what it would have meant is three lines to say "nothing yet";
  *  the cell says that instead, and offers the way to change it.
+ *
+ *  One shared `.stack lg` holds the figures and the records. As a bare fragment
+ *  both were children of `main`, a flex column with no gap, so the strip and
+ *  the cards met border to border. The stack's --space-lg is wider than the
+ *  --space-md between cards: the gap between groups beats the gap inside one.
  */
 export function HoldingOverview() {
   const holding = useHoldingCtx();
@@ -224,7 +229,7 @@ export function HoldingOverview() {
     ? 'all with boundaries'
     : `${holding.surveyedCount} of ${holding.memberCount} with boundaries`;
   return (
-    <>
+    <div className="stack lg">
       <div className="strip">
         <Cell k="Extent" v={holding.extentLine}
               note={`${plural(holding.memberCount, 'record')} · ${surveyed}`} />
@@ -242,7 +247,7 @@ export function HoldingOverview() {
       <div className="cards">
         {holding.members.map((m) => <MemberCard key={m.id} member={m} />)}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -287,7 +292,11 @@ function MemberCard({ member }: { member: HoldingMember }) {
         {[ground, plural(member.paperCount, 'document'), member.sheetTitle && 'sheet filed']
           .filter(Boolean).join(' · ')}
       </p>
-      <div className="row tight">
+      {/* A button pair on the named scale: --space-sm between the buttons (the
+          12px the Combined map's pair has) and --space-md above them. `.row
+          tight` is a raw 6px with nothing above, which left the buttons glued
+          to the status line; it is shared, so only this row changes. */}
+      <div className="row" style={{ gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
         <Link className="btn sm" to={`/app/records/${member.recordId}`}>Open record</Link>
         <Link className="btn sm" to={`/app/records/${member.recordId}/map`}>
           {member.ground === 'surveyed' ? 'View boundary' : 'Locate it'}

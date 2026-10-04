@@ -32,7 +32,8 @@ import { formatAcresGuntas, fromAcres, naturalCompare, villageKey } from '@patta
 import { apiFetch } from '../../api/client';
 import { EMPTY_FILTER, usePapers, useProperties, useSaveRecord, useSetBoundary } from '../api';
 import type { RecordCard } from '../api';
-import { Card, Empty, FacetFilter, Failed, Loading, num, plural } from '../ui';
+import { Card, Empty, FacetFilter, Failed, Loading, PageHead, num, plural } from '../ui';
+import type { FacetFilterHandle } from '../ui';
 import { BANDS, VillageCanvas, bandOf } from '../VillageCanvasLazy';
 import { FenceStudio } from '../FenceStudio';
 import type { MeasureState, VillageCanvasHandle, VillageMode } from '../VillageCanvasLazy';
@@ -134,6 +135,13 @@ export function VillageMaps() {
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  /** Whether the village matches are showing. They are a temporary surface
+   *  over the map: typing opens them, and so does coming back to the field
+   *  with words in it. Choosing a village, Escape, a press away or focus
+   *  leaving puts them away, and only a choice clears the words. */
+  const [findOpen, setFindOpen] = useState(false);
+  /** The village matches are on screen: open, and something to match. */
+  const findShown = findOpen && q.trim().length > 0;
   const [goto, setGoto] = useState('');
   const [gotoNote, setGotoNote] = useState('');
   const [finderOpen, setFinderOpen] = useState(false);
@@ -161,6 +169,18 @@ export function VillageMaps() {
   const canvas = useRef<VillageCanvasHandle>(null);
   const plotOptionsBox = useRef<HTMLDivElement>(null);
   const fenceTrigger = useRef<HTMLButtonElement>(null);
+  /** The village search and its matches, as one box: a press or focus inside
+   *  it is not a press or focus away from it. */
+  const findBox = useRef<HTMLSpanElement>(null);
+  const findField = useRef<HTMLInputElement>(null);
+  /** The Area filter, so opening the matches can put its popover away. */
+  const facetFilter = useRef<FacetFilterHandle>(null);
+  /** True while focus is handed back to the field on purpose, so that focus
+   *  does not reopen the matches that were just put away. */
+  const findQuiet = useRef(false);
+  /** Whether the last press in that box was a finger's (or a pen's) rather
+   *  than a mouse's. A key press in the box clears it. */
+  const findTapped = useRef(false);
   /** Measuring is a satellite-ground tool, not another display layer. Remember
    *  what the reader was studying so putting the tape away takes them back to
    *  that exact map rather than leaving a hidden mode change behind. */
@@ -273,6 +293,14 @@ export function VillageMaps() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // Showing village matches are put away first, and nothing else, even
+      // with focus fallen out of their box: a removed row takes its bin with
+      // it, and Safari never focuses a pressed button. From inside the box
+      // their own Escape (below) answers, and this never hears it.
+      if (findShown && findBox.current) {
+        setFindOpen(false);
+        return;
+      }
       if (fencing) {
         e.preventDefault();
         setFencing(false);
@@ -288,7 +316,20 @@ export function VillageMaps() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fencing, measuring, mode]);
+  }, [fencing, measuring, mode, findShown]);
+
+  // A press anywhere outside the village search and its matches puts the
+  // matches away, as a press outside the jump box puts its results away; the
+  // words stay. (Their Escape is the search's own, below, and the handler
+  // above answers it only when focus has fallen out of the box.)
+  useEffect(() => {
+    if (!findOpen) return undefined;
+    const away = (e: PointerEvent) => {
+      if (!findBox.current?.contains(e.target as Node)) setFindOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [findOpen]);
 
   const refresh = async (keys: string[] = []) => {
     // `readVillageIndex(true)` clears the index cache itself. The separate
@@ -413,16 +454,7 @@ export function VillageMaps() {
       label: pickedDistrict ? m.mandal : `${m.mandal} · ${m.district}`,
       count: m.villages,
     })),
-  }, {
-    key: 'village', label: 'Village', options: villagesHere.map((entry) => ({
-      key: entry.key,
-      label: pickedMandal
-        ? entry.village
-        : pickedDistrict ? `${entry.village} · ${entry.mandal ?? 'Unplaced'}`
-          : `${entry.village} · ${entry.mandal ?? 'Unplaced'} · ${entry.district ?? 'Unplaced'}`,
-      count: entry.plots ?? 0,
-    })),
-  }], [catalog, districts, mandalsHere, pickedDistrict, pickedMandal, pickedState, villagesHere]);
+  }], [catalog, districts, mandalsHere, pickedDistrict, pickedState]);
 
   const clearVillage = () => {
     setVillage(null);
@@ -450,11 +482,6 @@ export function VillageMaps() {
       }
       clearVillage();
       return;
-    }
-    if (group === 'village') {
-      if (openEntry?.key === key) { clearVillage(); return; }
-      const entry = (index ?? []).find((candidate) => candidate.key === key);
-      if (entry) openVillage(entry.village, entry);
     }
   };
 
@@ -578,6 +605,34 @@ export function VillageMaps() {
     setActivePlotOption(0);
     setRmErr('');
   }
+
+  /** Open the village matches. The Filter's popover is the one other surface
+   *  in this row and opens in the same place on a phone, so the two would
+   *  cover each other. This search sits inside the Filter's own row, where a
+   *  press is not a press away from the Filter, so the page asks the Filter
+   *  to put its popover away: one temporary surface at a time. */
+  const openFind = () => {
+    setFindOpen(true);
+    facetFilter.current?.close();
+  };
+  /** Hand focus back to the field without reopening what was just put away. */
+  const refocusFind = () => {
+    findQuiet.current = true;
+    findField.current?.focus();
+    findQuiet.current = false;
+  };
+  /** A village chosen from the matches opens; the matches go, the words with
+   *  them, and the field is ready for the next name. Chosen with a key or a
+   *  mouse, focus goes back to the field, since the row it was on has gone.
+   *  Chosen with a tap it does not: the tap put the on-screen keyboard away,
+   *  and focus in the field would raise it again over the village that has
+   *  just opened. */
+  const chooseVillage = (entry: VillageEntry) => {
+    openVillage(entry.village, entry);
+    setQ('');
+    setFindOpen(false);
+    if (!findTapped.current) refocusFind();
+  };
 
   // A half-filed record and the failure line that explains it belong to the
   // plot they came from; moving to another plot must not offer to put THIS
@@ -859,78 +914,83 @@ export function VillageMaps() {
 
   return (
     <main className="vm">
-      {above && <p className="eyebrow">{above}</p>}
-      <header className="pagehead">
-        <div className="grow">
-          <h1>{fencing && toFence ? toFence.title : village ?? 'Cadastral maps'}</h1>
-          <p className="lede" style={{ marginTop: '0.375rem' }}>
-            {fencing && toFence
-              ? toFence.subtitle
-              : facts
-                ? `${plural(facts.plots.length, 'plot')} · ${num(facts.acres, 1)} ac`
-                // The head still names the village that failed, because the
-                // list beside it still shows that village chosen. What must not
-                // stand under that name is the MANDAL's totals, which is what
-                // this line silently fell back to.
-                : villageErr
-                  ? 'Its shape file could not be read.'
-                  : mandal.length
-                    ? `${plural(mandal.length, 'village')} on record · `
-                      + plural(mandal.reduce((t, v) => t + (v.plots ?? 0), 0), 'plot')
-                    : null}
-          </p>
-        </div>
-        {/* The fence calculator is open on ONE parcel, so the only way out of it
-            is up: back to the village the parcel is in. The map's own buttons
-            are not attached to anything on screen while it has the stage, and
-            the studio carries its own Print. */}
-        {fencing && toFence && (
-          <div className="actions">
-            <button type="button" className="btn" onClick={() => {
-              setFencing(false);
-              requestAnimationFrame(() => fenceTrigger.current?.focus());
-            }}>
-              <ArrowBackOutlined sx={{ fontSize: 16 }} />
-              {village ? ` Back to ${village}` : ' Back to the village'}
-            </button>
-          </div>
-        )}
-        {!fencing && (
-          <div className="actions">
-            {/* Named for where it goes, the Map view of Properties. The app
-                does not call the owner's land a portfolio (design.md § App
-                vocabulary). */}
-            <Link className="btn" to="/app/properties?view=map">Properties map</Link>
-            {/* The way out stays on a village whose map failed — it is the
-                only one from there. */}
-            {village && (
-              <button type="button" className="btn"
-                      onClick={() => {
-                        resetTape();
-                        setFencing(false);
-                        setVillage(null);
-                        setSelected(null);
-                      }}>
-                <ArrowBackOutlined sx={{ fontSize: 16 }} /> All villages
-              </button>
-            )}
-            {stage && (
+      {/* The shared page head, like every page under Your portfolio. The
+          eyebrow is the level ABOVE this one only (spec § Village maps). */}
+      <PageHead
+        eyebrow={above ?? undefined}
+        title={fencing && toFence ? toFence.title : village ?? 'Cadastral maps'}
+        actions={(
+          <>
+            {/* The fence calculator is open on ONE parcel, so the only way out of it
+                is up: back to the village the parcel is in. The map's own buttons
+                are not attached to anything on screen while it has the stage, and
+                the studio carries its own Print. */}
+            {fencing && toFence && (
               <>
-                <button type="button" className="btn" onClick={() => canvas.current?.fit()}>
-                  <FitScreenOutlined sx={{ fontSize: 16 }} />
-                  {stage === 'village'
-                    ? ' Fit village'
-                    : areaFilter.mandal ? ' Fit mandal' : areaFilter.district ? ' Fit district' : ' Fit all'}
-                </button>
-                <button type="button" className="btn" onClick={() => window.print()}>
-                  <PrintOutlined sx={{ fontSize: 16 }} /> Print
+                <button type="button" className="btn" onClick={() => {
+                  setFencing(false);
+                  requestAnimationFrame(() => fenceTrigger.current?.focus());
+                }}>
+                  <ArrowBackOutlined sx={{ fontSize: 16 }} />
+                  {village ? ` Back to ${village}` : ' Back to the village'}
                 </button>
               </>
             )}
-            {index.length > 0 && uploadPicker(false)}
-          </div>
+            {!fencing && (
+              <>
+                {/* Named for where it goes, the Map view of Properties. The app
+                    does not call the owner's land a portfolio (design.md § App
+                    vocabulary). */}
+                <Link className="btn" to="/app/properties?view=map">Properties map</Link>
+                {/* The way out stays on a village whose map failed — it is the
+                    only one from there. */}
+                {village && (
+                  <button type="button" className="btn"
+                          onClick={() => {
+                            resetTape();
+                            setFencing(false);
+                            setVillage(null);
+                            setSelected(null);
+                          }}>
+                    <ArrowBackOutlined sx={{ fontSize: 16 }} /> All villages
+                  </button>
+                )}
+                {stage && (
+                  <>
+                    <button type="button" className="btn" onClick={() => canvas.current?.fit()}>
+                      <FitScreenOutlined sx={{ fontSize: 16 }} />
+                      {stage === 'village'
+                        ? ' Fit village'
+                        : areaFilter.mandal ? ' Fit mandal' : areaFilter.district ? ' Fit district' : ' Fit all'}
+                    </button>
+                    <button type="button" className="btn" onClick={() => window.print()}>
+                      <PrintOutlined sx={{ fontSize: 16 }} /> Print
+                    </button>
+                  </>
+                )}
+                {index.length > 0 && uploadPicker(false)}
+              </>
+            )}
+          </>
         )}
-      </header>
+      >
+        <p className="note" style={{ margin: '0.375rem 0 0' }}>
+          {fencing && toFence
+            ? toFence.subtitle
+            : facts
+              ? `${plural(facts.plots.length, 'plot')} · ${num(facts.acres, 1)} ac`
+              // The head still names the village that failed, because the
+              // list beside it still shows that village chosen. What must not
+              // stand under that name is the MANDAL's totals, which is what
+              // this line silently fell back to.
+              : villageErr
+                ? 'Its shape file could not be read.'
+                : mandal.length
+                  ? `${plural(mandal.length, 'village')} on record · `
+                    + plural(mandal.reduce((t, v) => t + (v.plots ?? 0), 0), 'plot')
+                  : null}
+        </p>
+      </PageHead>
 
       {!fencing && index.length > 0 && (
         <section className="vm-map-filters" aria-label="Cadastral map filters">
@@ -943,6 +1003,7 @@ export function VillageMaps() {
             </div>
           )}
           <FacetFilter
+            ref={facetFilter}
             groups={areaGroups}
             selected={{
               district: areaFilter.district ? [areaFilter.district] : [],
@@ -952,17 +1013,71 @@ export function VillageMaps() {
             onClear={clearArea}
             tally={plural(shown.length, 'village')}
             ariaLabel="Narrow villages by area"
-            searchPlaceholder="Search districts, mandals or villages"
+            searchPlaceholder="Search districts or mandals"
             trailing={(
-              <span className="search vm-village-search">
-                <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
-                <input value={q} onChange={(e) => setQ(e.target.value)}
-                       placeholder={pickedMandal
-                         ? `Search in ${pickedMandal.mandal}`
-                         : pickedDistrict ? `Search in ${pickedDistrict}` : 'Search all villages'}
-                       aria-label={pickedMandal
-                         ? `Search villages in ${pickedMandal.mandal}`
-                         : pickedDistrict ? `Search villages in ${pickedDistrict}` : 'Search all villages'} />
+              // The field and its matches are one box: a press or focus inside
+              // it is not away from it.
+              <span className="vm-find" ref={findBox}
+                    onBlur={(e) => {
+                      // Keyboard focus leaving both puts the matches away. A press
+                      // on a row hands focus to nothing in Safari, which is not
+                      // leaving; a press outside is the listener's to answer.
+                      const to = e.relatedTarget as Node | null;
+                      if (to && !e.currentTarget.contains(to)) setFindOpen(false);
+                    }}
+                    onPointerDown={(e) => { findTapped.current = e.pointerType !== 'mouse'; }}
+                    onKeyDown={(e) => {
+                      findTapped.current = false;
+                      if (e.key !== 'Escape' || !findShown) return;
+                      // The matches' own Escape. The page's, which puts the chosen
+                      // plot away, waits for the next press.
+                      e.stopPropagation();
+                      setFindOpen(false);
+                      if (document.activeElement !== findField.current) refocusFind();
+                    }}>
+                <span className="search vm-village-search">
+                  <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
+                  <input ref={findField} value={q}
+                         onChange={(e) => {
+                           setQ(e.target.value);
+                           if (e.target.value.trim()) openFind();
+                         }}
+                         onFocus={() => { if (!findQuiet.current && q.trim()) openFind(); }}
+                         onClick={() => { if (q.trim()) openFind(); }}
+                         placeholder={pickedMandal
+                           ? `Search in ${pickedMandal.mandal}`
+                           : pickedDistrict ? `Search in ${pickedDistrict}` : 'Search all villages'}
+                         aria-label={pickedMandal
+                           ? `Search villages in ${pickedMandal.mandal}`
+                           : pickedDistrict ? `Search villages in ${pickedDistrict}` : 'Search all villages'} />
+                </span>
+                {findShown && (
+                  <div className="vm-find-results">
+                    <div className="rows vm-villages vm-search-results" aria-label="Matching villages">
+                      {shown.map((v) => (
+                        <span key={v.key} className="row tight" style={{ flexWrap: 'nowrap' }}>
+                          <button type="button" className="villagerow grow"
+                                  aria-pressed={openEntry ? openEntry.key === v.key : village === v.village}
+                                  onClick={() => chooseVillage(v)}>
+                            <span className="grow">{v.village}</span>
+                            {v.mandal && <span className="note">{v.mandal}</span>}
+                            {v.plots ? <span className="note">{plural(v.plots, 'plot')}</span> : null}
+                          </button>
+                          {v.uploaded && (
+                            <button type="button" className="iconbtn" aria-label={`Remove ${v.village}`}
+                                    style={{ border: 0, background: 'none' }} onClick={() => void remove(v)}>
+                              <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                      {shown.length === 0 && <p className="note">No cadastral map on file matching that.</p>}
+                    </div>
+                    {/* Beside the bin that was pressed, so inside the matches:
+                        under them in the page, a phone drew them over it. */}
+                    {rmErr && <p className="note" style={{ color: 'var(--w-danger)' }}>{rmErr}</p>}
+                  </div>
+                )}
               </span>
             )}
           />
@@ -972,29 +1087,9 @@ export function VillageMaps() {
               <button type="button" className="btn sm" onClick={() => void refresh()}>Try again</button>
             </p>
           )}
-          {q.trim() && (
-            <div className="rows vm-villages vm-search-results" aria-label="Matching villages">
-              {shown.map((v) => (
-                <span key={v.key} className="row tight" style={{ flexWrap: 'nowrap' }}>
-                  <button type="button" className="villagerow grow"
-                          aria-pressed={openEntry ? openEntry.key === v.key : village === v.village}
-                          onClick={() => openVillage(v.village, v)}>
-                    <span className="grow">{v.village}</span>
-                    {v.mandal && <span className="note">{v.mandal}</span>}
-                    {v.plots ? <span className="note">{plural(v.plots, 'plot')}</span> : null}
-                  </button>
-                  {v.uploaded && (
-                    <button type="button" className="iconbtn" aria-label={`Remove ${v.village}`}
-                            style={{ border: 0, background: 'none' }} onClick={() => void remove(v)}>
-                      <DeleteOutlineOutlined sx={{ fontSize: 16 }} />
-                    </button>
-                  )}
-                </span>
-              ))}
-              {shown.length === 0 && <p className="note">No cadastral map on file matching that.</p>}
-            </div>
-          )}
-          {rmErr && <p className="note" style={{ color: 'var(--w-danger)' }}>{rmErr}</p>}
+          {/* A refusal that arrives after the matches were put away is still
+              said, where it always was. */}
+          {rmErr && !findShown && <p className="note" style={{ color: 'var(--w-danger)' }}>{rmErr}</p>}
           {uploadReport()}
         </section>
       )}

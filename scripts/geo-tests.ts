@@ -1,9 +1,9 @@
 /** Location sanity tests — `bun run scripts/geo-tests.ts`. */
 import {
   checkLocation, formatDistance, haversineKm,
-  mapsAppFor, mapsAppName, mapsLink, parseBoundaryFile, placeCandidates, ringCentroid,
+  navigateLink, parseBoundaryFile, placeCandidates, ringCentroid,
   villageKey, mapKey, TILE_PX, boundsZoom, lonLatToPixel, pixelToLonLat, snapZoom,
-  ringSides, compassPoint, cornerLabel, ringPerimM, SQ_M_PER_ACRE, ringAreaSqM, safeMapLabel,
+  ringSides, compassPoint, cornerLabel, ringPerimM, SQ_M_PER_ACRE, ringAreaSqM,
   toBoundaryGeoJson, boundaryFileName,
   BoundaryFileError,
 } from '../packages/core/src/index';
@@ -49,49 +49,31 @@ check('long distances group digits', formatDistance(13345) === '13,345 km', form
 check('distance is symmetric', Math.abs(haversineKm(SUNNYVALE, MANGALA_KUNTA) - haversineKm(MANGALA_KUNTA, SUNNYVALE)) < 1e-9);
 check('same point is zero', haversineKm(MANGALA_KUNTA, MANGALA_KUNTA) === 0);
 
-// ── Handing a parcel to the device's own map ────────────────────────────────
-
-const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
-const IPAD_13 = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
-const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-const ANDROID = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36';
-const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-
-// An iPhone UA contains "like Mac OS X", so the order of the sniffs is the test.
-check('an iPhone opens Apple Maps', mapsAppFor(IPHONE) === 'apple', mapsAppFor(IPHONE));
-// iPadOS 13+ lies about being a Mac. It opens Apple Maps either way.
-check('an iPad reporting as a Mac still opens Apple Maps', mapsAppFor(IPAD_13) === 'apple');
-check('a Mac opens Apple Maps', mapsAppFor(MAC) === 'apple');
-check('an Android phone gets the geo: intent', mapsAppFor(ANDROID) === 'android', mapsAppFor(ANDROID));
-check('everything else gets OpenStreetMap', mapsAppFor(WINDOWS) === 'osm', mapsAppFor(WINDOWS));
-check('an empty user agent is not guessed', mapsAppFor('') === 'osm');
+// ── Handing a parcel to Google Maps ─────────────────────────────────────────
+//
+// Every hand-off out of Pattadar's maps is Google Maps directions, the same
+// URL on every device (Reddy, 03/10/2026). Coordinates only.
 
 // Field No. 01, Mangalakunta — the centroid of the FMB ring in the test fixture.
 const FIELD_01 = { latitude: 15.662204, longitude: 79.321775 };
 
-const apple = mapsLink(FIELD_01, { label: 'Sy 71/2', userAgent: IPHONE });
-check('apple link is a universal link, not a scheme', apple.startsWith('https://maps.apple.com/'), apple);
-check('apple link carries the pin', apple.includes('ll=15.662204,79.321775'), apple);
-check('apple link names the pin', apple.includes('q=Sy%2071%2F2'), apple);
-check('apple link opens on imagery', apple.includes('t=k'), apple);
-
-const android = mapsLink(FIELD_01, { label: 'Sy 71/2', userAgent: ANDROID });
-check('android gets a geo: URI', android.startsWith('geo:15.662204,79.321775'), android);
-// geo:...?q=Label alone is a SEARCH — a bare survey number finds another village.
-check('android pins the coordinate, not the name', android.includes('q=15.662204,79.321775(Sy%2071%2F2)'), android);
-
-const osm = mapsLink(FIELD_01, { label: 'Sy 71/2', userAgent: WINDOWS });
-check('the fallback is OpenStreetMap, not a keyed service', osm.startsWith('https://www.openstreetmap.org/?mlat='), osm);
-check('osm link marks and centres the same point', osm.includes('mlat=15.662204') && osm.includes('#map=17/15.662204/79.321775'), osm);
-
-check('the target can be forced past the sniff', mapsLink(FIELD_01, { app: 'osm', userAgent: IPHONE }).includes('openstreetmap.org'));
-check('an unnamed pin still resolves', mapsLink(FIELD_01, { userAgent: IPHONE }).includes('q=15.662204,79.321775'));
+const nav = navigateLink(FIELD_01);
+check('the hand-off is Google Maps directions to the point',
+  nav === 'https://www.google.com/maps/dir/?api=1&destination=15.662204,79.321775', nav);
+// Record text must never ride along: no q=, nothing but digits after destination=.
+check('no caption can leak into the URL',
+  !nav.includes('q=') && /destination=[\d.,-]+$/.test(nav), nav);
 // Float noise must never reach a URL.
 check('coordinates are trimmed, not stringified raw',
-  mapsLink({ latitude: 15.66026, longitude: 79.31919 }, { app: 'osm' }).includes('mlat=15.66026'),
-  mapsLink({ latitude: 15.66026, longitude: 79.31919 }, { app: 'osm' }));
-
-check('the button can name what will open', mapsAppName('apple') === 'Apple Maps' && mapsAppName('osm') === 'OpenStreetMap');
+  navigateLink({ latitude: 15.66026, longitude: 79.31919 }).includes('destination=15.66026,79.31919'),
+  navigateLink({ latitude: 15.66026, longitude: 79.31919 }));
+// The whole-parcel hand-off goes to the centre of the land.
+const SQUARE = [[15, 79], [15, 80], [16, 80], [16, 79]]
+  .map(([latitude, longitude]) => ({ latitude, longitude }));
+check('the whole-parcel hand-off lands on the centroid',
+  navigateLink(ringCentroid(SQUARE)!) === 'https://www.google.com/maps/dir/?api=1&destination=15.5,79.5',
+  navigateLink(ringCentroid(SQUARE)!));
+check('the unset 0,0 has no hand-off', navigateLink({ latitude: 0, longitude: 0 }) === '');
 
 // ── Where the pin lands on a shape ──────────────────────────────────────────
 
@@ -251,34 +233,6 @@ check('an acre is 4046.8564224 m\u00b2 exactly', SQ_M_PER_ACRE === 4046.8564224)
 check('Field No. 01 measures about 60 acres',
   Math.abs(ringAreaSqM(FIELD) / SQ_M_PER_ACRE - 60.2) < 0.1,
   String(ringAreaSqM(FIELD) / SQ_M_PER_ACRE));
-
-// ── The caption on the dropped pin ───────────────────────────────────────
-//
-// Android's label slot is literally parentheses — geo:lat,lon?q=lat,lon(Label)
-// — and encodeURIComponent does NOT escape them, so a name carrying its own
-// brackets closes the label early and corrupts the URI.
-check('parentheses are stripped from a label',
-  safeMapLabel('Mangalakunta (Konakanamitla)') === 'Mangalakunta Konakanamitla',
-  safeMapLabel('Mangalakunta (Konakanamitla)'));
-check('whitespace is collapsed', safeMapLabel('  Sy   71/2  ') === 'Sy 71/2');
-check('a runaway label is capped', safeMapLabel('x'.repeat(200)).length === 60);
-check('an empty label stays empty', safeMapLabel('') === '' && safeMapLabel(undefined as never) === '');
-
-const brackets = mapsLink({ latitude: 15.6, longitude: 79.3 },
-  { label: 'Sy 71/2 (old survey)', app: 'android' });
-check('no raw parenthesis survives into the android label',
-  (brackets.match(/\(/g) || []).length === 1 && (brackets.match(/\)/g) || []).length === 1,
-  brackets);
-
-// Apple: the coordinate must be the one we gave, whatever the label says.
-const appleLabelled = mapsLink({ latitude: 15.616405, longitude: 79.458318 },
-  { label: 'Sy 71/2, Konakanamitla', app: 'apple' });
-check('apple keeps our exact coordinate',
-  appleLabelled.includes('ll=15.616405,79.458318'), appleLabelled);
-check('apple carries the label in q',
-  appleLabelled.includes('q=Sy%2071%2F2%2C%20Konakanamitla'), appleLabelled);
-check('the survey number slash is encoded, not left to split the query',
-  !appleLabelled.includes('71/2'), appleLabelled);
 
 // ── Handing the boundary back out ────────────────────────────────────────
 const exported = JSON.parse(toBoundaryGeoJson(FIELD, {

@@ -2056,7 +2056,9 @@ class Query:
     @strawberry.field
     async def sro_offices(self) -> List[SroOfficeType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM sro_offices ORDER BY code")
+            # Codes are TEXT: order digit codes as numbers so "101" does not fall between "1009" and "1010".
+            cur = await conn.execute(
+                "SELECT * FROM sro_offices ORDER BY CASE WHEN code ~ '^[0-9]{1,18}$' THEN code::bigint END NULLS LAST, code, id")
             return [to_type(SroOfficeType, r) for r in await cur.fetchall()]
 
     @strawberry.field
@@ -2599,6 +2601,10 @@ async def _write_person(conn, uid, pid, v, is_update):
     # A replaced Aadhaar lets go of its old record once nothing else points at it.
     if aad_record and prior and (prior.get("aadhaar_record_id") or "") != aad_record:
         await aadhaar_security.release_if_unreferenced(conn, uid, prior.get("aadhaar_record_id") or "")
+        await web360.release_person_documents(conn, uid)
+    # A kept card is filed in Documents under <person> › Aadhaar (invariant 8).
+    if aad_record:
+        await web360.file_aadhaar_card(conn, uid, aad_record, pid, row.get("name") or "")
     # Verification invite on first-time beneficiary (no token yet + contact present).
     # Only the hash is stored, the way inactivity capabilities are: the verify
     # link is a bearer credential that can mark an heir verified, so a reader of
@@ -3494,9 +3500,13 @@ class Mutation:
                             (*mvals, member["id"], uid))
                 for prev_id in sorted(previous - {record_id, ""}):
                     await aadhaar_security.release_if_unreferenced(conn, uid, prev_id)
+                await web360.release_person_documents(conn, uid)
 
-                await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
                 row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
+                if record_id:
+                    # Your own card goes in your own folder: person = the account.
+                    await web360.file_aadhaar_card(conn, uid, record_id, uid, (row or {}).get("name") or "You")
+                await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
                 return to_type(UserType, row)
 
     @strawberry.mutation
@@ -3534,6 +3544,7 @@ class Mutation:
                 released.update((m.get("aadhaar_record_id") or "") for m in self_records)
                 for prev_id in sorted(released - {""}):
                     await aadhaar_security.release_if_unreferenced(conn, uid, prev_id)
+                await web360.release_person_documents(conn, uid)
                 # Name the identity that was removed: this is exactly the kind of
                 # change someone will need to account for later.
                 await log_audit(conn, uid, "clear_my_kyc", uid, _named("Removed", (prev or {}).get("name")))
@@ -3553,24 +3564,43 @@ class Mutation:
 
     @strawberry.mutation
     async def link_aadhaar_card(self, info: strawberry.Info, candidate_id: str, node_id: str,
-                                version_id: str) -> bool:
-        """Point an Aadhaar record at the card the owner chose to keep in Drive.
+                                version_id: str, mime_type: str = "", size_bytes: int = 0) -> bool:
+        """Point an Aadhaar record at the card the owner chose to keep.
 
         Pointers only: the gateway authorizes every byte read by owner in SQL,
         so a forged pointer grants nothing. An unconsumed reading can be linked
-        only while it is still live."""
+        only while it is still live. `mime_type`/`size_bytes` are optional (old
+        callers omit them) and only describe the file in Documents.
+
+        A reading a person already points at is filed in Documents now; one
+        not applied yet is filed when the person is saved with it."""
         uid = _uid_from_info(info)
         for value in (candidate_id, node_id, version_id):
             if not _is_canonical_uuid(value):
                 raise ValueError("Invalid Aadhaar card link")
+        mime = (mime_type or "").strip().lower()
+        if mime and (len(mime) > 100 or not re.fullmatch(r"[\w.+-]+/[\w.+-]+", mime)):
+            mime = ""
+        size = max(0, int(size_bytes or 0))
         async with pool.connection() as conn:
             async with conn.transaction():
                 cur = await conn.execute(
-                    "UPDATE aadhaar_candidates SET card_node_id=%s, card_version_id=%s, updated_at=now() "
+                    "UPDATE aadhaar_candidates SET card_node_id=%s, card_version_id=%s, card_mime=%s, "
+                    "card_size=%s, updated_at=now() "
                     "WHERE id=%s AND owner_user_id=%s AND (consumed_at IS NOT NULL OR expires_at>now())",
-                    (node_id, version_id, candidate_id, uid))
+                    (node_id, version_id, mime, size, candidate_id, uid))
                 if cur.rowcount != 1:
                     raise ValueError("The Aadhaar reading is no longer available")
+                member = await (await conn.execute(
+                    "SELECT id, name FROM family_members WHERE owner_user_id=%s AND aadhaar_record_id=%s "
+                    "AND is_self=false ORDER BY id LIMIT 1", (uid, candidate_id))).fetchone()
+                account_row = await (await conn.execute(
+                    "SELECT name FROM users WHERE id=%s AND kyc_aadhaar_record_id=%s",
+                    (uid, candidate_id))).fetchone()
+                if account_row:
+                    await web360.file_aadhaar_card(conn, uid, candidate_id, uid, account_row.get("name") or "You")
+                elif member:
+                    await web360.file_aadhaar_card(conn, uid, candidate_id, member["id"], member.get("name") or "")
                 await log_audit(conn, uid, "link_aadhaar_card", candidate_id, "Kept an Aadhaar card")
                 return True
 
@@ -4016,9 +4046,12 @@ class Mutation:
         async with pool.connection() as conn:
             # Must already own the row (via its current land, or as uploader).
             cur = await conn.execute(
-                f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
+                f"SELECT aadhaar_record_id FROM documents WHERE id=%s AND {_DOC_OWNED}",
                 (id, *_doc_owner_args(uid)))
-            if not await cur.fetchone():
+            owned = await cur.fetchone()
+            # A filed Aadhaar card is a person's identity: it is never put on
+            # land, where people invited to that land could reach it.
+            if not owned or owned.get("aadhaar_record_id"):
                 return None
             # New target(s) must be owned too — check each independently so a
             # caller cannot slip an unowned passbook past a parcel-only check.
@@ -4443,6 +4476,7 @@ class Mutation:
                     (datetime.now(timezone.utc).isoformat(), id, uid, member["group_id"]))
                 cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
                 await aadhaar_security.release_unreferenced(conn, uid)
+                await web360.release_person_documents(conn, uid)
                 return cur.rowcount > 0
 
     @strawberry.mutation
@@ -4533,6 +4567,7 @@ class Mutation:
                 await conn.execute("DELETE FROM inactivity_escalations WHERE group_id=%s AND owner_user_id=%s", (id, uid))
                 await conn.execute("DELETE FROM family_members WHERE group_id=%s AND owner_user_id=%s", (id, uid))
                 await aadhaar_security.release_unreferenced(conn, uid)
+                await web360.release_person_documents(conn, uid)
                 cur = await conn.execute("DELETE FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))
                 await log_audit(conn, uid, "delete_group", id, _named("", g["name"]))
                 return cur.rowcount > 0
@@ -4700,6 +4735,7 @@ class Mutation:
                 await conn.execute("UPDATE family_members SET spouse_id='' WHERE spouse_id=%s AND owner_user_id=%s", (id, uid))
                 cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
                 await aadhaar_security.release_unreferenced(conn, uid)
+                await web360.release_person_documents(conn, uid)
                 await log_audit(conn, uid, "remove_member", id, _named("", s["name"]))
                 return cur.rowcount > 0
 
@@ -5643,6 +5679,7 @@ class Mutation:
                 row = await cur.fetchone()
                 if record_id and prior_record != record_id:
                     await aadhaar_security.release_if_unreferenced(conn, uid, prior_record)
+                    await web360.release_person_documents(conn, uid)
                 await log_audit(conn, uid, "update_profile", uid, "profile updated")
                 return to_type(UserType, row)
 

@@ -341,8 +341,12 @@ export function Drawer({
  * drawer and nowhere else; every drawer needs it, so it lives here.
  */
 export function DrawerAction({
-  label, working, paused, pending, disabled, onClick, submit = true, describedBy,
+  id, label, working, paused, pending, disabled, onClick, submit = true, describedBy,
 }: {
+  /** For a caller that has to hand focus back to the button itself — the
+   *  notifier editor does after a refused save, since the button is disabled
+   *  while pending and focus would otherwise fall to <body>. */
+  id?: string;
   /** What the button does when it is idle: "Assign them", "Add the note". */
   label: string;
   /** What it says mid-write: "Assigning…", "Adding…". */
@@ -358,6 +362,7 @@ export function DrawerAction({
 }) {
   return (
     <button
+      id={id}
       type={submit ? 'submit' : 'button'}
       className="btn primary grow"
       style={{ justifyContent: 'center' }}

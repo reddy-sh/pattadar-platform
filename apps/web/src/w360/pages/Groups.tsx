@@ -20,15 +20,18 @@
  * before it leaves the screen. Navigating away and coming back does restore
  * the selection, which is the case that matters.
  *
- * What is deliberately NOT here: the "View holdings ›" button the previous
- * screen carries. It navigates to `/app/parcels?group=<id>`, and
- * `/app/parcels` is a static `<Navigate to="/app/properties?kind=parcel">`
- * that discards the query string — so it silently lands on every parcel the
- * account owns, filtered by nothing, and says it is showing one group's land.
- * There is no group facet in the W360 property list to point it at. The Land
- * tab below answers the same question truthfully, from data it already has.
+ * The group header's "See its N properties" opens `/app/properties?group=<id>`
+ * (Properties reads `?group=` into its group facet), so the property list a
+ * group holds is the real Properties screen with every filter, not a second
+ * copy of it here.
+ *
+ * The detail's tabs are Members · Properties · Safeguard · Activity. The tab
+ * rides in `?tab=` (Members is the default and leaves the URL), the way Tools
+ * carries its tab, and the Safeguard tab exists only for group types with a
+ * family tree — the inactivity safeguard contacts family, so a partnership or
+ * a company has none. Its state rules live in `../groupsView.ts`.
  */
-import { Suspense, lazy, useCallback, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 
@@ -45,6 +48,7 @@ import GavelOutlined from '@mui/icons-material/GavelOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import PersonAddAltOutlined from '@mui/icons-material/PersonAddAltOutlined';
+import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import SmsOutlined from '@mui/icons-material/SmsOutlined';
 import WhatsApp from '@mui/icons-material/WhatsApp';
 import WorkOutlineOutlined from '@mui/icons-material/WorkOutlineOutlined';
@@ -63,6 +67,7 @@ import type { GroupMember, MemberVars } from '../../pages/families/familiesData'
 import { EMPTY_FILTER, PERSONAL_GROUP, useProperties } from '../api';
 import type { RecordCard } from '../api';
 import { Dialog } from '../Dialog';
+import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import {
   holdingCount,
@@ -82,8 +87,17 @@ import {
 } from '../groupsData';
 import type { GroupRow } from '../groupsData';
 import {
-  Card, Chip, Empty, Failed, Icon, Loading, Menu, PageHead, State, ddmmyyyy, num, plural, statusWord,
+  cap, contactGapSentence, isEligibleNotifier, matchesMember, memberFacets, memberRelationWord,
+  safeguardStage, safeguardTabStatus,
+} from '../groupsView';
+import {
+  Card, Chip, Empty, FacetFilter, Failed, Icon, Loading, Menu, PageHead, State, StatusChip, TabPanel,
+  TabStrip, ddmmyyyy, num, plural, statusWord,
 } from '../ui';
+import type { TabStripTab } from '../ui';
+// SectionHead stays in RecordHead.tsx; non-record screens import it from there
+// (Orders.tsx does the same).
+import { SectionHead } from './RecordHead';
 
 /**
  * The member form, behind a lazy import.
@@ -142,11 +156,6 @@ const STATE_OF: Record<string, string> = {
   warning: 'warn',
   error: 'bad',
   default: 'unknown',
-};
-
-const cap = (s?: string) => {
-  const t = String(s || '').trim();
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
 };
 
 const KIND_WORD: Record<string, string> = {
@@ -212,17 +221,32 @@ export function Groups() {
   const select = useCallback(
     (id: string) => {
       const next = new URLSearchParams(params);
+      // Another group opens on Members, as the `key` remount always made it.
+      if (id !== selected?.id) next.delete('tab');
       next.set('g', id);
       setParams(next, { replace: true });
     },
-    [params, setParams],
+    [params, setParams, selected?.id],
   );
 
   const clearSelection = useCallback(() => {
     const next = new URLSearchParams(params);
     next.delete('g');
+    next.delete('tab');
     setParams(next, { replace: true });
   }, [params, setParams]);
+
+  /** The open tab is view state, like the group: `replace`, and Members (the
+   *  default) leaves the URL. */
+  const chooseTab = useCallback(
+    (t: TabId) => {
+      const next = new URLSearchParams(params);
+      if (t === 'members') next.delete('tab');
+      else next.set('tab', t);
+      setParams(next, { replace: true });
+    },
+    [params, setParams],
+  );
 
   return (
     <main>
@@ -230,9 +254,19 @@ export function Groups() {
         title={HEAD.title}
         actions={
           list.length > 0 ? (
-            <button type="button" className="btn primary" onClick={() => setCreating(true)}>
-              <AddOutlined sx={{ fontSize: 16 }} /> New group
-            </button>
+            <>
+              {/* The browser's print over this page, through the shared
+                  @media print sheet, as Village maps prints. It prints what is
+                  on screen — Aadhaar stays the masked form the table shows. */}
+              <button type="button" className="btn" onClick={() => window.print()}>
+                <PrintOutlined sx={{ fontSize: 16 }} /> Print
+              </button>
+              {/* Outlined, as RecordHead's header actions are (fill means act):
+                  the filled button in view is the open tab's own action. */}
+              <button type="button" className="btn" onClick={() => setCreating(true)}>
+                <AddOutlined sx={{ fontSize: 16 }} /> New group
+              </button>
+            </>
           ) : undefined
         }
       />
@@ -333,7 +367,13 @@ export function Groups() {
               a family to a company kept the Members tab's edit dialog open
               over a different group's member. */}
           {selected && (
-            <GroupDetail key={selected.id} group={selected} onDeleted={clearSelection} />
+            <GroupDetail
+              key={selected.id}
+              group={selected}
+              tab={params.get('tab') ?? ''}
+              onTab={chooseTab}
+              onDeleted={clearSelection}
+            />
           )}
         </>
       )}
@@ -347,37 +387,39 @@ export function Groups() {
 
 // ── Detail panel ───────────────────────────────────────────────────────
 
-const SAFEGUARD_STAGE: Record<string, string> = {
-  active: 'Active',
-  reminder_1: 'First reminder sent',
-  reminder_2: 'Second reminder sent',
-  final_reminder: 'Final reminder sent',
-  family_selected: 'Notifying selected family',
-  family_all: 'Family email complete',
-  family_exhausted: 'Notifier order complete',
-  delivery_attention: 'Delivery needs review',
-  closed_head: 'Confirmed by the head',
-  closed_family: 'Acknowledged by family',
-};
+type TabId = 'members' | 'properties' | 'safeguard' | 'activity';
 
-type TabId = 'members' | 'holdings' | 'activity';
-
-function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => void }) {
+function GroupDetail({ group, tab: wantedTab, onTab, onDeleted }: {
+  group: GroupRow;
+  /** `?tab=` as it stands; anything this group has no tab for is Members. */
+  tab: string;
+  onTab: (t: TabId) => void;
+  onDeleted: () => void;
+}) {
   const def = groupTypeDef(group.type);
-  const [tab, setTab] = useState<TabId>('members');
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [notifiers, setNotifiers] = useState(false);
+  /** Where focus lands when the notifier editor closes: "Configure notifiers",
+   *  which opened it, or the Members tab after "Open the Members tab". */
+  const notifierReturn = useRef<HTMLElement | null>(null);
 
-  const tabs: { id: TabId; label: string; n?: number }[] = [
+  const tabs: TabStripTab<TabId>[] = [
     // `rowCount`, not `memberCount`: a badge beside a tab is a promise about
     // how many rows are behind it, and the table includes your own row.
     { id: 'members', label: 'Members', n: rowCount(group.memberCount) },
     // Holdings, not passbooks — the badge has to match the number of rows in
     // the panel, and the panel lists parcels and properties.
-    { id: 'holdings', label: 'Properties', n: holdingCount(group) },
+    { id: 'properties', label: 'Properties', n: holdingCount(group) },
+    // The safeguard contacts family, so only a type with a family tree has
+    // one. Its status is a drawn glyph (! or ✓) whose word is the tooltip and
+    // part of the tab's accessible name, never a colour alone.
+    ...(def.hasTree
+      ? [{ id: 'safeguard' as const, label: 'Safeguard', status: safeguardTabStatus(group) }]
+      : []),
     { id: 'activity', label: 'Activity' },
   ];
+  const tab: TabId = tabs.find((t) => t.id === wantedTab)?.id ?? 'members';
 
   const actions = [
     {
@@ -396,97 +438,47 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
 
   return (
     <Card>
-      <div
-        className="row between"
-        style={{ flexWrap: 'nowrap', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}
-      >
-        <div className="row tight" style={{ flexWrap: 'nowrap', minWidth: 0 }}>
-          <span className="avatarlg"><TypeGlyph type={group.type} size={22} /></span>
-          <div style={{ minWidth: 0 }}>
-            <h2 style={{ margin: 0 }}>{group.name}</h2>
-            <p className="note" style={{ margin: '0.125rem 0 0' }}>
-              {/* Facts only, once each. Head is dropped: v1 groups are
-                  owner-scoped, so the head is always you and "Your role" says
-                  it. Last active belongs to the safeguard it drives. */}
-              {def.label} · Your role: {group.myRole || def.primaryRole} ·{' '}
-              {peopleWord(group.memberCount)} · {holdingWord(group)}
-              {group.totalExtent > 0 ? ` · ${formatArea(group.totalExtent)}` : ''}
-            </p>
-            {group.description && (
-              <p className="note" style={{ margin: '0.375rem 0 0', maxWidth: '44rem' }}>
-                {group.description}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="row tight" style={{ flexWrap: 'nowrap' }}>
-          {holdingCount(group) > 0 && (
-            <Link className="btn" to={`/app/properties?group=${group.id}`}>
-              See its {plural(holdingCount(group), 'property', 'properties')}
-            </Link>
-          )}
+      {/* A grid (`.grouphead`), not a nowrap row: on a phone the name and the
+          kebab share line 1, the facts and "See its N properties" go under. */}
+      <div className="grouphead">
+        <span className="avatarlg"><TypeGlyph type={group.type} size={22} /></span>
+        <h2 className="grouphead-name">{group.name}</h2>
+        <span className="grouphead-menu">
           <Menu label={`Actions for ${group.name}`} header={group.name} items={actions} />
-        </div>
-      </div>
-
-      {/* `accent`, not `alert`: `.card.alert` is the danger wash, and this is a
-          standing explanation of how the safeguard works, not a problem with
-          this group. Painted red it read as something being wrong. */}
-      {def.hasTree && (
-        <div
-          className="card accent"
-          style={{ marginBottom: 'var(--space-md)', display: 'grid', gap: 'var(--space-sm)' }}
-        >
-          <div className="row tight" style={{ flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: '0.875rem' }}>Inactivity safeguard</strong>
-            <Chip tone={group.inactivityStage === 'active' ? undefined : 'alert'}>
-              {SAFEGUARD_STAGE[group.inactivityStage] || 'Monitoring'}
-            </Chip>
-          </div>
-          <p className="note" style={{ margin: 0, maxWidth: '46rem' }}>
-            After 6 months of inactivity: a reminder to the head, then verified family emails.
+        </span>
+        <div className="grouphead-facts">
+          <p className="note" style={{ margin: '0.125rem 0 0' }}>
+            {/* Facts only, once each. Head is dropped: v1 groups are
+                owner-scoped, so the head is always you and "Your role" says
+                it. Last active belongs to the safeguard it drives. */}
+            {def.label} · Your role: {group.myRole || def.primaryRole} ·{' '}
+            {peopleWord(group.memberCount)} · {holdingWord(group)}
+            {group.totalExtent > 0 ? ` · ${formatArea(group.totalExtent)}` : ''}
           </p>
-          {(group.lastActiveAt || group.inactivityNextAt) && (
-            <p className="note" style={{ margin: 0 }}>
-              {[
-                group.lastActiveAt ? `You were last active ${ddmmyyyy(group.lastActiveAt)}` : '',
-                group.inactivityNextAt ? `Next check ${ddmmyyyy(group.inactivityNextAt)}` : '',
-              ].filter(Boolean).join(' · ')}
-              {group.inactivityLastOutcome ? ` · Last outcome: ${group.inactivityLastOutcome.replaceAll('_', ' ')}` : ''}
+          {group.description && (
+            <p className="note" style={{ margin: '0.375rem 0 0', maxWidth: '44rem' }}>
+              {group.description}
             </p>
           )}
-          {group.inactivityStage === 'delivery_attention' && (
-            <p className="note accent" style={{ margin: 0 }}>
-              Delivery not confirmed. Contact support before retrying.
-            </p>
-          )}
-          {group.inactiveContactGaps > 0 && (
-            <p className="note accent" style={{ margin: 0 }}>
-              {plural(group.inactiveContactGaps, 'member needs', 'members need')} a verified email before everyone can be contacted.
-            </p>
-          )}
-          <button
-            type="button"
-            className="btn sm"
-            style={{ justifySelf: 'start' }}
-            onClick={() => setNotifiers(true)}
-          >
-            Configure notifiers
-          </button>
         </div>
-      )}
-
-      <TabStrip tabs={tabs} value={tab} onChange={setTab} label={`${group.name} detail`} idBase={group.id} />
-
-      <div
-        role="tabpanel"
-        id={`${group.id}-panel-${tab}`}
-        aria-labelledby={`${group.id}-tab-${tab}`}
-      >
-        {tab === 'members' && <MembersTab group={group} />}
-        {tab === 'holdings' && <HoldingsTab group={group} />}
-        {tab === 'activity' && <ActivityTab group={group} />}
+        {holdingCount(group) > 0 && (
+          <Link className="btn grouphead-link" to={`/app/properties?group=${group.id}`}>
+            See its {plural(holdingCount(group), 'property', 'properties')}
+          </Link>
+        )}
       </div>
+
+      <TabStrip tabs={tabs} value={tab} onChange={onTab} label={`${group.name} detail`} idBase={group.id} />
+
+      <TabPanel idBase={group.id} id={tab}>
+        {tab === 'members' && <MembersTab group={group} />}
+        {tab === 'properties' && <HoldingsTab group={group} />}
+        {tab === 'safeguard' && <SafeguardTab group={group} onConfigure={(opener) => {
+          notifierReturn.current = opener;
+          setNotifiers(true);
+        }} />}
+        {tab === 'activity' && <ActivityTab group={group} />}
+      </TabPanel>
 
       {editing && <GroupFormDialog group={group} onClose={() => setEditing(false)} />}
       {deleting && (
@@ -496,61 +488,77 @@ function GroupDetail({ group, onDeleted }: { group: GroupRow; onDeleted: () => v
           onDeleted={onDeleted}
         />
       )}
-      {notifiers && <NotifierDialog group={group} onClose={() => setNotifiers(false)} />}
+      {notifiers && (
+        <NotifierDrawer
+          group={group}
+          onClose={() => setNotifiers(false)}
+          returnFocus={notifierReturn}
+          onMembers={() => {
+            // "Configure notifiers" unmounts with the Safeguard tab, so the
+            // drawer's fallback is what lands focus on the Members tab.
+            notifierReturn.current = document.getElementById(`${group.id}-tab-members`);
+            setNotifiers(false);
+            onTab('members');
+          }}
+        />
+      )}
     </Card>
   );
 }
 
-/**
- * A real tab list: `aria-selected`, one tab stop for the whole strip, and
- * Arrow/Home/End moving between them. The stylesheet already keys on
- * `[aria-selected='true']`, which is only a valid attribute inside
- * `role="tablist"` — so declaring the role means also honouring the keyboard
- * contract that comes with it, rather than borrowing the styling and leaving a
- * keyboard user to Tab through every tab to reach the panel.
- */
-function TabStrip<T extends string>({
-  tabs, value, onChange, label, idBase,
-}: {
-  tabs: { id: T; label: string; n?: number }[];
-  value: T;
-  onChange: (id: T) => void;
-  label: string;
-  idBase: string;
-}) {
-  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+// ── Safeguard ──────────────────────────────────────────────────────────
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const at = tabs.findIndex((t) => t.id === value);
-    let to = -1;
-    if (e.key === 'ArrowRight') to = (at + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') to = (at - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') to = 0;
-    else if (e.key === 'End') to = tabs.length - 1;
-    if (to < 0) return;
-    e.preventDefault();
-    onChange(tabs[to].id);
-    refs.current[tabs[to].id]?.focus();
-  };
+/**
+ * The inactivity safeguard, as its own tab rather than a box above every tab.
+ *
+ * Headed like a record hanger (SectionHead): the stage is a StatusChip in the
+ * sub line beside the facts the server already sends (last active, next
+ * check, last outcome), how the safeguard works is behind the ⓘ instead of a
+ * standing sentence, and "Configure notifiers" is this tab's one filled
+ * action. A problem is a warn chip row, not the accent — the accent is for
+ * what you can press — and a routine reminder is a warning, not a danger.
+ * The contact-gap chip is the server's `inactiveContactGaps` in
+ * contactGapSentence's words; the notifier editor draws the same chip.
+ */
+function SafeguardTab({ group, onConfigure }: {
+  group: GroupRow;
+  /** Opens the notifier editor; the button is where focus returns. */
+  onConfigure: (opener: HTMLElement) => void;
+}) {
+  const stage = safeguardStage(group);
+  // The line the safeguard box printed, unchanged: the outcome rides on it.
+  const facts = group.lastActiveAt || group.inactivityNextAt
+    ? [
+      group.lastActiveAt ? `You were last active ${ddmmyyyy(group.lastActiveAt)}` : '',
+      group.inactivityNextAt ? `Next check ${ddmmyyyy(group.inactivityNextAt)}` : '',
+    ].filter(Boolean).join(' · ')
+      + (group.inactivityLastOutcome ? ` · Last outcome: ${group.inactivityLastOutcome.replaceAll('_', ' ')}` : '')
+    : '';
+  const delivery = group.inactivityStage === 'delivery_attention';
+  const gaps = group.inactiveContactGaps || 0;
 
   return (
-    <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="tab"
-          id={`${idBase}-tab-${t.id}`}
-          aria-controls={`${idBase}-panel-${t.id}`}
-          aria-selected={t.id === value}
-          tabIndex={t.id === value ? 0 : -1}
-          ref={(el) => { refs.current[t.id] = el; }}
-          onClick={() => onChange(t.id)}
-        >
-          {t.label}
-          {t.n !== undefined && <span className="n">{num(t.n)}</span>}
-        </button>
-      ))}
+    <div className="safeguardtab">
+      <SectionHead
+        title="Inactivity safeguard"
+        sub={<><StatusChip state={stage.state}>{stage.word}</StatusChip>{facts && <> {facts}</>}</>}
+        info="After 6 months of inactivity: a reminder to the head, then verified family emails."
+        actions={
+          <button type="button" className="btn primary" onClick={(e) => onConfigure(e.currentTarget)}>
+            Configure notifiers
+          </button>
+        }
+      />
+      {(delivery || gaps > 0) && (
+        <div className="schip-lines" style={{ display: 'grid', gap: 'var(--space-xs)', justifyItems: 'start' }}>
+          {delivery && (
+            <StatusChip state="warn">Delivery not confirmed. Contact support before retrying.</StatusChip>
+          )}
+          {gaps > 0 && (
+            <StatusChip state="warn">{contactGapSentence(gaps)}</StatusChip>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -574,9 +582,28 @@ function MembersTab({ group }: { group: GroupRow }) {
   const [form, setForm] = useState<{ editing: GroupMember | null } | null>(null);
   const [removing, setRemoving] = useState<GroupMember | null>(null);
   const [invited, setInvited] = useState<InviteInfo | null>(null);
+  // The filter is local state, as Documents' is: the group's `key` remount
+  // clears it when another group opens.
+  const [sel, setSel] = useState<Record<string, string[]>>({});
 
   const hasTree = groupTypeDef(group.type).hasTree;
-  const members = q.data?.members ?? [];
+  const members = useMemo(() => q.data?.members ?? [], [q.data?.members]);
+  const facets = useMemo(() => memberFacets(members, hasTree), [members, hasTree]);
+  // A selection for an option no longer offered (that person was edited or
+  // removed) is dropped rather than filtering the table to nothing.
+  const active = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const f of facets) {
+      const keep = (sel[f.key] ?? []).filter((k) => f.options.some((o) => o.key === k));
+      if (keep.length) out[f.key] = keep;
+    }
+    return out;
+  }, [facets, sel]);
+  const shown = members.filter((m) => matchesMember(m, active, hasTree));
+  const toggleFacet = (groupKey: string, key: string) => setSel((cur) => {
+    const was = cur[groupKey] ?? [];
+    return { ...cur, [groupKey]: was.includes(key) ? was.filter((k) => k !== key) : [...was, key] };
+  });
   // Your own row is always among them — `members` seats it on every read — so
   // "how many people are in this group besides me" is a filter, not a count.
   const others = members.filter((m) => !m.isSelf).length;
@@ -734,6 +761,18 @@ function MembersTab({ group }: { group: GroupRow }) {
         </button>
       </div>
 
+      {/* The shared list filter Properties uses, over the words the table
+          prints. A table of one row has nothing to narrow. */}
+      {members.length > 1 && (
+        <FacetFilter
+          groups={facets}
+          selected={active}
+          onToggle={toggleFacet}
+          onClear={() => setSel({})}
+          tally={`${num(shown.length)} of ${num(members.length)} shown`}
+        />
+      )}
+
       {/* Genuinely zero rows means the server returned nothing for this group,
           which it does when the group is not the caller's — not the same as "a
           new group with only you in it", where your own row is real content
@@ -742,6 +781,14 @@ function MembersTab({ group }: { group: GroupRow }) {
         <Empty icon="person" title="No one is listed for this group">
           Reload the page to try again.
         </Empty>
+      ) : shown.length === 0 ? (
+        <Empty
+          boxed
+          h="12rem"
+          icon="search"
+          title="No members match these filters"
+          action={<button type="button" className="btn sm" onClick={() => setSel({})}>Clear filters</button>}
+        />
       ) : (
         <div className="datatable-wrap">
         <div className="scroll-x">
@@ -760,7 +807,7 @@ function MembersTab({ group }: { group: GroupRow }) {
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => {
+              {shown.map((m) => {
                 const st = memberStatusChip(m);
                 const parcel = q.data?.parcels.find((p) => p.id === m.parcelId);
                 return (
@@ -785,7 +832,8 @@ function MembersTab({ group }: { group: GroupRow }) {
                         </span>
                       </span>
                     </td>
-                    <td>{m.isSelf && m.role ? cap(m.role) : hasTree ? relMeta(m.relation).label : m.role || '—'}</td>
+                    {/* One rule with the filter, so an option reads as this cell. */}
+                    <td>{memberRelationWord(m, hasTree)}</td>
                     {cols.contact && (
                     <td>
                       {m.phone || m.email ? (
@@ -1382,10 +1430,33 @@ function DeleteGroupDialog({
 
 // ── Notifier priority ──────────────────────────────────────────────────
 
-function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => void }) {
+/**
+ * Who is contacted once the head misses every reminder, in the shared
+ * right-side Drawer the record add/edit flows use: eyebrow, title, one sub
+ * line, and a pinned footer with Save first.
+ *
+ * The contact gap is the server's `inactiveContactGaps`, drawn as the same
+ * warn chip and sentence the Safeguard tab shows (contactGapSentence), with a
+ * way to the Members tab where it is fixed. The editor does not count the gap
+ * itself; `isEligibleNotifier` only lists who can be added.
+ */
+function NotifierDrawer({ group, onClose, onMembers, returnFocus }: {
+  group: GroupRow;
+  onClose: () => void;
+  /** Close this and open the Members tab, where emails and consent are fixed. */
+  onMembers: () => void;
+  /** The drawer's fallback focus on close: the opener, or the Members tab
+   *  after onMembers (the opener is gone with the Safeguard tab by then). */
+  returnFocus: React.RefObject<HTMLElement | null>;
+}) {
   const q = useNotifiers(group.id, true);
   const save = useSetNotifiers();
   const toast = useToast();
+  const saveId = useId();
+  const whyId = useId();
+  /** Bumped by every refused save, so the effect below can hand focus back to
+   *  Save once the button is enabled again. */
+  const [failures, setFailures] = useState(0);
 
   type Pick = { id: string; name: string; relation: string; email: string };
   const [order, setOrder] = useState<Pick[] | null>(null);
@@ -1402,11 +1473,9 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
   }, [configured, loaded, order]);
 
   const eligible = (loaded?.members ?? [])
-    .filter((m) => !m.isSelf && !m.isMinor && m.emailVerified && m.inactivityEmailConsent && !!m.email)
+    .filter(isEligibleNotifier)
     .map((m) => ({ id: m.id, name: m.name, relation: m.relation || m.role, email: m.email }));
-  const unready = (loaded?.members ?? [])
-    .filter((m) => !m.isSelf && !m.isMinor
-      && (!m.emailVerified || !m.inactivityEmailConsent || !m.email));
+  const gaps = group.inactiveContactGaps || 0;
   const outside = eligible.filter((m) => !current.some((o) => o.id === m.id));
 
   const move = (at: number, by: number) => {
@@ -1424,36 +1493,72 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
       toast.ok(currentMode === 'all' ? 'All verified family emails will be contacted together' : 'Notifier order saved');
       onClose();
     } catch {
-      /* the write raised it */
+      // The write raised the toast, worded for this mode. Save is disabled
+      // while pending, which drops focus to <body>; the effect puts it back.
+      setFailures((n) => n + 1);
     }
   };
 
+  useEffect(() => {
+    if (failures > 0 && !save.isPending) document.getElementById(saveId)?.focus();
+  }, [failures, save.isPending, saveId]);
+
+  // A disabled Save says why, pinned above the footer.
+  const why = !loaded
+    ? ''
+    : eligible.length === 0
+      ? 'No family member has a verified email yet.'
+      : currentMode === 'selected' && current.length === 0
+        ? 'Add at least one verified family email to create an order.'
+        : '';
+
+  /** One row, for both modes, so the two cannot drift: the ordered list passes
+   *  its number and its controls; "together" passes neither, because an order
+   *  number would claim an order that does not exist. */
+  const notifierRow = (m: Pick, lead?: ReactNode, controls?: ReactNode) => (
+    <div key={m.id}>
+      {lead !== undefined && (
+        <span className="avatarlg" style={{ width: '1.75rem', height: '1.75rem', fontSize: '0.6875rem' }}>
+          {lead}
+        </span>
+      )}
+      <span className="grow">
+        <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>{m.name}</span>
+        <span className="note" style={{ display: 'block' }}>
+          {[m.relation ? relMeta(m.relation).label : '', m.email].filter(Boolean).join(' · ')}
+        </span>
+      </span>
+      {controls}
+    </div>
+  );
+
   return (
-    <Dialog
+    <Drawer
+      eyebrow={drawerEyebrow(group.name, 'Safeguard')}
       title="Inactivity notifications"
+      sub="Contacted only after the head misses every activity reminder."
       onClose={onClose}
       busy={save.isPending}
-      wide
-      footer={
-        <>
-          <button type="button" className="btn" disabled={save.isPending} onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={save.isPending || !loaded || q.isError || (currentMode === 'selected' && current.length === 0)}
-            onClick={() => void persist()}
-          >
-            {save.isPending ? 'Saving…' : 'Save notification settings'}
-          </button>
-        </>
+      returnFocus={returnFocus}
+      // The change from one selector to the other is what re-runs
+      // useFocusTrap's focus once the settings land: the panel while they
+      // load, then the checked radio.
+      initialFocus={loaded ? 'input[name="notifier-mode"]:checked' : '.drawerbody'}
+      primaryWhy={why ? { id: whyId, text: why } : undefined}
+      primary={
+        <DrawerAction
+          id={saveId}
+          submit={false}
+          label="Save notification settings"
+          working="Saving…"
+          pending={save.isPending}
+          paused={save.isPaused}
+          disabled={!loaded || q.isError || !!why}
+          describedBy={why ? whyId : undefined}
+          onClick={() => void persist()}
+        />
       }
     >
-      <p className="note" style={{ marginTop: 0, maxWidth: '40rem' }}>
-        Contacted only after the head misses every activity reminder.
-      </p>
-
       {q.isPending && <Loading h="8rem" what="the current notification settings" />}
       {q.isError && (
         <Failed what="The notification settings" error={q.error} onRetry={() => q.refetch()} h="8rem" />
@@ -1461,95 +1566,86 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
 
       {loaded && (
         <>
-          <fieldset className="field" style={{ maxWidth: '40rem' }}>
+          <fieldset className="share-paper-picker">
             <legend>Who should be contacted?</legend>
-            <label className="row tight">
+            <label>
               <input
                 type="radio"
                 name="notifier-mode"
                 checked={currentMode === 'all'}
                 onChange={() => setMode('all')}
               />
-              Email all family members with a verified email together
+              <span>Email all family members with a verified email together</span>
             </label>
-            <label className="row tight">
+            <label>
               <input
                 type="radio"
                 name="notifier-mode"
                 checked={currentMode === 'selected'}
                 onChange={() => setMode('selected')}
               />
-              Email selected family members in order
+              <span>Email selected family members in order</span>
             </label>
           </fieldset>
 
-          {unready.length > 0 && (
-            <p className="note accent" style={{ margin: 'var(--space-md) 0' }}>
-              {plural(unready.length, 'member is', 'members are')} excluded until their email is verified and they consent to safeguard email.
-            </p>
+          {gaps > 0 && (
+            <div className="schip-lines" style={{ display: 'grid', gap: 'var(--space-xs)', justifyItems: 'start' }}>
+              <StatusChip state="warn">{contactGapSentence(gaps)}</StatusChip>
+              <button type="button" className="linkbtn" onClick={onMembers}>
+                Open the Members tab
+              </button>
+            </div>
           )}
 
           {currentMode === 'all' ? (
-            <p className="note" style={{ margin: 'var(--space-md) 0' }}>
-              {eligible.length === 0
-                ? 'No family member has a verified email yet.'
-                : `${plural(eligible.length, 'verified family email')} will be contacted together.`}
-            </p>
+            eligible.length > 0 && (
+              <>
+                <p className="note" style={{ margin: 0 }}>
+                  {plural(eligible.length, 'verified family email')} will be contacted together.
+                </p>
+                <div className="rows boxed">{eligible.map((m) => notifierRow(m))}</div>
+              </>
+            )
           ) : (
             <>
-              {current.length === 0 ? (
-                <p className="note" style={{ margin: 'var(--space-md) 0' }}>
-                  Add at least one verified family email to create an order.
-                </p>
-              ) : (
-                <div className="rows boxed" style={{ margin: 'var(--space-md) 0' }}>
-                  {current.map((m, i) => (
-                    <div key={m.id}>
-                      <span className="avatarlg" style={{ width: '1.75rem', height: '1.75rem', fontSize: '0.6875rem' }}>
-                        {i + 1}
-                      </span>
-                      <span className="grow">
-                        <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>{m.name}</span>
-                        <span className="note" style={{ display: 'block' }}>
-                          {[m.relation ? relMeta(m.relation).label : '', m.email].filter(Boolean).join(' · ')}
-                        </span>
-                      </span>
-                      <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-                        <button
-                          type="button"
-                          className="iconbtn"
-                          style={{ minWidth: '2.75rem', minHeight: '2.75rem' }}
-                          aria-label={`Move ${m.name} up`}
-                          disabled={i === 0}
-                          onClick={() => move(i, -1)}
-                        >
-                          <ArrowUpwardOutlined sx={{ fontSize: 16 }} />
-                        </button>
-                        <button
-                          type="button"
-                          className="iconbtn"
-                          style={{ minWidth: '2.75rem', minHeight: '2.75rem' }}
-                          aria-label={`Move ${m.name} down`}
-                          disabled={i === current.length - 1}
-                          onClick={() => move(i, 1)}
-                        >
-                          <ArrowDownwardOutlined sx={{ fontSize: 16 }} />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn sm"
-                          onClick={() => setOrder(current.filter((_x, x) => x !== i))}
-                        >
-                          Take out
-                        </button>
-                      </span>
-                    </div>
-                  ))}
+              {current.length > 0 && (
+                <div className="rows boxed">
+                  {current.map((m, i) => notifierRow(m, i + 1, (
+                    <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+                      <button
+                        type="button"
+                        className="iconbtn"
+                        style={{ minWidth: '2.75rem', minHeight: '2.75rem' }}
+                        aria-label={`Move ${m.name} up`}
+                        disabled={i === 0}
+                        onClick={() => move(i, -1)}
+                      >
+                        <ArrowUpwardOutlined sx={{ fontSize: 16 }} />
+                      </button>
+                      <button
+                        type="button"
+                        className="iconbtn"
+                        style={{ minWidth: '2.75rem', minHeight: '2.75rem' }}
+                        aria-label={`Move ${m.name} down`}
+                        disabled={i === current.length - 1}
+                        onClick={() => move(i, 1)}
+                      >
+                        <ArrowDownwardOutlined sx={{ fontSize: 16 }} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => setOrder(current.filter((_x, x) => x !== i))}
+                      >
+                        Take out
+                      </button>
+                    </span>
+                  )))}
                 </div>
               )}
 
               {outside.length > 0 && (
-                <div className="field" style={{ maxWidth: '28rem' }}>
+                <div className="field">
                   <label htmlFor="notif-add">Add a verified family email</label>
                   <select
                     id="notif-add"
@@ -1572,7 +1668,7 @@ function NotifierDialog({ group, onClose }: { group: GroupRow; onClose: () => vo
           )}
         </>
       )}
-    </Dialog>
+    </Drawer>
   );
 }
 

@@ -23,7 +23,7 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 | `web-next-cutover` | staged Next parity and explicit cutover |
 | `sync-ios` | web/core/root-schema/gateway adaptation to native iOS |
 | `design-system-governance` | cross-client tokens, the one web face and weights, shared-component reuse, accessibility, motion, icons and brand |
-| `heuristic-ux-audit` | analysis-only heuristic UX audit of an existing web screen against design.md's Material 3 principles, delivered as a side-by-side CURRENT versus standard board |
+| `heuristic-ux-audit` | analysis-only heuristic UX audit of an existing web screen against design.md's Material 3 principles, delivered as side-by-side CURRENT versus standard images (chat-sized `compare.png`, full `board.png`) ahead of a short summary of what changes |
 | `infrastructure-change` | Terraform/IaC design and source changes |
 | `platform-lifecycle` | operation of existing up/down/park/thaw/restore flows |
 | `dependency-change` | package/provider/action/base-image changes |

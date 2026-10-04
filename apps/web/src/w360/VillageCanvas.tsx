@@ -18,6 +18,8 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { cornerLabel } from '@pattadar/core';
 
+import { useThemeChoice } from '../components/useThemeChoice';
+import { cssVar } from './cssVar';
 import { acresText } from './villageGeom';
 import type { PlotFacts } from './villageGeom';
 import { measureVillageTape } from './villageMeasure';
@@ -97,10 +99,13 @@ const BLANK =
 
 // Every colour below is drawn onto a Leaflet canvas over map imagery, not onto
 // app paper (design.md § App-surface rules names this map/SVG-over-imagery case
-// alongside FmbMapViewer). They are literals by necessity — the canvas renderer
-// cannot resolve a CSS var — so each is named with its Bloom provenance and
-// carries a Bloom value, never a stray triplet. Colour carries meaning here:
-// the blue ramp is magnitude, amber is the selection, the paler amber is hover.
+// alongside FmbMapViewer). The canvas renderer cannot resolve a CSS var, so a
+// colour reaches it as a value. Colour carries meaning here: the blue ramp is
+// magnitude, the accent is the selection, the focus colour is hover. The
+// selection and the hover follow the scheme and are read off the resolved
+// tokens when drawn; the ramp, the edges and the white mesh are measured
+// against the imagery rather than the page, so they stay literals — each named
+// with its Bloom provenance and carrying a Bloom value, never a stray triplet.
 
 /** Plot size, in one hue light-to-dark — the encoding for a magnitude. Steps
  *  are the validated blue ramp, ordered dim-to-bright because they are read
@@ -118,8 +123,11 @@ export const BANDS: Array<{ key: string; label: string; hex: string; min: number
 export const bandOf = (acres: number) =>
   BANDS[acres >= 10 ? 3 : acres >= 3 ? 2 : acres >= 1 ? 1 : 0];
 
-const ACCENT = '#fe860f'; // --color-accent · the selected plot
-const HOVER = '#ffa03c'; // --color-focus · the hovered plot, one step lighter
+/** The selected plot, in the scheme's accent; the hovered one in its focus
+ *  colour, a step lighter. The fallbacks are Bloom Dark's, for a page that has
+ *  no scheme yet. */
+const accentNow = () => cssVar('--w-accent', '#fe860f');
+const hoverNow = () => cssVar('--w-focus', '#ffa03c');
 
 // Plot and village edges. On street tiles they read against a light basemap, so
 // they are the dark Bloom paper end; over satellite imagery they are the warm
@@ -232,6 +240,9 @@ export default function VillageCanvas({
   // selection for the life of the map.
   const live = useRef({ measuring, onSelect, onHover, onMeasure, onTilesFailed, plots, overview, onPickVillage });
   live.current = { measuring, onSelect, onHover, onMeasure, onTilesFailed, plots, overview, onPickVillage };
+  /** The scheme the canvas's own colours were last painted in. */
+  const { choice: scheme } = useThemeChoice();
+  const paintedScheme = useRef(scheme);
 
   // ── The map, once ───────────────────────────────────────────────────
   useEffect(() => {
@@ -410,12 +421,15 @@ export default function VillageCanvas({
   };
 
   /** The selected plot, and the hovered one a step lighter. */
-  const litStyle = (isSelected: boolean): L.PathOptions => ({
-    color: isSelected ? ACCENT : HOVER,
-    weight: isSelected ? 2.6 : 2,
-    fillColor: isSelected ? ACCENT : HOVER,
-    fillOpacity: isSelected ? 0.34 : 0.16,
-  });
+  const litStyle = (isSelected: boolean): L.PathOptions => {
+    const colour = isSelected ? accentNow() : hoverNow();
+    return {
+      color: colour,
+      weight: isSelected ? 2.6 : 2,
+      fillColor: colour,
+      fillOpacity: isSelected ? 0.34 : 0.16,
+    };
+  };
 
   // ── The plots ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -432,6 +446,7 @@ export default function VillageCanvas({
         shapes.current.clear();
       }
       const wanted = new Map(overview.map((mark) => [mark.key, mark]));
+      const accent = accentNow();
       for (const [key, drawing] of overviewDrawings.current) {
         if (!drawing.active || wanted.get(key) === drawing.mark) continue;
         if (drawing.edge) edges.removeLayer(drawing.edge);
@@ -451,7 +466,7 @@ export default function VillageCanvas({
           const area = hull.length >= 3 ? L.polygon(hull as L.LatLngTuple[], {
             renderer: renderer.current ?? undefined,
             color: 'transparent', weight: 0,
-            fill: true, fillColor: ACCENT, fillOpacity: 0.001,
+            fill: true, fillColor: accent, fillOpacity: 0.001,
             interactive: true,
           }) : null;
           if (area) {
@@ -556,6 +571,26 @@ export default function VillageCanvas({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, hovered]);
+
+  // ── A new scheme ────────────────────────────────────────────────────
+  //
+  // The selection, the hover, the villages' hit areas and the tape are the
+  // canvas's only colours that follow the scheme, so they are the only
+  // things repainted. By the time this runs MUI has already written the new
+  // scheme onto <html> (a layout effect), so the tokens read are the new ones.
+  useEffect(() => {
+    if (paintedScheme.current === scheme) return;
+    paintedScheme.current = scheme;
+    const { selected: s, hovered: h } = lit.current;
+    for (const lp of new Set([s, h])) {
+      const poly = lp ? shapes.current.get(lp) : undefined;
+      if (poly) poly.setStyle(litStyle(lp === s));
+    }
+    const accent = accentNow();
+    for (const drawing of overviewDrawings.current.values()) drawing.hit?.setStyle({ fillColor: accent });
+    if (tape.current.length) redrawTape();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheme]);
 
   // ── Labels ──────────────────────────────────────────────────────────
   const paintLabels = () => {
@@ -750,9 +785,10 @@ export default function VillageCanvas({
     group.clearLayers();
     const pts = tape.current;
     const closed = pts.length >= 3;
+    const accent = accentNow();
     if (pts.length) {
       L.polyline((closed ? [...pts, pts[0]] : pts) as L.LatLngTuple[], {
-        color: ACCENT, weight: 2.4, dashArray: '6 5', interactive: false,
+        color: accent, weight: 2.4, dashArray: '6 5', interactive: false,
       }).addTo(group);
     }
 
@@ -818,7 +854,7 @@ export default function VillageCanvas({
     });
     if (pts.length >= 3) {
       L.polygon(pts as L.LatLngTuple[], {
-        color: ACCENT, weight: 0, fillColor: ACCENT, fillOpacity: 0.14, interactive: false,
+        color: accent, weight: 0, fillColor: accent, fillOpacity: 0.14, interactive: false,
       }).addTo(group);
     }
     live.current.onMeasure?.(measureVillageTape(pts));

@@ -118,10 +118,16 @@ export interface Paper {
   /** The owner's own folder (VaultFolder.id); '' at the top level. Optional
    *  because the per-record `papers` read does not select it. */
   folderId?: string; sizeBytes?: number;
+  /** A kept Aadhaar card, filed under <person> › Aadhaar. Only the
+   *  `vaultPapers` read selects it. */
+  aadhaarCard?: boolean;
 }
 /** One of the owner's own folders in Documents, sent flat with its parent. */
 export interface VaultFolder {
   id: string; name: string; parentId: string; fileCount: number; folderCount: number; createdAt: string;
+  /** Whose folder this is in the per-person tree (the account's id or a
+   *  family member's id); '' for a folder the owner made. */
+  personId?: string;
 }
 /** A note filed against a record. Append-only on the server — there is no
  *  update or delete resolver for `notes` — which is the whole point of it:
@@ -1024,12 +1030,12 @@ const Q_SEARCH = `query S($q:String!) { web { search(q:$q) {
  *  short staleTime keeps typing snappy without hammering the API. */
 const Q_VAULT_PAPERS = `query VP($shelf:String!) { web { vaultPapers(shelf:$shelf) {
   id title detail shelf icon tags shared pageCount fileRef mimeType recordId recordTitle createdAt jointFmbId
-  folderId sizeBytes
+  folderId sizeBytes aadhaarCard
   linkedProperties { id title kind documentId }
 } } }`;
 
 const Q_VAULT_FOLDERS = `query VF { web { vaultFolders {
-  id name parentId fileCount folderCount createdAt
+  id name parentId fileCount folderCount createdAt personId
 } } }`;
 
 /** Every folder the owner has made, flat. Documents draws its breadcrumbs,

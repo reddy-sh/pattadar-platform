@@ -28,14 +28,12 @@ import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
 import CalculateOutlined from '@mui/icons-material/CalculateOutlined';
 import CardGiftcardOutlined from '@mui/icons-material/CardGiftcardOutlined';
 import ContrastOutlined from '@mui/icons-material/ContrastOutlined';
-import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined';
-import LightModeOutlined from '@mui/icons-material/LightModeOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MailOutlined from '@mui/icons-material/MailOutlined';
 import MapOutlined from '@mui/icons-material/MapOutlined';
@@ -64,15 +62,11 @@ import { AssistantPanel } from '../assistant/AssistantPanel';
 import { useAuth } from '../auth/AuthProvider';
 import { PENDING_INVITE, PENDING_REFERRAL, redeemReferral } from './growthData';
 import { UNIVERSITY_URL } from '../lib/links';
+import { SCHEME_ICON } from '../components/schemeIcons';
+import { useThemeChoice } from '../components/useThemeChoice';
 import './w360.css';
 
-const SCHEME_KEY = 'w360.scheme';
 const RAIL_KEY = 'w360.rail';
-
-type Scheme = 'light' | 'dark' | 'highContrast';
-
-const isScheme = (value: string | null): value is Scheme =>
-  value === 'light' || value === 'dark' || value === 'highContrast';
 
 /** Which icon a jump hit wears: the record's kind, a paper, a person. */
 const HIT_ICON: Record<string, string> = { record: 'parcel', paper: 'title', person: 'person' };
@@ -202,10 +196,11 @@ export function Shell() {
   // that exists before the portfolio query lands — and the only one at all for
   // an account with no records yet.
   const { user, signOut } = useAuth();
-  const [scheme, setScheme] = useState<Scheme>(() => {
-    const stored = localStorage.getItem(SCHEME_KEY);
-    return isScheme(stored) ? stored : 'dark';
-  });
+  // The colour scheme is the app's one choice, held by MUI and shared with the
+  // previous app's menu (components/useThemeChoice.ts). theme-init.js carried
+  // the old `w360.scheme` key into it once, before this bundle loaded.
+  const theme = useThemeChoice();
+  const scheme = theme.choice;
 
   // The jump box. `useDeferredValue` keeps typing smooth while results load.
   const [q, setQ] = useState('');
@@ -222,7 +217,6 @@ export function Shell() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [railHidden, setRailHidden] = useState(() => localStorage.getItem(RAIL_KEY) === 'hidden');
 
-  useEffect(() => { localStorage.setItem(SCHEME_KEY, scheme); }, [scheme]);
   useEffect(() => { localStorage.setItem(RAIL_KEY, railHidden ? 'hidden' : 'open'); }, [railHidden]);
 
   // The drawer breakpoint, watched rather than sampled. Reading matchMedia once
@@ -433,8 +427,9 @@ export function Shell() {
     // ToastHost sits INSIDE .w360, not around it: it renders its stack as a
     // sibling of its children, and every toast rule is scoped `.w360 .toast`.
     // Outside, the toasts resolve none of the design tokens and paint as
-    // unstyled text in the corner.
-    <div className="w360" data-scheme={scheme} data-rail={railHidden ? 'hidden' : 'open'}>
+    // unstyled text in the corner. The scheme is not repeated here: the
+    // provider puts it on <html data-scheme>, where w360.css's slots read it.
+    <div className="w360" data-rail={railHidden ? 'hidden' : 'open'}>
       <ToastHost>
       <InboxWatcher />
       <header className="topbar">
@@ -588,17 +583,15 @@ export function Shell() {
           <Menu
             label="Change theme"
             trigger={<ContrastOutlined sx={{ fontSize: 18 }} aria-hidden />}
-            items={[
-              { label: 'Light', selected: scheme === 'light',
-                icon: <LightModeOutlined sx={{ fontSize: 16 }} aria-hidden />,
-                onClick: () => setScheme('light') },
-              { label: 'Dark', selected: scheme === 'dark',
-                icon: <DarkModeOutlined sx={{ fontSize: 16 }} aria-hidden />,
-                onClick: () => setScheme('dark') },
-              { label: 'High Contrast', selected: scheme === 'highContrast',
-                icon: <ContrastOutlined sx={{ fontSize: 16 }} aria-hidden />,
-                onClick: () => setScheme('highContrast') },
-            ]}
+            items={theme.options.map((o) => {
+              const Glyph = SCHEME_ICON[o.icon];
+              return {
+                label: o.label,
+                selected: scheme === o.id,
+                icon: <Glyph sx={{ fontSize: 16 }} aria-hidden />,
+                onClick: () => theme.choose(o.id),
+              };
+            })}
           />
           {/* Wired, not removed: AssistantPanel is a finished SSE chat drawer
               that the legacy shell has always opened, and it degrades to its

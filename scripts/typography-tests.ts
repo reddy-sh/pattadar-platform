@@ -159,7 +159,7 @@ function tsProblems(src: string, file: string, canonical: string): Problems {
     if (retired) { out.token.push(`${at(m.index!)} uses ${retired[0]})`); continue; }
     // A package path ("…/instrument-serif/400.css") is TY-1's business.
     if (text.startsWith('@fontsource/') || !STACKISH.test(text)) continue;
-    if ((isTheme || file === TOKENS_PKG) && sameStack(text, canonical)) continue;
+    if (file === TOKENS_PKG && sameStack(text, canonical)) continue;
     out.stack.push(`${at(m.index!)} spells a font stack: ${text}`);
   }
   return out;
@@ -234,14 +234,22 @@ if (canonical) {
 }
 const copies: Array<[string, string | null]> = [
   [TOKEN_FILES[1], tokenValue(TOKEN_FILES[1])],
-  [THEME, stripComments(read(THEME)).match(/const FONT_SANS\s*=\s*(['"`])(.*?)\1/)?.[2] ?? null],
-  [TOKENS_PKG, stripComments(read(TOKENS_PKG)).match(/\bfontFamily\s*:\s*(['"`])(.*?)\1/)?.[2] ?? null],
+  [TOKENS_PKG, stripComments(read(TOKENS_PKG)).match(/\bFONT_SANS\s*=\s*(['"`])(.*?)\1/)?.[2] ?? null],
 ];
 for (const [file, value] of copies) {
   check(
     `TY-3 ${file} carries the same stack as tokens.css`,
     value !== null && sameStack(value, canonical),
     `${value ?? '(not found)'} ≠ ${canonical}`,
+  );
+}
+{
+  // The MUI theme spells no stack of its own: it imports the pack's, so there
+  // is one TS copy to keep equal to --font-sans, not two.
+  const theme = stripComments(read(THEME));
+  check(
+    'TY-3 theme.ts takes FONT_SANS from @pattadar/tokens instead of spelling its own',
+    /import\s*(?:type\s*)?\{[^}]*\bFONT_SANS\b[^}]*\}\s*from\s*['"]@pattadar\/tokens['"]/.test(theme) && !/\bFONT_SANS\s*=/.test(theme),
   );
 }
 
@@ -300,7 +308,7 @@ check(
   `${listed(found.weight)}\n  500 renders as 400 and 600/800 as 700; write the weight that renders.`,
 );
 check(
-  'TY-6 no font stack is spelled outside theme.ts and packages/tokens',
+  'TY-6 no font stack is spelled in the apps — it lives in packages/tokens (FONT_SANS) and --font-sans',
   found.stack.length === 0,
   `${listed(found.stack)}\n  Inherit instead; the stack lives in --font-sans.`,
 );

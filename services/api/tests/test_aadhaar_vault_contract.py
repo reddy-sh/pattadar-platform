@@ -21,7 +21,7 @@ from cryptography.fernet import Fernet
 from psycopg import sql
 from psycopg.rows import dict_row
 
-from src import aadhaar, audit, main
+from src import aadhaar, audit, main, web360
 
 OWNER = "owner-a"
 FIRST, SECOND = "123412341234", "567856785678"
@@ -62,7 +62,18 @@ CREATE TABLE family_members (
 );
 CREATE TABLE family_notifiers (member_id TEXT, owner_user_id TEXT, group_id TEXT);
 CREATE TABLE inactivity_capabilities (recipient_ref TEXT, owner_user_id TEXT, group_id TEXT, consumed_at TEXT);
+CREATE TABLE documents (
+  id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+  subtitle TEXT NOT NULL DEFAULT '', shelf TEXT NOT NULL DEFAULT '', page_count INTEGER NOT NULL DEFAULT 0,
+  record_id TEXT NOT NULL DEFAULT '', parcel_id TEXT NOT NULL DEFAULT '', property_id TEXT NOT NULL DEFAULT '',
+  passbook_id TEXT NOT NULL DEFAULT '', doc_type TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
+  size_bytes BIGINT NOT NULL DEFAULT 0, file_ref TEXT NOT NULL DEFAULT '', mime_type TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '', joint_fmb_id TEXT NOT NULL DEFAULT ''
+);
 """
+# The shipped Documents folder DDL (vault_folders, folder_id, person tree and
+# aadhaar_record_id), not a copy: the card is filed into exactly that.
+FOLDER_DDL = [s for s in web360._DDL if "vault_folders" in s or "folder_id" in s or "aadhaar_record_id" in s]
 
 
 @pytest.fixture
@@ -82,6 +93,8 @@ def db(monkeypatch):
         conn.execute(SCHEMA)
         conn.execute(aadhaar.DDL)
         for statement in aadhaar.SUBJECT_DDL:
+            conn.execute(statement)
+        for statement in FOLDER_DDL:
             conn.execute(statement)
         conn.execute("INSERT INTO users (id, name, kyc_ref_enc) VALUES (%s, 'Owner', 'legacy-cipher')", (OWNER,))
         conn.execute("INSERT INTO groups (id, owner_user_id) VALUES ('g1', %s)", (OWNER,))
@@ -286,3 +299,117 @@ def test_a_protection_failure_returns_its_own_message_and_saves_nothing(db, monk
     assert db.query("SELECT count(*) AS n FROM family_members")[0]["n"] == 1
     assert db.query("SELECT kyc_aadhaar_record_id, kyc_ref_masked FROM users")[0] == {
         "kyc_aadhaar_record_id": "", "kyc_ref_masked": ""}
+
+
+# ── a kept card is filed in Documents under <person> › Aadhaar ────────
+
+LINK_FULL = ("mutation($c:String!,$n:String!,$v:String!,$m:String,$s:Int){ "
+             "linkAadhaarCard(candidateId:$c,nodeId:$n,versionId:$v,mimeType:$m,sizeBytes:$s) }")
+ADD_SCAN = ('mutation($c:String!,$n:String!){ addMember(groupId:"g1", name:$n, relation:"son", '
+            'aadhaarCandidateId:$c){ id aadhaarMasked } }')
+
+
+def cards(db, owner=OWNER):
+    return db.query("SELECT d.*, f.name AS folder_name, f.feature_key, f.person_id, p.name AS parent_name "
+                    "FROM documents d LEFT JOIN vault_folders f ON f.id=d.folder_id "
+                    "LEFT JOIN vault_folders p ON p.id=f.parent_id "
+                    "WHERE d.owner_user_id=%s AND d.aadhaar_record_id<>'' ORDER BY d.created_at", (owner,))
+
+
+def person_folders(db, person_id):
+    return db.query("SELECT * FROM vault_folders WHERE person_id=%s ORDER BY feature_key", (person_id,))
+
+
+def test_scan_link_then_add_files_one_masked_card_in_the_members_aadhaar_folder(db):
+    record = scan_record(db)
+    node, version = str(uuid.uuid4()), str(uuid.uuid4())
+    linked = run(LINK_FULL, {"c": record, "n": node, "v": version, "m": "application/pdf", "s": 2048})
+    assert linked.errors is None
+    assert cards(db) == [], "a reading nobody holds yet is filed when the person is saved"
+    added = run(ADD_SCAN, {"c": record, "n": "Ravi"})
+    assert added.errors is None
+    member_id = added.data["addMember"]["id"]
+    [card] = cards(db)
+    assert (card["name"], card["subtitle"], card["shelf"], card["doc_type"], card["source"]) == (
+        "Aadhaar card", "XXXX-XXXX-1234", "identity", "identity", "aadhaar-card")
+    assert (card["file_ref"], card["mime_type"], card["size_bytes"]) == (node, "application/pdf", 2048)
+    assert (card["record_id"], card["parcel_id"], card["property_id"]) == ("", "", "")
+    assert (card["folder_name"], card["feature_key"], card["person_id"], card["parent_name"]) == (
+        "Aadhaar", "aadhaar", member_id, "Ravi")
+    assert not re.search(r"\d{12}", repr(card)), "only the server mask is ever stored on the row"
+    # Saving the person again, or linking the same card again, files nothing more.
+    assert run(UPDATE, {"id": member_id, "a": None}).errors is None
+    assert run(LINK_FULL, {"c": record, "n": node, "v": version, "m": "application/pdf", "s": 2048}).errors is None
+    assert len(cards(db)) == 1 and len(person_folders(db, member_id)) == 2
+
+
+def test_linking_after_the_person_is_saved_still_files_the_card(db):
+    record = scan_record(db)
+    member_id = run(ADD_SCAN, {"c": record, "n": "Sita"}).data["addMember"]["id"]
+    assert cards(db) == []
+    # An old caller without mimeType/sizeBytes still links and files.
+    assert run(LINK, {"c": record, "n": str(uuid.uuid4()), "v": str(uuid.uuid4())}).errors is None
+    [card] = cards(db)
+    assert (card["person_id"], card["parent_name"], card["mime_type"], card["size_bytes"]) == (
+        member_id, "Sita", "", 0)
+
+
+def test_a_bad_mime_type_is_dropped_and_a_negative_size_clamped(db):
+    record = scan_record(db)
+    run(ADD_SCAN, {"c": record, "n": "Ravi"})
+    assert run(LINK_FULL, {"c": record, "n": str(uuid.uuid4()), "v": str(uuid.uuid4()),
+                           "m": "text/html; <script>", "s": -5}).errors is None
+    [card] = cards(db)
+    assert (card["mime_type"], card["size_bytes"]) == ("", 0)
+
+
+def test_another_owner_cannot_link_or_see_the_card(db):
+    record = scan_record(db)
+    run(ADD_SCAN, {"c": record, "n": "Ravi"})
+    stranger = run(LINK_FULL, {"c": record, "n": str(uuid.uuid4()), "v": str(uuid.uuid4()),
+                               "m": "image/png", "s": 10}, owner="owner-b")
+    assert [e.message for e in stranger.errors] == ["The Aadhaar reading is no longer available"]
+    assert cards(db) == [] and cards(db, owner="owner-b") == []
+    assert db.query("SELECT count(*) AS n FROM vault_folders WHERE owner_user_id='owner-b'")[0]["n"] == 0
+
+
+def test_removing_the_member_removes_the_card_and_their_folders_and_a_readd_files_fresh(db):
+    record = scan_record(db)
+    member_id = run(ADD_SCAN, {"c": record, "n": "Ravi"}).data["addMember"]["id"]
+    run(LINK, {"c": record, "n": str(uuid.uuid4()), "v": str(uuid.uuid4())})
+    root = [f for f in person_folders(db, member_id) if f["feature_key"] == ""][0]
+    # Something else the owner put in the person's folder is lifted, not lost.
+    db.query("INSERT INTO documents (id, owner_user_id, name, folder_id) VALUES ('mine', %s, 'Note', %s) "
+             "RETURNING id", (OWNER, root["id"]))
+    assert run('mutation($id:String!){ removeMember(id:$id) }', {"id": member_id}).errors is None
+    assert cards(db) == [] and person_folders(db, member_id) == []
+    assert db.query("SELECT folder_id FROM documents WHERE id='mine'")[0]["folder_id"] == ""
+    assert counts(db) == (0, 0)
+
+    again = scan_record(db)
+    readded = run(ADD_SCAN, {"c": again, "n": "Ravi"}).data["addMember"]["id"]
+    run(LINK, {"c": again, "n": str(uuid.uuid4()), "v": str(uuid.uuid4())})
+    [card] = cards(db)
+    assert (card["person_id"], card["parent_name"], card["aadhaar_record_id"]) == (readded, "Ravi", again)
+
+
+def test_replacing_a_members_aadhaar_drops_the_old_card_row(db):
+    record = scan_record(db)
+    member_id = run(ADD_SCAN, {"c": record, "n": "Ravi"}).data["addMember"]["id"]
+    run(LINK, {"c": record, "n": str(uuid.uuid4()), "v": str(uuid.uuid4())})
+    assert len(cards(db)) == 1
+    assert run(UPDATE, {"id": member_id, "a": SECOND}).errors is None
+    assert cards(db) == [], "the typed replacement has no card; the old card's row goes with its record"
+    assert len(person_folders(db, member_id)) == 2, "the person's folders stay while the person does"
+
+
+def test_your_own_card_is_filed_under_your_folder_and_clear_kyc_removes_only_the_row(db):
+    record = scan_record(db)
+    run(LINK, {"c": record, "n": str(uuid.uuid4()), "v": str(uuid.uuid4())})
+    applied = run("mutation($c:String!){ applyMyKyc(aadhaarCandidateId:$c){ kycRefMasked } }", {"c": record})
+    assert applied.errors is None
+    [card] = cards(db)
+    assert (card["person_id"], card["parent_name"], card["folder_name"]) == (OWNER, "Owner", "Aadhaar")
+    assert run("mutation { clearMyKyc { kycRefMasked } }").errors is None
+    assert cards(db) == []
+    assert len(person_folders(db, OWNER)) == 2, "your own folder is never removed for you"

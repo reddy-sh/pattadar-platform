@@ -176,8 +176,8 @@ export function ringPerimM(ring: [number, number][]): number {
 /**
  * What it takes to fence a boundary, side by side.
  *
- * `fenceEstimate` below is the older, blunter version and two screens still
- * call it: posts = perimeter / spacing. That is not what anybody buys. A fence
+ * `fenceEstimate` below is the older, blunter version and one older screen
+ * (ParcelDetailPage) still calls it: posts = perimeter / spacing. That is not what anybody buys. A fence
  * turns at its corners, so there is a post AT every corner whether or not the
  * spacing lands one there, and the run between two corners cannot be spanned
  * by a stride that ignores them. On a 4-sided plot of 100/80/100/80 m at 3 m

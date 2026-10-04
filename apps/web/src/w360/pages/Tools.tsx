@@ -1,8 +1,8 @@
-/** Tools — the four land utilities, drawn in this app (the redrawn /app/tools).
+/** Tools — the five land utilities, drawn in this app (the redrawn /app/tools).
  *
  *  This replaces the "still in the previous version" signpost and the MUI
  *  screen it pointed at (pages/ToolsPage.tsx + pages/tools/*, now deleted).
- *  Same four tools, same arithmetic, same reads:
+ *  The first four are that screen's tools, same arithmetic, same reads:
  *
  *   · Find SRO      — the Sub-Registrar directory (`useSroOffices`).
  *   · Stamp duty    — the AP fee schedule (`useFeeSchedule`) and the live
@@ -13,7 +13,12 @@
  *   · Market value  — the guideline-rate table (`useMarketValues`) narrowed by
  *                     a district → mandal → village cascade.
  *   · Area          — pure @pattadar/core units/landcalc: converter, plot
- *                     area, fencing, and area from a pasted GeoJSON ring.
+ *                     area, and area from a pasted GeoJSON ring; Plot area
+ *                     and Map area hand their sides, in metres, to the Fence
+ *                     tab. The old feet / `fenceEstimate` sub-tab is retired.
+ *   · Fence         — the village-map fence calculator (FenceStudio) without
+ *                     the map: sides typed in metres, priced and printed by
+ *                     the same FenceParts.tsx / fenceBill.ts. No reads.
  *
  *  The tab rides in `?tab=` so the old addresses (/legacy/tools and the four
  *  /legacy/sro-style aliases, routes.tsx ToTools) keep landing on the tool
@@ -26,17 +31,19 @@
  *  samples — so without a schedule it now says it cannot run, instead of
  *  offering a picker with nothing in it.
  */
-import { useId, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useId, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 
 import {
+  LENGTH_FT,
   LENGTH_UNITS,
   UNITS,
   acresToAll,
   calcStampDuty,
-  fenceEstimate,
   formatArea,
   formatINR,
   formatNumberIN,
@@ -46,6 +53,7 @@ import {
   rectangleSqft,
   ringAreaSqM,
   ringPerimM,
+  ringSides,
   round2,
   toAcres,
   toFeet,
@@ -56,71 +64,20 @@ import type { FeeScheduleRow, LengthUnit, UnitKey } from '@pattadar/core';
 
 import { gql } from '../../api/client';
 import { useFeeSchedule, useMarketValues, useSroOffices } from '../../data/hooks';
-import { Card, Empty, Failed, Loading, PageHead, plural } from '../ui';
-
-// ── Tab strip ──────────────────────────────────────────────────────────
-
-/** A real tab list: `aria-selected`, one tab stop, Arrow/Home/End between
- *  tabs — the same contract as the Families & Groups strip. The stylesheet
- *  keys `.tabs [aria-selected='true']`, which is only valid inside
- *  `role="tablist"`, so the role comes with its keyboard behaviour. */
-function TabStrip<T extends string>({
-  tabs, value, onChange, label, idBase,
-}: {
-  tabs: { id: T; label: string }[];
-  value: T;
-  onChange: (id: T) => void;
-  label: string;
-  idBase: string;
-}) {
-  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const onKeyDown = (e: KeyboardEvent) => {
-    const at = tabs.findIndex((t) => t.id === value);
-    let to = -1;
-    if (e.key === 'ArrowRight') to = (at + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') to = (at - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') to = 0;
-    else if (e.key === 'End') to = tabs.length - 1;
-    if (to < 0) return;
-    e.preventDefault();
-    onChange(tabs[to].id);
-    refs.current[tabs[to].id]?.focus();
-  };
-  return (
-    <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="tab"
-          id={`${idBase}-tab-${t.id}`}
-          aria-controls={`${idBase}-panel-${t.id}`}
-          aria-selected={t.id === value}
-          tabIndex={t.id === value ? 0 : -1}
-          ref={(el) => { refs.current[t.id] = el; }}
-          onClick={() => onChange(t.id)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Panel({ idBase, id, children }: { idBase: string; id: string; children: ReactNode }) {
-  return (
-    <div role="tabpanel" id={`${idBase}-panel-${id}`} aria-labelledby={`${idBase}-tab-${id}`}>
-      {children}
-    </div>
-  );
-}
+import { fenceBill } from '../fenceBill';
+import { FenceBillTable, FenceBuildFields, FenceSheet, sideName, useFenceBuild } from '../FenceParts';
+// The tab strip and its panel are the shared ui.tsx TabStrip / TabPanel (one
+// role="tablist" contract, Arrow/Home/End, for this screen and Families & groups).
+import { Card, Empty, Failed, Loading, PageHead, TabPanel, TabStrip, num, plural } from '../ui';
 
 // ── Small form atoms ───────────────────────────────────────────────────
 
 /** A labelled number box. Labels are real `<label for>` so the field is named
  *  by what it asks for, not by its placeholder. */
-function NumField({ label, value, onChange, placeholder }: {
+function NumField({ label, value, onChange, placeholder, invalid }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  /** The box holds something that is not an answer to its question. */
+  invalid?: boolean;
 }) {
   const id = useId();
   return (
@@ -128,6 +85,7 @@ function NumField({ label, value, onChange, placeholder }: {
       <label htmlFor={id}>{label}</label>
       <input
         id={id} type="number" inputMode="decimal" value={value} placeholder={placeholder}
+        aria-invalid={invalid || undefined}
         onChange={(e) => onChange(e.currentTarget.value)}
       />
     </div>
@@ -173,10 +131,10 @@ function SroTool() {
       <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
         The Sub-Registrar Office that serves your village.
       </p>
-      <div className="search" style={{ marginBottom: 'var(--space-md)' }}>
+      <div className="search" style={{ marginBottom: 'var(--space-md)', justifySelf: 'start' }}>
         <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
         <input
-          type="text" value={q} onChange={(e) => setQ(e.currentTarget.value)}
+          type="search" value={q} onChange={(e) => setQ(e.currentTarget.value)}
           placeholder="Search office, district, mandal…"
           aria-label="Search SRO offices"
         />
@@ -497,14 +455,16 @@ function AreaResult({ acres, title }: { acres: number; title?: string }) {
   );
 }
 
-function UsePerimeter({ perimFt, onUse, extra }: { perimFt: number; onUse: (ft: number) => void; extra?: string }) {
+function UsePerimeter({ perimFt, sidesM, onUse, extra }: {
+  perimFt: number; sidesM: number[]; onUse: (m: number[]) => void; extra?: string;
+}) {
   if (!(perimFt > 0)) return null;
   return (
     <div className="row" style={{ marginTop: 'var(--space-sm)' }}>
       <span className="note">
         Perimeter ≈ {round2(perimFt).toLocaleString('en-IN')} ft{extra ? ` (${extra})` : ''}
       </span>
-      <button type="button" className="btn sm" onClick={() => onUse(perimFt)}>Use in Fencing →</button>
+      <button type="button" className="btn sm" onClick={() => onUse(sidesM)}>Use in Fencing →</button>
     </div>
   );
 }
@@ -531,7 +491,7 @@ function ConverterTab() {
 
 type Shape = 'rect' | 'tri' | 'quad';
 
-function PlotAreaTab({ onUsePerimeter }: { onUsePerimeter: (ft: number) => void }) {
+function PlotAreaTab({ onUseSides }: { onUseSides: (m: number[]) => void }) {
   const [shape, setShape] = useState<Shape>('rect');
   const [lu, setLu] = useState<LengthUnit>('ft');
   const [d, setD] = useState<Record<string, string>>({});
@@ -549,6 +509,14 @@ function PlotAreaTab({ onUsePerimeter }: { onUsePerimeter: (ft: number) => void 
       : shape === 'tri'
         ? ft('a') + ft('b') + ft('c')
         : ft('s1') + ft('s2') + ft('s3') + ft('s4');
+  // The same sides in metres for the Fence tab; the diagonal is not a side.
+  const m = (k: string) => ft(k) / LENGTH_FT.m;
+  const sidesM =
+    shape === 'rect'
+      ? [m('len'), m('wid'), m('len'), m('wid')]
+      : shape === 'tri'
+        ? [m('a'), m('b'), m('c')]
+        : [m('s1'), m('s2'), m('s3'), m('s4')];
 
   const side = (k: string, label: string) => (
     <NumField key={k} label={label} value={d[k] ?? ''} onChange={(v) => setD((p) => ({ ...p, [k]: v }))} />
@@ -584,50 +552,17 @@ function PlotAreaTab({ onUsePerimeter }: { onUsePerimeter: (ft: number) => void 
         ]}
       </div>
       <AreaResult acres={sqft / 43560} />
-      <UsePerimeter perimFt={perimFt} onUse={onUsePerimeter} />
+      <UsePerimeter perimFt={perimFt} sidesM={sidesM} onUse={onUseSides} />
     </>
   );
 }
 
-function FencingTab({ perimeterFt }: { perimeterFt: number }) {
-  const [perimeter, setPerimeter] = useState(perimeterFt > 0 ? String(round2(perimeterFt)) : '');
-  const [spacing, setSpacing] = useState('8');
-  const [strands, setStrands] = useState('3');
-  const [costPost, setCostPost] = useState('');
-  const [costWire, setCostWire] = useState('');
-  const r = fenceEstimate(
-    Number(perimeter) || 0,
-    Number(spacing) || 0,
-    Number(strands) || 0,
-    Number(costPost) || 0,
-    Number(costWire) || 0,
-  );
-  return (
-    <>
-      <div className="toolfields">
-        <NumField label="Perimeter (ft)" value={perimeter} onChange={setPerimeter} />
-        <NumField label="Post spacing (ft)" value={spacing} onChange={setSpacing} />
-        <NumField label="Wire strands / rails" value={strands} onChange={setStrands} />
-        <NumField label="Cost per post (₹)" value={costPost} onChange={setCostPost} />
-        <NumField label="Cost per ft wire (₹)" value={costWire} onChange={setCostWire} />
-      </div>
-      <div className="strip" style={{ marginTop: 'var(--space-md)' }}>
-        <div><span className="k">Posts</span><span className="v">{r.posts}</span></div>
-        <div><span className="k">Wire length (ft)</span><span className="v">{round2(r.wire).toLocaleString('en-IN')}</span></div>
-        <div>
-          <span className="k">Est. cost</span>
-          <span className="v">{r.cost > 0 ? `₹${round2(r.cost).toLocaleString('en-IN')}` : '—'}</span>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function MapAreaTab({ onUsePerimeter }: { onUsePerimeter: (ft: number) => void }) {
+function MapAreaTab({ onUseSides }: { onUseSides: (m: number[]) => void }) {
   const [geo, setGeo] = useState('');
   const id = useId();
   const ring = useMemo(() => parsePolygonRing(geo), [geo]);
   const perimM = ringPerimM(ring);
+  const sidesM = useMemo(() => ringSides(ring).map((s) => s.metres), [ring]);
   return (
     <>
       <div className="field">
@@ -644,7 +579,7 @@ function MapAreaTab({ onUsePerimeter }: { onUsePerimeter: (ft: number) => void }
       {ring.length >= 3 ? (
         <>
           <AreaResult acres={ringAreaSqM(ring) / 4046.8564} />
-          <UsePerimeter perimFt={perimM * 3.280839895} onUse={onUsePerimeter}
+          <UsePerimeter perimFt={perimM * 3.280839895} sidesM={sidesM} onUse={onUseSides}
                         extra={`${round2(perimM).toLocaleString('en-IN')} m`} />
         </>
       ) : (
@@ -654,51 +589,154 @@ function MapAreaTab({ onUsePerimeter }: { onUsePerimeter: (ft: number) => void }
   );
 }
 
-type CalcTab = 'convert' | 'plot' | 'fence' | 'map';
+type CalcTab = 'convert' | 'plot' | 'map';
 const CALC_TABS: { id: CalcTab; label: string }[] = [
   { id: 'convert', label: 'Unit converter' },
   { id: 'plot', label: 'Plot area' },
-  { id: 'fence', label: 'Fencing' },
   { id: 'map', label: 'Map area' },
 ];
 
-function CalculatorTool() {
+function CalculatorTool({ onUseSides }: { onUseSides: (m: number[]) => void }) {
   const [tab, setTab] = useState<CalcTab>('convert');
-  const [perimeterFt, setPerimeterFt] = useState(0);
   const idBase = useId();
-  const usePerimeter = (ftVal: number) => {
-    setPerimeterFt(ftVal);
-    setTab('fence');
-  };
   return (
     <Card title="Area calculator">
       <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-        Unit conversion, plot measurement, fencing estimates and boundary area.
+        Unit conversion, plot measurement and boundary area.
       </p>
       <TabStrip tabs={CALC_TABS} value={tab} onChange={setTab} label="Area calculator" idBase={idBase} />
-      <Panel idBase={idBase} id={tab}>
+      <TabPanel idBase={idBase} id={tab}>
         {tab === 'convert' ? (
           <ConverterTab />
         ) : tab === 'plot' ? (
-          <PlotAreaTab onUsePerimeter={usePerimeter} />
-        ) : tab === 'fence' ? (
-          <FencingTab key={perimeterFt} perimeterFt={perimeterFt} />
+          <PlotAreaTab onUseSides={onUseSides} />
         ) : (
-          <MapAreaTab onUsePerimeter={usePerimeter} />
+          <MapAreaTab onUseSides={onUseSides} />
         )}
-      </Panel>
+      </TabPanel>
     </Card>
   );
 }
 
+// ── Fence calculator ───────────────────────────────────────────────────
+
+/** Four sides is a plot; the owner adds or removes from there. */
+const FOUR_SIDES = ['', '', '', ''];
+
+/** The village-map fence calculator, without the map: the sides are typed
+ *  rather than traced. Steps 2 and 3, the sheet and every sum are the studio's
+ *  own (FenceParts.tsx, fenceBill.ts), and the build and rates are remembered
+ *  under the same key, so the two cannot price the same fence differently.
+ *  There is no record here, so nothing to raise the work against — it prints. */
+function FenceTool({ initial }: { initial?: string[] }) {
+  const [sides, setSides] = useState<string[]>(initial ?? FOUR_SIDES);
+  const [closed, setClosed] = useState(true);
+  const [build, setField] = useFenceBuild();
+  const closedId = useId();
+
+  // A blank box is a side not entered yet; anything else must be a length.
+  const metres = sides.map((v) => (v.trim() === '' ? null : Number(v)));
+  const bad = metres.map((m) => m !== null && !(Number.isFinite(m) && m > 0));
+  const kept = metres.filter((m, i): m is number => m !== null && !bad[i]);
+  const bill = fenceBill(kept, closed, build);
+  const name = (i: number) => sideName(i, sides.length, closed);
+  // The sheet calls each side what its row calls it, blank rows skipped.
+  const keptNames = sides.map((_, i) => name(i)).filter((_, i) => metres[i] !== null && !bad[i]);
+  // A refused side would be missing from the sheet with nothing saying so.
+  const invalid = bad.some(Boolean);
+
+  const setSide = (i: number, v: string) => setSides((s) => s.map((x, j) => (j === i ? v : x)));
+  const removeSide = (i: number) => setSides((s) => s.filter((_, j) => j !== i));
+
+  const actions = (
+    <>
+      <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
+        <button type="button" className="btn sm" disabled={kept.length === 0 || invalid}
+                onClick={() => window.print()}>
+          <PrintOutlined sx={{ fontSize: 15 }} /> Print for the supplier
+        </button>
+        <button type="button" className="btn sm" onClick={() => setSides(FOUR_SIDES)}>
+          Clear
+        </button>
+      </div>
+      <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
+        File this plot as a property to raise it as work.
+      </p>
+    </>
+  );
+
+  return (
+    <div className="fs-tool">
+      <div className="two">
+        <Card title="Fence calculator">
+          <div className="fs-steps">
+            <section>
+              <p className="eyebrow">Step 1 · What you are fencing</p>
+              {sides.map((v, i) => (
+                <div className="fs-siderow" key={i}>
+                  <NumField label={`Side ${name(i)} (m)`} value={v} invalid={bad[i]}
+                            onChange={(x) => setSide(i, x)} />
+                  <button type="button" className="btn sm" aria-label={`Remove side ${name(i)}`}
+                          disabled={sides.length <= 1} onClick={() => removeSide(i)}>
+                    <CloseOutlined sx={{ fontSize: 15 }} />
+                  </button>
+                </div>
+              ))}
+              {invalid && (
+                <p className="note" role="alert" style={{ color: 'var(--w-danger)', margin: 0 }}>
+                  Enter each side as a length in metres, more than 0.
+                </p>
+              )}
+              <div className="row tight">
+                <button type="button" className="btn sm" onClick={() => setSides((s) => [...s, ''])}>
+                  Add a side
+                </button>
+              </div>
+              <label className="check" htmlFor={closedId}>
+                <input id={closedId} type="checkbox" checked={closed}
+                       onChange={(e) => setClosed(e.currentTarget.checked)} />
+                The fence goes all the way round
+              </label>
+              <p className="note">
+                {plural(kept.length, 'side')} ·{' '}
+                <strong className="num">{num(bill.plan.perimeter, 1)} m</strong> to fence.
+              </p>
+            </section>
+
+            <FenceBuildFields build={build} set={setField} idBase="fence-tool" />
+          </div>
+        </Card>
+
+        <Card title="What it comes to">
+          {kept.length === 0 ? (
+            <>
+              <Empty title="Enter the length of each side to price a fence" />
+              {actions}
+            </>
+          ) : (
+            <FenceBillTable bill={bill} build={build}>{actions}</FenceBillTable>
+          )}
+        </Card>
+      </div>
+
+      <FenceSheet sides={kept} names={keptNames} dropped={NONE_DROPPED}
+                  closed={closed} bill={bill} build={build} />
+    </div>
+  );
+}
+
+/** Typed sides are all fenced: a side you are not fencing is not entered. */
+const NONE_DROPPED = new Set<number>();
+
 // ── The page ───────────────────────────────────────────────────────────
 
-type ToolTab = 'sro' | 'stamp-duty' | 'market-value' | 'calculator';
+type ToolTab = 'sro' | 'stamp-duty' | 'market-value' | 'calculator' | 'fence';
 const TOOL_TABS: { id: ToolTab; label: string }[] = [
   { id: 'sro', label: 'Find SRO' },
   { id: 'stamp-duty', label: 'Stamp duty' },
   { id: 'market-value', label: 'Market value' },
   { id: 'calculator', label: 'Area calculator' },
+  { id: 'fence', label: 'Fence calculator' },
 ];
 const isToolTab = (v: string | null): v is ToolTab => TOOL_TABS.some((t) => t.id === v);
 
@@ -708,26 +746,36 @@ export function Tools() {
   // An unknown ?tab= falls back to the directory rather than a blank panel.
   const tab: ToolTab = isToolTab(raw) ? raw : 'sro';
   const choose = (t: ToolTab) => setParams({ tab: t }, { replace: true });
+  // Plot area / Map area hand their sides (metres) to the Fence tab; a new
+  // key starts the fence tool afresh from them. A blank or zero side goes in
+  // as a blank box ("not entered"), never as a 0 m side.
+  const [fenceSeed, setFenceSeed] = useState<{ n: number; sides: string[] } | null>(null);
+  const handOffSides = (m: number[]) => {
+    setFenceSeed((s) => ({ n: (s?.n ?? 0) + 1, sides: m.map((v) => (v > 0 ? String(round2(v)) : '')) }));
+    choose('fence');
+  };
 
   return (
     <main>
-      <PageHead eyebrow="Account" title="Tools">
+      <PageHead title="Tools">
         <p className="lede" style={{ maxWidth: '46rem' }}>
-          SRO finder · Stamp duty · Guideline values · Area
+          SRO finder · Stamp duty · Guideline values · Area · Fencing
         </p>
       </PageHead>
       <TabStrip tabs={TOOL_TABS} value={tab} onChange={choose} label="Tools" idBase="tools" />
-      <Panel idBase="tools" id={tab}>
+      <TabPanel idBase="tools" id={tab}>
         {tab === 'sro' ? (
           <SroTool />
         ) : tab === 'stamp-duty' ? (
           <StampDutyTool />
         ) : tab === 'market-value' ? (
           <MarketValueTool />
+        ) : tab === 'fence' ? (
+          <FenceTool key={fenceSeed?.n ?? 0} initial={fenceSeed?.sides} />
         ) : (
-          <CalculatorTool />
+          <CalculatorTool onUseSides={handOffSides} />
         )}
-      </Panel>
+      </TabPanel>
     </main>
   );
 }

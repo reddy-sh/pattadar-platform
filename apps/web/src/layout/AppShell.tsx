@@ -32,28 +32,26 @@ import MenuItem from '@mui/material/MenuItem';
 import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { useColorScheme } from '@mui/material/styles';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
-import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
-import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import MailOutlinedIcon from '@mui/icons-material/MailOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined';
-import ContrastOutlinedIcon from '@mui/icons-material/ContrastOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { isAuthMocked, useAuth } from '../auth/AuthProvider';
 import { FileViewerHost } from '../components/FileViewer';
+import { SCHEME_ICON } from '../components/schemeIcons';
+import { useThemeChoice } from '../components/useThemeChoice';
 
 const DRAWER_WIDTH = 252;
 
@@ -92,63 +90,41 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+/** The previous app's theme menu. Same choice, same options, as W360's: both
+ *  go through useThemeChoice, so a scheme chosen in one is the one the other
+ *  shows. */
 function ThemeToggle() {
-  const { colorScheme, setColorScheme, setMode } = useColorScheme();
+  const { choice, choose, options } = useThemeChoice();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
-  if (!colorScheme) return null;
-
-  const options = [
-    { value: 'light' as const, label: 'Light', icon: <LightModeOutlinedIcon fontSize="small" /> },
-    { value: 'dark' as const, label: 'Dark', icon: <DarkModeOutlinedIcon fontSize="small" /> },
-    {
-      value: 'highContrast' as const,
-      label: 'High Contrast',
-      icon: <ContrastOutlinedIcon fontSize="small" />,
-    },
-  ];
-  const triggerIcon =
-    colorScheme === 'highContrast' ? (
-      <ContrastOutlinedIcon />
-    ) : colorScheme === 'dark' ? (
-      <DarkModeOutlinedIcon />
-    ) : (
-      <LightModeOutlinedIcon />
-    );
-
-  const selectTheme = (value: (typeof options)[number]['value']) => {
-    if (value === 'dark') {
-      setColorScheme({ dark: 'dark' });
-      setMode('dark');
-    } else {
-      setColorScheme({ light: value });
-      setMode('light');
-    }
-    setAnchor(null);
-  };
+  const current = options.find((o) => o.id === choice) ?? options[0];
+  const Trigger = SCHEME_ICON[current.icon];
 
   return (
     <>
       <Tooltip title="Theme">
         <IconButton color="inherit" aria-label="Change theme" onClick={(e) => setAnchor(e.currentTarget)}>
-          {triggerIcon}
+          <Trigger />
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
-        {options.map((o) => (
-          <MenuItem
-            key={o.value}
-            role="menuitemradio"
-            aria-checked={colorScheme === o.value}
-            selected={colorScheme === o.value}
-            onClick={() => selectTheme(o.value)}
-          >
-            <ListItemIcon>{o.icon}</ListItemIcon>
-            <ListItemText>{o.label}</ListItemText>
-            {colorScheme === o.value && (
-              <CheckIcon fontSize="small" sx={{ ml: 1.5, color: 'primary.main' }} />
-            )}
-          </MenuItem>
-        ))}
+        {options.map((o) => {
+          const Glyph = SCHEME_ICON[o.icon];
+          return (
+            <MenuItem
+              key={o.id}
+              role="menuitemradio"
+              aria-checked={choice === o.id}
+              selected={choice === o.id}
+              onClick={() => { choose(o.id); setAnchor(null); }}
+            >
+              <ListItemIcon><Glyph fontSize="small" /></ListItemIcon>
+              <ListItemText>{o.label}</ListItemText>
+              {choice === o.id && (
+                <CheckIcon fontSize="small" sx={{ ml: 1.5, color: 'primary.main' }} />
+              )}
+            </MenuItem>
+          );
+        })}
       </Menu>
     </>
   );
@@ -231,18 +207,19 @@ export function AppShell() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Quiet top bar — blends with the page; titles live in content. */}
+      {/* Quiet top bar — titles live in content. It wears the scheme's header
+          colours (palette.chrome): the page's own in Bloom and High Contrast,
+          Pattadar Gold's charcoal with a gold rule. */}
       <AppBar
         position="fixed"
         elevation={0}
         color="transparent"
-        sx={{
-          zIndex: (t) => t.zIndex.drawer + 1,
-          bgcolor: 'background.default',
-          borderBottom: 1,
-          borderColor: 'divider',
-          color: 'text.primary',
-        }}
+        sx={(t) => ({
+          zIndex: t.zIndex.drawer + 1,
+          bgcolor: 'chrome.bg',
+          borderBottom: `${(t.vars ?? t).palette.chrome.ruleWidth} solid ${(t.vars ?? t).palette.chrome.rule}`,
+          color: 'chrome.ink',
+        })}
       >
         <Toolbar>
           <IconButton
@@ -265,7 +242,7 @@ export function AppShell() {
               sx={{
                 fontWeight: 700,
                 letterSpacing: '-0.01em',
-                color: 'text.primary',
+                color: 'chrome.ink',
               }}
             >
               Pattadar
@@ -275,7 +252,7 @@ export function AppShell() {
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                bgcolor: 'primary.main',
+                bgcolor: 'chrome.accent',
               }}
             />
           </Box>
@@ -303,7 +280,7 @@ export function AppShell() {
                 width: 32,
                 height: 32,
                 bgcolor: 'action.selected',
-                color: 'text.primary',
+                color: 'chrome.ink',
                 fontSize: 15,
                 fontWeight: 700,
               }}

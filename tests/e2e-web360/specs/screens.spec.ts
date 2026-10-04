@@ -861,25 +861,23 @@ test.describe('W04 · map and boundary', () => {
     expect(errors).toEqual([]);
   });
 
-  test('the hand-off goes to the device\u2019s own map, named honestly', async ({ page }) => {
+  test('the whole-parcel hand-off is Google Maps directions, the same on every device', async ({ page }) => {
     await stubTiles(page);
     await page.goto(`/app/records/${PARCEL}/map`);
 
     // Behind the overflow now: the row was seven buttons wide, and a hand-off
     // to another app is an errand rather than a tool.
     await page.getByRole('button', { name: 'More for this map' }).click();
-    // Playwright's Chromium reports a Mac UA, so this machine gets Apple Maps
-    // — and the item says so rather than promising it to everyone. Inside a
-    // menu its ARIA role is menuitem, but it is still an <a> with an href, so
-    // it can be copied or opened in a new tab.
-    const away = page.getByRole('menuitem', { name: /^Open in / });
-    await expect(away).toHaveText('Open in Apple Maps');
+    // Inside a menu its ARIA role is menuitem, but it is still an <a> with an
+    // href, so it can be copied or opened in a new tab. Every hand-off is
+    // Google Maps directions (Reddy, 03/10/2026) — no device sniffing.
+    const away = page.getByRole('menuitem', { name: 'Navigate in Google Maps' });
     await expect(away).toHaveJSProperty('tagName', 'A');
+    await expect(page.getByRole('menuitem', { name: /Apple Maps|^Open in / })).toHaveCount(0);
     const href = await away.getAttribute('href');
-    expect(href).toMatch(/^https:\/\/maps\.apple\.com\/\?ll=17\.078\d+,82\.139\d+/);
-    expect(href).toContain('t=k');           // land is looked at on imagery
-    expect(href).toContain('q=Sy%20214%2F2'); // the pin is named
-    // Never clicked: a geo: URI has nowhere to go in Chromium.
+    expect(href).toMatch(/^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=17\.078\d*,82\.139\d*$/);
+    expect(href).not.toContain('t=k');
+    expect(href).not.toContain('q=');  // coordinates only
   });
 
   test('a record with no survey is still on real ground, with its stones', async ({ page }) => {
@@ -1206,7 +1204,7 @@ test.describe('W04 · map and boundary', () => {
     }
   });
 
-  test('the address is on the screen, and rides along to Apple Maps', async ({ page }) => {
+  test('the address is on the screen, and stays out of the hand-off URL', async ({ page }) => {
     await stubTiles(page);
     await page.goto(`/app/records/${PARCEL}/map`);
 
@@ -1216,17 +1214,13 @@ test.describe('W04 · map and boundary', () => {
     await expect(page.getByText('Kothapalli, Peddapuram, Kakinada — Andhra Pradesh')).toBeVisible();
     await expect(page.getByText(/Khata 10021/)).toBeVisible();
 
-    // The hand-off carries the village too, so the dropped pin is recognisable
-    // once you are inside Maps.
+    // The village is printed on the screen; a third-party URL carries only the
+    // coordinate (Reddy, 03/10/2026).
     await page.getByRole('button', { name: 'More for this map' }).click();
-    const href = (await page.getByRole('menuitem', { name: /^Open in / })
+    const href = (await page.getByRole('menuitem', { name: 'Navigate in Google Maps' })
       .getAttribute('href'))!;
-    expect(href).toContain('q=Sy%20214%2F2%2C%20Kothapalli');
-    // The coordinate must be OURS. Apple documents ll as taking precedence,
-    // and the label is kept short so Maps cannot match it to some other POI.
-    expect(href).toMatch(/ll=17\.\d+,82\.\d+/);
-    // A raw '/' would end the query string early.
-    expect(href).not.toContain('Sy 214/2');
+    expect(new URL(href).searchParams.get('destination')).toMatch(/^17\.\d+,82\.\d+$/);
+    for (const text of ['Sy', '214', 'Kothapalli', 'q=']) expect(href).not.toContain(text);
   });
 
   test('Measurements shows every side, and the unit switch moves lengths only',
@@ -1412,7 +1406,8 @@ test.describe('W04 · map and boundary', () => {
     const overlaps = !(x.x > v.x + v.width || x.x + x.width < v.x
                     || x.y > v.y + v.height || x.y + x.height < v.y);
     expect(overlaps, 'the close must not sit on the first coordinate').toBe(false);
-    await expect(tip.getByRole('link', { name: /Corner B/ })).toHaveAttribute('href', /maps\.apple|geo:|openstreetmap/);
+    await expect(tip.getByRole('link', { name: /Navigate to B/ }))
+      .toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=/);
 
     // Clicking the same row again lets it go.
     await rows.nth(1).getByRole('button').click();
@@ -1686,7 +1681,7 @@ test.describe('W04 · map and boundary', () => {
     await expect(tip).not.toContainText('Corner D');
     await expect(tip).not.toContainText('Between');
     await expect(tip.getByRole('link', { name: /Navigate/ }))
-      .toHaveAttribute('href', /maps\.apple|geo:|openstreetmap/);
+      .toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=/);
 
     // The picked corner is the subject, and no side is being claimed.
     await expect(page.locator('.w-corner-no.picked')).toHaveCount(1);
@@ -2341,12 +2336,12 @@ test.describe('the shell', () => {
 
   test('the High Contrast theme survives a reload', async ({ page }) => {
     await page.goto('/app');
-    await expect(page.locator('.w360')).toHaveAttribute('data-scheme', 'dark');
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
     await page.getByRole('button', { name: 'Change theme' }).click();
     await page.getByRole('menuitemradio', { name: 'High Contrast' }).click();
-    await expect(page.locator('.w360')).toHaveAttribute('data-scheme', 'highContrast');
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'highContrast');
     await page.reload();
-    await expect(page.locator('.w360')).toHaveAttribute('data-scheme', 'highContrast');
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'highContrast');
     await page.getByRole('button', { name: 'Change theme' }).click();
     await expect(page.getByRole('menuitemradio', { name: 'High Contrast' }))
       .toHaveAttribute('aria-checked', 'true');

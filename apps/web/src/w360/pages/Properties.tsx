@@ -1020,7 +1020,7 @@ export function Properties() {
               the land; the filter's own count now lives in the filter row where
               the filter is. */}
           {data && !virgin && (
-            <p className="note num" style={{ marginTop: '0.5rem' }}>{portfolioLine}</p>
+            <p className="note num" style={{ marginTop: '0.375rem' }}>{portfolioLine}</p>
           )}
           {firstLoad && <Sk w="18rem" h="1rem" r="var(--radius-xs)" />}
         </PageHead>

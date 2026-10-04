@@ -9,8 +9,10 @@
  * Numbers are formatted the Indian way throughout — lakh/crore short forms and
  * 2,2,3 digit grouping — because that is what the records actually say.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties, HTMLAttributes, ReactNode, RefObject } from 'react';
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import type {
+  CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -475,15 +477,27 @@ export interface FacetFilterChip {
   onRemove: () => void;
 }
 
+/** What a page may ask of a `FacetFilter` it holds a `ref` to. */
+export interface FacetFilterHandle {
+  /** Put the popover away, as a press outside it does, leaving focus where it
+   *  is. Does nothing while the popover is shut. */
+  close: () => void;
+}
+
 /** The single faceted-filter surface used by list pages.
  *
  * Pages own only their filter values and domain labels. Opening, dismissal,
  * active chips, counts and keyboard focus live here so a filter never changes
- * its interaction model because the list underneath happens to be different. */
+ * its interaction model because the list underneath happens to be different.
+ * The one thing a page may ask, through the optional `ref`, is that an open
+ * popover close: a page whose own temporary surface opens in the same place
+ * (Cadastral maps' village matches, in this filter's `trailing` slot) closes
+ * it so the two never cover each other. A page that passes no `ref` gets
+ * exactly the filter every other page has. */
 export function FacetFilter({
   groups, selected, onToggle, onClear, tally, trailing, extraChips = [],
   groupLabel, missingOptionLabel, busy = false, ariaLabel = 'Narrow the list',
-  searchPlaceholder,
+  searchPlaceholder, ref,
 }: {
   groups: FacetFilterGroup[];
   selected: Record<string, readonly string[]>;
@@ -501,6 +515,8 @@ export function FacetFilter({
    *  query filters option labels across groups; screens keep no second search
    *  implementation of their own. */
   searchPlaceholder?: string;
+  /** Optional: lets the page close the popover (`FacetFilterHandle`). */
+  ref?: RefObject<FacetFilterHandle | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [optionQuery, setOptionQuery] = useState('');
@@ -540,6 +556,7 @@ export function FacetFilter({
     setOpen(false);
     setOptionQuery('');
   };
+  useImperativeHandle(ref, () => ({ close }));
 
   useEffect(() => {
     if (!open) return;
@@ -624,7 +641,10 @@ export function FacetFilter({
               })}
             </div>
           ))}
-          {visibleGroups.length === 0 && (
+          {/* Said of a search that matched nothing. With nothing typed yet, a
+              popover with a search has had nothing to miss, so its search row
+              stands alone. One without a search keeps the line. */}
+          {visibleGroups.length === 0 && (query.length > 0 || !searchPlaceholder) && (
             <p className="fpop-empty">No filter options match that search.</p>
           )}
         </div>
@@ -647,6 +667,100 @@ export function SortCycle({ label, onNext, ariaLabel }: {
     <button type="button" className="sortcycle" aria-label={ariaLabel} onClick={onNext}>
       Sort: {label} ⌄
     </button>
+  );
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────
+
+/** A tab's status: a glyph drawn beside the label, and a word that is the
+ *  glyph's tooltip and the end of the tab's accessible name (aria-label),
+ *  so a status never rests on a glyph or a colour alone for assistive tech.
+ *  The word is not drawn (Reddy, 03/10/2026: "Safeguard" plus the glyph). */
+export interface TabStripStatus { glyph: string; word: string; state: 'good' | 'warn' | 'bad' }
+
+export interface TabStripTab<T extends string> {
+  id: T;
+  label: string;
+  /** A count beside the label, printed as RecordTabs prints it: zero is
+   *  shown, dimmed. */
+  n?: number;
+  status?: TabStripStatus;
+}
+
+/**
+ * An in-page tab list: `aria-selected`, one tab stop for the whole strip, and
+ * Arrow/Home/End moving between them. The stylesheet keys on
+ * `[aria-selected='true']`, which is only a valid attribute inside
+ * `role="tablist"` — so declaring the role means also honouring the keyboard
+ * contract that comes with it, rather than borrowing the styling and leaving a
+ * keyboard user to Tab through every tab to reach the panel.
+ *
+ * Families & groups and Tools had each written this out locally; route tabs
+ * (a tab per address) are RecordTabs / HoldingTabs instead.
+ */
+export function TabStrip<T extends string>({
+  tabs, value, onChange, label, idBase,
+}: {
+  tabs: TabStripTab<T>[];
+  value: T;
+  onChange: (id: T) => void;
+  label: string;
+  idBase: string;
+}) {
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const onKeyDown = (e: ReactKeyboardEvent) => {
+    const at = tabs.findIndex((t) => t.id === value);
+    let to = -1;
+    if (e.key === 'ArrowRight') to = (at + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') to = (at - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = tabs.length - 1;
+    if (to < 0) return;
+    e.preventDefault();
+    onChange(tabs[to].id);
+    refs.current[tabs[to].id]?.focus();
+  };
+
+  return (
+    <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`${idBase}-tab-${t.id}`}
+          aria-controls={`${idBase}-panel-${t.id}`}
+          aria-selected={t.id === value}
+          tabIndex={t.id === value ? 0 : -1}
+          ref={(el) => { refs.current[t.id] = el; }}
+          onClick={() => onChange(t.id)}
+          aria-label={t.status
+            ? `${t.label}${t.n !== undefined ? ` ${num(t.n)}` : ''}, ${t.status.word}`
+            : undefined}
+        >
+          {t.label}
+          {t.n !== undefined && <span className={t.n > 0 ? 'n' : 'n zero'}>{num(t.n)}</span>}
+          {t.status && (
+            <span className={`tabstatus ${t.status.state}`}>
+              {/* Only the glyph is drawn; the word is its tooltip and, through
+                  the button's aria-label, the end of the tab's accessible
+                  name ("Safeguard, needs action"). */}
+              <span className="glyph" aria-hidden title={t.status.word}>{t.status.glyph}</span>
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The panel a TabStrip tab controls. */
+export function TabPanel({ idBase, id, children }: { idBase: string; id: string; children: ReactNode }) {
+  return (
+    <div role="tabpanel" id={`${idBase}-panel-${id}`} aria-labelledby={`${idBase}-tab-${id}`}>
+      {children}
+    </div>
   );
 }
 

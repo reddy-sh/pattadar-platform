@@ -29,6 +29,7 @@ import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { RecordDrawer } from './PropertyActions';
 import { SecureShareGuidance } from '../GovernanceGuidance';
+import { displayDetail } from '../paperFiling';
 
 /** The nine hangers, in the order the strip draws them.
  *
@@ -432,7 +433,7 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
                 <input type="checkbox" checked={shareDocs.includes(paper.id)}
                        onChange={() => setShareDocs((current) => current.includes(paper.id)
                          ? current.filter((id) => id !== paper.id) : [...current, paper.id])} />
-                <span><strong>{paper.title}</strong><small>{paper.detail || paper.shelf}</small></span>
+                <span><strong>{paper.title}</strong><small>{displayDetail(paper.detail) || paper.shelf}</small></span>
               </label>
             ))}
             {papers.data?.length === 0 && <p className="note">There are no documents on this property to share.</p>}

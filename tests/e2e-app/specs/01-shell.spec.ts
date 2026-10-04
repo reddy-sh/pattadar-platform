@@ -16,12 +16,12 @@
  *    on purpose — both halves were static markup, so the app's primary audience
  *    tapped Telugu and got English. There is nothing to assert but its absence,
  *    and that is asserted.
- *  · The scheme is NOT reloaded in a test. fixtures/harness.ts writes
- *    `w360.scheme` in an addInitScript, which re-runs on every document load —
- *    so a `page.reload()` would prove the fixture's opinion, not the app's. The
- *    round trip is asserted in two halves instead: the toggle writes the choice
- *    down, and a page that starts with the choice already written honours it.
- *    The rail's `w360.rail` has no such fixture, so that one IS reloaded.
+ *  · fixtures/harness.ts still writes the OLD `w360.scheme` key before every
+ *    load. The app's own first-paint script (public/theme-init.js) carries that
+ *    key into MUI's theme keys once and marks it carried, so each test starts
+ *    the way a returning user's first visit after the change does — and after
+ *    that, MUI's keys are the choice. A `page.reload()` therefore proves the
+ *    app's opinion, not the fixture's, and the round trip is reloaded below.
  *  · The assistant is not running in the sealed world (seed.ts answers 503 for
  *    /api/gateway/assistant), which is also true of the founder's laptop. The
  *    panel's honest state is only reached by SENDING, not by opening — and what
@@ -42,6 +42,7 @@
  *    900px is still exercised by the desktop project, which does run.
  */
 import { test, expect, World } from '../fixtures/harness';
+import type { Page } from '../fixtures/harness';
 import { ID, PAPER, TICKET } from '../fixtures/ids';
 
 /** The rail, addressed the way the app labels it (Shell.tsx aria-label). */
@@ -981,21 +982,35 @@ test.describe('the top bar', () => {
 // ── dark and light ─────────────────────────────────────────────────────
 
 test.describe('the theme menu', () => {
-  test('offers all three themes, switches to light and writes the choice down', async ({ page }) => {
+  // The Dashboard under /app reads the activity trail through the root schema
+  // (data/hooks.ts auditTrail), which fixtures/seed.ts does not answer yet. A
+  // test that lingers on the page long enough sees the seal's 400 for it as a
+  // console error, so these answer it with an empty trail, as 02-dashboard does.
+  test.beforeEach(({ world }) => { world.set('root.auditTrail', []); });
+
+  /** What MUI holds: the mode, and the scheme in that mode's slot. */
+  const saved = (page: Page) => page.evaluate(() => ({
+    mode: localStorage.getItem('pattadar-mode-v2'),
+    light: localStorage.getItem('pattadar-color-scheme-v1-light'),
+    dark: localStorage.getItem('pattadar-color-scheme-v1-dark'),
+  }));
+
+  test('offers all four themes, switches to light and writes the choice down', async ({ page }) => {
     await page.goto('/app');
-    // The scheme is an attribute on the app's own root; nothing in the
-    // accessible tree carries it, so the attribute is what there is to read.
-    await expect(page.locator('[data-scheme]')).toHaveAttribute('data-scheme', 'dark');
+    // The scheme is an attribute on the document, and only there: W360's
+    // colour slots read it from <html>. Nothing in the accessible tree
+    // carries it, so the attribute is what there is to read.
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
+    await expect(page.locator('.w360')).not.toHaveAttribute('data-scheme');
 
     await page.getByRole('button', { name: 'Change theme' }).click();
     const menu = page.getByRole('menu', { name: 'Change theme' });
-    await expect(menu.getByRole('menuitemradio', { name: 'Light' })).toBeVisible();
+    await expect(menu.getByRole('menuitemradio')).toHaveText(['Light', 'Dark', 'Pattadar Gold', 'High Contrast']);
     await expect(menu.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
-    await expect(menu.getByRole('menuitemradio', { name: 'High Contrast' })).toBeVisible();
     await menu.getByRole('menuitemradio', { name: 'Light' }).click();
 
-    await expect(page.locator('[data-scheme]')).toHaveAttribute('data-scheme', 'light');
-    expect(await page.evaluate(() => localStorage.getItem('w360.scheme'))).toBe('light');
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+    expect(await saved(page)).toMatchObject({ mode: 'light', light: 'light' });
   });
 
   test('and switches straight back to dark', async ({ page }) => {
@@ -1004,8 +1019,60 @@ test.describe('the theme menu', () => {
     await page.getByRole('menuitemradio', { name: 'Light' }).click();
     await page.getByRole('button', { name: 'Change theme' }).click();
     await page.getByRole('menuitemradio', { name: 'Dark' }).click();
-    await expect(page.locator('[data-scheme]')).toHaveAttribute('data-scheme', 'dark');
-    expect(await page.evaluate(() => localStorage.getItem('w360.scheme'))).toBe('dark');
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
+    expect(await saved(page)).toMatchObject({ mode: 'dark', dark: 'dark' });
+  });
+
+  test('the choice survives a reload', async ({ page }) => {
+    await page.goto('/app');
+    await page.getByRole('button', { name: 'Change theme' }).click();
+    await page.getByRole('menuitemradio', { name: 'High Contrast' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'highContrast');
+
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'highContrast');
+    await page.getByRole('button', { name: 'Change theme' }).click();
+    await expect(page.getByRole('menuitemradio', { name: 'High Contrast' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test.describe('beyond the app\'s own root', () => {
+    // These open surfaces whose content the sealed world refuses on purpose:
+    // the assistant service answers 503 (it is not running there), and the
+    // previous app's Groups screen gets a 400 for its query, as in
+    // 19-sections-legacy. What is under test is the colour they wear, so the
+    // refusals' console errors are allowed.
+    test.use({ allowConsole: true });
+
+    test('the assistant drawer follows the choice, though it is portalled outside the app', async ({ page }) => {
+      // The drawer is a MUI surface mounted on <body>, outside .w360, so it
+      // wears the document's scheme. Before the one saved choice it stayed
+      // dark whatever this menu said.
+      const paper = page.locator('.MuiDrawer-paper'); // no role or name of its own
+      await page.goto('/app');
+      await page.getByRole('button', { name: 'Assistant', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Close assistant' })).toBeVisible();
+      await expect(paper).toHaveCSS('background-color', 'rgb(23, 12, 9)');
+      await page.getByRole('button', { name: 'Close assistant' }).click();
+
+      await page.getByRole('button', { name: 'Change theme' }).click();
+      await page.getByRole('menuitemradio', { name: 'Light' }).click();
+      await page.getByRole('button', { name: 'Assistant', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Close assistant' })).toBeVisible();
+      await expect(paper).toHaveCSS('background-color', 'rgb(253, 252, 249)');
+    });
+
+    test('the previous app shows the scheme chosen here', async ({ page }) => {
+      await page.goto('/app');
+      await page.getByRole('button', { name: 'Change theme' }).click();
+      await page.getByRole('menuitemradio', { name: 'High Contrast' }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-scheme', 'highContrast');
+
+      await page.goto('/legacy/groups');
+      await expect(page.locator('html')).toHaveAttribute('data-scheme', 'highContrast');
+      await page.getByRole('button', { name: 'Change theme' }).click();
+      await expect(page.getByRole('menuitemradio', { name: 'High Contrast' })).toHaveAttribute('aria-checked', 'true');
+      await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'false');
+    });
   });
 
   test.describe('with light already chosen', () => {
@@ -1013,10 +1080,133 @@ test.describe('the theme menu', () => {
 
     test('a light theme chosen last time is what the app opens in', async ({ page }) => {
       await page.goto('/app');
-      await expect(page.locator('[data-scheme]')).toHaveAttribute('data-scheme', 'light');
+      await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
       await page.getByRole('button', { name: 'Change theme' }).click();
       await expect(page.getByRole('menuitemradio', { name: 'Light' }))
         .toHaveAttribute('aria-checked', 'true');
+      // Carried from the old key into MUI's, which is left where it was so a
+      // rolled-back bundle still finds it.
+      expect(await saved(page)).toMatchObject({ mode: 'light', light: 'light' });
+      expect(await page.evaluate(() => localStorage.getItem('w360.scheme'))).toBe('light');
+    });
+  });
+
+  test.describe('every theme paints the app in the palette pack\'s colours', () => {
+    // The pack's values (packages/tokens/src/palette), as the browser reports
+    // them. W360's slots are aliases of MUI's variables, so the app's own
+    // rules, MUI's surfaces and the map canvas all paint these.
+    const PACK = {
+      dark: {
+        ground: 'rgb(13, 5, 4)', surface: 'rgb(23, 12, 9)', ink: 'rgb(243, 237, 231)',
+        muted: 'rgb(132, 121, 116)', onWash: 'rgb(254, 134, 15)', focus: 'rgb(255, 160, 60)',
+        accentHex: '#fe860f', focusHex: '#ffa03c', colorScheme: 'dark',
+        // The header in the page's own colours, under a 1px rule.
+        bar: { bg: 'rgb(13, 5, 4)', ink: 'rgb(243, 237, 231)', rule: 'rgb(49, 38, 34)', ruleWidth: '1px', focus: 'rgb(255, 160, 60)' },
+      },
+      light: {
+        ground: 'rgb(249, 246, 242)', surface: 'rgb(253, 252, 249)', ink: 'rgb(38, 29, 26)',
+        muted: 'rgb(121, 111, 106)', onWash: 'rgb(140, 74, 17)', focus: 'rgb(201, 105, 12)',
+        accentHex: '#aa5910', focusHex: '#c9690c', colorScheme: 'light',
+        bar: { bg: 'rgb(249, 246, 242)', ink: 'rgb(38, 29, 26)', rule: 'rgb(227, 221, 216)', ruleWidth: '1px', focus: 'rgb(201, 105, 12)' },
+      },
+      pattadar: {
+        ground: 'rgb(236, 238, 235)', surface: 'rgb(255, 254, 250)', ink: 'rgb(34, 41, 35)',
+        muted: 'rgb(83, 96, 88)', onWash: 'rgb(93, 64, 9)', focus: 'rgb(160, 116, 21)',
+        accentHex: '#75510b', focusHex: '#a07415', colorScheme: 'light',
+        // Charcoal, ivory ink, a 2px gold rule, and a gold ring in the bar.
+        bar: { bg: 'rgb(32, 37, 33)', ink: 'rgb(250, 250, 244)', rule: 'rgb(212, 182, 99)', ruleWidth: '2px', focus: 'rgb(217, 191, 114)' },
+      },
+      highContrast: {
+        ground: 'rgb(255, 255, 255)', surface: 'rgb(255, 255, 255)', ink: 'rgb(0, 0, 0)',
+        muted: 'rgb(41, 41, 41)', onWash: 'rgb(0, 28, 56)', focus: 'rgb(0, 0, 0)',
+        accentHex: '#003b73', focusHex: '#000000', colorScheme: 'light',
+        bar: { bg: 'rgb(255, 255, 255)', ink: 'rgb(0, 0, 0)', rule: 'rgb(0, 0, 0)', ruleWidth: '1px', focus: 'rgb(0, 0, 0)' },
+      },
+    } as const;
+
+    /** A CSS colour expression, resolved inside the app the way a rule there
+     *  would resolve it. */
+    const resolve = (page: Page, expression: string) => page.evaluate((e) => {
+      const probe = document.createElement('i');
+      probe.style.color = e;
+      document.querySelector('.w360')!.append(probe);
+      const out = getComputedStyle(probe).color;
+      probe.remove();
+      return out;
+    }, expression);
+
+    for (const [id, item] of [['dark', null], ['light', 'Light'], ['pattadar', 'Pattadar Gold'], ['highContrast', 'High Contrast']] as const) {
+      test(`${item ?? 'Dark'}: page, header, cards, muted ink, the current section and the focus ring`, async ({ page }) => {
+        const want = PACK[id];
+        await page.goto('/app');
+        if (item) {
+          // Chosen with Enter, a key press, so the focus() below is keyboard
+          // focus in both engines; after a click it would draw no ring.
+          await page.getByRole('button', { name: 'Change theme' }).click();
+          await page.getByRole('menu', { name: 'Change theme' }).getByRole('menuitemradio', { name: item }).press('Enter');
+        }
+        await expect(page.locator('html')).toHaveAttribute('data-scheme', id);
+        await expect(page.locator('html')).toHaveCSS('color-scheme', want.colorScheme);
+
+        // The app's root, by its class: it is a plain div with no role.
+        const app = page.locator('.w360');
+        await expect(app).toHaveCSS('background-color', want.ground);
+        await expect(app).toHaveCSS('color', want.ink);
+        // A recent property's tile is a card (its class: the tile is a div).
+        await expect(page.locator('.cards .rec').first()).toHaveCSS('background-color', want.surface);
+        // Muted text clears 4.5:1 on cards in every scheme (TODO-one-platform #17).
+        expect(await resolve(page, 'var(--w-ink-3)')).toBe(want.muted);
+
+        // Where you are in the rail: on the accent wash, in the wash's own ink.
+        const here = page.getByRole('navigation').locator('[aria-current="page"]').first();
+        await expect(here).toHaveCSS('color', want.onWash);
+        await expect(here).toHaveCSS('background-color', await resolve(page, 'var(--mui-palette-primary-container)'));
+
+        // The header wears the scheme's chrome: the page's own colours, or
+        // Pattadar Gold's charcoal and gold.
+        const bar = page.getByRole('banner');
+        await expect(bar).toHaveCSS('background-color', want.bar.bg);
+        await expect(bar).toHaveCSS('border-bottom-color', want.bar.rule);
+        await expect(bar).toHaveCSS('border-bottom-width', want.bar.ruleWidth);
+        await expect(bar.getByRole('link', { name: 'Pattadar.' })).toHaveCSS('color', want.bar.ink);
+        // The jump-to field is the bar's: its text is the bar's ink.
+        await expect(bar.getByRole('combobox', { name: 'Jump to a property, document, person' })).toHaveCSS('color', want.bar.ink);
+
+        // focus() from a settled page is keyboard focus in both engines. The
+        // theme button is in the header, so its ring is the header's.
+        const toggle = page.getByRole('button', { name: 'Change theme' });
+        await toggle.focus();
+        await expect(toggle).toHaveCSS('outline-color', want.bar.focus);
+        if (id === 'highContrast') {
+          // One ring for both engines: 3px, with a white halo inside it.
+          await expect(toggle).toHaveCSS('outline-width', '3px');
+          await expect(toggle).toHaveCSS('box-shadow', 'rgb(255, 255, 255) 0px 0px 0px 3px');
+        }
+
+        // What the map canvas is handed for a selection and a hover: it reads
+        // these off <html> (w360/cssVar.ts), where they used to be undefined,
+        // so every scheme selected in Dark's amber.
+        const canvas = await page.evaluate(() => {
+          const s = getComputedStyle(document.documentElement);
+          return { accent: s.getPropertyValue('--w-accent').trim(), focus: s.getPropertyValue('--w-focus').trim() };
+        });
+        expect(canvas).toEqual({ accent: want.accentHex, focus: want.focusHex });
+      });
+    }
+  });
+
+  test.describe('before the app has loaded', () => {
+    test.use({ scheme: 'light', allowConsole: true });
+
+    test('the page is already painted in the saved scheme, with the app bundle refused', async ({ page }) => {
+      // allowConsole: refusing the bundle is the point, and every refused
+      // module is a console error.
+      await page.route(/\/assets\/.+\.js$/, (route) => route.abort());
+      await page.goto('/app');
+      await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+      await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(249, 246, 242)');
+      // Nothing of the app is there: this colour came from theme-init.js alone.
+      await expect(page.locator('.w360')).toHaveCount(0);
     });
   });
 });

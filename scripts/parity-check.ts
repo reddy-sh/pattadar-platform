@@ -27,6 +27,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { parseColour, schemeById, toHex, type SchemePalette } from '../packages/tokens/src';
+
 const ROOT = join(import.meta.dir, '..');
 const MAP = JSON.parse(readFileSync(join(ROOT, 'scripts', 'parity-map.json'), 'utf8'));
 
@@ -307,30 +309,24 @@ function checkFamilies() {
 // background is a native decision, not a bug, and shouting about it would
 // train everyone to ignore this script. Only the slots in `assert` are held.
 //
-// theme.ts is the comparison source rather than the CSS because it already
-// carries "hex conversions of tokens.css oklch values" for both schemes —
-// nothing here has to re-derive OKLCH and disagree by a rounding step.
-function themeColours(): Map<string, { light: string; dark: string }> {
-  const rel = MAP.tokens.theme as string;
+// The web side is the palette pack (packages/tokens/src/palette), imported
+// rather than parsed: it is where apps/web's theme gets every colour, and it
+// already carries the sRGB hex of each Bloom oklch value, so nothing here has
+// to re-derive OKLCH and disagree by a rounding step. A role this cannot read
+// is reported, never skipped — when this used to slice theme.ts as text, a
+// reshaped file made every comparison pass by comparing nothing.
+type Role = keyof SchemePalette;
+const asHex = (v: unknown) => {
+  if (typeof v !== 'string') return '';
+  try { return toHex(parseColour(v)); } catch { return ''; }
+};
+
+function packColours(): Map<string, { light: string; dark: string }> {
   const out = new Map<string, { light: string; dark: string }>();
-  if (!has(rel)) return out;
-  const src = read(rel);
-  const scheme = (name: 'light' | 'dark') => {
-    const start = src.indexOf(`    ${name}: {`);
-    if (start < 0) return '';
-    const end = src.indexOf('\n    },', start);
-    return src.slice(start, end < 0 ? undefined : end);
-  };
-  const grab = (body: string, path: string): string => {
-    const [group, key] = path.split('.');
-    if (!key) return body.match(new RegExp(`\\b${group}:\\s*'(#[0-9a-fA-F]{3,8})'`))?.[1] ?? '';
-    const block = body.match(new RegExp(`\\b${group}:\\s*\\{[\\s\\S]*?\\}`))?.[0] ?? '';
-    return block.match(new RegExp(`\\b${key}:\\s*'(#[0-9a-fA-F]{3,8})'`))?.[1] ?? '';
-  };
-  const light = scheme('light');
-  const dark = scheme('dark');
-  for (const row of [...MAP.tokens.assert, ...MAP.tokens.derived] as { theme: string }[]) {
-    out.set(row.theme, { light: grab(light, row.theme), dark: grab(dark, row.theme) });
+  const light = schemeById('light').palette;
+  const dark = schemeById('dark').palette;
+  for (const row of [...MAP.tokens.assert, ...MAP.tokens.derived] as { role: Role }[]) {
+    out.set(row.role, { light: asHex(light[row.role]), dark: asHex(dark[row.role]) });
   }
   return out;
 }
@@ -346,23 +342,30 @@ function swiftPalette(): Map<string, { light: string; dark: string }> {
 }
 
 function checkTokens() {
-  const web = themeColours();
+  const web = packColours();
   const ios = swiftPalette();
-  if (web.size === 0 || ios.size === 0) {
-    add('tokens', 'warn', 'could not read one of the palettes', `${MAP.tokens.theme} / ${MAP.tokens.swift}`);
+  if (ios.size === 0) {
+    add('tokens', 'warn', 'could not read the iOS palette', `${MAP.tokens.swift}`);
     return;
   }
-  const compare = (rows: { theme: string; swift: string }[], level: Level) => {
+  const compare = (rows: { role: string; swift: string }[], level: Level) => {
     for (const row of rows) {
-      const w = web.get(row.theme);
+      const w = web.get(row.role);
       const i = ios.get(row.swift);
-      if (!w || !i || !w.light || !w.dark) continue;
+      if (!w || !w.light || !w.dark || !i) {
+        // An asserted slot nobody can read is drift in itself.
+        add('tokens', level === 'info' ? 'warn' : 'error',
+          `cannot compare ${row.role} ↔ Palette.${row.swift}: ` +
+          `${!w || !w.light || !w.dark ? `the pack has no sRGB ${row.role}` : `DesignSystem.swift has no Palette.${row.swift}`}`,
+          `${MAP.tokens.pack} / ${MAP.tokens.swift}`);
+        continue;
+      }
       for (const mode of ['light', 'dark'] as const) {
         if (w[mode] !== i[mode]) {
           add('tokens', level,
-            `${mode} ${row.theme} ${w[mode]} ≠ Palette.${row.swift} ${i[mode]}` +
+            `${mode} ${row.role} ${w[mode]} ≠ Palette.${row.swift} ${i[mode]}` +
             (level === 'info' ? '  (derived — native choice, not a defect)' : ''),
-            `${MAP.tokens.theme} / ${MAP.tokens.swift}`);
+            `${MAP.tokens.pack} / ${MAP.tokens.swift}`);
         }
       }
     }

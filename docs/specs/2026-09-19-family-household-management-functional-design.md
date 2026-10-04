@@ -111,6 +111,8 @@ Changing the head is a separate, high-risk account-ownership workflow and is not
 - **FM-006:** Removing a member must also remove that member from the notifier order and safely clear family-tree references.
 - **FM-007:** The UI must clearly distinguish the household head, members, beneficiaries/heirs, pending invitations, and verified contacts.
 - **FM-008:** Sensitive identifier values must remain masked. Full Aadhaar numbers must never appear in a member list, notification, log, error, or this design's audit evidence.
+- **FM-009:** A member's Aadhaar card, when the owner ticks "Also keep the original card" before scanning, is filed in Documents under *person › Aadhaar* (one document tree per person, invariant 8). The account owner's own card goes in their own folder. The row is named "Aadhaar card", is on the Identity shelf, and shows only the server mask. It can never be linked to a property, so it never enters a share link. The server files it in the same transaction as the member save (`web360.file_aadhaar_card`). Storage keys stay `{node}/{version}` and access is still decided in SQL.
+- **FM-010:** Removing a member removes their filed card row and their person folders in the same transaction. Any other file the owner put in those folders moves up a level and is never deleted. The web client then moves the card's bytes to Trash, where they can be recovered. Replacing a member's Aadhaar, or clearing your own KYC, removes the old card's row along with its record. A card upload that cannot be linked is moved to Trash and reported as not kept. Cards kept before this change need the gated `services/api/scripts/backfill_aadhaar_documents.py`, which runs only with Reddy's approval.
 
 ### 7.2 Head activity
 
@@ -267,9 +269,10 @@ Show:
 
 ### 11.2 Notifier settings
 
-The settings dialog must provide:
+The settings drawer must provide:
 
 - a clear all-members versus selected-order choice;
+- a disabled Save that says why (no eligible family email yet, or an empty order), with the contact gap linked to the Members tab where it is fixed;
 - drag/reorder or accessible move-up/move-down controls;
 - channel and verification status;
 - warnings for missing or unusable contact details;
@@ -407,7 +410,7 @@ Current behavior was traced to:
 
 - [`services/api/src/main.py`](../../services/api/src/main.py): `GROUP_TYPES`, `Query.me`, `Query.notifiers`, `_inactivity_cfg`, `_run_inactivity_check`, group/member/notifier/holding mutations, schema tables, and `/cron/inactivity-check`.
 - [`services/api/src/notify.py`](../../services/api/src/notify.py): email, SMS, WhatsApp, stub logging, and contact auto-routing.
-- [`apps/web/src/w360/pages/Groups.tsx`](../../apps/web/src/w360/pages/Groups.tsx): household detail, inactivity explanation, and notifier-priority UI.
+- [`apps/web/src/w360/pages/Groups.tsx`](../../apps/web/src/w360/pages/Groups.tsx): household detail with Members · Properties · Safeguard · Activity tabs (`?tab=`); the Safeguard tab (family-tree types only; its status is a drawn "!" or "✓" glyph whose word, "needs action" or "set", is the tooltip and part of the tab's accessible name) holds the inactivity status, its explanation behind ⓘ and the notifier editor (shared Drawer). The Members table carries the shared filter and the page head a Print action. State rules: [`apps/web/src/w360/groupsView.ts`](../../apps/web/src/w360/groupsView.ts).
 - [`apps/web/src/pages/families/familiesData.ts`](../../apps/web/src/pages/families/familiesData.ts): family/notifier/property-assignment GraphQL calls.
 - [`apps/web/src/data/pattadarActions.ts`](../../apps/web/src/data/pattadarActions.ts): holding create/delete and stake operations used by the web client.
 - [`docs/architecture.md`](../architecture.md): declared gateway/API/cron trust boundaries.

@@ -30,6 +30,14 @@ mask (and, with verification, linked card files). It is a counts-only dry run
 unless `--execute`; `--environment {local,dev,prod}` is required, and dev/prod
 need Reddy's separate approval per `docs/runbooks/aadhaar-kms-rollout.md`.
 
+`scripts/backfill_aadhaar_documents.py` files Aadhaar cards that were kept
+before the per-person tree in Documents › *person* › Aadhaar. It only adds
+pointer rows, never touches storage, and prints counts only. It is a dry run
+unless `--execute`, which always needs `--approval-ref`. `--environment` is
+required, and dev/prod also need `--allow-remote` and `--writers-drained`.
+**This needs Reddy's approval under `safe-data-migration` before any
+`--execute`.** Agents never run it against real data.
+
 ### 3. AI readings
 
 The active web uses durable import/read jobs with authenticated polling.

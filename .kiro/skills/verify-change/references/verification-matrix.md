@@ -7,7 +7,7 @@ and repository manifests on 2026-09-27. CI is authoritative when this file drift
 
 ```sh
 bun run typecheck
-bun test packages/core apps/web/src apps/mobile/tests apps/university/src
+bun test packages/core packages/tokens apps/web/src apps/mobile/tests apps/university/src
 set -euo pipefail
 for script in scripts/*-tests.ts; do
   echo "── $script"

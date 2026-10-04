@@ -6,7 +6,7 @@
  * touches it. Pure functions over the plots `villageIndex` already loaded, so
  * this can be reasoned about — and tested — without a map on screen.
  */
-import { ringAreaSqM, ringCentroid } from '@pattadar/core';
+import { pointInRing, ringAreaSqM, ringCentroid } from '@pattadar/core';
 
 import type { VillagePlot } from './villageIndex';
 
@@ -274,4 +274,37 @@ export function outerEdges(facts: PlotFacts[]): Array<Array<[number, number]>> {
     if (covered[i] < (edge.hi - edge.lo) * 0.5) out.push([ends[i][0], ends[i][1]]);
   });
   return out;
+}
+
+/** The plot a point falls in — "which survey am I standing in" — or null.
+ *
+ *  A bounding-box test first (cheap, and a 2,100-plot village is mostly
+ *  misses), then core's `pointInRing`, the one even-odd test the photo check
+ *  uses too. Digitised sheets sometimes overlap at a shared bund; a point in
+ *  two plots resolves to the smaller, which is the more specific answer. */
+export function plotAt(
+  plots: VillagePlot[], at: { lat: number; lon: number },
+): VillagePlot | null {
+  if (!Number.isFinite(at.lat) || !Number.isFinite(at.lon)) return null;
+  let best: VillagePlot | null = null;
+  let bestArea = Infinity;
+  for (const p of plots) {
+    if (p.ring.length < 3) continue;
+    let south = Infinity;
+    let west = Infinity;
+    let north = -Infinity;
+    let east = -Infinity;
+    for (const [lat, lon] of p.ring) {
+      if (lat < south) south = lat;
+      if (lat > north) north = lat;
+      if (lon < west) west = lon;
+      if (lon > east) east = lon;
+    }
+    if (at.lat < south || at.lat > north || at.lon < west || at.lon > east) continue;
+    const ring = p.ring.map(([latitude, longitude]) => ({ latitude, longitude }));
+    if (!pointInRing({ latitude: at.lat, longitude: at.lon }, ring)) continue;
+    const area = ringAreaSqM(p.ring);
+    if (area < bestArea) { best = p; bestArea = area; }
+  }
+  return best;
 }

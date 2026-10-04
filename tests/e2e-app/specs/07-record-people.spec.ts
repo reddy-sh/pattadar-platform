@@ -1428,9 +1428,11 @@ test.describe('nobody, still coming, failed', () => {
 
 /**
  * PersonDialog (apps/web/src/pages/families/PersonDialog.tsx) is the OTHER
- * place this app files a person, and it belongs to the previous interface:
- * W360 never redrew Families & Groups, so /app/groups is a signpost and the
- * working screen is /legacy/groups. It shares nothing with the hanger above —
+ * place this app files a person. /app/groups is the W360 screen
+ * (w360/pages/Groups.tsx), which opens this same PersonDialog lazily from
+ * "Add a person" (specs/30-groups.spec.ts); these tests drive it through
+ * /legacy/groups, whose families hooks read the legacy GraphQL surface
+ * described below. It shares nothing with the hanger above —
  * it is MUI, it asks for eleven things the hanger's two-field form does not
  * (a relationship, a share, an Aadhaar, a guardian, a spouse), and it talks to
  * the LEGACY GraphQL surface: `{ groups { … } }`, not `{ web { … } }`.
@@ -1784,7 +1786,10 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
     await input.setInputFiles(AADHAAR_SCAN);
-    await expect(page.getByText(/card saved to My Drive/)).toBeVisible();
+    // It is filed in Documents under the person's own folder, not a Drive
+    // nobody can open from here.
+    await expect(page.getByText(/the card goes to Documents › Lakshmi Devi › Aadhaar when you save/))
+      .toBeVisible();
     const uploads = world.restCalls(/storage\/files/);
     expect(uploads).toHaveLength(1);
     // The card is filed under the safe name, never the name it was picked as.
@@ -1792,17 +1797,21 @@ test.describe('the other person editor, on the previous interface', () => {
     expect(uploads[0].body).not.toContain('filename="aadhaar.pdf"');
     const links = world.calls('root.linkAadhaarCard');
     expect(links).toHaveLength(1);
+    // What the file is travels with the link, so Documents can preview it.
     expect(links[0].vars).toEqual({
       candidateId: 'candidate-opaque', nodeId: 'file-aadhaar', versionId: 'ver-aadhaar',
+      mimeType: 'application/pdf', sizeBytes: AADHAAR_SCAN.buffer.length,
     });
     expect(links[0].at).toBeGreaterThan(uploads[0].at);
+    // A card that linked is kept: nothing is sent to Trash.
+    expect(world.restCalls(/storage\/nodes\//).filter((c) => c.method === 'DELETE')).toHaveLength(0);
 
     // Nothing on the page is a full twelve-digit number.
     const text = await page.locator('body').innerText();
     expect(text).not.toMatch(/\d{4}[\s-]?\d{4}[\s-]?\d{4}/);
   });
 
-  test('a kept Aadhaar card that cannot be linked says it is in My Drive', async ({ page, world }) => {
+  test('a kept Aadhaar card that cannot be linked is not kept, and its upload goes to Trash', async ({ page, world }) => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({
       json: { id: 'file-aadhaar', currentVersionId: 'ver-aadhaar' },
     }));
@@ -1820,10 +1829,61 @@ test.describe('the other person editor, on the previous interface', () => {
     await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
     await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles(AADHAAR_SCAN);
 
-    await expect(page.getByText('The card was saved to My Drive but could not be linked to this reading'))
-      .toBeVisible();
+    await expect(page.getByText(
+      'The details were read, but the card could not be filed in Documents, so it was not kept')).toBeVisible();
     expect(world.restCalls(/storage\/files/)).toHaveLength(1);
     expect(world.calls('root.linkAadhaarCard')).toHaveLength(1);
+    // The stored bytes nothing points at are moved to Trash (recoverable),
+    // and only that one node.
+    const trashed = world.restCalls(/storage\/nodes\//).filter((c) => c.method === 'DELETE');
+    expect(trashed.map((c) => c.path)).toEqual(['/api/gateway/storage/nodes/file-aadhaar']);
+  });
+
+  test.describe('a refused upload', () => {
+  // The refusal is the point: the browser logs the non-2xx it was answered.
+  test.use({ allowConsole: true });
+
+  test('a ticked Aadhaar card the storage refuses says so and files nothing', async ({ page, world }) => {
+    world.route(/\/api\/gateway\/storage\/files\?/, () => ({ status: 413, json: { error: 'too large' } }));
+    world.route(/\/api\/gateway\/pattadar\/extract-aadhaar-async/, () => ({ json: { job: 'w-aadhaar' } }));
+    world.route(/\/api\/gateway\/pattadar\/import-status\//, () => ({
+      json: {
+        state: 'done',
+        fields: { name: 'Lakshmi Devi', aadhaarMasked: 'XXXX-XXXX-9012', aadhaarCandidateId: 'candidate-opaque' },
+      },
+    }));
+    world.set('root.linkAadhaarCard', true);
+    await legacyFamilies(page);
+    await openPersonDialog(page);
+
+    await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
+    await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles(AADHAAR_SCAN);
+
+    await expect(page.getByText('The details were read, but the card was not kept in Documents')).toBeVisible();
+    expect(world.restCalls(/storage\/files/)).toHaveLength(1);
+    expect(world.calls('root.linkAadhaarCard')).toHaveLength(0);
+    // The masked reading still fills the form: a refused card is not a refused person.
+    await expect(page.getByLabel('Full name')).toHaveValue('Lakshmi Devi');
+  });
+
+  test('a file that is not a card is refused before anything is stored', async ({ page, world }) => {
+    world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: { id: 'file-aadhaar', currentVersionId: 'v' } }));
+    world.route(/\/api\/gateway\/pattadar\/extract-aadhaar-async/, () => ({
+      status: 415, json: { error: 'Upload the Aadhaar as a PDF or an image' },
+    }));
+    world.set('root.linkAadhaarCard', true);
+    await legacyFamilies(page);
+    await openPersonDialog(page);
+
+    await page.getByRole('checkbox', { name: /Also keep the original card/ }).check();
+    await page.getByRole('dialog').locator('input[type="file"]').first().setInputFiles({
+      name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('not a card'),
+    });
+
+    await expect(page.getByText('Upload the Aadhaar as a PDF or an image')).toBeVisible();
+    expect(world.restCalls(/storage\/files/)).toHaveLength(0);
+    expect(world.calls('root.linkAadhaarCard')).toHaveLength(0);
+  });
   });
 
   test('a ticked Aadhaar scan that read no number keeps no card', async ({ page, world }) => {
@@ -1980,7 +2040,7 @@ test.describe('the other person editor, on the previous interface', () => {
       dob: '1979-04-02',
       gender: 'male',
     });
-    // `exact`: the scan panel's own caption ends "saved to My Drive".
+    // `exact`: other words on the dialog contain "saved".
     await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   });
 

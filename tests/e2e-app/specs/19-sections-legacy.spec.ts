@@ -1588,14 +1588,16 @@ const breakup = (page: Page) =>
 test.describe('the tools, drawn in this app', () => {
   test.beforeEach(() => { test.slow(); });
 
-  test('all four tools sit under one screen, and the SRO directory opens first', async ({ page }) => {
+  test('all five tools sit under one screen, and the SRO directory opens first', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
     await page.goto('/app/tools');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Tools' })).toBeVisible();
-    await expect(page.getByText('SRO finder · Stamp duty · Guideline values · Area'))
+    // Tools is a top-level page under Help & resources: no eyebrow over it.
+    await expect(page.locator('main .pagehead .eyebrow')).toHaveCount(0);
+    await expect(page.getByText('SRO finder · Stamp duty · Guideline values · Area · Fencing', { exact: true }))
       .toBeVisible();
-    for (const name of ['Find SRO', 'Stamp duty', 'Market value', 'Area calculator']) {
+    for (const name of ['Find SRO', 'Stamp duty', 'Market value', 'Area calculator', 'Fence calculator']) {
       await expect(page.getByRole('tab', { name, exact: true })).toBeVisible();
     }
     await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
@@ -1655,10 +1657,23 @@ test.describe('the tools, drawn in this app', () => {
   test('searching the SRO directory narrows it to the district I asked for', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
     await page.goto('/app/tools?tab=sro');
-    await page.getByRole('textbox', { name: 'Search SRO offices' }).fill('Guntur');
+    await page.getByRole('searchbox', { name: 'Search SRO offices' }).fill('Guntur');
 
     await expect(page.getByRole('cell', { name: 'Mangalagiri', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Markapur', exact: true })).toHaveCount(0);
+  });
+
+  test('the SRO search starts at the table\'s left edge and has one frame, not two', async ({ page }) => {
+    await legacyApi(page, { sroOffices: SRO_OFFICES });
+    await page.goto('/app/tools?tab=sro');
+    const box = page.getByRole('searchbox', { name: 'Search SRO offices' });
+    await expect(box).toBeVisible();
+    const search = await page.locator('main .search').first().boundingBox();
+    const table = await page.locator('main .scroll-x').first().boundingBox();
+    expect(search && table, 'both the search and the table are drawn').toBeTruthy();
+    expect(Math.abs(search!.x - table!.x)).toBeLessThanOrEqual(1);
+    // Only the .search pill draws a frame; the field inside it has none.
+    expect(await box.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
   });
 
   test('an SRO search that matches nothing says so, and suggests what to type', async ({ page }) => {
@@ -1853,11 +1868,14 @@ test.describe('the tools, drawn in this app', () => {
   test('the area calculator needs no service at all — it is arithmetic', async ({ page, world }) => {
     await page.goto('/app/tools?tab=calculator');
     await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
-    await expect(page.getByText(/Convert between Indian land units, measure a plot, estimate fencing/))
+    await expect(page.getByText(/Unit conversion, plot measurement and boundary area\./))
       .toBeVisible();
-    for (const name of ['Unit converter', 'Plot area', 'Fencing', 'Map area']) {
+    for (const name of ['Unit converter', 'Plot area', 'Map area']) {
       await expect(page.getByRole('tab', { name, exact: true })).toBeVisible();
     }
+    // One fence calculator in Tools: the old feet sub-tab is retired.
+    await expect(page.getByRole('tab', { name: 'Fencing', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Perimeter (ft)')).toHaveCount(0);
     expect(world.escapes()).toEqual([]);
   });
 
@@ -1922,28 +1940,87 @@ test.describe('the tools, drawn in this app', () => {
     await expect(page.getByText('0 Cents')).toBeVisible();
   });
 
-  test('the perimeter I measured carries into the fencing estimate instead of being typed twice', async ({ page }) => {
+  test('the sides I measured carry into the fence calculator, in metres, instead of being typed twice', async ({ page }) => {
     await page.goto('/app/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
     await page.getByLabel('Width').fill('50');
     await page.getByRole('button', { name: 'Use in Fencing →' }).click();
 
-    await expect(page.getByRole('tab', { name: 'Fencing' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByLabel('Perimeter (ft)')).toHaveValue('300');
-    await expect(page.getByText('38', { exact: true })).toBeVisible();    // ceil(300 / 8) posts
-    await expect(page.getByText('900', { exact: true })).toBeVisible();   // 300 ft × 3 strands
+    await expect(page).toHaveURL(/\/app\/tools\?tab=fence$/);
+    await expect(page.getByRole('tab', { name: 'Fence calculator', exact: true }))
+      .toHaveAttribute('aria-selected', 'true');
+    // 100 × 50 ft is 30.48 × 15.24 m, round the four sides.
+    await expect(page.getByLabel('Side A–B (m)')).toHaveValue('30.48');
+    await expect(page.getByLabel('Side B–C (m)')).toHaveValue('15.24');
+    await expect(page.getByLabel('Side C–D (m)')).toHaveValue('30.48');
+    await expect(page.getByLabel('Side D–A (m)')).toHaveValue('15.24');
+    await expect(page.locator('.fs-tool')).toContainText('4 sides');
+    await expect(page.locator('.fs-tool')).toContainText('91.4 m');
   });
 
-  test('a fence with no prices quoted keeps quiet about the cost', async ({ page }) => {
+  test('a triangle hands over its three sides, not four', async ({ page }) => {
     await page.goto('/app/tools?tab=calculator');
-    await page.getByRole('tab', { name: 'Fencing' }).click();
-    await page.getByLabel('Perimeter (ft)').fill('300');
-    await expect(page.getByText('Est. cost')).toBeVisible();
-    await expect(page.getByText('—', { exact: true })).toBeVisible();
+    await page.getByRole('tab', { name: 'Plot area' }).click();
+    await page.getByRole('button', { name: 'Triangle' }).click();
+    await page.getByLabel('Measured in').selectOption({ label: 'Metres' });
+    await page.getByLabel('Side A', { exact: true }).fill('100');
+    await page.getByLabel('Side B', { exact: true }).fill('100');
+    await page.getByLabel('Side C', { exact: true }).fill('100');
+    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
 
-    await page.getByLabel('Cost per post (₹)').fill('250');
-    await expect(page.getByText('₹9,500')).toBeVisible();   // 38 posts × ₹250
+    await expect(page).toHaveURL(/\/app\/tools\?tab=fence$/);
+    await expect(page.getByLabel('Side A–B (m)')).toHaveValue('100');
+    await expect(page.getByLabel('Side B–C (m)')).toHaveValue('100');
+    await expect(page.getByLabel('Side C–A (m)')).toHaveValue('100');
+    await expect(page.getByLabel('Side D–A (m)')).toHaveCount(0);
+    await expect(page.locator('.fs-tool')).toContainText('3 sides');
+  });
+
+  test('a quadrilateral hands over its four sides, and the diagonal is not one of them', async ({ page }) => {
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
+    await page.getByRole('button', { name: 'Quadrilateral' }).click();
+    await page.getByLabel('Measured in').selectOption({ label: 'Metres' });
+    await page.getByLabel('Side 1').fill('40');
+    await page.getByLabel('Side 2').fill('30');
+    await page.getByLabel('Side 3').fill('40');
+    await page.getByLabel('Side 4').fill('30');
+    await page.getByLabel('Diagonal (corner 1→3)').fill('50');
+    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+
+    await expect(page.getByLabel('Side A–B (m)')).toHaveValue('40');
+    await expect(page.getByLabel('Side D–A (m)')).toHaveValue('30');
+    await expect(page.getByLabel('Side E–A (m)')).toHaveCount(0);
+    await expect(page.locator('.fs-tool')).toContainText('4 sides');
+    await expect(page.locator('.fs-tool')).toContainText('140.0 m');
+  });
+
+  test('a side I have not measured arrives blank, not as a 0 m side', async ({ page }) => {
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
+    await page.getByLabel('Length').fill('100');
+    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+
+    await expect(page.getByLabel('Side A–B (m)')).toHaveValue('30.48');
+    await expect(page.getByLabel('Side B–C (m)')).toHaveValue('');
+    await expect(page.getByLabel('Side C–D (m)')).toHaveValue('30.48');
+    await expect(page.getByLabel('Side D–A (m)')).toHaveValue('');
+    await expect(page.locator('.fs-tool')).toContainText('2 sides');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('a handed-over side I then spoil is refused, as a typed one is', async ({ page }) => {
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Plot area' }).click();
+    await page.getByLabel('Length').fill('100');
+    await page.getByLabel('Width').fill('50');
+    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+
+    await page.getByLabel('Side A–B (m)').fill('-5');
+    await expect(page.getByText('Enter each side as a length in metres, more than 0.')).toBeVisible();
+    await expect(page.getByLabel('Side A–B (m)')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('button', { name: 'Print for the supplier' })).toBeDisabled();
   });
 
   test('a boundary with fewer than three corners is not an area, and says so', async ({ page }) => {
@@ -1963,11 +2040,151 @@ test.describe('the tools, drawn in this app', () => {
     await expect(page.getByText('Perimeter ≈ 2,858.36 ft (871.23 m)')).toBeVisible();
   });
 
+  test('a pasted boundary hands each of its sides to the fence calculator', async ({ page }) => {
+    await page.goto('/app/tools?tab=calculator');
+    await page.getByRole('tab', { name: 'Map area' }).click();
+    await page.getByLabel('Boundary as GeoJSON').fill(
+      '{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}',
+    );
+    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+
+    await expect(page).toHaveURL(/\/app\/tools\?tab=fence$/);
+    for (const n of ['A–B', 'B–C', 'C–D', 'D–A']) {
+      await expect(page.getByLabel(`Side ${n} (m)`)).not.toHaveValue('');
+    }
+    await expect(page.getByLabel('Side E–A (m)')).toHaveCount(0);
+    await expect(page.locator('.fs-tool')).toContainText('4 sides');
+    await expect(page.locator('.fs-tool')).toContainText('871.2 m');
+  });
+
   test('nonsense pasted where GeoJSON was asked for is refused rather than guessed at', async ({ page }) => {
     await page.goto('/app/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Map area' }).click();
     await page.getByLabel('Boundary as GeoJSON').fill('not json at all');
     await expect(page.getByText('Add at least 3 points to compute an area.')).toBeVisible();
+  });
+
+  // -- Fence calculator ------------------------------------------------
+  //
+  // The village-map fence calculator without the map: the same bill
+  // (apps/web/src/w360/fenceBill.ts) over sides typed in metres.
+
+  const fenceBill = (page: Page) => page.locator('.fs-tool .fs-bill');
+  const billRow = (page: Page, th: string) =>
+    fenceBill(page).locator('tr').filter({ has: page.locator('th', { hasText: new RegExp(`^${th}$`) }) }).first();
+  const fillSides = async (page: Page, sides: string[]) => {
+    const names = ['A–B', 'B–C', 'C–D', 'D–A'];
+    for (let i = 0; i < sides.length; i += 1) {
+      await page.getByLabel(`Side ${names[i]} (m)`).fill(sides[i]);
+    }
+  };
+
+  test('?tab=fence opens the fence calculator, and it needs no service at all', async ({ page, world }) => {
+    await page.goto('/app/tools?tab=fence');
+    await expect(page.getByRole('tab', { name: 'Fence calculator', exact: true }))
+      .toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { level: 2, name: 'Fence calculator' })).toBeVisible();
+    await expect(page.getByText('Enter the length of each side to price a fence')).toBeVisible();
+    expect(world.escapes()).toEqual([]);
+  });
+
+  test('a hundred by eighty metre plot is 122 posts and 1,440 m of wire, priced at my rates', async ({ page }) => {
+    await page.goto('/app/tools?tab=fence');
+    await fillSides(page, ['100', '80', '100', '80']);
+    await page.getByLabel('Gates', { exact: true }).fill('0');
+
+    await expect(billRow(page, 'Corner posts')).toContainText('4');
+    await expect(billRow(page, 'Line posts')).toContainText('118');
+    await expect(billRow(page, 'Posts')).toContainText('122');
+    await expect(billRow(page, 'Wire')).toContainText('1,440');
+    await expect(page.getByText(/4 sides · 360(\.0)? m to fence/)).toBeVisible();
+
+    await page.getByLabel('₹ per post').fill('250');
+    await page.getByLabel('₹ per m of wire').fill('12');
+    // 122 × ₹250 + 1,440 m × ₹12
+    await expect(page.locator('.fs-tool .fs-total')).toContainText('₹47,780');
+  });
+
+  test('a side that is not a length is refused, and with no sides there is nothing to print', async ({ page }) => {
+    await page.goto('/app/tools?tab=fence');
+    await fillSides(page, ['100', '80', '100', '80']);
+    const ab = page.getByLabel('Side A–B (m)');
+    await ab.fill('-5');
+    await expect(ab).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('alert')).toHaveText('Enter each side as a length in metres, more than 0.');
+    // The bad side is left out of the sum rather than subtracted from it.
+    await expect(page.getByText(/3 sides · 260(\.0)? m to fence/)).toBeVisible();
+    // Printing now would hand the supplier a sheet with that side missing.
+    await expect(page.getByRole('button', { name: 'Print for the supplier' })).toBeDisabled();
+    await ab.fill('100');
+    await expect(page.getByRole('button', { name: 'Print for the supplier' })).toBeEnabled();
+
+    await fillSides(page, ['', '', '', '']);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.getByText('Enter the length of each side to price a fence')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Print for the supplier' })).toBeDisabled();
+  });
+
+  test('sides can be added and removed, and an open run has one more corner than sides', async ({ page }) => {
+    await page.goto('/app/tools?tab=fence');
+    await page.getByRole('button', { name: 'Add a side' }).click();
+    await expect(page.getByLabel('Side E–A (m)')).toBeVisible();
+    await page.getByRole('button', { name: 'Remove side E–A' }).click();
+    await expect(page.getByLabel('Side E–A (m)')).toHaveCount(0);
+
+    await page.getByLabel('The fence goes all the way round').uncheck();
+    await expect(page.getByLabel('Side D–E (m)')).toBeVisible();
+    await page.getByLabel('Side A–B (m)').fill('50');
+    await page.getByLabel('Side B–C (m)').fill('50');
+    // Two 50 m sides at 3 m: three corners, 16 line posts on each side.
+    await expect(billRow(page, 'Corner posts')).toContainText('3');
+  });
+
+  test('the estimate prints as a sheet for the supplier, and Clear empties the sides', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __printed: number }).__printed = 0;
+      window.print = () => { (window as unknown as { __printed: number }).__printed += 1; };
+    });
+    await page.goto('/app/tools?tab=fence');
+    await fillSides(page, ['100', '80', '100', '80']);
+    await page.getByRole('button', { name: 'Print for the supplier' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __printed: number }).__printed)).toBe(1);
+
+    const sheet = page.locator('.fs-tool .fs-sheet');
+    await expect(sheet).toContainText('Fence estimate');
+    await expect(sheet).toContainText('A–B');
+    // Dated, and not titled a second time under the "Fence estimate" heading.
+    await expect(sheet.locator('header p')).toHaveText(/^\d{2}\/\d{2}\/\d{4}$/);
+    // Typed sides have no shape to draw.
+    await expect(sheet.locator('svg.fs-plan')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(page.getByLabel('Side A–B (m)')).toHaveValue('');
+    await expect(page.getByLabel('Side D–A (m)')).toHaveValue('');
+    await expect(page.getByText('Enter the length of each side to price a fence')).toBeVisible();
+  });
+
+  test('a side left blank keeps the other sides under the letters they have on screen', async ({ page }) => {
+    await page.goto('/app/tools?tab=fence');
+    await fillSides(page, ['100', '', '100', '80']);
+    await expect(page.getByRole('button', { name: 'Print for the supplier' })).toBeEnabled();
+
+    const sheet = page.locator('.fs-tool .fs-sheet');
+    const lines = sheet.locator('.fs-sheet-grid > div').first().locator('tbody tr:not(.fs-sum) th');
+    await expect(lines).toHaveText(['A–B', 'C–D', 'D–A']);
+  });
+
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('the fence calculator fits the width of a phone @phone', async ({ page }) => {
+      await page.goto('/app/tools?tab=fence');
+      await fillSides(page, ['100', '80', '100', '80']);
+      await expect(page.locator('.fs-tool .fs-bill')).toBeVisible();
+      const [scroll, inner] = await page.evaluate(() =>
+        [document.documentElement.scrollWidth, window.innerWidth]);
+      expect(scroll).toBeLessThanOrEqual(inner);
+    });
   });
 });
 

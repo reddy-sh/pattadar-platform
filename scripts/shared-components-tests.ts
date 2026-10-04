@@ -21,8 +21,7 @@
  *   card    an element whose class list starts with `card`   → ui.tsx Card
  *   cell    a hand-written `.k` label span (strip/kv rows)    → ui.tsx Cell / KV
  *   blank   a hand-built `.blank` empty/failed state          → ui.tsx Empty / Failed
- *   tabs    a page-local `role="tablist"`                     → the next copy lifts a
- *           TabStrip into ui.tsx instead (there are two today)
+ *   tabs    a page-local `role="tablist"`                     → ui.tsx TabStrip / TabPanel
  *   shadow  a page defining a component with a ui.tsx export's name
  * Form fields, segmented controls and tables have no shared component yet, so
  * they are not budgeted here; they are TODO items 5–7.
@@ -55,7 +54,7 @@ const OWNER: Record<Kind, string> = {
   card: 'ui.tsx Card (it takes className, aside and busy)',
   cell: 'ui.tsx Cell for a strip, KV for key/value rows',
   blank: 'ui.tsx Empty or Failed',
-  tabs: 'a TabStrip lifted into ui.tsx — this would be the third copy',
+  tabs: 'ui.tsx TabStrip (with TabPanel); route tabs are RecordTabs/HoldingTabs',
   shadow: 'the ui.tsx export of the same name, or a new name if it is truly different',
 };
 
@@ -116,8 +115,6 @@ const BUDGET: Record<string, Partial<Counts>> = {
   'apps/web/src/w360/pages/Desk.tsx': { card: 1 },
   'apps/web/src/w360/pages/DeskAssociates.tsx': { card: 2 },
   'apps/web/src/w360/pages/DeskCoverage.tsx': { card: 2 },
-  // One of the two page-local tab strips (TODO item 4).
-  'apps/web/src/w360/pages/Groups.tsx': { card: 1, tabs: 1 },
   'apps/web/src/w360/pages/Notifications.tsx': { card: 2 },
   'apps/web/src/w360/pages/OrderLand.tsx': { card: 1 },
   'apps/web/src/w360/pages/Orders.tsx': { card: 4 },
@@ -136,9 +133,8 @@ const BUDGET: Record<string, Partial<Counts>> = {
   'apps/web/src/w360/pages/Shared.tsx': { card: 1 },
   'apps/web/src/w360/pages/Shelf.tsx': { card: 1 },
   'apps/web/src/w360/pages/Ticket.tsx': { card: 7 },
-  // AreaResult and the guideline-rate card (item 7); the fencing strip's cells;
-  // the second page-local tab strip (item 4).
-  'apps/web/src/w360/pages/Tools.tsx': { card: 2, cell: 4, tabs: 1 },
+  // AreaResult and the guideline-rate card (item 7); the fencing strip's cells.
+  'apps/web/src/w360/pages/Tools.tsx': { card: 2, cell: 4 },
   'apps/web/src/w360/pages/Vault.tsx': { card: 1 },
   'apps/web/src/w360/pages/Wallet.tsx': { card: 1 },
   // Loading stand-ins mirror the real cards' boxes on purpose.
@@ -146,7 +142,7 @@ const BUDGET: Record<string, Partial<Counts>> = {
 };
 
 const shared = uiExports(readFileSync(UI, 'utf8'));
-check('SC-0 ui.tsx exports the shared components this counts against', ['Card', 'KV', 'Cell', 'Empty', 'Failed'].every((n) => shared.has(n)), [...shared].join(', '));
+check('SC-0 ui.tsx exports the shared components this counts against', ['Card', 'KV', 'Cell', 'Empty', 'Failed', 'TabStrip', 'TabPanel'].every((n) => shared.has(n)), [...shared].join(', '));
 
 const files = walk(W360, /\.tsx$/).filter((f) => f !== UI);
 check('SC-0 the scan reached the W360 screens', files.length >= 60, `${files.length} files`);

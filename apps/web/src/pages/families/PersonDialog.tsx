@@ -1,8 +1,8 @@
 /**
  * PersonDialog — add/edit a group member. Functional port of the rhub
  * pattadar PersonModal: side-by-side "Scan Aadhaar / ID (AI)" import panel
- * (POST /api/gateway/pattadar/extract-aadhaar, with a best-effort My Drive
- * mirror) next to the manual form. DOB → minor → guardian requirement,
+ * (POST /api/gateway/pattadar/extract-aadhaar; an opted-in card is stored
+ * and filed in Documents › <person> › Aadhaar on save) next to the manual form. DOB → minor → guardian requirement,
  * marital → spouse block, present address + "same as my address", photo/ID
  * capture, Legal-Heir type, beneficiary needs a reachable contact.
  */
@@ -27,8 +27,9 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
-import { LINK_AADHAAR_CARD_MUTATION, formatAadhaarMask } from '@pattadar/core';
+import { formatAadhaarMask } from '@pattadar/core';
 import { apiErrorMessage, apiFetch, gql } from '../../api/client';
+import { trashDocuments } from '../../data/pattadarActions';
 import { ddmmyyyy } from '../../w360/ui';
 import {
   RELATIONS,
@@ -96,8 +97,15 @@ const CARD_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
 };
 
-/** The safe name a kept Aadhaar card is filed under in My Drive. The original
- *  filename is never used: it often carries the holder's name or number. */
+/** Links a kept card to its reading, with what the file is so Documents can
+ *  preview it. Web-local on purpose: `@pattadar/core`'s
+ *  LINK_AADHAAR_CARD_MUTATION (and its Swift twin) stay as they are, and the
+ *  two extra arguments are optional on the server. */
+const LINK_AADHAAR_CARD_WITH_FILE = `mutation($candidateId:String!,$nodeId:String!,$versionId:String!,$mimeType:String!,$sizeBytes:Int!){ linkAadhaarCard(candidateId:$candidateId,nodeId:$nodeId,versionId:$versionId,mimeType:$mimeType,sizeBytes:$sizeBytes) }`;
+
+/** The safe name a kept Aadhaar card is filed under in Documents. The
+ *  original filename is never used: it often carries the holder's name or
+ *  number. */
 export function cardName(mime: string): string {
   return `Aadhaar card.${CARD_EXTENSIONS[String(mime || '').trim().toLowerCase()] || 'bin'}`;
 }
@@ -261,23 +269,31 @@ export function PersonDialog({
             method: 'POST', body: drive,
           });
           if (!saved.ok) {
-            cardWarning = 'The details were read, but the card was not saved to My Drive';
+            cardWarning = 'The details were read, but the card was not kept in Documents';
           } else {
+            let nodeId = '';
             try {
               const node = (await saved.json()) as { id?: string; currentVersionId?: string };
+              nodeId = node.id || '';
               if (!node.id || !node.currentVersionId) throw new Error('The upload did not name the file');
-              await gql(LINK_AADHAAR_CARD_MUTATION, {
+              await gql(LINK_AADHAAR_CARD_WITH_FILE, {
                 candidateId, nodeId: node.id, versionId: node.currentVersionId,
+                // GraphQL Int is 32-bit; a card is far smaller, but never overflow.
+                mimeType: file.type || '', sizeBytes: Math.min(file.size || 0, 2_147_483_647),
               });
               cardSaved = true;
             } catch {
-              cardWarning = 'The card was saved to My Drive but could not be linked to this reading';
+              // A stored card nothing points at would be a copy of the number
+              // nobody can find: it goes to Trash, recoverable, not kept.
+              if (nodeId) await trashDocuments([{ id: '', fileRef: nodeId }], { keepRows: true });
+              cardWarning = 'The details were read, but the card could not be filed in Documents, so it was not kept';
             }
           }
         }
+        const who = (f.name || '').trim() || 'this person';
         if (cardWarning) notify(cardWarning, 'warning');
         else notify(cardSaved
-          ? 'Aadhaar read securely — masked details filled and card saved to My Drive'
+          ? `Aadhaar read securely — masked details filled; the card goes to Documents › ${who} › Aadhaar when you save`
           : 'Aadhaar read securely — masked details filled; the card was not retained');
       } catch {
         notify('Aadhaar extraction failed', 'error');
@@ -397,7 +413,20 @@ export function PersonDialog({
               Upload the Aadhaar (PDF or image). Name, DOB, gender and address can fill the
               form; the number returns masked and the original is retained only if you choose it.
             </Typography>
-            <Box sx={{ my: 1.5 }}>
+            {/* Chosen BEFORE the scan: the choice is read when the file is
+                picked, so a box ticked afterwards kept nothing. */}
+            <FormControlLabel
+              sx={{ mt: 1 }}
+              control={(
+                <Checkbox
+                  checked={retainAadhaarCard}
+                  onChange={(e) => setRetainAadhaarCard(e.target.checked)}
+                  disabled={aadhaarUploading}
+                />
+              )}
+              label="Also keep the original card, encrypted, in Documents › this person › Aadhaar"
+            />
+            <Box sx={{ mt: 0.5, mb: 1.5 }}>
               <Button
                 component="label"
                 variant="outlined"
@@ -418,15 +447,6 @@ export function PersonDialog({
                 />
               </Button>
             </Box>
-            <FormControlLabel
-              control={(
-                <Checkbox
-                  checked={retainAadhaarCard}
-                  onChange={(e) => setRetainAadhaarCard(e.target.checked)}
-                />
-              )}
-              label="Also keep the original card in my encrypted Drive"
-            />
             {aadhaarMasked && (
               <Alert severity="success" sx={{ mb: 1 }}>
                 Read securely as <MaskedAadhaar masked={aadhaarMasked} />. Full digits were not returned to this form.

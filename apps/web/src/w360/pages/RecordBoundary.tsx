@@ -22,8 +22,8 @@ import MyLocationOutlined from '@mui/icons-material/MyLocationOutlined';
 import FitScreenOutlined from '@mui/icons-material/FitScreenOutlined';
 import FullscreenOutlined from '@mui/icons-material/FullscreenOutlined';
 import {
-  checkLocation, compassPoint, formatDistance, haversineKm, mapsAppFor,
-  mapsAppName, mapsLink, parseBoundaryFile, placeCandidates, ringAreaSqM, ringCentroid,
+  checkLocation, compassPoint, formatDistance, haversineKm,
+  navigateLink, parseBoundaryFile, placeCandidates, ringAreaSqM, ringCentroid,
   ringPerimM, ringSides, cornerLabel, LENGTH_FT, SQ_M_PER_ACRE, toBoundaryGeoJson,
   boundaryFileName, ringFromFmbGeometry,
 } from '@pattadar/core';
@@ -39,6 +39,9 @@ import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { getFmbState, runFmbUpload, subscribeFmb } from '../fmbUpload';
 import { MapCanvas } from '../MapCanvasLazy';
 import type { Basemap, MapHandle } from '../MapCanvasLazy';
+import { loadVillage } from '../villageIndex';
+import type { VillagePlot } from '../villageIndex';
+import { plotAt } from '../villageGeom';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
 import { checkBoundaryDraft } from './boundaryDraft';
@@ -127,6 +130,16 @@ export function RecordBoundary() {
   }>(null);
   /** On a phone the tools fold behind one "Changes the record" button. */
   const [toolsOpen, setToolsOpen] = useState(false);
+  /** "Use my current location": where the device says it is, and which
+   *  village-map plot that falls in. Shown, never saved — the pin is written
+   *  only by "Save pin", and the plot only through the plot card after it.
+   *  Accuracy is not stored anywhere (setPin takes none). */
+  const [here, setHere] = useState<{ lat: number; lon: number; accuracyM: number } | null>(null);
+  const [found, setFound] = useState<
+    | { state: 'looking' }
+    | { state: 'plot'; plot: VillagePlot }
+    | { state: 'none'; why: 'outside' | 'nomap'; far: string }
+    | null>(null);
 
   const stopEditing = () => {
     pendingRead.current += 1;
@@ -136,6 +149,8 @@ export function RecordBoundary() {
     setDraftSource('');
     setMovingMark(null);
     setPinDraft(null);
+    setHere(null);
+    setFound(null);
   };
   useEffect(() => () => { pendingRead.current += 1; }, [rec.id]);
 
@@ -593,10 +608,10 @@ export function RecordBoundary() {
           `${rec.title} corner ${nameA}: ${fix(a)}\n`
           + `${rec.title} corner ${nameB}: ${fix(b)}\n`
           + `between: ${metres} m (${feet} ft) ${compassPoint(side.bearing)}`)}">Copy both</button>
-        <a href="${esc(mapsLink({ latitude: a[0], longitude: a[1] },
-          { label: `${rec.title} corner ${nameA}` }))}" target="_blank" rel="noreferrer">Corner ${nameA} ↗</a>
-        <a href="${esc(mapsLink({ latitude: b[0], longitude: b[1] },
-          { label: `${rec.title} corner ${nameB}` }))}" target="_blank" rel="noreferrer">Corner ${nameB} ↗</a>
+        <a href="${esc(navigateLink({ latitude: a[0], longitude: a[1] }))}"
+           target="_blank" rel="noreferrer">Navigate to ${nameA} ↗</a>
+        <a href="${esc(navigateLink({ latitude: b[0], longitude: b[1] }))}"
+           target="_blank" rel="noreferrer">Navigate to ${nameB} ↗</a>
       </div>`;
   }, [measure, pinnedSide, ring, rec.title]);
 
@@ -650,8 +665,8 @@ export function RecordBoundary() {
       </dl>
       <div class="row">
         <button type="button" data-copy="${esc(`${rec.title} corner ${n}: ${at}`)}">Copy</button>
-        <a href="${esc(mapsLink({ latitude: c[0], longitude: c[1] },
-          { label: `${rec.title} corner ${n}` }))}" target="_blank" rel="noreferrer">Navigate ↗</a>
+        <a href="${esc(navigateLink({ latitude: c[0], longitude: c[1] }))}"
+           target="_blank" rel="noreferrer">Navigate ↗</a>
       </div>`;
   }, [pinnedCorner, ring, rec.title]);
 
@@ -662,6 +677,19 @@ export function RecordBoundary() {
    *  which is how the shape files are named. */
   const village = useMemo(
     () => (rec.placeLine.split(',')[0] || '').trim(), [rec.placeLine]);
+  /** Everything after the village: the mandal and district a village-map hit
+   *  has to agree with. One value for the map and the survey lookup, so
+   *  "Use my current location" searches exactly the plots the chip draws. */
+  const placeWithin = useMemo(
+    () => rec.placeLine.split(',').slice(1).map((x) => x.trim()), [rec.placeLine]);
+  /** What the map draws for "Use my current location" — only while placing
+   *  the pin. Memoised so the map's layer effect keys on real changes. */
+  const located = useMemo(
+    () => (mode === 'pin' && here
+      ? { ...here, plot: found?.state === 'plot' ? found.plot.ring : undefined }
+      : null),
+    [mode, here, found],
+  );
 
   /** The record's survey number as a village map spells it. A record is "Sy
    *  123/1" — survey 123, subdivision 1 — and the shape file numbers the whole
@@ -673,23 +701,16 @@ export function RecordBoundary() {
 
   // Where the hand-off drops its pin: the centre of the land if we know the
   // shape, the filed pin if we only know that. No maps app takes a boundary.
+  // Every Navigate — corners, sides and this whole-parcel one — goes to Google
+  // Maps directions (navigateLink, Reddy 03/10/2026), with the coordinate only:
+  // the record's title and village never leave in a URL.
   const away = useMemo(() => {
     const centre = surveyed
       ? ringCentroid(ring.map(([latitude, longitude]) => ({ latitude, longitude })))
       : null;
-    const at = centre ?? { latitude: data?.lat ?? 0, longitude: data?.lon ?? 0 };
-    if (!at.latitude && !at.longitude) return null;
-    const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-    const app = mapsAppFor(ua);
-    // Survey number AND village. "Sy 71/2" alone is not an identifier — the
-    // same number exists in every village in the district — and a dropped pin
-    // captioned only that tells you nothing once you are inside Apple Maps.
-    // Kept to two parts on purpose: Apple treats this as a search field and
-    // will try to match a longer, more address-like string against a POI.
-    const village = (rec.placeLine.split(',')[0] || '').trim();
-    const label = [data?.title, village].filter(Boolean).join(', ');
-    return { href: mapsLink(at, { label, userAgent: ua }), app };
-  }, [surveyed, ring, data?.lat, data?.lon, data?.title, rec.placeLine]);
+    const href = navigateLink(centre ?? { latitude: data?.lat ?? 0, longitude: data?.lon ?? 0 });
+    return href || null; // '' for the unset 0,0: no hand-off into the Gulf of Guinea
+  }, [surveyed, ring, data?.lat, data?.lon]);
 
   /** `saving` and the draw tool both used to live below the early returns,
    *  beside `editing`. The `?draw=1` hand-off has to arm beginDrawing from an
@@ -776,6 +797,11 @@ export function RecordBoundary() {
 
   const savePinAt = (lat: number, lon: number) => {
     if (setPin.isPending) return;
+    // The plot "Use my current location" found, offered next — but only if
+    // the pin being saved is still inside it. Moved somewhere else on the map,
+    // the device's plot is no longer the answer to anything.
+    const next = found?.state === 'plot' && plotAt([found.plot], { lat, lon })
+      ? found.plot : null;
     pendingRead.current += 1;
     setBusy('');
     setPinErr('');
@@ -787,6 +813,17 @@ export function RecordBoundary() {
           return;
         }
         stopEditing();
+        // Hand over to the plot card: "This is my land" with no boundary, or
+        // "Replace the boundary with this plot" (which asks first) over one.
+        // Nothing about the boundary is written until that is pressed.
+        if (next) {
+          setVillageOn(true);
+          setVmState(null);
+          // Not the plot's number: a search would re-pick the FIRST plot of
+          // that number, and a village can repeat one.
+          setPlotQuery('');
+          setPlot(next);
+        }
       },
       onError: (e) => {
         if (currentRecord.current === rec.id) {
@@ -795,6 +832,126 @@ export function RecordBoundary() {
       },
     });
   };
+
+  /** "Use my current location" — from an empty record, or while moving the
+   *  pin. Reads the device once, drops a DRAFT pin there, and looks the point
+   *  up on this record's own village map to say which survey it falls in.
+   *  Nothing is written: "Save pin" is the confirmation, and the plot is only
+   *  offered after that. The position never leaves the browser except through
+   *  that save, and is never logged. */
+  const locateMe = () => {
+    if (saving || busy) return;
+    setPinErr('');
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setPinErr('Location needs a secure (https) page. Click the map instead.');
+      return;
+    }
+    if (!navigator.geolocation) {
+      setPinErr('This browser will not share a location.');
+      return;
+    }
+    if (mode !== 'pin') {
+      setDraft([]);
+      setPlot(null);
+      setPinDraft(null);
+      setPinnedSide(null);
+      setPinnedCorner(null);
+      setMode('pin');
+    }
+    setHere(null);
+    setFound(null);
+    const request = ++pendingRead.current;
+    setBusy('Reading your location…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (request !== pendingRead.current) return;
+        setBusy('');
+        const at = {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          accuracyM: Math.round(pos.coords.accuracy),
+        };
+        // A draft like a click on the map: the owner sees where it lands,
+        // then saves it.
+        setHere(at);
+        setPinDraft([at.lat, at.lon]);
+        setFound({ state: 'looking' });
+        void loadVillage(village, placeWithin).then((plots) => {
+          if (request !== pendingRead.current) return;
+          if (!plots?.length) {
+            setFound({ state: 'none', why: 'nomap', far: '' });
+            return;
+          }
+          const hit = plotAt(plots, at);
+          if (hit) { setFound({ state: 'plot', plot: hit }); return; }
+          // Not in any plot. Say how far the village is when it is far —
+          // phones report where you stand, not where the land is (CL-565).
+          let south = Infinity, west = Infinity, north = -Infinity, east = -Infinity;
+          for (const p of plots) for (const [la, lo] of p.ring) {
+            if (la < south) south = la;
+            if (la > north) north = la;
+            if (lo < west) west = lo;
+            if (lo > east) east = lo;
+          }
+          const far = checkLocation(
+            { latitude: at.lat, longitude: at.lon },
+            { latitude: (south + north) / 2, longitude: (west + east) / 2 },
+            village,
+          ).message;
+          setFound({ state: 'none', why: 'outside', far });
+        }, () => {
+          if (request === pendingRead.current) setFound({ state: 'none', why: 'nomap', far: '' });
+        });
+      },
+      // Denied, unavailable, or timed out — all ordinary, none of them a bug.
+      // The pin tool stays armed so the map can still be clicked.
+      (err) => {
+        if (request !== pendingRead.current) return;
+        setBusy('');
+        setPinErr(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location permission was refused, so the pin was not moved.'
+            : err.code === err.TIMEOUT
+              ? 'Reading your location took too long. Try again, or click the map.'
+              : 'Your location is not available right now. Click the map instead.');
+      },
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 0 },
+    );
+  };
+  // Only while the draft pin is still where the device put it: once the map
+  // is clicked elsewhere, "you're in Sy N" is no longer about that pin.
+  const atHere = !!here && !!pinDraft && pinDraft[0] === here.lat && pinDraft[1] === here.lon;
+  const hereSays = mode === 'pin' && here && found && atHere ? (() => {
+    const acc = <span className="num">±{here.accuracyM.toLocaleString('en-IN')} m</span>;
+    if (found.state === 'looking') return <>Finding your survey on the {village} village map…</>;
+    if (found.state === 'plot') {
+      const lead = (found.plot.lp.match(/\d+/) ?? [''])[0];
+      return (
+        <>
+          You're in Sy <span className="num">{found.plot.lp}</span>, {village} ({acc}).
+          {surveyNo && lead && lead !== surveyNo && <> This {noun} is filed as {rec.title}.</>}
+          {here.accuracyM > 50 && (
+            <> Location is only accurate to {acc} — check the plot before taking it.</>
+          )}
+          {' '}Save the pin here, or click the map to move it.
+        </>
+      );
+    }
+    if (found.why === 'nomap') {
+      return (
+        <>
+          There is no village map for {village || 'this village'}, so the survey could not be
+          found. You can still save the pin where you are.
+        </>
+      );
+    }
+    return (
+      <>
+        Your location is not inside any plot on the {village} village map.
+        {found.far && <> {found.far}</>} You can still save the pin where you are.
+      </>
+    );
+  })() : null;
 
   return (
     <>
@@ -895,12 +1052,11 @@ export function RecordBoundary() {
               onClick: exportGeoJson,
             }] : []),
             ...(away ? [{
-              label: `Open in ${mapsAppName(away.app)}`,
+              label: 'Navigate in Google Maps',
               icon: <OpenInNewOutlined sx={{ fontSize: 17 }} />,
-              // Named for the app that will actually open, so it never
-              // promises Apple Maps to somebody on a Pixel. A real link, so it
-              // can still be copied or opened in a new tab from a menu.
-              href: away.href,
+              // A real link, so it can still be copied or opened in a new tab
+              // from a menu — the same Google Maps directions as the corner tips.
+              href: away,
               onClick: () => undefined,
             }] : []),
             {
@@ -1054,7 +1210,22 @@ export function RecordBoundary() {
             )}
             {/* Why something cannot be pressed, in words (see `lockWhy`). */}
             {lockWhy && <p className="note maplock" role="status">{lockWhy}</p>}
-            {mode !== 'idle' && (
+            {/* Nothing says where this land is yet: the quickest answer, for
+                somebody standing on it, is the phone. Here rather than in the
+                folded tools panel so a phone shows it without opening that. */}
+            {/* No sentence of its own: the map already says this record has
+                no location (or which place it is showing instead). */}
+            {mode === 'idle' && !pinned && !surveyed && !naming && !busy && (
+              /* `.locate` takes the click back: `.mapsays` lets clicks through
+                 to the map everywhere but on its controls. */
+              <div className="row tight locate">
+                <button type="button" className="btn sm" onClick={locateMe} disabled={saving}>
+                  <MyLocationOutlined sx={{ fontSize: 15 }} aria-hidden /> Use my current location
+                </button>
+              </div>
+            )}
+            {hereSays && <p className="hint" role="status">{hereSays}</p>}
+            {mode !== 'idle' && !hereSays && (
               <p className="hint">
                 {mode === 'mark'
                   ? 'Click where the stone is.'
@@ -1084,36 +1255,8 @@ export function RecordBoundary() {
                 {mode === 'pin' && (
                   <button type="button" className="btn sm"
                           disabled={saving || !!busy}
-                          onClick={() => {
-                            setPinErr('');
-                            if (!navigator.geolocation) {
-                              setPinErr('This browser will not share a location.');
-                              return;
-                            }
-                            const request = ++pendingRead.current;
-                            setBusy('Reading your location…');
-                            navigator.geolocation.getCurrentPosition(
-                              (pos) => {
-                                if (request !== pendingRead.current) return;
-                                // A draft like a click on the map: the owner
-                                // sees where it lands, then saves it.
-                                setBusy('');
-                                setPinDraft([pos.coords.latitude, pos.coords.longitude]);
-                              },
-                              // Denied, unavailable, or timed out — all three are
-                              // ordinary, and none of them should look like a bug.
-                              (err) => {
-                                if (request !== pendingRead.current) return;
-                                setBusy('');
-                                setPinErr(
-                                  err.code === err.PERMISSION_DENIED
-                                    ? 'Location permission was refused, so the pin was not moved.'
-                                    : 'Your location could not be read. Click the map instead.');
-                              },
-                              { enableHighAccuracy: true, timeout: 12_000 },
-                            );
-                          }}>
-                    <MyLocationOutlined sx={{ fontSize: 15 }} /> Use my current location
+                          onClick={locateMe}>
+                    <MyLocationOutlined sx={{ fontSize: 15 }} aria-hidden /> Use my current location
                   </button>
                 )}
                 {mode === 'pin' && (
@@ -1181,7 +1324,7 @@ export function RecordBoundary() {
             village={village}
             /* Everything after the village: the mandal and district a hit has to
                agree with before it is believed. */
-            placeWithin={rec.placeLine.split(',').slice(1).map((x) => x.trim())}
+            placeWithin={placeWithin}
             showVillage={villageOn && !editing}
             findPlot={villageOn && !editing ? plotQuery : null}
             onVillageState={setVmState}
@@ -1239,6 +1382,7 @@ export function RecordBoundary() {
               if (mode === 'pin') { setPinErr(''); setPinDraft([lat, lon]); }
             }}
             draftPin={mode === 'pin' && pinDraft ? { lat: pinDraft[0], lon: pinDraft[1] } : null}
+            located={located}
             basemap={basemap}
             activeMarkId={activeMark}
             onMarkClick={setActiveMark}
@@ -1379,7 +1523,7 @@ export function RecordBoundary() {
                           font: 'inherit', color: 'inherit', cursor: 'pointer',
                           ...(keyFocus === i
                             ? {
-                              outline: '2px solid var(--color-focus)',
+                              outline: '2px solid var(--w-focus)',
                               outlineOffset: '-2px',
                             }
                             : null),
@@ -1548,7 +1692,7 @@ export function RecordBoundary() {
                         style={{
                           width: '1.5rem', height: '1.5rem', fontSize: '0.6875rem',
                           background: moved ? 'var(--w-danger-wash)' : 'var(--w-accent-wash)',
-                          color: moved ? 'var(--w-danger)' : 'var(--w-accent)',
+                          color: moved ? 'var(--w-danger)' : 'var(--w-accent-wash-ink)',
                           borderColor: 'transparent',
                         }}
                       >

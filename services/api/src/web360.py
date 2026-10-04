@@ -572,6 +572,21 @@ _DDL = [
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS folder_id TEXT NOT NULL DEFAULT ''",
     "CREATE INDEX IF NOT EXISTS idx_documents_folder"
     " ON documents (owner_user_id, folder_id) WHERE folder_id <> ''",
+    # One document tree per person (invariant 8). A person's folder is an
+    # ordinary owner folder that also remembers whose it is: `person_id` is the
+    # account owner's id for their own folder and family_members.id for a
+    # member's; '' is a folder the owner made. `feature_key` names the feature
+    # folder inside it ('aadhaar'), '' for the person's own root. Placement
+    # only: keys stay {node}/{version} and access is still decided in SQL.
+    "ALTER TABLE vault_folders ADD COLUMN IF NOT EXISTS person_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE vault_folders ADD COLUMN IF NOT EXISTS feature_key TEXT NOT NULL DEFAULT ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_vault_folders_person"
+    " ON vault_folders (owner_user_id, person_id, feature_key) WHERE person_id <> ''",
+    # A kept Aadhaar card filed in Documents points at its Aadhaar record, so
+    # the row goes exactly when the record does. One row per record.
+    "ALTER TABLE documents ADD COLUMN IF NOT EXISTS aadhaar_record_id TEXT NOT NULL DEFAULT ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_documents_aadhaar_record"
+    " ON documents (owner_user_id, aadhaar_record_id) WHERE aadhaar_record_id <> ''",
 
     # W02/W06 — a record's status ("for sale", "disputed") and its map polygon.
     "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS shape TEXT NOT NULL DEFAULT ''",
@@ -1231,6 +1246,9 @@ class Paper:
     # The owner's folder (vault_folders.id), '' at the top level.
     folder_id: str = ""
     size_bytes: int = 0
+    # A kept Aadhaar card filed under <person> › Aadhaar. The record it points
+    # at is never sent; a client only needs to know the row is one.
+    aadhaar_card: bool = False
 
 
 @strawberry.type
@@ -1244,6 +1262,9 @@ class VaultFolder:
     file_count: int
     folder_count: int
     created_at: str = ""
+    # Whose folder this is in the per-person tree: the account owner's id or a
+    # family member's id; '' for a folder the owner made themselves.
+    person_id: str = ""
 
 
 @strawberry.type
@@ -6723,7 +6744,8 @@ class WebQuery:
                 created_at=d.get("created_at") or "",
                 joint_fmb_id=d.get("joint_fmb_id") or "",
                 folder_id=d.get("folder_id") or "",
-                size_bytes=_i(d.get("size_bytes")))
+                size_bytes=_i(d.get("size_bytes")),
+                aadhaar_card=bool(d.get("aadhaar_record_id")))
                 for d in docs]
 
     @strawberry.field
@@ -6736,7 +6758,7 @@ class WebQuery:
         uid = _uid(info)
         async with _pool.connection() as conn:
             cur = await conn.execute(
-                "SELECT f.id, f.name, f.parent_id, f.created_at,"
+                "SELECT f.id, f.name, f.parent_id, f.created_at, f.person_id,"
                 " (SELECT count(DISTINCT CASE WHEN d.joint_fmb_id<>'' THEN 'j:' || d.joint_fmb_id"
                 "                             ELSE d.id END)"
                 "    FROM documents d WHERE d.owner_user_id=f.owner_user_id AND d.folder_id=f.id) AS file_count,"
@@ -6746,7 +6768,7 @@ class WebQuery:
             return [VaultFolder(
                 id=r["id"], name=r["name"], parent_id=r.get("parent_id") or "",
                 file_count=_i(r.get("file_count")), folder_count=_i(r.get("folder_count")),
-                created_at=r.get("created_at") or "")
+                created_at=r.get("created_at") or "", person_id=r.get("person_id") or "")
                 for r in await cur.fetchall()]
 
     @strawberry.field
@@ -8673,6 +8695,158 @@ async def _free_folder_name(conn, uid: str, parent_id: str, name: str, skip_id: 
     return f"{name} ({n})"
 
 
+# ── One document tree per person (invariant 8) ───────────────────────
+# Every person's uploads are filed under person → feature → … in Documents.
+# The folders are made lazily, the first time something is filed, so every
+# person's tree has the same shape without seeding empty folders for all.
+_FEATURE_FOLDER_NAMES = {"aadhaar": "Aadhaar"}
+
+
+def _person_folder_name(raw: str) -> str:
+    """A person's name as a folder name: the folder rules, never a refusal.
+    The account owner's own folder is "You" when they have not named
+    themselves; a member with no name is "Person"."""
+    name = " ".join((raw or "").replace("/", " ").replace("\\", " ").split())
+    return name[:_FOLDER_NAME_MAX].strip() or "Person"
+
+
+async def _system_folder(conn, uid: str, person_id: str, feature_key: str,
+                         parent_id: str, name: str) -> str:
+    """Find or make the one folder for (person, feature). Race-safe: the
+    unique (owner, person, feature) index lets only one insert win, and a name
+    taken by the owner's own folder gets the next free name."""
+    for _ in range(4):
+        row = await (await conn.execute(
+            "SELECT id FROM vault_folders WHERE owner_user_id=%s AND person_id=%s AND feature_key=%s",
+            (uid, person_id, feature_key))).fetchone()
+        if row:
+            return row["id"]
+        free = await _free_folder_name(conn, uid, parent_id, name)
+        await conn.execute(
+            "INSERT INTO vault_folders (id, owner_user_id, parent_id, name, created_at, person_id, feature_key)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+            (f"fld-{secrets.token_hex(10)}", uid, parent_id, free, _now_iso(), person_id, feature_key))
+    raise ValueError("Your Documents folder could not be made; try again")
+
+
+async def ensure_person_folder(conn, uid: str, person_id: str, person_name: str,
+                               feature_key: str = "") -> str:
+    """The id of a person's folder in Documents, or of one feature folder in
+    it ('aadhaar' → <person> › Aadhaar). Owner-scoped: every lookup and write
+    carries `uid`, so one owner can never file into another's tree."""
+    if not person_id:
+        raise ValueError("A person is needed to file this document")
+    root = await _system_folder(conn, uid, person_id, "", "", _person_folder_name(person_name))
+    if not feature_key:
+        return root
+    # The owner may have moved the person's folder somewhere; a feature folder
+    # made later still goes inside it, wherever it now is.
+    return await _system_folder(conn, uid, person_id, feature_key, root,
+                                _FEATURE_FOLDER_NAMES.get(feature_key, feature_key))
+
+
+async def file_aadhaar_card(conn, uid: str, record_id: str, person_id: str, person_name: str) -> str:
+    """File a kept Aadhaar card as a Documents row under <person> › Aadhaar.
+
+    The bytes were already stored by the gateway (key {node}/{version}) and
+    linked to the record by link_aadhaar_card; this only writes the row that
+    points at that node, so the card shows in Documents. Returns the document
+    id, or '' when the record has no kept card. Idempotent: one row per
+    record (uq_documents_aadhaar_record), and a row the owner has since moved
+    into another of their folders stays where they put it. The subtitle is
+    the server's mask only — never digits beyond the last four."""
+    if not record_id:
+        return ""
+    rec = await (await conn.execute(
+        "SELECT card_node_id, card_mime, card_size, masked FROM aadhaar_candidates"
+        " WHERE id=%s AND owner_user_id=%s", (record_id, uid))).fetchone()
+    if not rec or not (rec.get("card_node_id") or ""):
+        return ""
+    existing = await (await conn.execute(
+        "SELECT id, folder_id FROM documents WHERE owner_user_id=%s AND aadhaar_record_id=%s",
+        (uid, record_id))).fetchone()
+    if existing and existing.get("folder_id") and await _folder_chain(conn, uid, existing["folder_id"]):
+        return existing["id"]
+    folder = await ensure_person_folder(conn, uid, person_id, person_name, "aadhaar")
+    if existing:
+        await conn.execute("UPDATE documents SET folder_id=%s WHERE id=%s AND owner_user_id=%s",
+                           (folder, existing["id"], uid))
+        return existing["id"]
+    import uuid as _uuid
+    did = f"doc-{_uuid.uuid4().hex[:12]}"
+    cur = await conn.execute(
+        "INSERT INTO documents (id, owner_user_id, name, subtitle, shelf,"
+        " page_count, record_id, parcel_id, property_id, doc_type, created_at, size_bytes,"
+        " file_ref, mime_type, source, folder_id, aadhaar_record_id)"
+        " VALUES (%s,%s,'Aadhaar card',%s,'identity',0,'','','','identity',%s,%s,%s,%s,"
+        "'aadhaar-card',%s,%s) ON CONFLICT DO NOTHING RETURNING id",
+        (did, uid, rec.get("masked") or "", _now_iso(), max(0, _i(rec.get("card_size"))),
+         rec["card_node_id"], rec.get("card_mime") or "", folder, record_id))
+    if await cur.fetchone():
+        return did
+    # A concurrent save filed it first: that row is the one.
+    row = await (await conn.execute(
+        "SELECT id FROM documents WHERE owner_user_id=%s AND aadhaar_record_id=%s",
+        (uid, record_id))).fetchone()
+    return row["id"] if row else ""
+
+
+async def _remove_folder(conn, uid: str, folder_id: str) -> Optional[dict]:
+    """Remove one folder. Never removes a file: what was inside — files and
+    subfolders — moves up one level, into the folder that held it. Returns the
+    removed row, or None when it is not this owner's. Run inside the caller's
+    transaction."""
+    cur = await conn.execute(
+        "SELECT id, name, parent_id FROM vault_folders WHERE id=%s AND owner_user_id=%s"
+        " FOR UPDATE", (folder_id, uid))
+    row = await cur.fetchone()
+    if not row:
+        return None
+    parent = row.get("parent_id") or ""
+    # Drop the folder first, so its own name no longer blocks a
+    # child of the same name from taking its place.
+    await conn.execute(
+        "DELETE FROM vault_folders WHERE id=%s AND owner_user_id=%s", (folder_id, uid))
+    cur = await conn.execute(
+        "SELECT id, name FROM vault_folders WHERE owner_user_id=%s AND parent_id=%s"
+        " ORDER BY lower(name), id", (uid, folder_id))
+    for child in await cur.fetchall():
+        free = await _free_folder_name(conn, uid, parent, child["name"], child["id"])
+        await conn.execute(
+            "UPDATE vault_folders SET parent_id=%s, name=%s WHERE id=%s AND owner_user_id=%s",
+            (parent, free, child["id"], uid))
+    await conn.execute(
+        "UPDATE documents SET folder_id=%s WHERE owner_user_id=%s AND folder_id=%s",
+        (parent, uid, folder_id))
+    return row
+
+
+async def release_person_documents(conn, uid: str) -> int:
+    """After an Aadhaar record or a person goes: drop what was filed for them.
+
+    · A filed Aadhaar card whose record no longer exists loses its row (the
+      record was released: member removed, Aadhaar replaced, KYC cleared). A
+      record still shared with another subject keeps its row.
+    · A member's person folders go once the member is gone. Anything else the
+      owner put inside is lifted up, never deleted. The owner's own folder
+      (person_id = uid) is never removed here.
+    Owner-scoped. Returns the number of card rows removed."""
+    cur = await conn.execute(
+        "DELETE FROM documents d WHERE d.owner_user_id=%s AND d.aadhaar_record_id<>''"
+        " AND NOT EXISTS (SELECT 1 FROM aadhaar_candidates r"
+        "  WHERE r.id=d.aadhaar_record_id AND r.owner_user_id=d.owner_user_id) RETURNING d.id",
+        (uid,))
+    gone = len(await cur.fetchall())
+    cur = await conn.execute(
+        "SELECT id FROM vault_folders f WHERE f.owner_user_id=%s AND f.person_id<>'' AND f.person_id<>%s"
+        " AND NOT EXISTS (SELECT 1 FROM family_members m"
+        "  WHERE m.id=f.person_id AND m.owner_user_id=f.owner_user_id)"
+        " ORDER BY (f.feature_key='') , f.id", (uid, uid))
+    for folder in await cur.fetchall():
+        await _remove_folder(conn, uid, folder["id"])
+    return gone
+
+
 async def _owned_document_ids(conn, uid: str, ids: List[str]) -> List[str]:
     """The subset of `ids` that are this owner's own vault files."""
     if not ids:
@@ -9964,6 +10138,11 @@ class WebMutation:
             rows = await cur.fetchall()
             if len(rows) != len(ids):
                 return False
+            # A filed Aadhaar card is a person's identity, not a property
+            # paper: linking it to a record would put it in that record's
+            # share links. Refused, like a paper that is not the caller's.
+            if any(row.get("aadhaar_record_id") for row in rows):
+                return False
             async with conn.transaction():
                 for row in rows:
                     # The legacy primary columns point only to individual
@@ -10799,28 +10978,9 @@ class WebMutation:
         uid = _uid(info)
         async with _pool.connection() as conn:
             async with conn.transaction():
-                cur = await conn.execute(
-                    "SELECT id, name, parent_id FROM vault_folders WHERE id=%s AND owner_user_id=%s"
-                    " FOR UPDATE", (folder_id, uid))
-                row = await cur.fetchone()
+                row = await _remove_folder(conn, uid, folder_id)
                 if not row:
                     return False
-                parent = row.get("parent_id") or ""
-                # Drop the folder first, so its own name no longer blocks a
-                # child of the same name from taking its place.
-                await conn.execute(
-                    "DELETE FROM vault_folders WHERE id=%s AND owner_user_id=%s", (folder_id, uid))
-                cur = await conn.execute(
-                    "SELECT id, name FROM vault_folders WHERE owner_user_id=%s AND parent_id=%s"
-                    " ORDER BY lower(name), id", (uid, folder_id))
-                for child in await cur.fetchall():
-                    free = await _free_folder_name(conn, uid, parent, child["name"], child["id"])
-                    await conn.execute(
-                        "UPDATE vault_folders SET parent_id=%s, name=%s WHERE id=%s AND owner_user_id=%s",
-                        (parent, free, child["id"], uid))
-                await conn.execute(
-                    "UPDATE documents SET folder_id=%s WHERE owner_user_id=%s AND folder_id=%s",
-                    (parent, uid, folder_id))
                 await _audit(conn, uid, "delete_folder", "", f"Removed a folder: {row['name']}")
         return True
 

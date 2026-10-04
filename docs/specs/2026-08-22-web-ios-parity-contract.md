@@ -89,6 +89,14 @@ them here, so the next sweep does not re-open a closed question.
     label in `Display.swift`'s audit map.
   - *Follow-up (`mobile-feature-delivery`):* an Expo card opt-in with
     `linkAadhaarCard`. Expo's reveal/copy UI is already removed.
+  - *Web-only, 03/10/2026 (iOS follow-up via `sync-ios`):* web now files a
+    kept card in Documents under *person › Aadhaar* (family spec FM-009/010).
+    The server does the filing, so an iOS caller of `Queries.linkAadhaarCard`
+    gets it too. `linkAadhaarCard` takes optional `mimeType`/`sizeBytes`, but
+    core's `LINK_AADHAAR_CARD_MUTATION` and its Swift twin are unchanged; web
+    sends both from a web-local string. Still for iOS: show
+    `VaultFolder.personId` and `Paper.aadhaarCard` (both `Query.web`, so NOTE
+    only), and the Trash-on-remove step.
 
 ## Three bands of change
 
@@ -142,10 +150,28 @@ set naming a field the schema does not have fails the WHOLE query, not just that
 field."* Add fields against the schema, not against the database.
 
 **3. Mirror the capability, natively.** A new user-facing ability on a web screen
-that has an iOS twin gets built the platform way. Web's `mapsLink()` returns a
-`https://maps.apple.com/…` URL because a browser has nothing better; iOS opens
-`MKMapItem`. Same capability, different mechanism. Porting the URL builder to
-Swift would be the wrong answer.
+that has an iOS twin gets built the platform way. Web's `navigateLink()` returns a
+Google Maps directions URL (`https://www.google.com/maps/dir/?api=1&destination=…`)
+because a browser has nothing better; iOS would open a map item or the Google Maps
+app natively. Same capability, different mechanism, not vectored — porting the URL
+builder to Swift would be the wrong answer. Since Reddy's decision of 03/10/2026
+every web hand-off (corners, sides, the W04 whole-parcel item, the FMB viewer) is
+Google Maps directions with coordinates only; the device-sniffed `mapsLink()` is
+gone.
+
+Open follow-ups, not yet built on the phones (owners: `sync-ios` for iOS,
+`mobile-feature-delivery` for Expo). Reddy's rule that no record text rides in a
+hand-off URL applies to each of them when built:
+
+- iOS `apps/ios/Pattadar/Sources/FMBMapSection.swift` `openInMaps`
+  (`maps://…&q=Corner N`) and `PattadarKit/Format/HoldingShare.swift` share text
+  (`maps.apple.com…&q=`) still go to Apple Maps.
+- Expo `apps/mobile/src/app/property/[id].tsx` ("View full map", "Open in Maps",
+  share text — all `maps.apple.com` with the title in `q=`) and
+  `apps/mobile/src/app/(tabs)/passbooks.tsx` (address search on `maps.apple.com`)
+  do the same.
+- Neither phone (iOS `SetLocationScreen.swift`, Expo) finds the survey under the
+  device's position on the village map, as web W04 now does.
 
 **4. Mirror the vocabulary.** Shared nouns and thresholds must agree. The doc
 family labels in `records/docFamilies.ts` say it outright: *"The Swift twin is

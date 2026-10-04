@@ -28,7 +28,7 @@ BASE = [
     "CREATE TABLE passbooks (id TEXT PRIMARY KEY,owner_user_id TEXT,pattadar_no TEXT,village TEXT,mandal TEXT,district TEXT,owner_name TEXT,state TEXT,group_id TEXT DEFAULT '')",
     "CREATE TABLE parcels (id TEXT PRIMARY KEY,passbook_id TEXT,survey_no TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '')",
     "CREATE TABLE properties (id TEXT PRIMARY KEY,owner_user_id TEXT,label TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '',group_id TEXT DEFAULT '',type TEXT DEFAULT 'open_plot',locality TEXT DEFAULT '',city TEXT DEFAULT '',district TEXT DEFAULT '')",
-    "CREATE TABLE documents (id TEXT PRIMARY KEY,owner_user_id TEXT,name TEXT DEFAULT '',record_id TEXT DEFAULT '',parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '',file_ref TEXT DEFAULT '',subtitle TEXT DEFAULT '',shelf TEXT DEFAULT '',doc_type TEXT DEFAULT '',page_count INT DEFAULT 0,size_bytes BIGINT DEFAULT 0,mime_type TEXT DEFAULT '',source TEXT DEFAULT '',order_ref TEXT DEFAULT '',created_at TEXT DEFAULT '',sort INT DEFAULT 0)",
+    "CREATE TABLE documents (id TEXT PRIMARY KEY,owner_user_id TEXT,name TEXT DEFAULT '',record_id TEXT DEFAULT '',parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '',file_ref TEXT DEFAULT '',subtitle TEXT DEFAULT '',shelf TEXT DEFAULT '',doc_type TEXT DEFAULT '',page_count INT DEFAULT 0,size_bytes BIGINT DEFAULT 0,mime_type TEXT DEFAULT '',source TEXT DEFAULT '',order_ref TEXT DEFAULT '',created_at TEXT DEFAULT '',sort INT DEFAULT 0,aadhaar_record_id TEXT DEFAULT '')",
     "CREATE TABLE parcel_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,parcel_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
     "CREATE TABLE property_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,property_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
     "CREATE TABLE work_requests (id TEXT PRIMARY KEY,owner_user_id TEXT,kind TEXT DEFAULT 'ec',service_key TEXT DEFAULT '',title TEXT DEFAULT 'EC',entity_type TEXT DEFAULT 'record',entity_id TEXT DEFAULT 'record-a',assignee TEXT DEFAULT '',cost DOUBLE PRECISION DEFAULT 1000,stage INT DEFAULT 0,needs_you BOOLEAN DEFAULT false,note TEXT DEFAULT '',due_date TEXT DEFAULT '',closed BOOLEAN DEFAULT false,created_at TEXT DEFAULT '',params TEXT DEFAULT '{}',area_key TEXT DEFAULT '',area_label TEXT DEFAULT '',status TEXT DEFAULT '',status_at TEXT DEFAULT '',quoted DOUBLE PRECISION DEFAULT 0,payee_share DOUBLE PRECISION DEFAULT 0,assignee_ref TEXT DEFAULT '')",
@@ -303,4 +303,23 @@ def test_unfileable_kept_work_never_releases_held_money():
             async with pool.connection() as conn:
                 assert t.held_for(await w._ledger_of(conn, 'owner-a', 'ticket-a')) == 1000
                 assert (await w._ticket_row(conn, 'owner-a', 'ticket-a'))['status'] == 'submitted'
+    asyncio.run(run())
+def test_a_filed_aadhaar_card_never_enters_a_share_or_a_property_link():
+    async def run():
+        async with database() as pool:
+            async with pool.connection() as conn:
+                await conn.execute("INSERT INTO documents (id,owner_user_id,record_id,file_ref,name,aadhaar_record_id)"
+                                   " VALUES ('doc-aadhaar','owner-a','record-a','file-x','Aadhaar card','rec-1')")
+                snap = await c.snapshot(conn, "owner-a", "record-a", {}, all_documents=True)
+                assert [i["id"] for i in snap["items"]] == ["doc-a"]
+                with pytest.raises(ValueError, match="not on this record"):
+                    await c.snapshot(conn, "owner-a", "record-a", {"documentIds": ["doc-aadhaar"]})
+            async with pool.connection() as conn:
+                for stmt in w._DDL:
+                    if stmt.startswith("CREATE TABLE IF NOT EXISTS document_record_links"):
+                        await conn.execute(stmt)
+            mutation = w.WebMutation()
+            assert await mutation.link_papers("owner-a", ["doc-aadhaar"], ["record-a"]) is False
+            assert await mutation.link_papers("owner-a", ["doc-a"], ["record-a"]) is True, \
+                "the refusal is the Aadhaar guard, not a missing record"
     asyncio.run(run())
