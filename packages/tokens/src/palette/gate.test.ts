@@ -67,8 +67,8 @@ describe('evaluatePalette', () => {
   });
 
   test('reported pairs never fail', () => {
-    const results = evaluatePalette({ ...GOOD, onDanger: '#a40000' });
-    const info = results.find((r) => r.pair === 'onDanger on danger')!;
+    const results = evaluatePalette({ ...GOOD, dangerWash: '#a40000' });
+    const info = results.find((r) => r.pair === 'danger on dangerWash')!;
     expect(info.min).toBe(0);
     expect(info.ok).toBe(true);
     expect(info.ratio).toBeCloseTo(1, 5);
@@ -92,16 +92,26 @@ describe('the real schemes', () => {
     expect(ring.every((r) => r.ok && r.ratio >= 3.5)).toBe(true);
   });
 
-  test('muted ink clears 4.5:1 on the page and on cards, where it was 4.28–4.49:1 (TODO-one-platform #17)', () => {
+  test('muted ink clears 4.5:1 on the page, on cards and on raised, where it was 4.11–4.49:1 (TODO-one-platform #17)', () => {
     for (const p of [bloomDark, bloomLight]) {
-      for (const pair of ['ink3 on ground', 'ink3 on surface']) {
+      for (const pair of ['ink3 on ground', 'ink3 on surface', 'ink3 on raised']) {
         const r = evaluatePalette(p).find((x) => x.pair === pair)!;
         expect({ pair, ok: r.ratio >= 4.5 }).toEqual({ pair, ok: true });
       }
     }
-    // The smallest step that clears it: neither is more than 0.1:1 over.
-    expect(evaluatePalette(bloomDark).find((x) => x.pair === 'ink3 on surface')!.ratio).toBeLessThan(4.6);
-    expect(evaluatePalette(bloomLight).find((x) => x.pair === 'ink3 on ground')!.ratio).toBeLessThan(4.6);
+    // The smallest step that clears raised, its hardest ground: neither is
+    // more than 0.1:1 over.
+    expect(evaluatePalette(bloomDark).find((x) => x.pair === 'ink3 on raised')!.ratio).toBeLessThan(4.6);
+    expect(evaluatePalette(bloomLight).find((x) => x.pair === 'ink3 on raised')!.ratio).toBeLessThan(4.6);
+  });
+
+  test('text on every filled control clears 4.5:1 — Dark white on red was 3.16:1', () => {
+    for (const s of schemes) {
+      for (const role of ['onSecondary', 'onDanger', 'onOk', 'onWarn', 'onInfo']) {
+        const r = evaluatePalette(s.palette, s.textLevel).find((x) => x.pair.startsWith(`${role} on `))!;
+        expect({ scheme: s.id, pair: r.pair, gated: r.min, ok: r.ok }).toEqual({ scheme: s.id, pair: r.pair, gated: 4.5, ok: true });
+      }
+    }
   });
 });
 

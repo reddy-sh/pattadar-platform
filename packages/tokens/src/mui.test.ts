@@ -31,9 +31,9 @@ describe('muiPaletteInput', () => {
     expect(muiPaletteInput(light)).toEqual({
       mode: 'light',
       primary: { main: '#aa5910', contrastText: '#ffffff' },
-      secondary: { main: '#b23645', contrastText: '#ffffff' },
+      secondary: { main: '#751e2d', contrastText: '#ffffff' },
       error: { main: '#be222a', contrastText: '#ffffff' },
-      warning: { main: '#905d00', contrastText: '#ffffff' },
+      warning: { main: '#72480b', contrastText: '#ffffff' },
       info: { main: '#3d6a7f', contrastText: '#ffffff' },
       success: { main: '#27762f', contrastText: '#ffffff' },
       background: { default: '#f9f6f2', paper: '#fdfcf9' },

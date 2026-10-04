@@ -195,7 +195,8 @@ function textIcon(className: string, text: string, offset?: [number, number]): L
   return L.divIcon({ className, html: el, iconSize: undefined, iconAnchor: [0, 0] });
 }
 
-/** Rough width of a mono label at 10px, and its height. Measuring the real DOM
+/** Rough width of a label at 10px, and its height: the one face runs about
+ *  5px a character on these labels, so 5.7 is generous. Measuring the real DOM
  *  for three hundred candidates on every pan costs more than it buys. */
 const chipBox = (text: string): [number, number] => {
   const lines = text.split('\n');
@@ -625,8 +626,8 @@ export default function VillageCanvas({
             ? ` · ${m.acres.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac`
             : '');
         for (const withSub of [true, false]) {
-          // Mono at 11px with 0.08em of tracking is nearer 7.6px a character
-          // than 6.4, and the box is what keeps two village names apart — an
+          // At 11px with 0.08em of tracking the one face runs 6–7px a character;
+          // 7.6 rather than 6.4, because the box is what keeps two village names apart — an
           // estimate that runs narrow lets them touch. Generous on purpose,
           // with a margin on top: the cost of being wrong the other way is a
           // name that could have fitted and did not.

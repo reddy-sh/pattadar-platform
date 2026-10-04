@@ -144,7 +144,20 @@ PDF exports.
   less (`#261d1a` for `#1c1411`) and its secondary text lightens to `#615956`;
   High Contrast takes design.md's values. `scripts/a11y-web-tests.ts` M3-7
   holds the aliases to the variables the theme emits.
-- [ ] One type scale, with W360 and University on it.
+- [x] Colours told apart by lightness, 04/10/2026 (design.md § Design
+  authority). Bloom's coral left the error red (lightened in Dark, deepened in
+  Light), Light's warning left the action amber (bronze `#72480b`), Light chart
+  slot 4 left the status green, muted ink clears 4.5:1 on raised, and Dark's
+  danger fill carries dark text. The gate now holds muted ink on raised and
+  text on every filled control at 4.5:1.
+- [ ] One type scale, with W360 and University on it. W360 still sets
+  0.625, 0.6875, 0.875, 0.9375 and 1.1875rem beside tokens.css's `--text-*`
+  steps, and `--text-display` is declared but read by nothing.
+- [ ] One radius scale. `tokens.css` has 3 · 6 · 12 · 20px, `packages/tokens`
+  `radii` (Expo) has 4 · 8 · 12 · 16 · 20, and MUI's `shape.borderRadius` is 8.
+- [ ] Shadows as palette roles. `w360.css` writes about six literal floating
+  shadows (menus, hover cards, drawers, dialogs). They carry colour, so they
+  belong in the pack (per scheme), not in `tokens.css`, which declares none.
 - [ ] Atkinson TTFs, checked; PDFs in Atkinson; evidence for Telugu in PDFs.
 - [ ] Expo in Atkinson and on the pack, with the four themes.
 - [ ] iOS in Atkinson.

@@ -337,7 +337,7 @@ export function DashboardPage() {
         <>
           {/* ── Hero — the one dark card ───────────────────────────────── */}
           <Box sx={heroSx}>
-            {/* Mono eyebrow — theme.typography.overline carries JetBrains Mono. */}
+            {/* Eyebrow — theme.typography.overline: the one face, small uppercase. */}
             <Typography variant="overline" component="p" color="text.secondary" sx={{ mb: 1.5 }}>
               Your land &amp; property
             </Typography>

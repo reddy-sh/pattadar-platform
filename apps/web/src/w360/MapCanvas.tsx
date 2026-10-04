@@ -1008,7 +1008,7 @@ export default function MapCanvas({
       // Only what is on screen is built, and never more than a few hundred at
       // once. A village is thousands of plots and every label is a DOM node.
       const LABEL_CAP = 400;
-      // The chip is mono at 10px: ~5.7px a character, plus its padding, and a
+      // The chip is the one face at 10px: under ~5.7px a character, plus its padding, and a
       // line is ~12px tall. Close enough to reserve space with, and measuring
       // 300 DOM nodes per pan to do better is not close to worth it.
       const chip = (text: string) => {

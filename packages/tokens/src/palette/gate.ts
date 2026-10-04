@@ -48,6 +48,8 @@ export function evaluatePalette(p: SchemePalette, textLevel: 'AA' | 'AAA' = 'AA'
   for (const role of ['ink3', 'accent', 'danger', 'ok', 'warn', 'info'] as const) {
     for (const bg of ['ground', 'surface'] as const) pair(role, p[role], bg, p[bg], TEXT);
   }
+  // Muted ink is drawn on raised too: archived pills, table heads, tiles.
+  pair('ink3', p.ink3, 'raised', p.raised, TEXT);
   pair('onAccent', p.onAccent, 'accent', p.accent, TEXT);
   for (const bg of ['ground', 'surface'] as const) pair('focus', p.focus, bg, p[bg], NON_TEXT);
   p.chart.forEach((c, i) => pair(`chart[${i + 1}]`, c, 'surface', p.surface, NON_TEXT));
@@ -64,12 +66,15 @@ export function evaluatePalette(p: SchemePalette, textLevel: 'AA' | 'AAA' = 'AA'
   pair('chrome.onAccent', p.chrome.onAccent, 'chrome.accent', p.chrome.accent, TEXT);
   pair('chrome.focus', p.chrome.focus, 'chrome.bg', p.chrome.bg, NON_TEXT);
 
-  // Reported, not gated: text on a filled control, and on the soft fills.
-  pair('onSecondary', p.onSecondary, 'secondary', p.secondary, 0);
-  pair('onDanger', p.onDanger, 'danger', p.danger, 0);
-  pair('onOk', p.onOk, 'ok', p.ok, 0);
-  pair('onWarn', p.onWarn, 'warn', p.warn, 0);
-  pair('onInfo', p.onInfo, 'info', p.info, 0);
+  // Text on a filled control. Dark's white on its red was 3.16:1 while this
+  // was only reported; every scheme now clears 4.5:1, so it is gated.
+  pair('onSecondary', p.onSecondary, 'secondary', p.secondary, TEXT);
+  pair('onDanger', p.onDanger, 'danger', p.danger, TEXT);
+  pair('onOk', p.onOk, 'ok', p.ok, TEXT);
+  pair('onWarn', p.onWarn, 'warn', p.warn, TEXT);
+  pair('onInfo', p.onInfo, 'info', p.info, TEXT);
+
+  // Reported, not gated: text on the soft fills.
   const accentWash = over(p.accentWash, p.ground);
   pair('onAccentWash', p.onAccentWash, 'accentWash', accentWash, 0);
   pair('accent', p.accent, 'accentWash', accentWash, 0);

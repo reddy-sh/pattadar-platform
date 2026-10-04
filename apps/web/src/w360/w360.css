@@ -65,7 +65,7 @@
 
 /* ── Type roles ─────────────────────────────────────────────────────── */
 
-/* A mono eyebrow always sits on its own line, whether it was written as a <p>
+/* An eyebrow always sits on its own line, whether it was written as a <p>
    or a <span> — inline, it ran into the value underneath it. `.row` and other
    layout classes are declared later and still win where one is applied. */
 .w360 .eyebrow {
@@ -394,7 +394,7 @@
 .w360 .nav .ext { margin-left: auto; opacity: 0.7; }
 
 /* Same eyebrow the account menu's own headings use (`.menu-list .menuhead`):
-   mono, small, wide-tracked, quiet ink. A rail heading that competes with the
+   small, uppercase, wide-tracked, quiet ink. A rail heading that competes with the
    entries under it turns four labels into nineteen. The 0.75rem of padding is
    the entries' own horizontal padding, so the heading starts on the same
    vertical line their icons do. */
@@ -1073,7 +1073,7 @@
 /* ── Rail cards ─────────────────────────────────────────────────────────
    The cards down the right of a hanger are captioned, not titled: they are
    notes ABOUT the thing on the left, and a run of display-weight headings
-   beside the section's own made the rail compete with it. Same Card, mono
+   beside the section's own made the rail compete with it. Same Card, same
    eyebrow.
 
    `railcard`, not `rail`: `.rail` is already the stage indicator further down
@@ -1603,7 +1603,7 @@
 .w360 .ownerchain-via { -webkit-line-clamp: 1; color: var(--w-ink-3); }
 
 /* The papers a person's title rests on, clipped to the foot of their card. The
-   document number is the key a chain of title is checked by, so it is mono —
+   document number is the key a chain of title is checked by, so it is set in tabular figures —
    the same treatment every other reference number in this app gets — and it is
    a button, because the next thing anybody wants is the event behind it. */
 .w360 .ownerchain-papers {
@@ -1614,7 +1614,7 @@
    carries an eyelet. That shape is doing work rather than decorating — it says
    "this is the label this holding is filed under", which is exactly what a
    registered document number is. Everything else stays this module's plain
-   chrome: mono number, token colours, one hover state. */
+   chrome: tabular number, token colours, one hover state. */
 .w360 .ownerchain-tag {
   position: relative;
   display: flex; align-items: center; gap: 0.3125rem; width: 100%;
@@ -2027,7 +2027,7 @@
 }
 
 /* One active filter, and the control that takes it off. The group name rides
-   in mono above the value so two chips reading "Owned" and "Owned" — one a
+   in small type above the value so two chips reading "Owned" and "Owned" — one a
    status, one a stake — are told apart without opening the popover. */
 .w360 .fchip {
   display: inline-flex; align-items: center; gap: 0.375rem;
@@ -2728,7 +2728,7 @@
 .w360 .toast.ok .toast-i  { color: var(--w-ok); }
 .w360 .toast.bad .toast-i { color: var(--w-danger); }
 .w360 .toast .toast-t { display: block; font-size: 0.8125rem; line-height: 1.45; }
-/* The server's own words. Mono and small: it is for reading out, not for
+/* The server's own words. Small and quiet: it is for reading out, not for
    reading — but a failure with no reason cannot be supported at all. */
 .w360 .toast .toast-d {
   display: block;
@@ -3215,7 +3215,7 @@
   .w360 .reg-row .reg-date { display: none; }
   .w360 .reg-row > :nth-child(4) { grid-column: 2; }
 }
-/* A section head that keeps the mono eyebrow look: the h2 weight is dropped. */
+/* A section head that keeps the eyebrow look: the h2 weight is dropped. */
 .w360 h2.eyebrow { font-weight: 400; }
 
 /* ── Nothing, and nothing-went-wrong ────────────────────────────────────
@@ -3810,7 +3810,7 @@
 }
 .w360 .plot .w-tip .close:hover { color: var(--w-ink); background: none; border: 0; }
 
-/* A side length, written along the boundary. Mono because it is a figure to
+/* A side length, written along the boundary. Tabular figures because it is a figure to
    be read against the sheet, not prose; shadowed because it sits on imagery. */
 /* The hairline from a cramped label back to the edge it measures. Drawn only
    when the label had to travel to find room. */
@@ -3850,7 +3850,7 @@
 }
 
 /* Corners and lengths are two different KINDS of number, and they used to be
-   the same grey mono text sitting a few pixels apart — "446 ft13" beside
+   the same grey small text sitting a few pixels apart — "446 ft13" beside
    "446 ft" and "13". Nobody could tell which was an identity and which was a
    measurement.
 
@@ -4717,7 +4717,7 @@
 
    The band's bottom edge sits above the caption row, not level with it. The
    caption (`.cap`) is pinned at bottom 2.25rem and, with its padding and a
-   line of mono text, reaches to about 3.4rem — so a band floor of 3.5rem left
+   line of small text, reaches to about 3.4rem — so a band floor of 3.5rem left
    the wrapping instruction sentence resting on the caption's top edge (bare
    "Add a named boundary mark…" wraps to two lines on a narrow panel and the
    seam showed). Anchoring the floor at 4rem clears the caption in every wrap,
@@ -5137,7 +5137,7 @@
    are different heights depending on how much work has been done to each
    record reads as a broken layout rather than as information. */
 
-/* The extent as the village office, the buyer and the bank each say it. Mono,
+/* The extent as the village office, the buyer and the bank each say it. Tabular figures,
    because it is three readings of one measurement and they have to line up
    down a column of cards. */
 .w360 .rec .reading {
@@ -5377,7 +5377,7 @@
 }
 
 /* `.kv > div` is flex/space-between with no wrap and `.kv .v` is right-aligned
-   mono. The server's own field labels are sentences — "Is a neighbour disputing
+   tabular figures. The server's own field labels are sentences — "Is a neighbour disputing
    it?" — and at 375px the review card leaves about 271px for both columns, so a
    three-word answer ends up right-aligned in 125px against a three-line label.
    This is the one screen that must be readable before money moves. */
@@ -5428,7 +5428,7 @@
    in Pattadar stays masked).
    It is a `tel:` link, and it is read on a phone by somebody who wants to
    press it, so it takes the 2.75rem touch floor this file already applies to
-   `.btn` under a coarse pointer instead of being a 13px line of mono a thumb
+   `.btn` under a coarse pointer instead of being a 13px line of text a thumb
    cannot hit. `.link` is the wrong host for that: it is an inline word inside
    a sentence and sizing it up would move every other link in the module. The
    digits never wrap — a number broken across two lines is one somebody
@@ -5633,7 +5633,7 @@
 .w360 .svc-say { max-width: 42rem; }
 
 /* The same problem for the tabular blocks, which want more room than prose and
-   less than the page. `.kv > div` is a flex row with space-between and a mono
+   less than the page. `.kv > div` is a flex row with space-between and a tabular
    right-aligned value, so an uncapped answer row draws "Copies" at x=0 and "2"
    at x=1200 with eleven hundred pixels of nothing between them. Deliverable
    rows and the dispatch body are deliberately NOT capped — a scan thumbnail

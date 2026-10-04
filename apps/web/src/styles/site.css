@@ -740,7 +740,7 @@ html:has(.site) body {
   background: color-mix(in oklch, var(--color-paper-2) 60%, transparent);
 }
 
-/* mono overline label (assistant sample, pricing section heads) */
+/* small uppercase overline label (assistant sample, pricing section heads) */
 .overline {
   font-variant-numeric: tabular-nums;
   font-size: var(--text-xs);
@@ -1010,7 +1010,7 @@ html:has(.site) body {
   .grid--features .card--feature:nth-last-child(-n + 4) { border-bottom: 0; }
 }
 
-/* mono badge (Coming soon · On the roadmap) */
+/* small badge (Coming soon · On the roadmap) */
 .badge {
   display: inline-flex;
   align-items: center;

@@ -2,7 +2,7 @@
  * Primitives shared by the record-360 screens.
  *
  * These are plain elements over `w360.css`, not MUI components. The screens are
- * dense, hairline-ruled and mono-labelled in ways that fight MUI's defaults at
+ * dense, hairline-ruled and labelled in small uppercase in ways that fight MUI's defaults at
  * every turn; expressing them as semantic markup + one stylesheet is both
  * smaller and easier to keep faithful to the design.
  *
@@ -1409,7 +1409,7 @@ export function Empty({
  * the next thing to break, so one button repairs the page rather than one row.
  * `onRetry` is still accepted for the cases that own a narrower remedy.
  *
- * The reason is printed verbatim. It is mono, small and grey because it is for
+ * The reason is printed verbatim. It is small and grey because it is for
  * whoever is being asked "what does it say?" down a phone line, not for the
  * owner — but a failure with no reason at all is the thing that cannot be
  * supported at all.

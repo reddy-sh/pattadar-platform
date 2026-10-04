@@ -23,9 +23,25 @@ const CHANGED: Record<string, unknown> = {
   defaultColorScheme: 'dark',
   // One wash strength (14%) for MUI and W360 alike.
   'colorSchemes.light.primary.container': 'rgba(170, 89, 16, 0.14)',
-  'colorSchemes.light.secondary.container': 'rgba(178, 54, 69, 0.14)',
   'colorSchemes.dark.primary.container': 'rgba(254, 134, 15, 0.14)',
-  'colorSchemes.dark.secondary.container': 'rgba(255, 74, 99, 0.14)',
+  // 04/10/2026: the coral told from the error red by lightness — deepened in
+  // Light, lightened in Dark (MUI derives .light and .dark from .main).
+  'colorSchemes.light.secondary.main': '#751e2d',
+  'colorSchemes.light.secondary.light': 'rgb(144, 75, 87)',
+  'colorSchemes.light.secondary.dark': 'rgb(81, 21, 31)',
+  'colorSchemes.light.secondary.container': 'rgba(117, 30, 45, 0.14)',
+  'colorSchemes.light.secondary.onContainer': '#751e2d',
+  'colorSchemes.dark.secondary.main': '#fca48d',
+  'colorSchemes.dark.secondary.light': 'rgb(252, 182, 163)',
+  'colorSchemes.dark.secondary.dark': 'rgb(176, 114, 98)',
+  'colorSchemes.dark.secondary.container': 'rgba(252, 164, 141, 0.14)',
+  'colorSchemes.dark.secondary.onContainer': '#fca48d',
+  // 04/10/2026: Light's warning held off the action amber by lightness.
+  'colorSchemes.light.warning.main': '#72480b',
+  'colorSchemes.light.warning.light': 'rgb(142, 108, 59)',
+  'colorSchemes.light.warning.dark': 'rgb(79, 50, 7)',
+  // 04/10/2026: dark text on the Dark red (6.24:1; white was 3.16:1).
+  'colorSchemes.dark.error.contrastText': '#180600',
 };
 
 const isColour = (v: unknown) => {

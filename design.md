@@ -68,11 +68,11 @@ secondary; no marketing rule reads it, so it is not aliased.
 - `--color-paper-3` oklch(22% 0.022 35)   ≈ #241714
 - `--color-ink`     oklch(95% 0.010 70)   ≈ #f3ede7
 - `--color-ink-2`   oklch(78% 0.015 60)   ≈ #bfb5ae
-- `--color-ink-3`   oklch(58.5% 0.015 50) ≈ #847974  (muted text: labels, eyebrows, units — 4.77:1 on paper, 4.54:1 on paper-2; nudged from 58% on 03/10/2026, when it was 4.46:1 on cards)
+- `--color-ink-3`   oklch(61% 0.015 50)   ≈ #8b817b  (muted text: labels, eyebrows, units — 5.31:1 on paper, 5.05:1 on paper-2, 4.57:1 on paper-3; nudged from 58% on 03/10/2026, when it was 4.46:1 on cards, and from 58.5% on 04/10/2026, when it was 4.11:1 on paper-3)
 - `--color-rule`    oklch(28% 0.018 40)   ≈ #312622
 - `--color-rule-strong` oklch(40% 0.025 40) ≈ #54433e
 - `--color-accent`  oklch(74% 0.180 55)   ≈ #fe860f  (amber · 8.29:1 on paper)
-- `--color-accent-2` oklch(68% 0.220 18)  ≈ #ff4a63  (coral · sparingly)
+- `--color-accent-2` oklch(80% 0.110 35)  ≈ #fca48d  (coral · sparingly; lightened on 04/10/2026 from oklch(68% 0.220 18), which sat on the error red)
 - `--color-accent-ink` oklch(15% 0.040 50) ≈ #180600 (text on amber · 8.11:1)
 - `--color-focus`   oklch(82% 0.180 55)   ≈ #ffa03c
 - `--color-error`   oklch(70% 0.220 25)   ≈ #ff5453
@@ -81,9 +81,10 @@ secondary; no marketing rule reads it, so it is not aliased.
 ### Light scheme (app only — derived, warm-tinted; lives in packages/tokens/src/palette/bloom.ts)
 
 - background.default `#f9f6f2` (oklch 97.5% 0.006 70) · background.paper `#fdfcf9`
-- text.primary `#261d1a` (15.31:1) · text.secondary `#615956` (6.35:1) · text.muted `#796f6a` (oklch 54.9% 0.015 48 — 4.53:1, 4.76:1 on paper) · divider `#e3ddd8`
+- text.primary `#261d1a` (15.31:1) · text.secondary `#615956` (6.35:1) · text.muted `#736964` (oklch 52.9% 0.015 48 — 4.96:1, 5.20:1 on paper, 4.55:1 on raised) · divider `#e3ddd8`
 - primary.main `#aa5910` (oklch 55% 0.13 55 — white contrastText 5.07:1)
 - error `#be222a` (6.08:1 w/ white) · success `#27762f` (5.65:1 w/ white)
+- secondary `#751e2d` (oklch 38% 0.12 15 — the coral deepened, 1.74:1 apart from error) · warning `#72480b` (oklch 44% 0.09 70 — bronze, 1.57:1 apart from primary)
 
 ### High Contrast scheme (app only — low-vision reading mode)
 
@@ -119,10 +120,10 @@ Ratios below are measured against that scheme's background.
 | slot | dark | light | Pattadar Gold | High Contrast |
 | --- | --- | --- | --- | --- |
 | primary | `#fe860f` amber (8.29:1) | `#aa5910` (5.07:1) | `#75510b` bronze gold (6.12:1) | `#003b73` dark blue (11.21:1) |
-| secondary | `#ff4a63` coral (6.16:1) | `#b23645` (5.56:1) | `#2e5e4e` deep green (6.37:1) | `#5a1a78` plum (11.33:1) |
+| secondary | `#fca48d` coral (10.41:1) | `#751e2d` (9.84:1) | `#2e5e4e` deep green (6.37:1) | `#5a1a78` plum (11.33:1) |
 | error | `#ff5453` | `#be222a` | `#b3261e` (5.60:1) | `#a40000` (8.14:1) |
 | success | `#61c568` | `#27762f` | `#22693a` (5.71:1) | `#006b3c` (6.63:1) |
-| warning | `#f5ae39` gold (10.57:1) | `#905d00` (5.20:1) | `#9a4d00` rust (5.24:1) | `#6b4f00` (7.65:1) |
+| warning | `#f5ae39` gold (10.57:1) | `#72480b` bronze (7.36:1) | `#9a4d00` rust (5.24:1) | `#6b4f00` (7.65:1) |
 | info | `#82bad5` slate (9.55:1) | `#3d6a7f` (5.47:1) | `#2f6474` (5.63:1) | `#004f6b` (9.01:1) |
 
 `warning` stays distinct from the primary action colour so "needs attention"
@@ -304,7 +305,7 @@ tokens.css). Pages must use named tokens, never raw values.
 ## Microinteractions stance
 
 - Silent success; no celebratory toasts.
-- Hover: −1px translate + border-strong on cards; never scale, never glow.
+- Hover: −2px translate + border-strong on cards (site.css `.card:hover`, MuiCard); never scale, never glow.
 - Focus: `--color-focus` ring, 2px normally and 3px in High Contrast,
   visible instantly (never animated).
 - Hover tooltips delay 800ms; focus tooltips 0ms.
@@ -312,7 +313,7 @@ tokens.css). Pages must use named tokens, never raw values.
 ## CTA voice
 
 - Primary: amber pill (`--color-accent` fill, `--color-accent-ink` text,
-  radius-pill, weight 600, sentence case).
+  radius-pill, weight 700, sentence case — the face has no 600).
 - Secondary/ghost: hairline pill (`--color-rule-strong` border, ink text).
 - The hero and final statement own the amber; nav CTA stays ghost. Accent
   footprint ≤ 5% per viewport.
@@ -331,6 +332,16 @@ The rules in this document are quality defaults, not a ceiling. Explicit founder
   (§ App-surface rules, "One component per concern"). Native iOS, Expo and the
   PDF exports are outside this decision for now and are listed in
   `docs/specs/TODO-one-platform.md`.
+- **Colours told apart by lightness (requested by Reddy, 04/10/2026).**
+  Colours that must never be mistaken for each other differ in lightness, not
+  hue alone. Bloom's coral was the error red's twin (1.04:1 Dark, 1.02:1
+  Light): it is lightened to `#fca48d` in Dark and deepened to `#751e2d` in
+  Light, keeping the coral family. Light's warning was 1.11:1 against the
+  action amber: it is bronze `#72480b` now. Light chart slot 4 moved off the
+  status green (§ Chart series). Muted ink (`ink3`) now clears 4.5:1 on raised
+  as well as on paper, and Dark's danger fill carries dark text (6.24:1, was
+  white at 3.16:1). `packages/tokens/src/palette/palette.test.ts` and
+  `gate.ts` hold each of these.
 
 ## Per-page allowances
 
@@ -677,8 +688,9 @@ redeclared Light and High Contrast by hand, and its High Contrast drew several
 semantic colours and its focus ring differently from MUI's.)
 `scripts/a11y-web-tests.ts` M3-6 fails an alias of a variable the theme does
 not emit in every scheme.
-Cross-app values (chart series, status hues): `packages/tokens/src/index.ts` —
-consumed by `apps/web`, NOT by mobile/iOS.
+Cross-app values (chart series, status hues): each scheme's `chart` and
+`status` in the palette pack (`packages/tokens/src/palette`) — consumed by
+`apps/web` and `apps/university`, NOT by mobile/iOS.
 No Tailwind/shadcn consumers exist in this repo; generate those formats from
 tokens.css on demand if ever needed.
 
@@ -690,6 +702,11 @@ dark paper is warm `#0d0504`, so both the hues and the validation surface were
 wrong. Every slot clears 3:1 on its own surface. Slots 1 and 3 are the two warm
 hues and so the colour-blindness risk — they are separated by **lightness**
 (1.78:1 normal, 1.69:1 simulated deuteranopia), not hue alone.
+
+Light slot 4 (green) moved on 04/10/2026 from `#387d3d` to `#539344`
+(oklch 60% 0.13 140, 3.64:1 on surface): it was 1.12:1 against the status green
+`#27762f`, so a chart series read as a status. It is 1.51:1 apart now. High
+Contrast and Pattadar Gold draw Light's series, so they moved with it.
 
 Outstanding: the full six-checks adjacent-ΔE sweep across all 15 pairs has NOT
 been re-run. Do that before this palette carries a dense multi-series view.

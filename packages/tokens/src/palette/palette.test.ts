@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { bloomDark, bloomLight } from './bloom';
-import { sameColour } from './contrast';
+import { contrastRatio, sameColour } from './contrast';
 import { highContrast } from './highContrast';
 import { pattadarGold } from './pattadarGold';
 import { isSchemeId, menuSchemes, registry, schemeById, schemes, type SchemeId } from './registry';
@@ -128,11 +128,18 @@ const CHANGES: Change[] = [
   { scheme: 'light', role: 'onAccent', surface: 'w360', after: '#ffffff', why: 'design.md: white text on the Light amber' },
   { scheme: 'light', role: 'accentWash', surface: 'mui', after: 'rgba(170, 89, 16, 0.14)', why: 'one wash strength (14%) for both engines' },
   { scheme: 'light', role: 'accentWash', surface: 'w360', after: 'rgba(170, 89, 16, 0.14)', why: 'mixed from the Light amber, not the Dark one' },
-  { scheme: 'light', role: 'secondaryWash', surface: 'mui', after: 'rgba(178, 54, 69, 0.14)', why: 'one wash strength (14%)' },
+  { scheme: 'light', role: 'secondary', surface: 'mui', after: '#751e2d', why: 'coral deepened so it is told from danger by lightness (1.74:1); it was 1.02:1 against the red' },
+  { scheme: 'light', role: 'secondaryWash', surface: 'mui', after: 'rgba(117, 30, 45, 0.14)', why: 'one wash strength (14%), of the deepened coral' },
+  { scheme: 'light', role: 'onSecondaryWash', surface: 'mui', after: '#751e2d', why: 'the deepened coral itself reads 7.67:1 on its wash' },
+  { scheme: 'light', role: 'warn', surface: 'mui', after: '#72480b', why: 'bronze held off the action amber by lightness (1.57:1); #905d00 was 1.11:1 against it' },
+  { scheme: 'light', role: 'warn', surface: 'w360', after: '#72480b', why: 'bronze held off the action amber by lightness (1.57:1); #905d00 was 1.11:1 against it' },
   { scheme: 'light', role: 'dangerWash', surface: 'w360', after: 'rgba(190, 34, 42, 0.12)', why: 'mixed from the Light red, not the Dark one' },
   { scheme: 'light', role: 'focus', surface: 'w360', after: '#c9690c', why: 'the Dark ring was 1.88:1 on Light paper; this is 3.54:1' },
   { scheme: 'dark', role: 'accentWash', surface: 'mui', after: 'rgba(254, 134, 15, 0.14)', why: 'one wash strength (14%) for both engines' },
-  { scheme: 'dark', role: 'secondaryWash', surface: 'mui', after: 'rgba(255, 74, 99, 0.14)', why: 'one wash strength (14%)' },
+  { scheme: 'dark', role: 'secondary', surface: 'mui', after: '#fca48d', why: 'coral lightened so it is told from danger by lightness (1.63:1); it was 1.04:1 against the red' },
+  { scheme: 'dark', role: 'secondaryWash', surface: 'mui', after: 'rgba(252, 164, 141, 0.14)', why: 'one wash strength (14%), of the lightened coral' },
+  { scheme: 'dark', role: 'onSecondaryWash', surface: 'mui', after: '#fca48d', why: 'the lightened coral, as before the coral itself' },
+  { scheme: 'dark', role: 'onDanger', surface: 'mui', after: '#180600', why: 'white on the Dark red was 3.16:1; dark text is 6.24:1, as every other Dark fill carries' },
   { scheme: 'dark', role: 'warn', surface: 'w360', after: '#f5ae39', why: "design.md's Dark warning" },
   { scheme: 'highContrast', role: 'ink2', surface: 'w360', after: '#1f1f1f', why: "design.md's High Contrast secondary text" },
   { scheme: 'highContrast', role: 'danger', surface: 'w360', after: '#a40000', why: "design.md's High Contrast error" },
@@ -140,8 +147,8 @@ const CHANGES: Change[] = [
   { scheme: 'highContrast', role: 'warn', surface: 'w360', after: '#6b4f00', why: "design.md's High Contrast warning" },
   { scheme: 'highContrast', role: 'info', surface: 'w360', after: '#004f6b', why: "design.md's High Contrast info" },
   { scheme: 'highContrast', role: 'focus', surface: 'w360', after: '#000000', why: 'one two-tone ring (black, white halo) for both engines' },
-  { scheme: 'light', role: 'ink3', surface: 'w360', after: '#796f6a', why: 'muted ink cleared 4.5:1 on neither paper (4.28 and 4.49); TODO-one-platform #17' },
-  { scheme: 'dark', role: 'ink3', surface: 'w360', after: '#847974', why: 'muted ink was 4.46:1 on cards; TODO-one-platform #17' },
+  { scheme: 'light', role: 'ink3', surface: 'w360', after: '#736964', why: 'muted ink cleared 4.5:1 on neither paper (4.28 and 4.49), then not on raised (4.17); TODO-one-platform #17' },
+  { scheme: 'dark', role: 'ink3', surface: 'w360', after: '#8b817b', why: 'muted ink was 4.46:1 on cards, then 4.11:1 on raised; TODO-one-platform #17' },
 ];
 
 const PACK: Record<'light' | 'dark' | 'highContrast', SchemePalette> = {
@@ -176,13 +183,25 @@ describe('the pack paints what the apps painted, except the listed changes', () 
   });
 
   test('the chart and status hues are the ones the chart hooks read', () => {
-    expect([...bloomLight.chart]).toEqual(['#b3621e', '#006c72', '#97182f', '#387d3d', '#793887', '#426a8c']);
+    // Light slot 4 moved off the status green on 04/10/2026 (it was #387d3d).
+    expect([...bloomLight.chart]).toEqual(['#b3621e', '#006c72', '#97182f', '#539344', '#793887', '#426a8c']);
     expect([...bloomDark.chart]).toEqual(['#fe860f', '#3ebfc6', '#da4053', '#8cda8f', '#ba71cb', '#80aace']);
-    expect(bloomLight.status).toEqual({ good: '#27762f', warning: '#905d00', serious: '#a82700', critical: '#be222a' });
+    expect(bloomLight.status).toEqual({ good: '#27762f', warning: '#72480b', serious: '#a82700', critical: '#be222a' });
     expect(bloomDark.status).toEqual({ good: '#61c568', warning: '#f5ae39', serious: '#fd6844', critical: '#ff5453' });
     // High Contrast charts were drawn in Light's hues, and still are.
     expect(highContrast.chart).toEqual(bloomLight.chart);
     expect(highContrast.status).toEqual(bloomLight.status);
+  });
+
+  // Colours that must never be mistaken for each other are told apart by
+  // lightness, not hue alone (the chart rule, applied to the roles too).
+  test('secondary is apart from danger, warning from the action colour, and chart green from status green', () => {
+    const apart = (a: string, b: string) => contrastRatio(a, b);
+    for (const p of [bloomLight, bloomDark]) {
+      expect(apart(p.secondary, p.danger)).toBeGreaterThanOrEqual(1.5);
+    }
+    expect(apart(bloomLight.accent, bloomLight.warn)).toBeGreaterThanOrEqual(1.5);
+    expect(apart(bloomLight.chart[3], bloomLight.status.good)).toBeGreaterThanOrEqual(1.5);
   });
 
   test("status good/warning/critical are each scheme's ok/warn/danger", () => {
@@ -237,12 +256,14 @@ const OKLCH: Array<[string, string, [number, number, number]]> = [
   ['--color-paper-3', bloomDark.raised, [22, 0.022, 35]],
   ['--color-ink', bloomDark.ink, [95, 0.01, 70]],
   ['--color-ink-2', bloomDark.ink2, [78, 0.015, 60]],
-  // Nudged from 58% on 03/10/2026, so muted labels clear 4.5:1 on cards (#17).
-  ['--color-ink-3', bloomDark.ink3, [58.5, 0.015, 50]],
+  // Nudged from 58% on 03/10/2026, so muted labels clear 4.5:1 on cards, and
+  // from 58.5% on 04/10/2026, so they clear it on raised too (#17).
+  ['--color-ink-3', bloomDark.ink3, [61, 0.015, 50]],
   ['--color-rule', bloomDark.line, [28, 0.018, 40]],
   ['--color-rule-strong', bloomDark.lineStrong, [40, 0.025, 40]],
   ['--color-accent', bloomDark.accent, [74, 0.18, 55]],
-  ['--color-accent-2', bloomDark.secondary, [68, 0.22, 18]],
+  // Lightened from oklch(68% 0.22 18) on 04/10/2026, off the danger red.
+  ['--color-accent-2', bloomDark.secondary, [80, 0.11, 35]],
   ['--color-accent-ink', bloomDark.onAccent, [15, 0.04, 50]],
   ['--color-focus', bloomDark.focus, [82, 0.18, 55]],
   ['--color-error', bloomDark.danger, [70, 0.22, 25]],
@@ -254,7 +275,10 @@ const OKLCH: Array<[string, string, [number, number, number]]> = [
   ['Light primary', bloomLight.accent, [55, 0.13, 55]],
   ['Light paper', bloomLight.ground, [97.5, 0.006, 70]],
   ['Light focus', bloomLight.focus, [62, 0.15, 55]],
-  ['Light muted ink', bloomLight.ink3, [54.9, 0.015, 48]],
+  ['Light muted ink', bloomLight.ink3, [52.9, 0.015, 48]],
+  ['Light secondary', bloomLight.secondary, [38, 0.12, 15]],
+  ['Light warning', bloomLight.warn, [44, 0.09, 70]],
+  ['Light chart slot 4', bloomLight.chart[3], [60, 0.13, 140]],
 ];
 
 describe('Bloom hex values are the conversions of their oklch sources', () => {
