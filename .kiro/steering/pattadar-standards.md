@@ -47,6 +47,16 @@ README/design and flag the drift.
    (`apps/web/src/w360/ui.tsx`, `apps/web/src/components/`) and never build a
    page-local copy. Native iOS, Expo and PDF type are not covered yet
    (`docs/specs/TODO-one-platform.md`).
+8. One document tree per logged-in user (Reddy, 03/10/2026). Every upload
+   from any feature (member Aadhaar, property deeds, receipts, photos, and so
+   on) is filed as a document under My files → feature → … and shows in the
+   Documents folder, Drive-style. Feature folders sit at the root (e.g.
+   Aadhaar holds the user's and every family member's card); there are no
+   per-member top-level folders and no loose root files. A file's name says
+   whose it is (e.g. "Aadhaar · <name>"), never the Aadhaar number. The tree is logical
+   placement only: keys stay `{node}/{version}` (invariant 5), access is still
+   decided in SQL, and Aadhaar stays masked. An upload path that bypasses
+   Documents is a bug.
 
 ## Before finishing a change
 

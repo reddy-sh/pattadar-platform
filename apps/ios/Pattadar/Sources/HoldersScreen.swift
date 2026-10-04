@@ -97,7 +97,7 @@ struct HoldersScreen: View {
 
             if holders.isEmpty {
                 ContentUnavailableView("Nothing recorded yet", systemImage: "person.2",
-                                       description: Text("Add a holding and the names on it appear here."))
+                                       description: Text("Add a property and the names on it appear here."))
             }
         }
         .navigationTitle("Who holds what")

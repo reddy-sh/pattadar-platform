@@ -3,8 +3,8 @@
  * wordmark bar linking home, narrow content column, slim footer.
  *
  * Bloom frame (design.md): Long Document voice — measure-limited column on
- * the dark warm paper. Wraps in `.dark.site` so MUI children resolve dark
- * vars. Copy unchanged.
+ * the dark warm paper. Wraps in `.site` with `data-scheme="dark"` so MUI
+ * children resolve dark vars. Copy unchanged.
  */
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router';
@@ -12,7 +12,7 @@ import '../../styles/site.css';
 
 export function LegalLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="dark site">
+    <div className="site" data-scheme="dark">
       <div className="ambient" aria-hidden>
         <div className="bloom bloom--1" />
         <div className="grain" />

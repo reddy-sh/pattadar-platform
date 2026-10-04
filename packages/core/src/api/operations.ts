@@ -161,6 +161,7 @@ export const SET_MEMBER_SHARE_MUTATION = `mutation($id:String!,$pct:Float!){ set
  * (The API preserves the stored Aadhaar when `aadhaar` is sent empty.) */
 export const UPDATE_MEMBER_MUTATION = `mutation($id:String!,$name:String!,$relation:String!,$role:String!,$gender:String!,$dob:String!,$phone:String!,$email:String!,$bio:String!,$photo:String!,$fatherId:String,$motherId:String,$spouseId:String,$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String,$parcelId:String,$presentAddress:String!,$aadhaar:String!,$aadhaarCandidateId:String!,$guardianName:String,$guardianContact:String,$maritalStatus:String,$spouseName:String,$spouseContact:String,$spouseStatus:String){ updateMember(id:$id,name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId,guardianName:$guardianName,guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,spouseContact:$spouseContact,spouseStatus:$spouseStatus){ id } }`;
 
+/** @deprecated Reveal is retired on the server; only the last 4 digits are kept for display. */
 export const REVEAL_AADHAAR_MUTATION = `mutation($id:String!){ revealMemberAadhaar(id:$id) }`;
 
 /** Only the Aadhaar: an argument updateProfile is not sent leaves its column
@@ -168,7 +169,10 @@ export const REVEAL_AADHAAR_MUTATION = `mutation($id:String!){ revealMemberAadha
  *  `notificationPrefs:""` and `mfaEnabled:false`, which — once the mutation
  *  was reachable — would have wiped all four to save one number. */
 export const UPDATE_PROFILE_AADHAAR_MUTATION = `mutation($kyc:String!){ updateProfile(kycRef:$kyc){ id kycRefMasked } }`;
+/** @deprecated Reveal is retired on the server; only the last 4 digits are kept for display. */
 export const REVEAL_MY_AADHAAR_MUTATION = `mutation { revealMyAadhaar }`;
+/** Links an opt-in kept Aadhaar card (a My Drive file) to the reading it came from. */
+export const LINK_AADHAAR_CARD_MUTATION = `mutation($candidateId:String!,$nodeId:String!,$versionId:String!){ linkAadhaarCard(candidateId:$candidateId,nodeId:$nodeId,versionId:$versionId) }`;
 
 /** CL-545: the way back out of a wrong card — applyMyKyc only ever writes. */
 export const CLEAR_MY_KYC_MUTATION = `mutation { clearMyKyc { id name kycRefMasked } }`;

@@ -47,6 +47,8 @@
 # degrading.
 # Stops api+assistant+gateway on Ctrl-C (MinIO container stays).
 # Logs: .local/api.log, .local/assistant.log, .local/gateway.log
+# Aadhaar: the gitignored .local/aadhaar-key.env defines AADHAAR_ENC_KEY, which
+# reaches the API process only; without it Aadhaar scans and saves are refused.
 set -euo pipefail
 
 PLATFORM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -114,6 +116,13 @@ if [ -f "$COGNITO_LOCAL_ENV" ]; then
   # shellcheck disable=SC1090
   . "$COGNITO_LOCAL_ENV"
 fi
+# Aadhaar field key (gitignored file, name only: AADHAAR_ENC_KEY). Captured and
+# scrubbed here, after the cognito file, so no other service inherits it; the
+# API subshell alone receives it. The file wins over an inherited shell value.
+AADHAAR_KEY_ENV="$PLATFORM_DIR/.local/aadhaar-key.env"
+INHERITED_AADHAAR_ENC_KEY="${AADHAAR_ENC_KEY:-}"; unset AADHAAR_ENC_KEY
+if [ -f "$AADHAAR_KEY_ENV" ]; then echo "» Aadhaar local key: .local/aadhaar-key.env (api only)"
+else echo "» no .local/aadhaar-key.env — Aadhaar scans and saves will be refused (see docs/qa/tester-onboarding.md)"; fi
 [ -n "$IDENTITY_LEGACY_BINDINGS" ] || IDENTITY_LEGACY_BINDINGS='{}'
 
 # Local storage stand-ins
@@ -257,6 +266,11 @@ echo "» starting api on http://localhost:8080 (log: .local/api.log)"
   # Compliance policy administration is a separate, fail-closed role. The
   # local account is bootstrapped explicitly; deployed environments must pass
   # immutable subject_ principals through SUPER_ADMIN_UIDS instead.
+  # The Aadhaar key reaches this process only, never echoed; the file wins.
+  AADHAAR_ENC_KEY=""
+  # shellcheck disable=SC1090
+  if [ -f "$AADHAAR_KEY_ENV" ]; then . "$AADHAAR_KEY_ENV"; fi
+  AADHAAR_ENC_KEY="${AADHAAR_ENC_KEY:-${INHERITED_AADHAAR_ENC_KEY:-}}" \
   APP_PG_DSN="$APP_DSN" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
   APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \

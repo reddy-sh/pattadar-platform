@@ -1,24 +1,26 @@
 /**
- * Pattadar Bloom · Material 3-guided theme · design authority: design.md
+ * Pattadar's MUI theme · design authority: design.md
  *
- * Bloom design system (founder decision 2026-08-14 — see design.md at the
- * repo root). Supersedes the 2026-07-26 stock-MUI decision: colors and
- * typography now derive from Pattadar's project-owned Bloom tokens in
- * src/styles/tokens.css (dark scheme is the canonical Bloom palette; the
- * light scheme is a warm-tinted derivation documented in design.md; the
- * high-contrast scheme is a light-based accessibility palette). Every hex
- * below is literal and parseable so MUI can perform its channel math.
+ * The colours are not written here. Every scheme comes from the palette pack
+ * in @pattadar/tokens (packages/tokens/src/palette): Bloom Dark (canonical),
+ * its warm Light derivation, Pattadar Gold, and the light-based High Contrast
+ * reading mode, plus whatever the registry adds next. `muiColorSchemes` builds each through
+ * MUI's own createTheme, so a new scheme can never arrive half-filled, and
+ * scripts/palette-tests.ts holds every one of them to the contrast floors
+ * before it reaches this file.
  *
- * ALL SIX semantic slots are defined on ALL THREE schemes. Leaving `warning`,
+ * All six semantic slots are defined on every scheme. Leaving `warning`,
  * `info` or `secondary` undefined does not disable them — MUI silently falls
  * back to its factory defaults (#ed6c02 orange, #0288d1 blue, #9c27b0 purple),
- * which is how blue and purple reached an amber app. Documented ratios are
- * measured against the relevant scheme background.
+ * which is how blue and purple once reached an amber app.
  *
- * CSS theme variables stay enabled with a CLASS colour-scheme selector so
- * all three schemes ship in one stylesheet AND `useColorScheme` can switch
- * the active scheme (the default 'media' selector makes setters a no-op).
- * Marketing surfaces remain permanently dark inside `.dark.site`.
+ * CSS theme variables are keyed on `<html data-scheme="…">`
+ * (colorSchemeSelector 'data-scheme'), so every scheme ships in one
+ * stylesheet and `useColorScheme` switches between them. Dark is the default
+ * scheme: its variables also sit on `:root`, so the page is dark before
+ * anything has run. Any element can carry the same attribute to wear one
+ * scheme regardless of the user's choice — the marketing and sign-in pages
+ * wrap themselves in `data-scheme="dark"`.
  *
  * Functional seams preserved from the stock era (pages rely on them):
  *  - `palette.primary.container` / `.onContainer` (selected fills)
@@ -27,10 +29,12 @@
  *  - bottom-center snackbars
  */
 import { createTheme } from '@mui/material/styles';
+import { FONT_SANS, muiColorSchemes, registry, type ChromeRoles, type DecorRoles } from '@pattadar/tokens';
 
 declare module '@mui/material/styles' {
   interface ColorSchemeOverrides {
     highContrast: true;
+    pattadar: true;
   }
   interface PaletteColor {
     /** Soft container fill for selected states / tonal surfaces. */
@@ -42,6 +46,31 @@ declare module '@mui/material/styles' {
     container?: string;
     onContainer?: string;
   }
+  interface TypeBackground {
+    /** A surface on a surface: a well, a hovered row, a nested panel. */
+    raised: string;
+  }
+  interface TypeText {
+    /** The quietest text that is still text: labels, eyebrows, units. */
+    muted: string;
+  }
+  interface Palette {
+    dividerStrong: string;
+    /** Keyboard focus ring, and the halo a two-tone ring draws outside it. */
+    focus: string;
+    focusHalo: string;
+    /** The top bar's own colours. */
+    chrome: ChromeRoles;
+    /** The marketing surface's ambient colours (Bloom Dark only). */
+    decor?: DecorRoles;
+  }
+  interface PaletteOptions {
+    dividerStrong?: string;
+    focus?: string;
+    focusHalo?: string;
+    chrome?: ChromeRoles;
+    decor?: DecorRoles;
+  }
 }
 
 declare module '@mui/material/Button' {
@@ -51,127 +80,14 @@ declare module '@mui/material/Button' {
   }
 }
 
-/** The one face (design.md § Typography) — the same stack as `--font-sans` in
- *  styles/tokens.css; scripts/typography-tests.ts fails if the two differ. */
-const FONT_SANS = '"Atkinson Hyperlegible", system-ui, sans-serif';
-
 /** Shared heading voice — the one face at 700, roman always, untracked. It
  *  names no family: every variant inherits `typography.fontFamily`. */
 const heading = (fontWeight: number) => ({ fontWeight, letterSpacing: 0 });
 
-/**
- * The high-contrast palette, built through `createTheme` rather than written
- * out as an object literal beside `light` and `dark`.
- *
- * That asymmetry is forced, not stylistic. `light` and `dark` are MUI's OWN
- * scheme names, so createThemeWithVars merges its default palette underneath
- * whatever is written for them — which is where `common`, `grey`, and the
- * `.light` / `.dark` variants of every semantic colour come from. A scheme
- * declared through `ColorSchemeOverrides` gets NO such merge: it is used
- * exactly as written. MUI then reads all of those keys anyway while it
- * derives its CSS variables — `palette.common.background`,
- * `palette.grey[100]`, `palette.error.light` and a dozen more — and every one
- * of them is undefined on a hand-written custom scheme.
- *
- * The failure is not a mis-coloured control: it is a TypeError thrown inside
- * `createTheme`, at module scope, before React renders anything. The whole
- * app fails to evaluate and EVERY route — signed in or out, app or marketing
- * — paints blank white.
- *
- * Running these colours through `createTheme` first is what fills all of it
- * in: MUI augments each semantic colour into main/light/dark/contrastText and
- * supplies common, grey and action at their light-scheme defaults. Only the
- * `container` / `onContainer` pair is added afterwards, because those two are
- * this app's own extension (see the module augmentation above) and MUI has no
- * opinion to contribute about them.
- */
-const HIGH_CONTRAST = (() => {
-  const base = createTheme({
-    palette: {
-      mode: 'light',
-      primary: { main: '#003b73', contrastText: '#ffffff' },
-      secondary: { main: '#5a1a78', contrastText: '#ffffff' },
-      error: { main: '#a40000', contrastText: '#ffffff' },
-      success: { main: '#006b3c', contrastText: '#ffffff' },
-      warning: { main: '#6b4f00', contrastText: '#ffffff' },
-      info: { main: '#004f6b', contrastText: '#ffffff' },
-      background: { default: '#ffffff', paper: '#ffffff' },
-      text: { primary: '#000000', secondary: '#1f1f1f' },
-      divider: '#000000',
-    },
-  }).palette;
-  return {
-    ...base,
-    primary: { ...base.primary, container: '#d9ecff', onContainer: '#001c38' },
-    secondary: { ...base.secondary, container: '#f4ddff', onContainer: '#2c003e' },
-  };
-})();
-
 export const theme = createTheme({
-  cssVariables: { colorSchemeSelector: 'class' },
-  colorSchemes: {
-    // Warm-light derivation of the Bloom hues (design.md § Light scheme).
-    // primary is the amber darkened to oklch(55% 0.13 55) so white text
-    // clears 4.5:1 (measured 5.07:1).
-    light: {
-      palette: {
-        primary: {
-          main: '#aa5910',
-          contrastText: '#ffffff',
-          container: 'rgba(170, 89, 16, 0.08)',
-          onContainer: '#8c4a11',
-        },
-        // Coral (--color-accent-2) darkened for light paper — 5.56:1.
-        secondary: {
-          main: '#b23645',
-          contrastText: '#ffffff',
-          container: 'rgba(178, 54, 69, 0.08)',
-          onContainer: '#8f2b37',
-        },
-        error: { main: '#be222a' },
-        success: { main: '#27762f' },
-        // Gold, held off primary's 55° so "needs attention" ≠ "do this". 5.20:1.
-        warning: { main: '#905d00', contrastText: '#ffffff' },
-        // Muted slate — the one cool seam, low chroma so it never competes. 5.47:1.
-        info: { main: '#3d6a7f', contrastText: '#ffffff' },
-        background: { default: '#f9f6f2', paper: '#fdfcf9' },
-        text: { primary: '#261d1a', secondary: '#615956' },
-        divider: '#e3ddd8',
-      },
-    },
-    // Canonical Bloom dark — hex conversions of tokens.css oklch values.
-    dark: {
-      palette: {
-        primary: {
-          main: '#fe860f', // --color-accent · 8.29:1 on paper
-          contrastText: '#180600', // --color-accent-ink · 8.11:1 on accent
-          container: 'rgba(254, 134, 15, 0.16)',
-          onContainer: '#fe860f',
-        },
-        // --color-accent-2 coral, unchanged from tokens.css · 6.16:1 on paper.
-        secondary: {
-          main: '#ff4a63',
-          contrastText: '#180600',
-          container: 'rgba(255, 74, 99, 0.16)',
-          onContainer: '#ff4a63',
-        },
-        error: { main: '#ff5453' },
-        success: { main: '#61c568' },
-        // Gold, held off primary's 55° so "needs attention" ≠ "do this". 10.57:1.
-        warning: { main: '#f5ae39', contrastText: '#180600' },
-        // Muted slate — the one cool seam, low chroma so it never competes. 9.55:1.
-        info: { main: '#82bad5', contrastText: '#180600' },
-        background: { default: '#0d0504', paper: '#170c09' }, // paper / paper-2
-        text: { primary: '#f3ede7', secondary: '#bfb5ae' }, // ink / ink-2
-        divider: '#312622', // --color-rule
-      },
-    },
-    // Light-based accessibility palette for low-vision users. Every semantic
-    // main colour clears 4.5:1 against white and carries white contrast text.
-    // Built by HIGH_CONTRAST above — see the note there for why it cannot be
-    // written inline the way `light` and `dark` are.
-    highContrast: { palette: HIGH_CONTRAST },
-  },
+  cssVariables: { colorSchemeSelector: 'data-scheme' },
+  defaultColorScheme: registry.defaults.web,
+  colorSchemes: muiColorSchemes(registry, createTheme),
   shape: { borderRadius: 8 },
   typography: {
     fontFamily: FONT_SANS,
@@ -202,11 +118,17 @@ export const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
-        // Strong, two-tone keyboard focus ring only while High Contrast is active.
-        '.highContrast :focus-visible': {
-          outline: '3px solid #000000 !important',
-          outlineOffset: '3px',
-          boxShadow: '0 0 0 3px #ffffff !important',
+        // Strong, two-tone keyboard focus ring only while High Contrast is
+        // active: 3px in the scheme's focus colour, with a 3px halo between it
+        // and the control, so it reads on white paper, on a filled button and
+        // over imagery alike. Both colours are the pack's (focus, focusHalo),
+        // resolved where the ring is drawn. It outranks every component's 2px
+        // ring; W360 moves it in three places and reduces it nowhere (w360.css,
+        // "High Contrast strengthens every keyboard focus ring").
+        '[data-scheme="highContrast"] :focus-visible': {
+          outline: '3px solid var(--mui-palette-focus) !important',
+          outlineOffset: '3px !important',
+          boxShadow: '0 0 0 3px var(--mui-palette-focusHalo) !important',
         },
         // Stat figures line up through the face's own tabular figures, not a
         // monospace face (design.md § Typography).

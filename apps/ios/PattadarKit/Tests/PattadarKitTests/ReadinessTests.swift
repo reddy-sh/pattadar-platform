@@ -79,7 +79,7 @@ func blurbNamesTheProblem() {
     // "Three parcels need attention" sends somebody hunting.
     #expect(line.contains("Kondapur field — mutation still pending"))
     #expect(!line.contains("Nallapadu"))
-    #expect(line.hasPrefix("1 holding"))
+    #expect(line.hasPrefix("1 property"))
 }
 
 @Test("Nothing wrong, and nothing at all, read differently")

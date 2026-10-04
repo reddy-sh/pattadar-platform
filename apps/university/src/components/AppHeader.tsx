@@ -4,18 +4,18 @@ import SchoolOutlined from '@mui/icons-material/SchoolOutlined';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import { Link, NavLink, useLocation } from 'react-router';
+import { isSchemeId } from '@pattadar/tokens';
 import { useAuth } from '../auth/AuthProvider';
-
-export type ThemeChoice = 'light' | 'dark' | 'contrast';
+import type { ThemeChoice } from '../state/useThemeChoice';
 
 interface AppHeaderProps {
   onSearch: () => void;
   onTutor: () => void;
+  /** The saved colour scheme and the switcher's options (registry order). */
   theme: ThemeChoice;
-  onThemeChange: (theme: ThemeChoice) => void;
 }
 
-export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeaderProps) {
+export function AppHeader({ onSearch, onTutor, theme }: AppHeaderProps) {
   const { user, isLoading, isPreview, signIn } = useAuth();
   const location = useLocation();
   return (
@@ -37,10 +37,11 @@ export function AppHeader({ onSearch, onTutor, theme, onThemeChange }: AppHeader
           <label className="theme-picker">
             <ContrastRounded />
             <span className="sr-only">Appearance</span>
-            <select value={theme} onChange={(event) => onThemeChange(event.target.value as ThemeChoice)}>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="contrast">High contrast</option>
+            <select
+              value={theme.choice}
+              onChange={(event) => { if (isSchemeId(event.target.value)) theme.choose(event.target.value); }}
+            >
+              {theme.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </label>
           {isLoading ? <span className="header-status">Checking session</span> : null}

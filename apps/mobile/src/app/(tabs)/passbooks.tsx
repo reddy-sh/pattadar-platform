@@ -93,7 +93,7 @@ function PassbookCard({
       mode="outlined"
       style={styles.card}
       accessibilityRole="button"
-      onPress={() => router.push({ pathname: '/holdings', params: { pb: pb.id } })}
+      onPress={() => router.push({ pathname: '/properties', params: { pb: pb.id } })}
     >
       <Card.Content style={styles.cardContent}>
         <View style={styles.titleRow}>

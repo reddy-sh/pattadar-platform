@@ -215,7 +215,7 @@ struct FileToVaultScreen: View {
                         }
                         .padding(.vertical, Space.xs)
                     } footer: {
-                        Text("An identity card, certificate or receipt is a paper, not a holding — it goes into the vault and can be attached to land or a person any time.")
+                        Text("An identity card, certificate or receipt is a paper, not a property — it goes into the vault and can be attached to land or a person any time.")
                     }
                     Section {
                         Button { file(scan) } label: {

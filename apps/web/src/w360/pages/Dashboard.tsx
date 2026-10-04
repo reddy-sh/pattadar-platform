@@ -4,9 +4,17 @@
  *  Home (26/09/2026, founder decision): user-focused and Material 3 — the
  *  greeting and shortcuts, "For you" (reminders and orders waiting on the
  *  owner in one list), missing details, four overview cards that are also
- *  ways in, recently opened, then recent activity. Value appears only when
- *  something has been valued. */
-import { useState } from 'react';
+ *  ways in, recently opened, then recent activity.
+ *
+ *  Since 02/10/2026 (heuristic audit, .local/ux-audits/2026-10-02-w360-home)
+ *  Missing details is no longer a card of its own: it is one summary row
+ *  inside For you, so For you holds the orders, the reminders and the
+ *  properties missing details, and says "You're all caught up" only when all
+ *  three are empty. The order is the greeting, summary line and shortcuts;
+ *  For you; Overview; Value by village; Recently opened; Recent activity. The
+ *  Estimated value card is always one of the four and reads "—" while nothing
+ *  is valued; Value by village appears only when something has been valued. */
+import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
@@ -18,9 +26,11 @@ import { useAuditTrail } from '../../data/hooks';
 import { EMPTY_FILTER, useOrders, usePortfolio, useProperties, useDismissWaiting } from '../api';
 import type { Order, Portfolio, RecordCard, WaitingItem } from '../api';
 import { Dialog } from '../Dialog';
+import { NOTHING_MISSING, missingOf } from '../homeGaps';
+import type { Incomplete, Missing } from '../homeGaps';
 import { ActivityRow } from './Audit';
 import {
-  Card, Empty, Failed, Icon, KV, Loading, PageHead, StatusChip, inr, num, plural,
+  Card, Chip, Empty, Failed, Icon, KV, Loading, PageHead, StatusChip, inr, inrOr, num, plural,
 } from '../ui';
 import { SetupChecklist } from '../SetupChecklist';
 
@@ -31,14 +41,19 @@ function greeting(): string {
   return 'Good evening';
 }
 
+/** A recently opened property as the shared `.rec` card, in its compact
+ *  variant. Home draws no photo, map or scan for a tile, so the 6.5rem art
+ *  band was only ever the placeholder — an icon over a gradient, decoration on
+ *  an app page. The kind stays, as the band's own icon in its own colour,
+ *  inline beside the name. */
 export function RecordTile({ rec }: { rec: RecordCard }) {
   const art = rec.classification === 'flat' || rec.classification === 'open_plot'
     ? 'built' : rec.classification === 'shop' ? 'shop' : '';
   return (
-    <Link className="rec" to={`/app/records/${rec.id}`}>
-      <div className={`art ${art}`}>
-        <Icon name={rec.classification} size={44} />
-      </div>
+    <Link className="rec compact" to={`/app/records/${rec.id}`}>
+      <span className={`rec-kind ${art}`}>
+        <Icon name={rec.classification} size={20} />
+      </span>
       <div className="meat">
         <h3>{rec.title}</h3>
         <p className="note" style={{ marginTop: '0.1875rem' }}>
@@ -115,7 +130,14 @@ function WaitingRow({ w }: { w: WaitingItem }) {
         <p className="note" style={{ marginTop: '0.1875rem' }}>{w.detail}</p>
       </div>
       <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-        {go && <Link className="btn" to={go.to}>{go.label}</Link>}
+        {/* A text action, named for its row: three rows say "Open record",
+            and a screen reader's list of links must not hold three identical
+            names. */}
+        {go && (
+          <Link className="linkbtn" to={go.to} aria-label={`${go.label}: ${w.title}`}>
+            {go.label}
+          </Link>
+        )}
         <button
           type="button"
           className="iconbtn"
@@ -176,18 +198,116 @@ function OrderRow({ o }: { o: Order }) {
       </div>
       <span className="row tight" style={{ flexWrap: 'nowrap' }}>
         <StatusChip state={o.statusState}>{o.statusLabel}</StatusChip>
-        <Link className="btn" to={`/app/services/${o.id}`}>Open order</Link>
+        <Link className="linkbtn" to={`/app/services/${o.id}`}
+              aria-label={`Open order: ${[o.ref, o.recordTitle].filter(Boolean).join(' · ') || o.title}`}>
+          Open order
+        </Link>
       </span>
     </div>
   );
 }
 
-/** "For you": everything that needs the owner, in one list. Reminders and
- *  orders that came back are the same question — what should I do next — so
- *  they are one card, not two. With nothing waiting it is one short line. */
-function ForYou({ data, orders }: { data: Portfolio; orders: Order[] }) {
-  const total = data.waiting.length + orders.length;
+const GAP_ROWS = 3;
+
+/** One property under Missing details, on one line: its name, what it is
+ *  missing beside it, and the first fix as a text action named for the
+ *  property — every row's action would otherwise read the same. */
+function GapRow({ r, gaps }: Incomplete) {
+  return (
+    <div>
+      <div className="grow gapline">
+        <h4>
+          <Link to={`/app/records/${r.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+            {r.title}
+          </Link>
+        </h4>
+        <span className="gapchips">
+          {gaps.map((g) => <StatusChip key={g.label} state="warn">{g.label}</StatusChip>)}
+        </span>
+      </div>
+      <Link className="linkbtn" to={gaps[0].to} aria-label={`${gaps[0].fix}: ${r.title}`}>
+        {gaps[0].fix}
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * Missing details as one row of For you (02/10/2026), rather than a card of
+ * its own under it: how many of the properties you own are complete, a
+ * neutral track that draws the same figure, one outlined chip per kind of gap
+ * with how many properties carry it, and a disclosure listing up to GAP_ROWS
+ * of them on one line each.
+ *
+ * A property a reminder already names is not listed a second time under the
+ * disclosure: the reminder row above it is where it is acted on. It still
+ * counts in "N of M complete", in its chip and in For you's count, because it
+ * is still missing that detail. When every property with a gap is named by a
+ * reminder there is nothing left to disclose, so there is no disclosure — a
+ * "Show all" that opens nothing would be a dead control.
+ */
+function MissingRow({ missing }: { missing: Missing }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const done = missing.owned - missing.open.length;
+  const pct = Math.round((done / missing.owned) * 100);
+  const shown = missing.listed.slice(0, GAP_ROWS);
+  const more = missing.listed.length - shown.length;
+  return (
+    <div>
+      <span className="muted" style={{ display: 'flex', paddingTop: '0.125rem' }}>
+        <Icon name="warn" size={19} />
+      </span>
+      <div className="grow gapline">
+        <h3 id={`${id}-t`}>Missing details</h3>
+        <span className="note num">{done} of {missing.owned} complete</span>
+        <span className="gaptrack" aria-hidden><span style={{ width: `${pct}%` }} /></span>
+        <span className="gapchips">
+          {missing.tally.map((t) => (
+            <Chip key={t.label}><span className="num">{t.n}</span> {t.label}</Chip>
+          ))}
+        </span>
+      </div>
+      {missing.listed.length > 0 && (
+        <>
+          {/* Named "Show all Missing details" / "Hide Missing details": the
+              visible word, then the row it opens. */}
+          <button type="button" className="linkbtn" aria-expanded={open}
+                  aria-controls={`${id}-p`} aria-labelledby={`${id}-l ${id}-t`}
+                  onClick={() => setOpen((v) => !v)}>
+            <span id={`${id}-l`}>{open ? 'Hide' : 'Show all'}</span>
+          </button>
+          <div id={`${id}-p`} className="gappanel" hidden={!open}>
+            <div className="rows">
+              {shown.map((x) => <GapRow key={x.r.id} {...x} />)}
+            </div>
+            {more > 0 && (
+              <p className="note" style={{ margin: 'var(--space-md) 0 0' }}>
+                {plural(more, 'more property', 'more properties')} ·{' '}
+                <Link className="link accent" to="/app/properties">All properties</Link>
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** "For you": everything that needs the owner, in one card. Orders that came
+ *  back, reminders and properties missing details are the same question —
+ *  what should I do next — so they are one card, and its count is all three.
+ *  "You're all caught up" is For you's own empty state, said only when all
+ *  three are empty AND both the orders and the properties reads have
+ *  answered: a read still out, or one that failed, is no proof that nothing
+ *  is missing, so For you then says nothing rather than claim it. */
+function ForYou({ data, orders, ordersKnown, missing }: {
+  data: Portfolio; orders: Order[]; ordersKnown: boolean; missing: Missing | undefined;
+}) {
+  const gaps = missing?.open.length ?? 0;
+  const total = data.waiting.length + orders.length + gaps;
   if (total === 0) {
+    if (!ordersKnown || !missing) return null;
     return (
       <section className="card foryou-clear" aria-label="For you">
         <span className="up" style={{ display: 'flex' }}><Icon name="ok" size={18} /></span>
@@ -201,21 +321,24 @@ function ForYou({ data, orders }: { data: Portfolio; orders: Order[] }) {
       <div className="rows">
         {orders.map((o) => <OrderRow key={o.id} o={o} />)}
         {data.waiting.map((w) => <WaitingRow key={w.id} w={w} />)}
+        {missing && gaps > 0 && <MissingRow missing={missing} />}
       </div>
     </Card>
   );
 }
 
 /** One overview figure that is also a way in (Material 3 summary card). */
-function Overview({ label, value, note, to, words }: {
+function Overview({ label, value, say, note, to }: {
   label: string; value: string; note?: string; to: string;
-  /** The value is a word ("Not valued"), not a figure: no tabular face. */
-  words?: boolean;
+  /** What a screen reader hears instead of a glyph value: "—" is read as
+   *  nothing, or as "em dash", so the figure that is not held is named. */
+  say?: string;
 }) {
   return (
     <Link className="ovcard" to={to}>
       <span className="ov-label">{label}</span>
-      <span className={words ? 'ov-value' : 'ov-value num'}>{value}</span>
+      <span className="ov-value num" aria-hidden={say ? true : undefined}>{value}</span>
+      {say && <span className="sr-only">{say}</span>}
       {note && <span className="ov-note">{note}</span>}
     </Link>
   );
@@ -241,78 +364,6 @@ function Shortcuts() {
         <IosShareOutlined sx={{ fontSize: 16 }} /> Share documents
       </Link>
     </nav>
-  );
-}
-
-interface Gap { label: string; fix: string; to: string }
-
-/**
- * What a property is missing, from facts the card already carries.
- *
- * Only gaps the owner can close from this app are listed. A deed number is
- * not: `deedLine` reads parcels.reg_doc_no, which nothing in W360 writes, so
- * "No deed recorded" would be a nag with no way to act on it. EC and tax
- * checks are not on the card at all and are not guessed at.
- */
-function gapsOf(r: RecordCard): Gap[] {
-  const out: Gap[] = [];
-  const land = r.classification === 'agri' || r.classification === 'open_plot';
-  // _located() already falls back to the boundary's centre, so 0,0 here means
-  // neither a pin nor a boundary.
-  if (!r.lat && !r.lon) {
-    out.push({ label: 'Not on the map', fix: 'Set location', to: `/app/records/${r.id}/map` });
-  } else if (land && r.ring.length < 6) {
-    out.push({ label: 'No boundary', fix: 'Draw boundary', to: `/app/records/${r.id}/map` });
-  }
-  if (r.paperCount === 0) {
-    out.push({ label: 'No documents', fix: 'Add document', to: `/app/records/${r.id}` });
-  }
-  return out;
-}
-
-const GAP_ROWS = 5;
-
-/** Properties you own that are missing a location, a boundary or documents.
- *  Managed and watched land is somebody else's to complete. Hidden while it
- *  loads, when it fails, and when nothing is missing. */
-function MissingDetails() {
-  const { data } = useProperties(EMPTY_FILTER);
-  const owned = (data?.cards ?? []).filter((c) => c.stake === 'owned');
-  const open = owned.map((r) => ({ r, gaps: gapsOf(r) })).filter((x) => x.gaps.length > 0);
-  if (open.length === 0) return null;
-  const done = owned.length - open.length;
-  return (
-    <div className="sec">
-      <Card title="Missing details"
-            aside={<span className="note">{done} of {owned.length} complete</span>}>
-        <div className="rows">
-          {open.slice(0, GAP_ROWS).map(({ r, gaps }) => (
-            <div key={r.id}>
-              <span className="muted" style={{ display: 'flex', paddingTop: '0.125rem' }}>
-                <Icon name={r.classification} size={19} />
-              </span>
-              <div className="grow">
-                <h3>
-                  <Link to={`/app/records/${r.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                    {r.title}
-                  </Link>
-                </h3>
-                <span className="gapchips">
-                  {gaps.map((g) => <StatusChip key={g.label} state="warn">{g.label}</StatusChip>)}
-                </span>
-              </div>
-              <Link className="btn" to={gaps[0].to}>{gaps[0].fix}</Link>
-            </div>
-          ))}
-        </div>
-        {open.length > GAP_ROWS && (
-          <p className="note" style={{ margin: 'var(--space-md) 0 0' }}>
-            {plural(open.length - GAP_ROWS, 'more property', 'more properties')} ·{' '}
-            <Link className="link accent" to="/app/properties">All properties</Link>
-          </p>
-        )}
-      </Card>
-    </div>
   );
 }
 
@@ -347,6 +398,11 @@ export function Dashboard() {
   // The same query the rail's Services badge already runs, so this costs
   // nothing extra: it is answered from the cache.
   const orderQ = useOrders();
+  // Missing details is worked out from the property list — the same key
+  // Properties reads. It used to be asked by the Missing details card after the
+  // page had drawn; asked here it is in flight beside the portfolio, so For you
+  // is whole when it draws instead of saying "all caught up" first.
+  const propsQ = useProperties(EMPTY_FILTER);
 
   if (isLoading) return <main><Loading h="70vh" what="your home page" /></main>;
   // A failed read used to hold this same skeleton for good — retry: 1 in
@@ -354,6 +410,10 @@ export function Dashboard() {
   // old guard could not tell that apart from a query still in flight.
   if (!data) return <main><Failed what="Your home page" error={error} boxed h="26rem" /></main>;
 
+  // For you claims "all caught up" only on answers it has: undefined here is
+  // a read still out or one that failed, and neither is "nothing missing".
+  const ordersKnown = orderQ.data !== undefined;
+  const missing = propsQ.data ? missingOf(propsQ.data.cards, data.waiting) : undefined;
   const orders = orderQ.data ?? [];
   const needYou = orders.filter((o) => o.needsYou || o.pendingReview > 0);
   const properties = data.farmCount + data.plotCount + data.builtFlats + data.builtShops;
@@ -386,7 +446,11 @@ export function Dashboard() {
       <main>
         <PageHead title={title} />
         <SetupChecklist />
-        {data.waiting.length > 0 && <div className="sec"><ForYou data={data} orders={needYou} /></div>}
+        {data.waiting.length > 0 && (
+          <div className="sec">
+            <ForYou data={data} orders={needYou} ordersKnown={ordersKnown} missing={NOTHING_MISSING} />
+          </div>
+        )}
         <Empty boxed h="18rem" icon="parcel" title="No properties yet" action={add}>
           Add a parcel or property, or upload a pattadar passbook.
         </Empty>
@@ -395,9 +459,10 @@ export function Dashboard() {
   }
 
   const openOrders = orders.length;
-  // Value is shown only when something has been valued. A market value of
-  // nought is "not valued", not a loss: the old strip printed −₹5.6 L as a
-  // gain on land that simply had no valuation recorded.
+  // A market value of nought is an unknown figure, "—" (design.md § Property
+  // tabs, "Missing reads as missing"): never ₹0 and never a loss — the old
+  // strip printed −₹5.6 L as a gain on land that simply had no valuation
+  // recorded. Value by village is drawn only when something has been valued.
   const valued = data.worthNow > 0;
   const bars = data.valueBars.filter((b) => b.value > 0);
 
@@ -411,11 +476,16 @@ export function Dashboard() {
       </PageHead>
       <SetupChecklist />
 
-      <div className="sec"><ForYou data={data} orders={needYou} /></div>
+      {/* The first block under the head: the head's own 24px is the gap,
+          not that plus a section margin (64px, against 24px on every other
+          page under Your portfolio). */}
+      <div className="sec sec-first">
+        <ForYou data={data} orders={needYou} ordersKnown={ordersKnown} missing={missing} />
+      </div>
 
-      <MissingDetails />
-
-      <section className="sec" aria-labelledby="home-overview">
+      {/* `ov-sec` makes the section the width the Overview's tracks are
+          chosen from (w360.css): the window less the rail and the padding. */}
+      <section className="sec ov-sec" aria-labelledby="home-overview">
         <h2 id="home-overview" className="home-h2">Overview</h2>
         <div className="overview">
           <Overview label="Properties" value={num(all)}
@@ -430,8 +500,8 @@ export function Dashboard() {
           <Overview label="Open orders" value={num(openOrders)}
                     note={needYou.length > 0 ? `${needYou.length} need you` : undefined}
                     to="/app/services" />
-          <Overview label="Estimated value" value={valued ? inr(data.worthNow) : 'Not valued'}
-                    words={!valued}
+          <Overview label="Estimated value" value={inrOr(data.worthNow)}
+                    say={valued ? undefined : 'not set'}
                     note={data.invested > 0 ? `Bought for ${inr(data.invested)}` : undefined}
                     to="/app/properties" />
         </div>
@@ -468,7 +538,7 @@ export function Dashboard() {
               All properties
             </Link>
           </div>
-          <div className="cards">
+          <div className="cards compact">
             {data.recent.map((r) => <RecordTile key={r.id} rec={r} />)}
           </div>
         </section>

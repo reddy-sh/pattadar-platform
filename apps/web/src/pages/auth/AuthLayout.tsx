@@ -4,9 +4,10 @@
  * these pages are public and mobile-friendly. All auth happens on OUR pages
  * (founder rule: customers never see a non-pattadar.com URL).
  *
- * Bloom frame (design.md): the page wraps itself in `.dark.site`, so the MUI
- * form children resolve the DARK scheme's CSS vars regardless of the user's
- * /app mode — the marketing surface is permanently dark. Copy unchanged.
+ * Bloom frame (design.md): the page wraps itself in `.site` with
+ * `data-scheme="dark"`, so the MUI form children resolve the DARK scheme's CSS
+ * vars whatever scheme the user chose in /app — the marketing surface is
+ * permanently dark. Copy unchanged.
  */
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router';
@@ -20,7 +21,7 @@ interface AuthLayoutProps {
 
 export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
   return (
-    <div className="dark site">
+    <div className="site" data-scheme="dark">
       <div className="ambient" aria-hidden>
         <div className="bloom bloom--1" />
         <div className="grain" />

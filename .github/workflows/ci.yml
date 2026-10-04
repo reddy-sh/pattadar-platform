@@ -28,7 +28,7 @@ jobs:
       # every *.test.ts beneath it, so the next file lands covered. Verified
       # that these four roots contain no Playwright *.spec.ts, which is why the
       # suites under tests/ are not swept in by accident.
-      - run: bun test packages/core apps/web/src apps/mobile/tests apps/university/src
+      - run: bun test packages/core packages/tokens apps/web/src apps/mobile/tests apps/university/src
       # Discovered, not enumerated: a list here silently stops covering the next
       # script somebody adds, which is how twelve of these came to run nowhere.
       - name: Offline rule and guard assertions

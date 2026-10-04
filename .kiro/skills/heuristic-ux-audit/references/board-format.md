@@ -1,15 +1,19 @@
 # Board format
 
 One board per audit: two panels side by side, drawn from
-`assets/board-template.html`.
+`assets/board-template.html` and rendered twice. `compare.png` is the two
+screens alone, sized for chat, and is what the user sees first. `board.png` is
+the full record.
 
 ## Files
 
 ```text
 .local/ux-audits/<yyyy-mm-dd>-<slug>/
-  board.html   the filled template, and the text version of the image
-  board.png    rendered from board.html
-  evidence/    sealed captures or copied user screenshots
+  board.html    the filled template, and the text version of both images
+  compare.png   rendered from board.html#compare: panel labels and screens only
+  board.png     rendered from board.html: screens, notes and footer
+  evidence/     sealed captures or copied user screenshots
+  scratch/      downscaled copies and crops made only to read images back
 ```
 
 - The slug is the page in lowercase with hyphens: `landing`, `pricing`,
@@ -111,7 +115,7 @@ W360 shell, for `wire-light` boards:
   naming the file or design.md section each item would amend; possible within
   current authority.
 - Source labels exactly as the checklist defines them: `design.md §…`,
-  `spec §…`, `M3 <topic>`, `WCAG 2.2.2`, `audit`.
+  `spec §…`, `M3 <topic>`, `WCAG <SC number>`, `audit`.
 - Sentence case, plain words, dates as DD/MM/YYYY.
 
 ## Render
@@ -120,18 +124,35 @@ Before rendering, `grep -n '{{' board.html` must print nothing. Then, from the
 repository root with absolute paths:
 
 ```sh
+tests/e2e-app/node_modules/.bin/playwright screenshot --full-page --viewport-size=1600,600 \
+  "file://<repo>/.local/ux-audits/<slug>/board.html#compare" \
+  "<repo>/.local/ux-audits/<slug>/compare.png"
 tests/e2e-app/node_modules/.bin/playwright screenshot --full-page --viewport-size=2040,1200 \
   "file://<repo>/.local/ux-audits/<slug>/board.html" \
   "<repo>/.local/ux-audits/<slug>/board.png"
 ```
 
-This uses Playwright's cached Chromium. If it reports a missing browser, stop
+Both use Playwright's cached Chromium. If it reports a missing browser, stop
 and ask before `playwright install`, because that is a download.
+
+`#compare` targets `<main class="board" id="compare">`. The template's Compare
+view rules then hide the notes and footer and zoom the two screens, wrapped
+exactly as on the board, to 1600px wide. It is CSS only; no script runs.
+
+A board made before 02/10/2026 lacks both. Paste the template's Compare view
+block into its `<style>` and add `id="compare"` to its `<main>`, changing
+nothing else; its `board.png` must render as before.
 
 ## Read back
 
-Open `board.png` with the image reader. Fix and re-render until all of these
-hold:
+`board.png` is 2040 px wide, so never open it, or any crop of it, with a side
+over 2000 px (SKILL.md § Safety). Check each image with
+`sips -g pixelWidth -g pixelHeight`, then read a `sips -Z 1800` copy, or crops
+no larger than 1800 px on either side, written to the audit folder's
+`scratch/`.
+
+Read both PNGs back with the image reader. Fix and re-render until all of
+these hold:
 
 1. The look rendered: warm near-black screens with amber filled buttons for
    `bloom-dark`, neutral grey and ink for `wire-light`.
@@ -140,6 +161,9 @@ hold:
 4. Both panels have the same fidelity, and every block that needs a decision
    carries its "needs Reddy" tag.
 5. The footer's evidence label says what was actually used.
+6. `compare.png` is at most 1600px wide (`file compare.png` prints the size),
+   shows only the two panel labels and screens, wraps as `board.png` does, and
+   its smallest marker digit and note text read at 100%.
 
 The schematics are `aria-hidden`, so the notes in `board.html` must stand
 alone: every finding, drift line, change and guardrail reads without the

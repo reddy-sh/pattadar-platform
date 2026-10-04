@@ -1,31 +1,7 @@
 /* Hallmark · genre: atmospheric · macrostructure: Ecosystem Index · tone: utilitarian-editorial · theme: Bloom daylight · anchor hue: amber · enrichment: none · nav: N13 · footer: Ft1 */
+/* Type, spacing, motion, rules, layers and layout. The colours are the
+   palette pack's, aliased at the end of this file. */
 :root {
-  color-scheme: light;
-
-  --color-paper: oklch(97.5% 0.006 70);
-  --color-paper-2: oklch(94.5% 0.010 70);
-  --color-paper-3: oklch(90% 0.014 65);
-  --color-paper-4: oklch(84% 0.016 60);
-  --color-ink: oklch(20% 0.014 45);
-  --color-ink-2: oklch(38% 0.012 45);
-  --color-ink-3: oklch(48% 0.010 45);
-  --color-rule: oklch(84% 0.012 60);
-  --color-rule-strong: oklch(58% 0.020 55);
-  --color-accent: oklch(55% 0.130 55);
-  --color-accent-hover: oklch(48% 0.130 55);
-  --color-accent-soft: oklch(92% 0.038 60);
-  --color-accent-ink: oklch(98% 0.006 70);
-  --color-secondary: oklch(52% 0.150 20);
-  --color-success: oklch(45% 0.120 145);
-  --color-success-soft: oklch(92% 0.035 145);
-  --color-info: oklch(46% 0.090 225);
-  --color-info-soft: oklch(92% 0.025 225);
-  --color-warning: oklch(48% 0.115 80);
-  --color-error: oklch(48% 0.170 25);
-  --color-focus: oklch(44% 0.180 255);
-  --color-scrim: oklch(16% 0.012 45 / 0.58);
-  --color-shadow: oklch(20% 0.014 45 / 0.12);
-
   /* One face (root design.md § Typography), the same stack as
      apps/web/src/styles/tokens.css — scripts/typography-tests.ts fails when
      the copies differ. */
@@ -78,56 +54,41 @@
   --control-height: 2.75rem;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --color-paper: oklch(14% 0.018 35);
-  --color-paper-2: oklch(18% 0.020 35);
-  --color-paper-3: oklch(23% 0.022 35);
-  --color-paper-4: oklch(29% 0.020 35);
-  --color-ink: oklch(95% 0.010 70);
-  --color-ink-2: oklch(79% 0.015 60);
-  --color-ink-3: oklch(68% 0.014 55);
-  --color-rule: oklch(30% 0.018 40);
-  --color-rule-strong: oklch(52% 0.025 40);
-  --color-accent: oklch(74% 0.180 55);
-  --color-accent-hover: oklch(81% 0.160 55);
-  --color-accent-soft: oklch(25% 0.050 50);
-  --color-accent-ink: oklch(15% 0.040 50);
-  --color-secondary: oklch(68% 0.190 20);
-  --color-success: oklch(74% 0.150 145);
-  --color-success-soft: oklch(24% 0.045 145);
-  --color-info: oklch(76% 0.075 225);
-  --color-info-soft: oklch(24% 0.035 225);
-  --color-warning: oklch(78% 0.140 80);
-  --color-error: oklch(72% 0.190 25);
-  --color-focus: oklch(82% 0.180 55);
-  --color-scrim: oklch(8% 0.010 35 / 0.72);
-  --color-shadow: oklch(5% 0.010 35 / 0.42);
-}
-
-:root[data-theme="contrast"] {
-  color-scheme: light;
-  --color-paper: oklch(99% 0.002 70);
-  --color-paper-2: oklch(96% 0.004 70);
-  --color-paper-3: oklch(91% 0.006 70);
-  --color-paper-4: oklch(84% 0.008 70);
-  --color-ink: oklch(5% 0.004 70);
-  --color-ink-2: oklch(16% 0.004 70);
-  --color-ink-3: oklch(24% 0.004 70);
-  --color-rule: oklch(28% 0.004 70);
-  --color-rule-strong: oklch(8% 0.004 70);
-  --color-accent: oklch(34% 0.120 250);
-  --color-accent-hover: oklch(26% 0.120 250);
-  --color-accent-soft: oklch(91% 0.035 250);
-  --color-accent-ink: oklch(99% 0.002 70);
-  --color-secondary: oklch(34% 0.140 325);
-  --color-success: oklch(34% 0.120 145);
-  --color-success-soft: oklch(91% 0.030 145);
-  --color-info: oklch(32% 0.100 225);
-  --color-info-soft: oklch(91% 0.025 225);
-  --color-warning: oklch(34% 0.105 80);
-  --color-error: oklch(34% 0.160 25);
-  --color-focus: oklch(34% 0.190 250);
-  --color-scrim: oklch(5% 0.004 70 / 0.72);
-  --color-shadow: oklch(5% 0.004 70 / 0.22);
+/* The colours, as aliases of MUI's CSS theme variables: the palette pack
+   (packages/tokens/src/palette), the schemes the web app wears, keyed on
+   <html data-scheme> (src/theme.ts). They are declared wherever MUI declares
+   its own, so each resolves against the scheme in force there. University's
+   older names map onto the pack's roles by what they do:
+     paper        the page                     background.default
+     paper-2      a well, band or hovered row  background.raised
+     paper-3      one step deeper              raised, mixed 8% toward the ink
+     rule-strong  a control's boundary         text.muted
+   A control's boundary needs 3:1 against the page (WCAG 1.4.11); the pack's
+   muted ink, held to 4.5:1 in every scheme, is the quietest colour that
+   guarantees it. The soft fills are mixed from each scheme's own hue over its
+   own page, and the scrim and shadow stay black whatever the scheme. The top
+   bar re-declares these from the scheme's header colours (styles.css,
+   .app-header). */
+:root, [data-scheme] {
+  --color-paper: var(--mui-palette-background-default);
+  --color-paper-2: var(--mui-palette-background-raised);
+  --color-paper-3: color-mix(in srgb, var(--mui-palette-background-raised) 92%, var(--mui-palette-text-primary));
+  --color-ink: var(--mui-palette-text-primary);
+  --color-ink-2: var(--mui-palette-text-secondary);
+  --color-ink-3: var(--mui-palette-text-muted);
+  --color-rule: var(--mui-palette-divider);
+  --color-rule-strong: var(--mui-palette-text-muted);
+  --color-accent: var(--mui-palette-primary-main);
+  --color-accent-hover: color-mix(in oklab, var(--mui-palette-primary-main) 82%, var(--mui-palette-text-primary));
+  --color-accent-soft: var(--mui-palette-primary-container);
+  --color-accent-ink: var(--mui-palette-primary-contrastText);
+  --color-success: var(--mui-palette-success-main);
+  --color-success-soft: color-mix(in oklab, var(--mui-palette-success-main) 14%, var(--mui-palette-background-default));
+  --color-info: var(--mui-palette-info-main);
+  --color-info-soft: color-mix(in oklab, var(--mui-palette-info-main) 14%, var(--mui-palette-background-default));
+  --color-warning: var(--mui-palette-warning-main);
+  --color-warning-soft: color-mix(in oklab, var(--mui-palette-warning-main) 14%, var(--mui-palette-background-default));
+  --color-focus: var(--mui-palette-focus);
+  --color-scrim: color-mix(in srgb, var(--mui-palette-common-black) 58%, transparent);
+  --color-shadow: color-mix(in srgb, var(--mui-palette-common-black) 12%, transparent);
 }

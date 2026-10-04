@@ -3,20 +3,22 @@ import asyncio
 import io
 import json
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import psycopg
 import pytest
+from cryptography.fernet import Fernet
 from fastapi import HTTPException, UploadFile
 from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from starlette.datastructures import Headers
 
-from src import account
-from src.ai_reading import jobs
+from src import aadhaar, account
+from src.ai_reading import jobs, operations
 from src.ai_reading.providers import anthropic as provider
 
 
@@ -36,7 +38,7 @@ async def database():
         await pool.open(); await pool.wait()
         jobs.pool=pool; account.bind(pool)
         async with pool.connection() as conn:
-            await conn.execute(jobs.DDL); await account.ensure_schema(conn)
+            await conn.execute(jobs.DDL); await account.ensure_schema(conn); await aadhaar.ensure_schema(conn)
         yield pool
     finally:
         jobs.pool,jobs.handlers,account._pool=old
@@ -92,6 +94,169 @@ def test_interrupted_paid_read_is_failed_and_never_automatically_reissued():
             assert result.status_code==503
             assert json.loads(result.body)['state']=='failed'
             assert not await jobs.run_one()
+    asyncio.run(run())
+
+
+def _local_without_an_aadhaar_key(monkeypatch):
+    monkeypatch.setenv('APP_ENV','local')
+    monkeypatch.setenv('ALLOW_INSECURE_LOCAL','1')
+    for name in ('AADHAAR_ENC_KEY','AADHAAR_KMS_KEY_ARN','AADHAAR_LEGACY_WRITE_BRIDGE'):
+        monkeypatch.delenv(name,raising=False)
+
+
+SYNTHETIC='123412341234'
+NOTHING_SAVED='Aadhaar protection is temporarily unavailable. Nothing was saved.'
+_UUIDS=re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9a-f]{32}\b')
+
+
+def twelve_digit_runs(text):
+    return re.findall(r'\d{12}',_UUIDS.sub('',text))
+
+
+class CountingUpload(UploadFile):
+    reads=0
+    async def read(self,*a,**k):
+        type(self).reads+=1
+        return await super().read(*a,**k)
+
+
+def _local_with_an_aadhaar_key(monkeypatch):
+    _local_without_an_aadhaar_key(monkeypatch)
+    monkeypatch.setenv('AADHAAR_ENC_KEY',Fernet.generate_key().decode())
+
+
+async def _job_rows(pool):
+    async with pool.connection() as conn:
+        return await (await conn.execute('SELECT id,state,status,result FROM document_read_jobs')).fetchall()
+
+
+def test_aadhaar_submit_without_a_write_path_is_503_and_stores_nothing(monkeypatch):
+    _local_without_an_aadhaar_key(monkeypatch)
+    calls=[]
+    async def vision(*a,**k): calls.append('sent'); return {'fields':{}}
+    monkeypatch.setattr(operations,'vision_extract',vision)
+    async def run():
+        async with database() as pool:
+            jobs.handlers={'extract-aadhaar':operations.extract_aadhaar}
+            CountingUpload.reads=0
+            card=CountingUpload(file=io.BytesIO(b'card bytes'),filename='card.pdf',headers=Headers({'content-type':'application/pdf'}))
+            refused=await jobs.submit(request(),card,'extract-aadhaar')
+            assert refused.status_code==503
+            assert json.loads(refused.body)=={'error':aadhaar.UNAVAILABLE_MESSAGE}
+            assert CountingUpload.reads==0
+            assert await _job_rows(pool)==[]
+            assert not await jobs.run_one()
+            assert calls==[]
+    asyncio.run(run())
+
+
+def test_aadhaar_job_whose_write_path_disappears_before_the_read_fails_named(monkeypatch):
+    # Submitted while protection worked; the key went away before the worker
+    # ran. The handler's own check refuses before the provider is charged.
+    _local_without_an_aadhaar_key(monkeypatch)
+    calls=[]
+    async def vision(*a,**k): calls.append('sent'); return {'fields':{}}
+    monkeypatch.setattr(operations,'vision_extract',vision)
+    async def run():
+        async with database() as pool:
+            jobs.handlers={'extract-aadhaar':operations.extract_aadhaar}
+            with monkeypatch.context() as mp:
+                mp.setattr(aadhaar,'write_path_available',lambda: True)
+                receipt=await jobs.submit(request(),upload(),'extract-aadhaar')
+            assert await jobs.run_one()
+            result=await jobs.status(receipt['job'],request())
+            assert result.status_code==503
+            assert json.loads(result.body)=={'error':aadhaar.UNAVAILABLE_MESSAGE,'state':'failed'}
+            assert calls==[]
+            async with pool.connection() as conn:
+                row=await (await conn.execute('SELECT source FROM document_read_jobs')).fetchone()
+                assert row['source'] is None
+            assert not await jobs.run_one()
+    asyncio.run(run())
+
+
+def test_aadhaar_protection_failure_after_the_read_is_503_not_502(monkeypatch):
+    # The path from the reported log: the paid read succeeded, then the
+    # number could not be protected. Submit sees a write path (patched for
+    # submit only); the real _write_mode then finds no key at vault_put.
+    _local_without_an_aadhaar_key(monkeypatch)
+    calls=[]
+    async def read(file): calls.append('sent'); return {'fields':{'aadhaar':SYNTHETIC}}
+    async def run():
+        async with database() as pool:
+            monkeypatch.setattr(aadhaar,'_pool',pool)
+            jobs.handlers={'extract-aadhaar':read}
+            with monkeypatch.context() as mp:
+                mp.setattr(aadhaar,'write_path_available',lambda: True)
+                receipt=await jobs.submit(request(),upload(),'extract-aadhaar')
+            assert await jobs.run_one()
+            result=await jobs.status(receipt['job'],request())
+            assert result.status_code==503
+            assert json.loads(result.body)['error']==NOTHING_SAVED
+            assert not twelve_digit_runs(result.body.decode())
+            assert not await jobs.run_one()
+            assert calls==['sent']
+            async with pool.connection() as conn:
+                assert (await (await conn.execute('SELECT count(*) AS n FROM aadhaar_vault')).fetchone())['n']==0
+    asyncio.run(run())
+
+
+def test_aadhaar_job_id_reaches_the_record_and_the_result_holds_no_digits(monkeypatch):
+    _local_with_an_aadhaar_key(monkeypatch)
+    async def read(file): return {'fields':{'aadhaar':SYNTHETIC,'name':'Test Person','dob':'1990-01-01'}}
+    async def run():
+        async with database() as pool:
+            monkeypatch.setattr(aadhaar,'_pool',pool)
+            jobs.handlers={'extract-aadhaar':read}
+            receipt=await jobs.submit(request(),upload(),'extract-aadhaar')
+            assert await jobs.run_one()
+            result=await jobs.status(receipt['job'],request())
+            assert result.status_code==200
+            fields=json.loads(result.body)['fields']
+            assert fields['aadhaarMasked']=='XXXX-XXXX-1234'
+            async with pool.connection() as conn:
+                record=await (await conn.execute(
+                    'SELECT r.job_id,r.origin,r.name,r.dob,r.last4,v.ciphertext FROM aadhaar_candidates r '
+                    'JOIN aadhaar_vault v ON v.token=r.vault_token WHERE r.id=%s',(fields['aadhaarCandidateId'],))).fetchone()
+                stored=await (await conn.execute('SELECT result FROM document_read_jobs')).fetchone()
+            assert record['job_id']==receipt['job'] and record['origin']=='scan'
+            assert (record['name'],record['dob'],record['last4'])==('Test Person','1990-01-01','1234')
+            assert record['ciphertext'].startswith(aadhaar.FERNET_PREFIX)
+            assert stored['result']['fields']==fields
+            assert not twelve_digit_runs(json.dumps(stored['result']))
+    asyncio.run(run())
+
+
+def test_aadhaar_record_store_error_in_the_worker_is_503_not_502(monkeypatch):
+    _local_with_an_aadhaar_key(monkeypatch)
+    async def read(file): return {'fields':{'aadhaar':SYNTHETIC}}
+    async def broken(*a,**k): raise psycopg.OperationalError('server at 10.0.0.1 closed the connection')
+    async def run():
+        async with database() as pool:
+            monkeypatch.setattr(aadhaar,'_pool',pool)
+            monkeypatch.setattr(aadhaar,'create_record',broken)
+            jobs.handlers={'extract-aadhaar':read}
+            receipt=await jobs.submit(request(),upload(),'extract-aadhaar')
+            assert await jobs.run_one()
+            result=await jobs.status(receipt['job'],request())
+            assert result.status_code==503
+            assert json.loads(result.body)=={'error':NOTHING_SAVED,'state':'failed'}
+            assert not await jobs.run_one()
+    asyncio.run(run())
+
+
+def test_aadhaar_store_unbound_in_the_worker_is_503(monkeypatch):
+    _local_with_an_aadhaar_key(monkeypatch)
+    async def read(file): return {'fields':{'aadhaar':SYNTHETIC}}
+    async def run():
+        async with database():
+            monkeypatch.setattr(aadhaar,'_pool',None)
+            jobs.handlers={'extract-aadhaar':read}
+            receipt=await jobs.submit(request(),upload(),'extract-aadhaar')
+            assert await jobs.run_one()
+            result=await jobs.status(receipt['job'],request())
+            assert result.status_code==503
+            assert json.loads(result.body)['error']==NOTHING_SAVED
     asyncio.run(run())
 
 

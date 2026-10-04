@@ -22,6 +22,8 @@ from . import geography
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
 from . import village_map, web360
 from . import growth
+# Pattadar Network register-interest capture (credential-less public root).
+from . import network
 from psycopg.conninfo import make_conninfo
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
@@ -1227,15 +1229,18 @@ def _internal_proxy_ok(request) -> bool:
 
 
 class RequireAuthenticatedRoot(SchemaExtension):
-    """API defense in depth: only purpose-bound capability mutations are public.
+    """API defense in depth: only purpose-bound capability mutations are public,
+    plus one credential-less root, registerNetworkInterest, bounded by the API's
+    own ceilings (network.py: honeypot, insert-once, cool-down, hourly cap).
 
     The API is private behind the gateway; only its stripped/injected identity
-    header is trusted. Public roots validate and consume their own scoped token.
+    header is trusted. The capability roots validate and consume their own
+    scoped token; registerNetworkInterest ignores identity and returns no rows.
     """
     def resolve(self, next_, root, info, *args, **kwargs):
         if info.parent_type.name in {"Query", "Mutation"}:
             public_queries = {"trainingCertificate", "invitePreview"}
-            public_mutations = {"verifyBeneficiary", "acknowledgeInactivity"}
+            public_mutations = {"verifyBeneficiary", "acknowledgeInactivity", "registerNetworkInterest"}
             public = (info.parent_type.name == "Query" and info.field_name in public_queries) or \
                 (info.parent_type.name == "Mutation" and info.field_name in public_mutations)
             if not public:
@@ -1307,14 +1312,17 @@ def _mask_aadhaar(raw: str) -> str:
     return aadhaar_security.mask(raw)
 
 
-async def encrypt_aadhaar(raw: str, owner: str, subject_kind: str, subject_id: str) -> str:
-    """Versioned KMS ciphertext, with a local-only/legacy Fernet bridge."""
-    _masked, token = await aadhaar_security.encrypt_number(raw, owner, subject_kind, subject_id)
-    return token
+_AADHAAR_REVEAL_RETIRED = "Full Aadhaar numbers are not shown. Only the last 4 digits are kept for display."
 
 
-async def decrypt_aadhaar(token: str, owner: str, subject_kind: str, subject_id: str) -> str:
-    return await aadhaar_security.decrypt_number(token, owner, subject_kind, subject_id)
+def _is_canonical_uuid(value: str) -> bool:
+    """A lowercase-or-not canonical UUID string of at most 64 characters."""
+    if not isinstance(value, str) or len(value) > 64:
+        return False
+    try:
+        return str(uuid.UUID(value)) == value.lower()
+    except ValueError:
+        return False
 
 
 def _is_minor(dob: str) -> bool:
@@ -2048,7 +2056,9 @@ class Query:
     @strawberry.field
     async def sro_offices(self) -> List[SroOfficeType]:
         async with pool.connection() as conn:
-            cur = await conn.execute("SELECT * FROM sro_offices ORDER BY code")
+            # Codes are TEXT: order digit codes as numbers so "101" does not fall between "1009" and "1010".
+            cur = await conn.execute(
+                "SELECT * FROM sro_offices ORDER BY CASE WHEN code ~ '^[0-9]{1,18}$' THEN code::bigint END NULLS LAST, code, id")
             return [to_type(SroOfficeType, r) for r in await cur.fetchall()]
 
     @strawberry.field
@@ -2509,11 +2519,9 @@ async def _write_person(conn, uid, pid, v, is_update):
             raise ValueError("A minor needs a guardian to verify on their behalf")
         if (v["marital_status"] or "").lower() == "married" and not (v["spouse_name"] or "").strip():
             raise ValueError("Please add the spouse for a married beneficiary")
-    aad, aad_enc = await aadhaar_security.resolve_for_storage(
-        conn, owner=uid, raw=v.get("aadhaar", ""),
-        candidate_id=v.get("aadhaar_candidate_id", ""),
-        subject_kind="member", subject_id=pid,
-    )
+    # The member points at a record; the full number lives only in the vault.
+    aad_record, aad = await aadhaar_security.resolve_record(
+        conn, uid, v.get("aadhaar", ""), v.get("aadhaar_candidate_id", ""))
     pcl = (v["parcel_id"] or "").strip()
     gid = (v.get("group_id") or "").strip()
     if v["is_beneficiary"]:
@@ -2543,11 +2551,14 @@ async def _write_person(conn, uid, pid, v, is_update):
     # On an edit that doesn't re-supply the Aadhaar, preserve the stored masked
     # value instead of wiping it (Person carries only aadhaar_masked, so a normal
     # edit can't round-trip the raw number). DPDP-2023.
-    cols["aadhaar_enc"] = aad_enc
+    cols["aadhaar_record_id"] = aad_record
+    # Legacy per-subject ciphertext is never written again; any write blanks it.
+    cols["aadhaar_enc"] = ""
     # An empty submit means "keep what is stored" — never wipe by omission.
     if is_update and not (v.get("aadhaar") or "").strip() and not (v.get("aadhaar_candidate_id") or "").strip():
         cols.pop("aadhaar_masked", None)
         cols.pop("aadhaar_enc", None)
+        cols.pop("aadhaar_record_id", None)
     if is_update:
         if prior and prior["is_self"]:
             raise ValueError("Your own node can't be edited here")
@@ -2587,6 +2598,13 @@ async def _write_person(conn, uid, pid, v, is_update):
     row = await cur.fetchone()
     if not row:
         raise NotAuthorized("Not authorized for this person")
+    # A replaced Aadhaar lets go of its old record once nothing else points at it.
+    if aad_record and prior and (prior.get("aadhaar_record_id") or "") != aad_record:
+        await aadhaar_security.release_if_unreferenced(conn, uid, prior.get("aadhaar_record_id") or "")
+        await web360.release_person_documents(conn, uid)
+    # A kept card is filed in Documents under <person> › Aadhaar (invariant 8).
+    if aad_record:
+        await web360.file_aadhaar_card(conn, uid, aad_record, pid, row.get("name") or "")
     # Verification invite on first-time beneficiary (no token yet + contact present).
     # Only the hash is stored, the way inactivity capabilities are: the verify
     # link is a bearer credential that can mark an heir verified, so a reader of
@@ -3109,8 +3127,39 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
     return summary
 
 
+@strawberry.input
+class NetworkInterestInput:
+    """Pattadar Network register-interest form (network.py). Optional fields
+    default to "" so the SDL is `String! = ""` and an explicit null is refused
+    by GraphQL validation before the resolver runs."""
+    interest: str
+    name: str
+    consent: bool
+    consent_version: str
+    phone: str = ""
+    email: str = ""
+    district: str = ""
+    mandal: str = ""
+    note: str = ""
+    website: str = ""  # honeypot; real users never see or fill it
+
+
+@strawberry.type
+class NetworkInterestResult:
+    """received | invalid | consent_required | rate_limited. Never echoes
+    input and never says whether the contact was already registered."""
+    status: str
+    field: str = ""
+
+
 @strawberry.type
 class Mutation:
+    @strawberry.mutation
+    async def register_network_interest(
+        self, info: strawberry.Info, input: NetworkInterestInput,
+    ) -> NetworkInterestResult:
+        return await network.register(info, input)
+
     @strawberry.mutation
     async def web(self) -> web360.WebMutation:
         """Record-360 writes for the web app (W01–W15). See web360.py."""
@@ -3412,41 +3461,52 @@ class Mutation:
             async with conn.transaction():
                 await conn.execute(
                     "INSERT INTO users (id,name) VALUES (%s,%s) ON CONFLICT (id) DO NOTHING", (uid, uid))
-                if aadhaar and aadhaar_candidate_id:
-                    raise ValueError("Use either typed Aadhaar or a card reading, not both")
-                value = (await aadhaar_security.consume_candidate(conn, uid, aadhaar_candidate_id)
-                         if aadhaar_candidate_id else aadhaar_security.digits(aadhaar))
-                if (aadhaar or aadhaar_candidate_id) and not value:
-                    raise ValueError("Aadhaar must be exactly 12 digits")
-                masked, enc = await aadhaar_security.encrypt_number(value, uid, "account", uid) if value else ("", "")
+                # One record for the account and every self member: the number
+                # is encrypted once, at read or type time, never per subject.
+                record_id, masked = await aadhaar_security.resolve_record(
+                    conn, uid, aadhaar, aadhaar_candidate_id)
+                previous = set()
+                if record_id:
+                    prev_user = await (await conn.execute(
+                        "SELECT kyc_aadhaar_record_id FROM users WHERE id=%s FOR UPDATE", (uid,))).fetchone()
+                    previous.add((prev_user or {}).get("kyc_aadhaar_record_id") or "")
 
                 sets, vals = [], []
                 if (name or "").strip():
                     sets.append("name=%s"); vals.append(name.strip())
                 if (address or "").strip():
                     sets.append("address=%s"); vals.append(address.strip())
-                if masked:
-                    sets.extend(["kyc_ref_masked=%s", "kyc_ref_enc=%s"]); vals.extend([masked, enc])
+                if record_id:
+                    sets.extend(["kyc_ref_masked=%s", "kyc_aadhaar_record_id=%s", "kyc_ref_enc=''"])
+                    vals.extend([masked, record_id])
                 if sets:
                     await conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id=%s", (*vals, uid))
 
                 members = await (await conn.execute(
-                    "SELECT id FROM family_members WHERE owner_user_id=%s AND is_self=true FOR UPDATE", (uid,))).fetchall()
+                    "SELECT id, aadhaar_record_id FROM family_members WHERE owner_user_id=%s AND is_self=true FOR UPDATE",
+                    (uid,))).fetchall()
                 for member in members:
                     msets, mvals = [], []
                     for col, val in (("name", name), ("dob", dob), ("gender", gender), ("present_address", address)):
                         if (val or "").strip():
                             msets.append(f"{col}=%s"); mvals.append(val.strip())
-                    if value:
-                        mmask, menc = await aadhaar_security.encrypt_number(value, uid, "member", member["id"])
-                        msets.extend(["aadhaar_masked=%s", "aadhaar_enc=%s"]); mvals.extend([mmask, menc])
+                    if record_id:
+                        previous.add(member.get("aadhaar_record_id") or "")
+                        msets.extend(["aadhaar_masked=%s", "aadhaar_record_id=%s", "aadhaar_enc=''"])
+                        mvals.extend([masked, record_id])
                     if msets:
                         await conn.execute(
                             f"UPDATE family_members SET {', '.join(msets)} WHERE id=%s AND owner_user_id=%s",
                             (*mvals, member["id"], uid))
+                for prev_id in sorted(previous - {record_id, ""}):
+                    await aadhaar_security.release_if_unreferenced(conn, uid, prev_id)
+                await web360.release_person_documents(conn, uid)
 
-                await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
                 row = await (await conn.execute("SELECT * FROM users WHERE id=%s", (uid,))).fetchone()
+                if record_id:
+                    # Your own card goes in your own folder: person = the account.
+                    await web360.file_aadhaar_card(conn, uid, record_id, uid, (row or {}).get("name") or "You")
+                await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
                 return to_type(UserType, row)
 
     @strawberry.mutation
@@ -3468,12 +3528,23 @@ class Mutation:
             # clearing one and not the other is how a wrong card
             # half-survives.
             async with conn.transaction():
-                prev = await (await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))).fetchone()
+                prev = await (await conn.execute(
+                    "SELECT name, kyc_aadhaar_record_id FROM users WHERE id=%s", (uid,))).fetchone()
+                self_records = await (await conn.execute(
+                    "SELECT aadhaar_record_id FROM family_members WHERE owner_user_id=%s AND is_self=TRUE",
+                    (uid,))).fetchall()
                 await conn.execute(
-                    "UPDATE users SET name='', address='', kyc_ref_masked='', kyc_ref_enc='' WHERE id=%s", (uid,))
+                    "UPDATE users SET name='', address='', kyc_ref_masked='', kyc_ref_enc='', "
+                    "kyc_aadhaar_record_id='' WHERE id=%s", (uid,))
                 await conn.execute(
                     "UPDATE family_members SET name='', dob='', gender='', present_address='', "
-                    "aadhaar_masked='', aadhaar_enc='' WHERE owner_user_id=%s AND is_self=TRUE", (uid,))
+                    "aadhaar_masked='', aadhaar_enc='', aadhaar_record_id='' "
+                    "WHERE owner_user_id=%s AND is_self=TRUE", (uid,))
+                released = {(prev or {}).get("kyc_aadhaar_record_id") or ""}
+                released.update((m.get("aadhaar_record_id") or "") for m in self_records)
+                for prev_id in sorted(released - {""}):
+                    await aadhaar_security.release_if_unreferenced(conn, uid, prev_id)
+                await web360.release_person_documents(conn, uid)
                 # Name the identity that was removed: this is exactly the kind of
                 # change someone will need to account for later.
                 await log_audit(conn, uid, "clear_my_kyc", uid, _named("Removed", (prev or {}).get("name")))
@@ -3482,37 +3553,56 @@ class Mutation:
 
     @strawberry.mutation
     async def reveal_my_aadhaar(self, info: strawberry.Info) -> str:
-        """The signed-in user's own full Aadhaar. Audited like the member one."""
-        uid = _uid_from_info(info)
-        async with pool.connection() as conn:
-            row = await (await conn.execute(
-                "SELECT kyc_ref_enc FROM users WHERE id=%s", (uid,))).fetchone()
-            full = await decrypt_aadhaar(row["kyc_ref_enc"], uid, "account", uid) if row else ""
-            if not full:
-                raise ValueError("No Aadhaar stored on your profile")
-            await log_audit(conn, uid, "reveal_aadhaar", uid, "revealed own Aadhaar")
-            return full
+        """Retired: no API returns a full Aadhaar. Kept in the schema so older
+        clients still validate; it reads nothing and writes no audit row."""
+        raise ValueError(_AADHAAR_REVEAL_RETIRED)
 
     @strawberry.mutation
     async def reveal_member_aadhaar(self, info: strawberry.Info, id: str) -> str:
-        """Return one member's full Aadhaar to its owner, and audit the fact.
+        """Retired like reveal_my_aadhaar: only the last 4 digits are kept for display."""
+        raise ValueError(_AADHAAR_REVEAL_RETIRED)
 
-        Deliberately a mutation on a single id rather than a field on PersonType:
-        a field would ride along on every `members { ... }` query and put the
-        number in every list response. Every call writes an audit row — an
-        un-audited reveal is indistinguishable from an exfiltration."""
+    @strawberry.mutation
+    async def link_aadhaar_card(self, info: strawberry.Info, candidate_id: str, node_id: str,
+                                version_id: str, mime_type: str = "", size_bytes: int = 0) -> bool:
+        """Point an Aadhaar record at the card the owner chose to keep.
+
+        Pointers only: the gateway authorizes every byte read by owner in SQL,
+        so a forged pointer grants nothing. An unconsumed reading can be linked
+        only while it is still live. `mime_type`/`size_bytes` are optional (old
+        callers omit them) and only describe the file in Documents.
+
+        A reading a person already points at is filed in Documents now; one
+        not applied yet is filed when the person is saved with it."""
         uid = _uid_from_info(info)
+        for value in (candidate_id, node_id, version_id):
+            if not _is_canonical_uuid(value):
+                raise ValueError("Invalid Aadhaar card link")
+        mime = (mime_type or "").strip().lower()
+        if mime and (len(mime) > 100 or not re.fullmatch(r"[\w.+-]+/[\w.+-]+", mime)):
+            mime = ""
+        size = max(0, int(size_bytes or 0))
         async with pool.connection() as conn:
-            row = await (await conn.execute(
-                "SELECT aadhaar_enc, name FROM family_members WHERE id=%s AND owner_user_id=%s",
-                (id, uid))).fetchone()
-            if not row:
-                raise NotAuthorized("Not authorized for this member")
-            full = await decrypt_aadhaar(row["aadhaar_enc"], uid, "member", id)
-            if not full:
-                raise ValueError("No Aadhaar stored for this member")
-            await log_audit(conn, uid, "reveal_aadhaar", id, f"revealed for {row['name']}")
-            return full
+            async with conn.transaction():
+                cur = await conn.execute(
+                    "UPDATE aadhaar_candidates SET card_node_id=%s, card_version_id=%s, card_mime=%s, "
+                    "card_size=%s, updated_at=now() "
+                    "WHERE id=%s AND owner_user_id=%s AND (consumed_at IS NOT NULL OR expires_at>now())",
+                    (node_id, version_id, mime, size, candidate_id, uid))
+                if cur.rowcount != 1:
+                    raise ValueError("The Aadhaar reading is no longer available")
+                member = await (await conn.execute(
+                    "SELECT id, name FROM family_members WHERE owner_user_id=%s AND aadhaar_record_id=%s "
+                    "AND is_self=false ORDER BY id LIMIT 1", (uid, candidate_id))).fetchone()
+                account_row = await (await conn.execute(
+                    "SELECT name FROM users WHERE id=%s AND kyc_aadhaar_record_id=%s",
+                    (uid, candidate_id))).fetchone()
+                if account_row:
+                    await web360.file_aadhaar_card(conn, uid, candidate_id, uid, account_row.get("name") or "You")
+                elif member:
+                    await web360.file_aadhaar_card(conn, uid, candidate_id, member["id"], member.get("name") or "")
+                await log_audit(conn, uid, "link_aadhaar_card", candidate_id, "Kept an Aadhaar card")
+                return True
 
     @strawberry.mutation
     async def set_parcel_field(
@@ -3956,9 +4046,12 @@ class Mutation:
         async with pool.connection() as conn:
             # Must already own the row (via its current land, or as uploader).
             cur = await conn.execute(
-                f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
+                f"SELECT aadhaar_record_id FROM documents WHERE id=%s AND {_DOC_OWNED}",
                 (id, *_doc_owner_args(uid)))
-            if not await cur.fetchone():
+            owned = await cur.fetchone()
+            # A filed Aadhaar card is a person's identity: it is never put on
+            # land, where people invited to that land could reach it.
+            if not owned or owned.get("aadhaar_record_id"):
                 return None
             # New target(s) must be owned too — check each independently so a
             # caller cannot slip an unowned passbook past a parcel-only check.
@@ -4382,6 +4475,8 @@ class Mutation:
                     "AND owner_user_id=%s AND group_id=%s AND consumed_at=''",
                     (datetime.now(timezone.utc).isoformat(), id, uid, member["group_id"]))
                 cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
+                await aadhaar_security.release_unreferenced(conn, uid)
+                await web360.release_person_documents(conn, uid)
                 return cur.rowcount > 0
 
     @strawberry.mutation
@@ -4471,6 +4566,8 @@ class Mutation:
                 await conn.execute("DELETE FROM inactivity_deliveries WHERE group_id=%s AND owner_user_id=%s", (id, uid))
                 await conn.execute("DELETE FROM inactivity_escalations WHERE group_id=%s AND owner_user_id=%s", (id, uid))
                 await conn.execute("DELETE FROM family_members WHERE group_id=%s AND owner_user_id=%s", (id, uid))
+                await aadhaar_security.release_unreferenced(conn, uid)
+                await web360.release_person_documents(conn, uid)
                 cur = await conn.execute("DELETE FROM groups WHERE id=%s AND owner_user_id=%s", (id, uid))
                 await log_audit(conn, uid, "delete_group", id, _named("", g["name"]))
                 return cur.rowcount > 0
@@ -4637,6 +4734,8 @@ class Mutation:
                 await conn.execute("UPDATE family_members SET mother_id='' WHERE mother_id=%s AND owner_user_id=%s", (id, uid))
                 await conn.execute("UPDATE family_members SET spouse_id='' WHERE spouse_id=%s AND owner_user_id=%s", (id, uid))
                 cur = await conn.execute("DELETE FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
+                await aadhaar_security.release_unreferenced(conn, uid)
+                await web360.release_person_documents(conn, uid)
                 await log_audit(conn, uid, "remove_member", id, _named("", s["name"]))
                 return cur.rowcount > 0
 
@@ -5525,9 +5624,10 @@ class Mutation:
         mfa_enabled: Optional[bool] = None,
         address: Optional[str] = None,
     ) -> UserType:
-        """Update the signed-in user's profile & preferences. The Aadhaar is
-        kept as a masked token for display plus ciphertext for retrieval; an
-        empty kyc_ref leaves whatever is stored untouched.
+        """Update the signed-in user's profile & preferences. A typed Aadhaar
+        becomes a record (full digits only in the vault) and the account keeps
+        its mask for display; an empty kyc_ref leaves whatever is stored
+        untouched.
 
         An argument that is NOT SENT leaves its column alone; one sent as ""
         clears it. Every argument used to be required, so the mobile Aadhaar
@@ -5543,13 +5643,22 @@ class Mutation:
         # told their Aadhaar was on file when nothing had been kept.
         if kyc_given and not masked:
             raise ValueError("An Aadhaar number is 12 digits.")
-        kyc_enc = await encrypt_aadhaar(kyc_ref, uid, "account", uid) if kyc_given else ""
         async with pool.connection() as conn:
             async with conn.transaction():
                 await conn.execute(
                     "INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
                     (uid, uid),
                 )
+                record_id, prior_record = None, ""
+                if kyc_given:
+                    # A typed record inside this transaction: a failed save
+                    # leaves neither the record nor its vault row behind.
+                    prior = await (await conn.execute(
+                        "SELECT kyc_aadhaar_record_id FROM users WHERE id=%s FOR UPDATE", (uid,))).fetchone()
+                    prior_record = (prior or {}).get("kyc_aadhaar_record_id") or ""
+                    record = await aadhaar_security.create_record(
+                        conn, uid, digits12=aadhaar_security.digits(kyc_ref), origin="typed")
+                    record_id = record["id"]
                 # COALESCE(NULL, col) keeps the stored value for an argument
                 # that was not sent. No Aadhaar supplied also leaves the stored
                 # one alone rather than blanking it (same rule as members).
@@ -5561,12 +5670,16 @@ class Mutation:
                     "mfa_enabled=COALESCE(%s, mfa_enabled), "
                     "address=COALESCE(%s, address), "
                     "kyc_ref_masked=COALESCE(%s, kyc_ref_masked), "
-                    "kyc_ref_enc=COALESCE(%s, kyc_ref_enc) "
+                    "kyc_aadhaar_record_id=COALESCE(%s, kyc_aadhaar_record_id), "
+                    "kyc_ref_enc=CASE WHEN %s THEN '' ELSE kyc_ref_enc END "
                     "WHERE id=%s RETURNING *",
                     (language, districts_of_interest, notification_prefs, mfa_enabled, address,
-                     masked if kyc_enc else None, kyc_enc or None, uid),
+                     masked if record_id else None, record_id, bool(record_id), uid),
                 )
                 row = await cur.fetchone()
+                if record_id and prior_record != record_id:
+                    await aadhaar_security.release_if_unreferenced(conn, uid, prior_record)
+                    await web360.release_person_documents(conn, uid)
                 await log_audit(conn, uid, "update_profile", uid, "profile updated")
                 return to_type(UserType, row)
 
@@ -6410,6 +6523,10 @@ async def init_db() -> None:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_family_owner ON family_members(owner_user_id)")
         await conn.execute(
             "ALTER TABLE family_members ADD COLUMN IF NOT EXISTS aadhaar_enc TEXT NOT NULL DEFAULT ''")
+        # Subjects point at an Aadhaar record; the reconcile blanks pointers a
+        # rollback window may have left dangling.
+        for statement in aadhaar_security.SUBJECT_DDL:
+            await conn.execute(statement)
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''")
 
@@ -6956,6 +7073,8 @@ async def init_db() -> None:
         web360.bind(pool, _uid_from_info)
         await web360.ensure_schema(conn)
         await account.ensure_schema(conn)
+        # Pattadar Network interest rows (network.py), additive IF NOT EXISTS.
+        await network.ensure_schema(conn)
         # Invitee claims, setup tasks and referrals (growth.py).
         await growth.ensure_schema(conn)
         # Centralized audit read model + transactional outbox (phase 1).
@@ -6974,11 +7093,11 @@ async def init_db() -> None:
 
 _IDEM_MUTATION_RE = re.compile(r"^\s*mutation\b")
 _IDEM_NAME_RE = re.compile(r"^\s*mutation\s+([_A-Za-z][_0-9A-Za-z]*)")
-# Mutations whose answer must never be memoized. A reveal returns a decrypted
-# Aadhaar; storing that body would park the twelve digits in
-# idempotency_keys.response in plaintext for the whole replay window — outside
-# the KMS-only-at-rest design the reveal exists to uphold. They are safe to
-# re-execute: they write nothing and audit every call.
+# Mutations whose answer must never be memoized. The reveals are retired (they
+# only ever answer an error now), but they stay excluded: if one ever returned
+# an Aadhaar again, memoizing it would park the twelve digits in
+# idempotency_keys.response in plaintext for the whole replay window. They are
+# safe to re-execute: they read and write nothing.
 _IDEM_NEVER_RE = re.compile(r"\breveal(?:My|Member)Aadhaar\b")
 _IDEM_PENDING_TTL = 300.0        # seconds before a 'pending' claim is presumed dead
 _IDEM_SWEEP_DAYS = 7             # replay window; older rows are swept at boot
@@ -7284,6 +7403,22 @@ async def _graphql_context(request: Request) -> dict:
     return {"request": request}
 
 
+# Anonymous roots whose GraphQL errors are logged value-free (design AC 18).
+_VALUE_FREE_ERROR_ROOTS = ("registerNetworkInterest",)
+_graphql_errors_log = logging.getLogger("strawberry.execution")
+def _value_free_error(error, execution_context=None) -> bool:
+    """True when the request names a value-free root. Textual on purpose: it
+    holds for documents that fail to parse or validate, and a field can only
+    be selected by writing its name. The error's own source is checked first
+    because the masking extension instance is shared across requests."""
+    texts = (getattr(getattr(error, "source", None), "body", None),
+             getattr(execution_context, "query", None))
+    return any(root in (text or "") for text in texts for root in _VALUE_FREE_ERROR_ROOTS)
+def _error_kind(error) -> str:
+    original = getattr(error, "original_error", None)
+    return type(original if original is not None else error).__name__
+def _error_path(error) -> str:
+    return ".".join(str(p) for p in (getattr(error, "path", None) or []))
 class MaskUnexpectedErrors(MaskErrors):
     """Only errors this API meant to say reach the client.
 
@@ -7303,13 +7438,17 @@ class MaskUnexpectedErrors(MaskErrors):
     def _unexpected(error) -> bool:
         original = getattr(error, "original_error", None)
         # Parse/validation errors carry no original exception and no internals.
-        return original is not None and not isinstance(original, (NotAuthorized, ValueError))
+        # ProtectionUnavailable carries one fixed, PII-free sentence by design.
+        return original is not None and not isinstance(
+            original, (NotAuthorized, ValueError, aadhaar_security.ProtectionUnavailable))
 
     def anonymise_error(self, error):
         ref = uuid.uuid4().hex[:12]
-        _log.error("graphql.unexpected_error ref=%s field=%s: %r",
-                   ref, ".".join(str(p) for p in (error.path or [])),
-                   getattr(error, "original_error", None))
+        # A coercion error's repr carries the caller's value; for a value-free
+        # root log its class only (AC 18).
+        detail = _error_kind(error) if _value_free_error(error, getattr(self, "execution_context", None)) \
+            else repr(getattr(error, "original_error", None))
+        _log.error("graphql.unexpected_error ref=%s field=%s: %s", ref, _error_path(error), detail)
         masked = super().anonymise_error(error)
         masked.message = f"Something went wrong at our end (ref {ref})"
         return masked
@@ -7323,7 +7462,24 @@ _MAX_QUERY_DEPTH = 12
 _MAX_QUERY_ALIASES = 30
 _MAX_QUERY_TOKENS = 4000
 
-schema = strawberry.Schema(
+class PattadarSchema(strawberry.Schema):
+    """Strawberry's default `process_errors` logs str(error) plus the
+    traceback. For a coercion or validation error that text carries the
+    caller's own value — `Variable '$input' got invalid value 9848012345 at
+    'input.phone'`, or the source excerpt of an inline-literal document — so a
+    malformed anonymous registerNetworkInterest request would print a phone,
+    name or email before network.py runs. A request naming that root logs only
+    the error class and path instead. The errors returned to the client are
+    unchanged, and every other request keeps Strawberry's default log line.
+    """
+    def process_errors(self, errors, execution_context=None):
+        for error in errors:
+            if _value_free_error(error, execution_context):
+                _graphql_errors_log.error("graphql.public_error kind=%s path=%s",
+                                          _error_kind(error), _error_path(error) or "-")
+            else:
+                super().process_errors([error], execution_context)
+schema = PattadarSchema(
     query=Query, mutation=Mutation,
     extensions=[
         RequireAuthenticatedRoot,

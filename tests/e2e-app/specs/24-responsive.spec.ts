@@ -97,7 +97,7 @@ const DESK = { width: 1280, height: 900 };
  *  test in this file. Nineteen entries, grouped; Help & resources (Tools,
  *  Pattadar University, Help & support) is pinned to the foot of the rail. */
 const SECTIONS = [
-  'Dashboard', 'Properties', 'Combined views', 'Cadastral maps', 'Documents',
+  'Dashboard', 'Properties', 'Holdings', 'Cadastral maps', 'Documents',
   'Shared with me', 'Waiting on you', 'Invitations', 'Families & groups', 'Invite & earn',
   'Services', 'Wallet',
   // Notifications is a topbar bell beside the assistant now, not a rail entry.
@@ -674,11 +674,15 @@ test.describe('nothing takes the page sideways', () => {
 
   test.describe('in the light scheme', () => {
     test.use({ scheme: 'light' });
+    // The Dashboard reads the activity trail through the root schema
+    // (data/hooks.ts auditTrail), which fixtures/seed.ts does not answer yet;
+    // `settled` waits long enough to see the seal's 400 as a console error.
+    test.beforeEach(({ world }) => { world.set('root.auditTrail', []); });
 
     test('the light scheme fits a phone exactly as the dark one does @phone', async ({ page }) => {
       await page.goto('/app');
       await settled(page);
-      await expect(page.locator('.w360')).toHaveAttribute('data-scheme', 'light');
+      await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
       await fitsTheScreen(page, '/app in the light scheme');
 
       await page.goto('/app/papers');

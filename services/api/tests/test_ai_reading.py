@@ -262,6 +262,146 @@ def test_each_reading_operation_checks_consent_before_reading_the_document():
     assert len(calls) == 4
 
 
+def test_aadhaar_reading_without_a_write_path_is_refused_before_the_provider(monkeypatch):
+    from src import aadhaar
+
+    async def allow(_request=None):
+        return None
+
+    async def explode(*a, **k):
+        raise AssertionError("Aadhaar reached the provider with no way to protect it")
+
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("ALLOW_INSECURE_LOCAL", "1")
+    monkeypatch.delenv("AADHAAR_ENC_KEY", raising=False)
+    monkeypatch.delenv("AADHAAR_KMS_KEY_ARN", raising=False)
+    monkeypatch.delenv("AADHAAR_LEGACY_WRITE_BRIDGE", raising=False)
+    monkeypatch.setattr(operations, "require_read_consent", allow)
+    monkeypatch.setattr(operations, "vision_extract", explode)
+    response = asyncio.run(operations.extract_aadhaar(file=upload(b"card", "card.png", "image/png"), request=None))
+    assert response.status_code == 503
+    assert json.loads(response.body) == {"error": aadhaar.UNAVAILABLE_MESSAGE}
+
+
+# ── the synchronous Aadhaar route (native iOS) after a paid read ──────
+
+_NOTHING_SAVED = "Aadhaar protection is temporarily unavailable. Nothing was saved."
+_SYNTHETIC = "123412341234"
+
+
+class _Tx:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+
+class _StoreConn:
+    def __init__(self, fail=None):
+        self.fail = fail
+
+    def transaction(self):
+        return _Tx()
+
+    async def execute(self, sql, params=()):
+        if self.fail:
+            raise self.fail
+        return None
+
+
+class _StorePool:
+    def __init__(self, fail=None):
+        self.conn = _StoreConn(fail)
+
+    def connection(self):
+        conn = self.conn
+
+        class _Ctx:
+            async def __aenter__(self):
+                return conn
+
+            async def __aexit__(self, *_exc):
+                return False
+        return _Ctx()
+
+
+class _FailingKms:
+    def encrypt(self, **_kwargs):
+        raise RuntimeError("KMS refused")
+
+
+def _sync_read(monkeypatch, pool):
+    """Run the sync route once with a provider stub that returns 12 digits."""
+    from types import SimpleNamespace
+
+    from src import aadhaar
+
+    sent = []
+
+    async def vision(*a, **k):
+        sent.append("sent")
+        return {"fields": {"aadhaar": _SYNTHETIC, "name": "Test Person"}}
+
+    monkeypatch.setattr(operations, "vision_extract", vision)
+    monkeypatch.setattr(aadhaar, "_pool", pool)
+    request = SimpleNamespace(headers={"x-user-id": "alice"})
+    response = asyncio.run(operations.extract_aadhaar(
+        file=upload(b"card", "card.png", "image/png"), request=request))
+    return response, sent
+
+
+def _assert_nothing_saved(response, sent):
+    assert response.status_code == 503
+    assert json.loads(response.body) == {"error": _NOTHING_SAVED}
+    assert _SYNTHETIC not in response.body.decode()
+    assert sent == ["sent"]  # one paid call, never retried
+
+
+def _local_fernet(monkeypatch):
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("ALLOW_INSECURE_LOCAL", "1")
+    monkeypatch.delenv("AADHAAR_KMS_KEY_ARN", raising=False)
+    monkeypatch.delenv("AADHAAR_LEGACY_WRITE_BRIDGE", raising=False)
+    monkeypatch.setenv("AADHAAR_ENC_KEY", Fernet.generate_key().decode())
+
+
+def test_sync_aadhaar_store_error_after_the_read_is_503_nothing_saved(monkeypatch):
+    import psycopg
+    _local_fernet(monkeypatch)
+    response, sent = _sync_read(monkeypatch, _StorePool(psycopg.OperationalError("db at 10.0.0.1 gone")))
+    _assert_nothing_saved(response, sent)
+
+
+def test_sync_aadhaar_kms_error_after_the_read_is_503_nothing_saved(monkeypatch):
+    from src import aadhaar
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("AADHAAR_KMS_KEY_ARN", "arn:aws:kms:ap-south-1:000000000000:key/test")
+    monkeypatch.delenv("AADHAAR_ENC_KEY", raising=False)
+    monkeypatch.setattr(aadhaar, "_kms", _FailingKms())
+    response, sent = _sync_read(monkeypatch, _StorePool())
+    _assert_nothing_saved(response, sent)
+
+
+def test_sync_aadhaar_without_a_write_mode_at_the_vault_is_503_nothing_saved(monkeypatch):
+    from src import aadhaar
+    # The pre-check passes (configuration changed between it and the write).
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("ALLOW_INSECURE_LOCAL", "1")
+    for name in ("AADHAAR_ENC_KEY", "AADHAAR_KMS_KEY_ARN", "AADHAAR_LEGACY_WRITE_BRIDGE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(aadhaar, "write_path_available", lambda: True)
+    response, sent = _sync_read(monkeypatch, _StorePool())
+    _assert_nothing_saved(response, sent)
+
+
+def test_sync_aadhaar_with_an_unbound_store_is_503_nothing_saved(monkeypatch):
+    _local_fernet(monkeypatch)
+    response, sent = _sync_read(monkeypatch, None)
+    _assert_nothing_saved(response, sent)
+
+
 # ── cost accounting ───────────────────────────────────────────────────
 
 def test_an_unpriced_model_reports_zero_rather_than_the_last_models_price():

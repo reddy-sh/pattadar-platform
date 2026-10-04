@@ -141,112 +141,43 @@ export function mapKey(state: string, district: string, mandal: string, village:
   return parts.every(Boolean) ? parts.join('/') : '';
 }
 
-/* ── Handing a parcel to the device's own map ─────────────────────────────
+/* ── Handing a parcel to another map ──────────────────────────────────────
  *
  * Pattadar draws its own maps on OpenStreetMap, which is free, key-free and
- * ours to style. But a person standing in a field wants turn-by-turn to the
- * bund, and that belongs to the maps app they already trust — Apple Maps on an
- * iPhone, whatever answers a `geo:` intent on Android.
+ * ours to style. Every hand-off out of those maps goes to Google Maps
+ * directions through `navigateLink` (Reddy, 03/10/2026: first Navigate on
+ * corners and sides, then the whole parcel). Turn-by-turn to a field is what
+ * people in Andhra Pradesh use Google Maps for; the https URL opens the Google
+ * Maps app on Android and iOS when it is installed, and the web page otherwise.
  *
- * No consumer maps app accepts a boundary, so the hand-off is always a single
- * pin. `ringCentroid` decides where that pin lands.
+ * The URL carries the coordinate only — no caption, because Google's
+ * `destination` is a search field (a name turns the coordinate into a search
+ * for some other place) and record text must not leave the app in a URL.
+ *
+ * No consumer maps app accepts a boundary, so the whole-parcel hand-off is a
+ * single pin; `ringCentroid` decides where it lands. (Earlier the view
+ * hand-off sniffed the device — Apple Maps, Android `geo:`, OpenStreetMap —
+ * with the survey number and village in the URL; that was removed with this
+ * change.)
  */
-
-/** Which maps app this device would open, from its user agent.
- *
- *  iPadOS 13+ reports itself as "Macintosh" and is only told apart by having a
- *  touch screen — which does not matter here, because a Mac opens Apple Maps
- *  too. Both answer 'apple'. */
-export type MapsApp = 'apple' | 'android' | 'osm';
-
-export function mapsAppFor(userAgent: string): MapsApp {
-  const ua = userAgent || '';
-  if (/Android/i.test(ua)) return 'android';
-  // Order matters: an iPhone UA contains "like Mac OS X".
-  if (/iPhone|iPad|iPod/i.test(ua)) return 'apple';
-  if (/Macintosh|Mac OS X/i.test(ua)) return 'apple';
-  return 'osm';
-}
-
-export interface MapsLinkOptions {
-  /** Name to show on the dropped pin — the survey number, usually. */
-  label?: string;
-  /** Zoom the app opens at; 17 frames a field without losing the road to it. */
-  zoom?: number;
-  /** Force a target instead of sniffing the user agent (tests, "open on the web"). */
-  app?: MapsApp;
-  userAgent?: string;
-}
 
 /** Six decimals is ~0.11 m — finer than any FMB corner, and short enough that
  *  the URL stays readable. Float noise (15.660260000000001) never ships. */
 const coord = (n: number) => Number(n.toFixed(6)).toString();
 
 /**
- * The pin's caption, made safe to put in a URL.
+ * Every hand-off out of Pattadar's maps: turn-by-turn to one point, in Google
+ * Maps (Reddy, 03/10/2026).
  *
- * Two documented traps, both live before this existed:
- *
- * 1. `encodeURIComponent` leaves `(` and `)` unescaped, and Android's label
- *    slot IS parentheses — `geo:lat,lon?q=lat,lon(Label)`. A village written
- *    "Mangalakunta (Konakanamitla)" therefore closes the label early and the
- *    rest becomes a malformed query.
- * 2. Apple documents `q` as a search field: "If you include a name in the value
- *    of the q parameter, Maps tries to match the name at the specified
- *    location." The longer and more address-like the string, the likelier Maps
- *    snaps its card to some POI it matched instead of captioning our pin. So
- *    the label stays SHORT — a survey number and a village, never a full
- *    address with mandal, district and state.
- *
- * `ll` still wins on Apple ("If you use both the ll and address parameters, ll
- *  takes precedence"), so the coordinate is never at risk; the caption is.
+ * Coordinates only: no label, no origin (Google uses the device's position),
+ * no travel mode. Returns '' for a non-finite point or the unset 0,0, so a
+ * caller can hide the link rather than navigate someone into the Atlantic.
  */
-export function safeMapLabel(label: string): string {
-  return (label || '')
-    .replace(/[()]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 60);
-}
-
-/**
- * A URL that opens this point in the right map for the device.
- *
- * Apple's is a universal link, not a scheme: on an iPhone, iPad or Mac it hands
- * off to the Maps app, and anywhere else the same URL is a web page — so it is
- * safe to render into an ordinary anchor. `t=k` opens on imagery, which is what
- * land is looked at on.
- *
- * Android gets `geo:`, so the choice of app stays the owner's — Google Maps,
- * OsmAnd, Organic Maps, whatever answers the intent.
- *
- * Everyone else gets OpenStreetMap, the same data the app's own tiles come from.
- */
-export function mapsLink(pin: LatLng, options: MapsLinkOptions = {}): string {
-  const { zoom = 17 } = options;
-  const label = safeMapLabel(options.label ?? '');
-  const app = options.app ?? mapsAppFor(options.userAgent ?? '');
-  const lat = coord(pin.latitude);
-  const lon = coord(pin.longitude);
-  const name = encodeURIComponent(label);
-
-  if (app === 'apple') {
-    const q = name || `${lat},${lon}`;
-    return `https://maps.apple.com/?ll=${lat},${lon}&q=${q}&t=k&z=${zoom}`;
-  }
-  if (app === 'android') {
-    // geo:lat,lon?q=lat,lon(Label) drops a NAMED pin. `q=Label` alone is a
-    // search, which lands on a different village whenever the label is a bare
-    // survey number.
-    const q = label ? `${lat},${lon}(${name})` : `${lat},${lon}`;
-    return `geo:${lat},${lon}?q=${q}&z=${zoom}`;
-  }
-  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=${zoom}/${lat}/${lon}`;
-}
-
-/** What to call the button, so the promise matches what will actually open. */
-export function mapsAppName(app: MapsApp): string {
-  return app === 'apple' ? 'Apple Maps' : app === 'android' ? 'Maps' : 'OpenStreetMap';
+export function navigateLink(to: LatLng): string {
+  const { latitude, longitude } = to ?? ({} as LatLng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  if (latitude === 0 && longitude === 0) return '';
+  return `https://www.google.com/maps/dir/?api=1&destination=${coord(latitude)},${coord(longitude)}`;
 }
 
 /**

@@ -2,15 +2,17 @@
  * Primitives shared by the record-360 screens.
  *
  * These are plain elements over `w360.css`, not MUI components. The screens are
- * dense, hairline-ruled and mono-labelled in ways that fight MUI's defaults at
+ * dense, hairline-ruled and labelled in small uppercase in ways that fight MUI's defaults at
  * every turn; expressing them as semantic markup + one stylesheet is both
  * smaller and easier to keep faithful to the design.
  *
  * Numbers are formatted the Indian way throughout — lakh/crore short forms and
  * 2,2,3 digit grouping — because that is what the records actually say.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties, HTMLAttributes, ReactNode, RefObject } from 'react';
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import type {
+  CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -475,15 +477,27 @@ export interface FacetFilterChip {
   onRemove: () => void;
 }
 
+/** What a page may ask of a `FacetFilter` it holds a `ref` to. */
+export interface FacetFilterHandle {
+  /** Put the popover away, as a press outside it does, leaving focus where it
+   *  is. Does nothing while the popover is shut. */
+  close: () => void;
+}
+
 /** The single faceted-filter surface used by list pages.
  *
  * Pages own only their filter values and domain labels. Opening, dismissal,
  * active chips, counts and keyboard focus live here so a filter never changes
- * its interaction model because the list underneath happens to be different. */
+ * its interaction model because the list underneath happens to be different.
+ * The one thing a page may ask, through the optional `ref`, is that an open
+ * popover close: a page whose own temporary surface opens in the same place
+ * (Cadastral maps' village matches, in this filter's `trailing` slot) closes
+ * it so the two never cover each other. A page that passes no `ref` gets
+ * exactly the filter every other page has. */
 export function FacetFilter({
   groups, selected, onToggle, onClear, tally, trailing, extraChips = [],
   groupLabel, missingOptionLabel, busy = false, ariaLabel = 'Narrow the list',
-  searchPlaceholder,
+  searchPlaceholder, ref,
 }: {
   groups: FacetFilterGroup[];
   selected: Record<string, readonly string[]>;
@@ -501,6 +515,8 @@ export function FacetFilter({
    *  query filters option labels across groups; screens keep no second search
    *  implementation of their own. */
   searchPlaceholder?: string;
+  /** Optional: lets the page close the popover (`FacetFilterHandle`). */
+  ref?: RefObject<FacetFilterHandle | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [optionQuery, setOptionQuery] = useState('');
@@ -540,6 +556,7 @@ export function FacetFilter({
     setOpen(false);
     setOptionQuery('');
   };
+  useImperativeHandle(ref, () => ({ close }));
 
   useEffect(() => {
     if (!open) return;
@@ -624,11 +641,125 @@ export function FacetFilter({
               })}
             </div>
           ))}
-          {visibleGroups.length === 0 && (
+          {/* Said of a search that matched nothing. With nothing typed yet, a
+              popover with a search has had nothing to miss, so its search row
+              stands alone. One without a search keeps the line. */}
+          {visibleGroups.length === 0 && (query.length > 0 || !searchPlaceholder) && (
             <p className="fpop-empty">No filter options match that search.</p>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The sort chip at the end of a filter row: "Sort: Newest first ⌄", and a
+ *  press moves to the next order. It sits in `FacetFilter`'s `trailing` slot.
+ *
+ *  Properties and Documents had each written this button out by hand, and the
+ *  Holdings list would have been the third copy. The page owns the
+ *  orders and which one is next; this owns how the chip looks and reads.
+ *  With no `ariaLabel` the accessible name is the visible text. */
+export function SortCycle({ label, onNext, ariaLabel }: {
+  label: string; onNext: () => void; ariaLabel?: string;
+}) {
+  return (
+    <button type="button" className="sortcycle" aria-label={ariaLabel} onClick={onNext}>
+      Sort: {label} ⌄
+    </button>
+  );
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────
+
+/** A tab's status: a glyph drawn beside the label, and a word that is the
+ *  glyph's tooltip and the end of the tab's accessible name (aria-label),
+ *  so a status never rests on a glyph or a colour alone for assistive tech.
+ *  The word is not drawn (Reddy, 03/10/2026: "Safeguard" plus the glyph). */
+export interface TabStripStatus { glyph: string; word: string; state: 'good' | 'warn' | 'bad' }
+
+export interface TabStripTab<T extends string> {
+  id: T;
+  label: string;
+  /** A count beside the label, printed as RecordTabs prints it: zero is
+   *  shown, dimmed. */
+  n?: number;
+  status?: TabStripStatus;
+}
+
+/**
+ * An in-page tab list: `aria-selected`, one tab stop for the whole strip, and
+ * Arrow/Home/End moving between them. The stylesheet keys on
+ * `[aria-selected='true']`, which is only a valid attribute inside
+ * `role="tablist"` — so declaring the role means also honouring the keyboard
+ * contract that comes with it, rather than borrowing the styling and leaving a
+ * keyboard user to Tab through every tab to reach the panel.
+ *
+ * Families & groups and Tools had each written this out locally; route tabs
+ * (a tab per address) are RecordTabs / HoldingTabs instead.
+ */
+export function TabStrip<T extends string>({
+  tabs, value, onChange, label, idBase,
+}: {
+  tabs: TabStripTab<T>[];
+  value: T;
+  onChange: (id: T) => void;
+  label: string;
+  idBase: string;
+}) {
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const onKeyDown = (e: ReactKeyboardEvent) => {
+    const at = tabs.findIndex((t) => t.id === value);
+    let to = -1;
+    if (e.key === 'ArrowRight') to = (at + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') to = (at - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = tabs.length - 1;
+    if (to < 0) return;
+    e.preventDefault();
+    onChange(tabs[to].id);
+    refs.current[tabs[to].id]?.focus();
+  };
+
+  return (
+    <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={`${idBase}-tab-${t.id}`}
+          aria-controls={`${idBase}-panel-${t.id}`}
+          aria-selected={t.id === value}
+          tabIndex={t.id === value ? 0 : -1}
+          ref={(el) => { refs.current[t.id] = el; }}
+          onClick={() => onChange(t.id)}
+          aria-label={t.status
+            ? `${t.label}${t.n !== undefined ? ` ${num(t.n)}` : ''}, ${t.status.word}`
+            : undefined}
+        >
+          {t.label}
+          {t.n !== undefined && <span className={t.n > 0 ? 'n' : 'n zero'}>{num(t.n)}</span>}
+          {t.status && (
+            <span className={`tabstatus ${t.status.state}`}>
+              {/* Only the glyph is drawn; the word is its tooltip and, through
+                  the button's aria-label, the end of the tab's accessible
+                  name ("Safeguard, needs action"). */}
+              <span className="glyph" aria-hidden title={t.status.word}>{t.status.glyph}</span>
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The panel a TabStrip tab controls. */
+export function TabPanel({ idBase, id, children }: { idBase: string; id: string; children: ReactNode }) {
+  return (
+    <div role="tabpanel" id={`${idBase}-panel-${id}`} aria-labelledby={`${idBase}-tab-${id}`}>
+      {children}
     </div>
   );
 }
@@ -696,6 +827,21 @@ export const SHELF_WORD: Record<string, string> = {
   title: 'Title', revenue: 'Revenue record', map: 'Map', search: 'Search & tax',
   identity: 'Identity', old: 'Old record', photos: 'Photos & video', unsorted: 'Unsorted',
 };
+
+/** What the app calls several properties held as one piece of ground.
+ *
+ *  The rail, the list's head, its crumbs, its CSV filename
+ *  (`holdings-YYYY-MM-DD.csv`) and the Documents section all print this noun.
+ *  "Holding" was approved by Reddy on 03/10/2026, superseding "Combined view"
+ *  (design.md § App vocabulary). Web files, identifiers and routes say holding
+ *  (`/app/holdings`; old `/app/combined…` links redirect); GraphQL fields,
+ *  query keys and tables keep `combined`. Never "your holdings" to
+ *  mean all of an owner's land, and never "Holdings" for the Properties list. */
+export const HOLDING_WORD = {
+  one: 'Holding',
+  many: 'Holdings',
+  eyebrow: 'Several properties held as one',
+} as const;
 
 /** One cell of a CSV, safe to hand to a spreadsheet.
  *
@@ -866,7 +1012,7 @@ const sameAnchor = (a: ListAnchor | null, b: ListAnchor) =>
  *
  *  `Menu` and `MultiSelect` open their list LEFTWARD from the trigger's right
  *  edge, over the page the trigger belongs to. A trigger near the left edge —
- *  the combined view's ⋮ once its head wraps on a phone — opened the list off
+ *  a holding's ⋮ once its head wraps on a phone — opened the list off
  *  the screen, and both of its items were cut off. So a list that would cross
  *  the left edge opens rightward from the trigger's left edge instead.
  *  Measured, not guessed: `.menu-list` is `width: max-content`, so its width is
@@ -1263,7 +1409,7 @@ export function Empty({
  * the next thing to break, so one button repairs the page rather than one row.
  * `onRetry` is still accepted for the cases that own a narrower remedy.
  *
- * The reason is printed verbatim. It is mono, small and grey because it is for
+ * The reason is printed verbatim. It is small and grey because it is for
  * whoever is being asked "what does it say?" down a phone line, not for the
  * owner — but a failure with no reason at all is the thing that cannot be
  * supported at all.

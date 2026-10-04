@@ -101,7 +101,7 @@ export function InvitePage() {
   const dead = preview && preview.state !== 'live';
 
   return (
-    <div className="dark site">
+    <div className="site" data-scheme="dark">
       <main className="legalMain">
         <Stack spacing={3} sx={{ maxWidth: '38rem' }}>
           {!preview && !previewFailed && token && <Typography role="status">Opening your invitation…</Typography>}

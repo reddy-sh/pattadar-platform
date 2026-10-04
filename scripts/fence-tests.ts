@@ -5,6 +5,7 @@
  *  and a side cannot be spanned by a stride that ignores its ends. Getting
  *  that wrong under-orders the posts that hold the fence up. */
 import { fencePlan } from '../packages/core/src/index';
+import { FENCE_DEFAULTS, GATE_POSTS, fenceBill } from '../apps/web/src/w360/fenceBill';
 
 let failures = 0;
 const check = (name: string, got: number, want: number) => {
@@ -57,6 +58,38 @@ check('empty posts', none.posts, 0);
 // Neither is a nonsense spacing: corners still stand.
 const noSpacing = fencePlan([100, 100, 100], { spacing: 0, strands: 4 });
 check('no spacing, corners only', noSpacing.posts, 3);
+
+// The bill both fence screens share (apps/web/src/w360/fenceBill.ts): gates,
+// rolls and rates on top of fencePlan. The village-map studio and the Tools
+// tab must price the same fence the same way, so the sums are checked once.
+const build = { ...FENCE_DEFAULTS };
+const noGate = fenceBill([100, 80, 100, 80], true, { ...build, gates: '0' });
+check('bill, no gate: posts', noGate.posts, 122);
+check('bill, no gate: wire', noGate.wire, 1440);
+check('bill, no gate: no gate posts', noGate.gatePosts, 0);
+
+// One 3.6 m gate: no wire across it, and a pair of posts to hang it on.
+const gated = fenceBill([100, 80, 100, 80], true, build);
+check('bill, one gate: wire', gated.wire, (360 - 3.6) * 4);
+check('bill, one gate: gate posts', gated.gatePosts, GATE_POSTS);
+check('bill, one gate: posts', gated.posts, 124);
+check('bill, one gate: rolls', gated.rolls, Math.ceil(1425.6 / 500));
+
+const priced = fenceBill([100, 80, 100, 80], true, {
+  ...build, postRate: '250', wireRate: '12', gateRate: '6000',
+});
+check('bill, priced: total', priced.total, 124 * 250 + (360 - 3.6) * 4 * 12 + 6000);
+
+// A half-typed box is a zero, never a throw or a NaN on the bill.
+const junk = fenceBill([100, 80, 100, 80], true, {
+  spacing: 'x', strands: 'four', gates: '?', gateWidth: '', roll: 'abc',
+  postRate: '₹', wireRate: '-', gateRate: 'n/a',
+});
+check('bill, junk build: no strands, no wire', junk.wire, 0);
+check('bill, junk build: no gates', junk.gateCount, 0);
+check('bill, junk build: corners only', junk.posts, 4);
+check('bill, junk build: no rolls', junk.rolls, 0);
+check('bill, junk build: nothing priced', junk.total, 0);
 
 console.log(failures === 0 ? 'FENCE TESTS PASS' : `FENCE TESTS FAILED (${failures})`);
 process.exit(failures === 0 ? 0 : 1);

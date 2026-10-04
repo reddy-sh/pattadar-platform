@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router';
 import { AiTutor } from './components/AiTutor';
 import { AppHeader } from './components/AppHeader';
-import type { ThemeChoice } from './components/AppHeader';
 import { CommandPalette } from './components/CommandPalette';
 import { Footer } from './components/Footer';
 import type { Course } from './domain/types';
@@ -22,25 +21,16 @@ import { RecordDetailPage } from './pages/RecordDetailPage';
 import { RecordLibraryPage } from './pages/RecordLibraryPage';
 import { StateGuidePage } from './pages/StateGuidePage';
 import { StateGuidesPage } from './pages/StateGuidesPage';
-
-const THEME_KEY = 'pattadar.university.theme';
-
-function initialTheme(): ThemeChoice {
-  const saved = window.localStorage.getItem(THEME_KEY);
-  return saved === 'dark' || saved === 'contrast' || saved === 'light' ? saved : 'light';
-}
+import { useThemeChoice } from './state/useThemeChoice';
 
 export function App() {
   const location = useLocation();
   const [commandOpen, setCommandOpen] = useState(false);
   const [tutorOpen, setTutorOpen] = useState(false);
   const [tutorCourse, setTutorCourse] = useState<Course | undefined>();
-  const [theme, setTheme] = useState<ThemeChoice>(initialTheme);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
+  // The saved colour scheme (state/useThemeChoice.ts): MUI keeps it and puts
+  // it on <html data-scheme>, which tokens.css's aliases read.
+  const theme = useThemeChoice();
 
   useEffect(() => {
     const targetId = decodeURIComponent(location.hash.replace(/^#/, ''));
@@ -65,7 +55,7 @@ export function App() {
 
   return (
     <div className="app-frame">
-      <AppHeader onSearch={() => setCommandOpen(true)} onTutor={() => openTutor()} theme={theme} onThemeChange={setTheme} />
+      <AppHeader onSearch={() => setCommandOpen(true)} onTutor={() => openTutor()} theme={theme} />
       <Routes>
         <Route path="/" element={<HomePage onTutor={openTutor} />} />
         <Route path="/courses/:slug" element={<CoursePage onTutor={openTutor} />} />

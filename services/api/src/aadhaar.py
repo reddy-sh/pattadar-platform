@@ -1,23 +1,25 @@
-"""Aadhaar field protection and short-lived extraction candidates.
+"""Aadhaar records and the encrypted vault that holds the full number.
 
-Production uses direct AWS KMS encryption for this tiny sensitive field. The
-application never receives KMS key material. Legacy Fernet ciphertext remains
-readable during a bounded migration window; Fernet writes are local-development
-only and require ALLOW_INSECURE_LOCAL=1.
+Every reading or typed Aadhaar is one row in `aadhaar_candidates` (the record:
+extracted fields, last 4, job id, card link). The full 12 digits live only in
+`aadhaar_vault`, as ciphertext under an opaque token, and nothing at runtime
+decrypts them. Production encrypts with direct AWS KMS; Fernet writes are
+local-development only and require ALLOW_INSECURE_LOCAL=1 (or the legacy
+bridge).
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import hashlib
-import json
 import logging
 import os
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date
 from typing import Any
 
+import psycopg
 from cryptography.fernet import Fernet, InvalidToken
 
 _log = logging.getLogger("pattadar.aadhaar")
@@ -26,20 +28,85 @@ _kms = None
 KMS_PREFIX = "kms-direct:v1:"
 FERNET_PREFIX = "fernet:v0:"
 CANDIDATE_TTL_MINUTES = 30
+UNAVAILABLE_MESSAGE = (
+    "Aadhaar reading is not available on this server: Aadhaar protection is "
+    "not configured. Nothing was sent for reading."
+)
+# The one sentence for every protection failure after a read: misconfiguration,
+# KMS/Fernet error or a failed record store. Fixed and PII-free.
+PROTECTION_FAILED_MESSAGE = "Aadhaar protection is temporarily unavailable"
+# Consumed and typed records are durable. A far-future expiry keeps them out of
+# the previous release's sweep (`expires_at<now()`) during a deploy overlap or
+# rollback. Not 'infinity': psycopg cannot load it into a datetime, which would
+# break the owner's data export. Always bound as %s::timestamptz.
+DURABLE_EXPIRES_AT = "9999-01-01 00:00:00+00"
+VAULT_PURPOSE = "aadhaar-vault"
+
+
+class ProtectionUnavailable(RuntimeError):
+    """No Aadhaar write path, or the configured one failed. PII-free message."""
+
+
+class NoWritePath(Exception):
+    """Cause recorded (as a type only) when no write mode is configured."""
+
 
 DDL = """
+CREATE TABLE IF NOT EXISTS aadhaar_vault (
+ token TEXT PRIMARY KEY,
+ owner_user_id TEXT NOT NULL,
+ ciphertext TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_aadhaar_vault_owner ON aadhaar_vault(owner_user_id);
+
 CREATE TABLE IF NOT EXISTS aadhaar_candidates (
  id TEXT PRIMARY KEY,
  owner_user_id TEXT NOT NULL,
- ciphertext TEXT NOT NULL,
+ ciphertext TEXT,
  masked TEXT NOT NULL,
  expires_at TIMESTAMPTZ NOT NULL,
  consumed_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE aadhaar_candidates ALTER COLUMN ciphertext DROP NOT NULL;
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'scan';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS job_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS dob TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS confidence TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS last4 TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS vault_token TEXT
+ REFERENCES aadhaar_vault(token) ON DELETE SET NULL;
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_node_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_version_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_mime TEXT NOT NULL DEFAULT '';
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS card_size BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE aadhaar_candidates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_aadhaar_candidates_owner
  ON aadhaar_candidates(owner_user_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_aadhaar_candidates_vault ON aadhaar_candidates(vault_token);
+COMMENT ON TABLE aadhaar_candidates IS
+ 'Aadhaar records: one row per read or typed Aadhaar. Full digits live only in aadhaar_vault.';
 """
+
+# Boot DDL in main.init_db, after users and family_members exist. Kept here so
+# the vault DB test runs exactly what boot runs.
+SUBJECT_DDL = (
+    "ALTER TABLE family_members ADD COLUMN IF NOT EXISTS aadhaar_record_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_aadhaar_record_id TEXT NOT NULL DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS idx_family_aadhaar_record ON family_members(aadhaar_record_id) "
+    "WHERE aadhaar_record_id <> ''",
+    "CREATE INDEX IF NOT EXISTS idx_users_aadhaar_record ON users(kyc_aadhaar_record_id) "
+    "WHERE kyc_aadhaar_record_id <> ''",
+    # Reconcile (rollback safety): blank pointers to records that no longer exist.
+    "UPDATE family_members m SET aadhaar_record_id='' WHERE aadhaar_record_id<>'' AND NOT EXISTS "
+    "(SELECT 1 FROM aadhaar_candidates r WHERE r.id=m.aadhaar_record_id AND r.owner_user_id=m.owner_user_id)",
+    "UPDATE users u SET kyc_aadhaar_record_id='' WHERE kyc_aadhaar_record_id<>'' AND NOT EXISTS "
+    "(SELECT 1 FROM aadhaar_candidates r WHERE r.id=u.kyc_aadhaar_record_id AND r.owner_user_id=u.id)",
+)
 
 
 def bind(pool) -> None:
@@ -58,6 +125,11 @@ def validate_configuration() -> None:
     """
     environment = os.getenv("APP_ENV", "local").strip().casefold()
     if environment in {"local", "test"}:
+        # CI and tests run without a key, so local only warns: every scan and
+        # save would otherwise fail silently at the first request.
+        if not write_path_available():
+            _log.warning("aadhaar.write_path_missing: Aadhaar scans and saves will be refused; "
+                         "set AADHAAR_ENC_KEY with ALLOW_INSECURE_LOCAL=1 for local development")
         return
     if not os.getenv("AADHAAR_KMS_KEY_ARN", "").strip():
         raise RuntimeError("AADHAAR_KMS_KEY_ARN is required outside local/test")
@@ -149,27 +221,51 @@ def _unavailable(operation: str, owner: str, purpose: str, record: str, exc: Exc
     """
     _log.warning("aadhaar.%s failed (purpose=%s, record=%s, owner_ref=%s, cause=%s)",
                  operation, purpose, record, _owner_ref(owner), type(exc).__name__)
-    return RuntimeError("Aadhaar protection is temporarily unavailable")
+    return ProtectionUnavailable(PROTECTION_FAILED_MESSAGE)
 
 
-async def _encrypt_bytes(plaintext: bytes, owner: str, purpose: str, record: str) -> str:
+def _write_mode() -> str:
+    """The one write-path decision: "kms", "fernet" or "" (none)."""
     environment = os.getenv("APP_ENV", "local").strip().casefold()
     local_or_test = environment in {"local", "test"}
     kms_writes = local_or_test or os.getenv("AADHAAR_KMS_WRITES_ENABLED", "") == "1"
     if os.getenv("AADHAAR_KMS_KEY_ARN", "").strip() and kms_writes:
+        return "kms"
+    legacy_bridge = os.getenv("AADHAAR_LEGACY_WRITE_BRIDGE", "") == "1"
+    if legacy_bridge or (local_or_test and os.getenv("ALLOW_INSECURE_LOCAL", "") == "1"):
+        if os.getenv("AADHAAR_ENC_KEY", "").strip():
+            return "fernet"
+    return ""
+
+
+def write_path_available() -> bool:
+    """Whether an Aadhaar can be protected now, checked before any paid read."""
+    mode = _write_mode()
+    if mode == "fernet":
+        try:
+            _fernet()
+        except RuntimeError:
+            return False
+    return bool(mode)
+
+
+async def _encrypt_bytes(plaintext: bytes, owner: str, purpose: str, record: str) -> str:
+    mode = _write_mode()
+    if mode == "kms":
         try:
             return await asyncio.to_thread(_kms_encrypt_sync, plaintext, _context(owner, purpose, record))
         except Exception as exc:
             raise _unavailable("encrypt", owner, purpose, record, exc) from exc
-    legacy_bridge = os.getenv("AADHAAR_LEGACY_WRITE_BRIDGE", "") == "1"
-    if legacy_bridge or (local_or_test and os.getenv("ALLOW_INSECURE_LOCAL", "") == "1"):
-        cipher = _fernet()
-        if cipher:
-            try:
+    if mode == "fernet":
+        # An invalid key is a protection failure like any other: through
+        # _unavailable, recorded as a type, never echoing the key.
+        try:
+            cipher = _fernet()
+            if cipher:
                 return FERNET_PREFIX + cipher.encrypt(plaintext).decode()
-            except Exception as exc:
-                raise _unavailable("encrypt", owner, purpose, record, exc) from exc
-    raise RuntimeError("Aadhaar protected writes are not enabled")
+        except Exception as exc:
+            raise _unavailable("encrypt", owner, purpose, record, exc) from exc
+    raise _unavailable("encrypt", owner, purpose, record, NoWritePath())
 
 
 async def _decrypt_bytes(token: str, owner: str, purpose: str, record: str) -> bytes:
@@ -190,22 +286,112 @@ async def _decrypt_bytes(token: str, owner: str, purpose: str, record: str) -> b
         raise _unavailable("decrypt", owner, purpose, record, exc) from exc
 
 
-async def encrypt_number(raw: str, owner: str, subject_kind: str, subject_id: str) -> tuple[str, str]:
+async def vault_put(conn, owner: str, digits12: str) -> str:
+    """Encrypt the full number once and store it under a fresh opaque token.
+
+    The token is the KMS `record` context, so it is never derived from the
+    number. Any protection failure raises ProtectionUnavailable."""
+    token = str(uuid.uuid4())
+    ciphertext = await _encrypt_bytes(digits12.encode(), owner, VAULT_PURPOSE, token)
+    await conn.execute(
+        "INSERT INTO aadhaar_vault (token, owner_user_id, ciphertext) VALUES (%s,%s,%s)",
+        (token, owner, ciphertext))
+    return token
+
+
+_RECORD_FIELDS = ("name", "dob", "gender", "address", "confidence")
+
+
+async def create_record(conn, owner: str, *, digits12: str, origin: str, job_id: str = "",
+                        fields: dict[str, str] | None = None) -> dict[str, str]:
+    """One record for one Aadhaar instance; its full number goes to the vault.
+
+    A scan is a one-use reading for thirty minutes until a subject consumes it;
+    a typed number is consumed and durable from the start."""
+    value = digits(digits12)
+    if not value:
+        raise ValueError("Aadhaar must be exactly 12 digits")
+    token = await vault_put(conn, owner, value)
+    record_id = str(uuid.uuid4())
+    safe = {key: str((fields or {}).get(key) or "") for key in _RECORD_FIELDS}
+    if origin == "typed":
+        expiry_sql, consumed_sql, params = "%s::timestamptz", "now()", (DURABLE_EXPIRES_AT,)
+    else:
+        expiry_sql, consumed_sql, params = f"now()+interval '{CANDIDATE_TTL_MINUTES} minutes'", "NULL", ()
+    await conn.execute(
+        "INSERT INTO aadhaar_candidates (id, owner_user_id, masked, last4, vault_token, origin, job_id, "
+        "name, dob, gender, address, confidence, expires_at, consumed_at, updated_at) "
+        f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,{expiry_sql},{consumed_sql},now())",
+        (record_id, owner, mask(value), value[-4:], token, origin, job_id,
+         safe["name"], safe["dob"], safe["gender"], safe["address"], safe["confidence"], *params))
+    return {"id": record_id, "masked": mask(value)}
+
+
+async def resolve_record(conn, owner: str, raw: str, candidate_id: str) -> tuple[str, str]:
+    """The record a subject should point at, and its mask.
+
+    ("", "") means no Aadhaar input: the caller leaves the subject's Aadhaar
+    columns untouched. A card reading is consumed once and becomes durable; a
+    typed number becomes a new typed record."""
+    raw = (raw or "").strip()
+    candidate_id = (candidate_id or "").strip()
+    if not raw and not candidate_id:
+        return "", ""
+    if raw and candidate_id:
+        raise ValueError("Use either typed Aadhaar or a card reading, not both")
+    if candidate_id:
+        row = await (await conn.execute(
+            "SELECT id, masked FROM aadhaar_candidates WHERE id=%s AND owner_user_id=%s "
+            "AND consumed_at IS NULL AND expires_at>now() AND vault_token IS NOT NULL FOR UPDATE",
+            (candidate_id, owner))).fetchone()
+        if not row:
+            raise ValueError("The Aadhaar reading expired or was already used; read the card again")
+        await conn.execute(
+            "UPDATE aadhaar_candidates SET consumed_at=now(), expires_at=%s::timestamptz, updated_at=now() "
+            "WHERE id=%s AND owner_user_id=%s",
+            (DURABLE_EXPIRES_AT, candidate_id, owner))
+        return row["id"], row["masked"]
     value = digits(raw)
     if not value:
-        return "", ""
-    token = await _encrypt_bytes(value.encode(), owner, f"aadhaar-{subject_kind}", subject_id)
-    return mask(value), token
+        raise ValueError("Aadhaar must be exactly 12 digits")
+    record = await create_record(conn, owner, digits12=value, origin="typed")
+    return record["id"], record["masked"]
 
 
-async def decrypt_number(token: str, owner: str, subject_kind: str, subject_id: str) -> str:
-    if not (token or "").strip():
-        return ""
-    plaintext = await _decrypt_bytes(token, owner, f"aadhaar-{subject_kind}", subject_id)
-    value = digits(plaintext.decode())
-    if not value:
-        raise ValueError("Stored Aadhaar is invalid")
-    return value
+# A consumed record lives while any subject points at it. These two clauses are
+# the one definition of "referenced", shared by release and the sweep backstop.
+_UNREFERENCED = (
+    "NOT EXISTS (SELECT 1 FROM family_members m WHERE m.owner_user_id=r.owner_user_id "
+    "AND m.aadhaar_record_id=r.id) "
+    "AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id=r.owner_user_id AND u.kyc_aadhaar_record_id=r.id)"
+)
+
+
+async def _release(conn, owner: str, record_id: str | None) -> int:
+    only_one = " AND r.id=%s" if record_id is not None else ""
+    params = (owner, record_id, owner) if record_id is not None else (owner, owner)
+    row = await (await conn.execute(
+        "WITH gone AS (DELETE FROM aadhaar_candidates r WHERE r.owner_user_id=%s"
+        f"{only_one} AND r.consumed_at IS NOT NULL AND {_UNREFERENCED} RETURNING r.vault_token), "
+        "v AS (DELETE FROM aadhaar_vault USING gone WHERE aadhaar_vault.token=gone.vault_token "
+        "AND aadhaar_vault.owner_user_id=%s RETURNING 1) "
+        "SELECT count(*) AS n FROM gone", params)).fetchone()
+    return int(row["n"]) if row else 0
+
+
+async def release_if_unreferenced(conn, owner: str, record_id: str) -> int:
+    """Delete one consumed record and its vault row once nothing points at it.
+
+    Returns the record rows deleted (0 or 1). An empty id is the common case
+    of "there was no previous Aadhaar" and costs no query."""
+    if not (record_id or "").strip():
+        return 0
+    return await _release(conn, owner, record_id)
+
+
+async def release_unreferenced(conn, owner: str) -> int:
+    """After a subject delete: every unreferenced consumed record of this owner."""
+    return await _release(conn, owner, None)
 
 
 # Anything that is not a digit or a letter separates the groups — punctuation,
@@ -249,74 +435,81 @@ def sanitize_document_result(result: dict[str, Any]) -> dict[str, Any]:
     return {"fields": fields} if doc_type in {"aadhaar", "pan"} else {"fields": fields, "raw": raw}
 
 
-async def secure_extraction_result(owner: str, result: dict[str, Any]) -> dict[str, Any]:
-    """Replace full extracted digits/raw provider JSON with an opaque candidate."""
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _normalized_fields(fields: dict[str, Any]) -> dict[str, str]:
+    """The allowlisted fields, redacted and normalized once.
+
+    The same dict is stored on the record and returned to the client, so the
+    form and the record always agree."""
+    safe = {key: _redact_aadhaar_like(fields.get(key, "")) for key in _RECORD_FIELDS}
+    safe["name"] = safe["name"][:200]
+    safe["address"] = safe["address"][:500]
+    dob = safe["dob"].strip()
+    try:
+        safe["dob"] = dob if _ISO_DATE.match(dob) and date.fromisoformat(dob) else ""
+    except ValueError:
+        safe["dob"] = ""
+    gender = safe["gender"].strip().casefold()
+    safe["gender"] = gender if gender in {"male", "female", "other"} else ""
+    confidence = safe["confidence"].strip().casefold()
+    safe["confidence"] = confidence if confidence in {"high", "medium", "low"} else ""
+    return safe
+
+
+async def secure_extraction_result(owner: str, result: dict[str, Any], job_id: str = "") -> dict[str, Any]:
+    """Store a reading as a record (full digits only in the vault) and return
+    the masked, allowlisted fields with the record id as the candidate."""
     fields = dict(result.get("fields") or {})
     value = digits(str(fields.pop("aadhaar", "")))
     # Strictly allow only the documented UI fields. Provider raw text and any
     # unexpected model keys never cross the API boundary or enter job results.
-    safe = {
-        key: _redact_aadhaar_like(fields.get(key, ""))
-        for key in ("name", "dob", "gender", "address", "confidence")
-    }
-    safe["aadhaarMasked"] = mask(value)
-    safe["aadhaarCandidateId"] = ""
+    safe = _normalized_fields(fields)
+    record = {"id": "", "masked": ""}
     if value:
         if _pool is None:
-            raise RuntimeError("Aadhaar candidate store is unavailable")
-        candidate_id = str(uuid.uuid4())
-        payload = json.dumps({
-            "digits": value,
-            "owner_ref": _owner_ref(owner),
-            "issued_at": datetime.now(timezone.utc).isoformat(),
-        }, separators=(",", ":")).encode()
-        ciphertext = await _encrypt_bytes(payload, owner, "aadhaar-candidate", candidate_id)
-        expires = datetime.now(timezone.utc) + timedelta(minutes=CANDIDATE_TTL_MINUTES)
-        async with _pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO aadhaar_candidates(id,owner_user_id,ciphertext,masked,expires_at) "
-                "VALUES (%s,%s,%s,%s,%s)",
-                (candidate_id, owner, ciphertext, mask(value), expires))
-        safe["aadhaarCandidateId"] = candidate_id
-    return {"fields": safe}
+            raise ProtectionUnavailable(PROTECTION_FAILED_MESSAGE)
+        try:
+            async with _pool.connection() as conn, conn.transaction():
+                record = await create_record(conn, owner, digits12=value, origin="scan",
+                                             job_id=job_id, fields=safe)
+        except psycopg.Error as exc:
+            _log.warning("aadhaar.record_store_failed type=%s", type(exc).__name__)
+            raise ProtectionUnavailable(PROTECTION_FAILED_MESSAGE) from exc
+    return {"fields": {**safe, "aadhaarMasked": record["masked"], "aadhaarCandidateId": record["id"]}}
 
 
-async def consume_candidate(conn, owner: str, candidate_id: str) -> str:
-    if not candidate_id:
-        return ""
-    row = await (await conn.execute(
-        "SELECT * FROM aadhaar_candidates WHERE id=%s AND owner_user_id=%s "
-        "AND consumed_at IS NULL AND expires_at>now() FOR UPDATE",
-        (candidate_id, owner))).fetchone()
-    if not row:
-        raise ValueError("The Aadhaar reading expired or was already used; read the card again")
-    plaintext = await _decrypt_bytes(row["ciphertext"], owner, "aadhaar-candidate", candidate_id)
-    try:
-        payload = json.loads(plaintext)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("The Aadhaar reading is invalid") from exc
-    value = digits(str(payload.get("digits") or ""))
-    if not value or payload.get("owner_ref") != _owner_ref(owner) or mask(value) != row["masked"]:
-        raise ValueError("The Aadhaar reading is invalid")
-    changed = await conn.execute(
-        "UPDATE aadhaar_candidates SET consumed_at=now() WHERE id=%s AND owner_user_id=%s "
-        "AND consumed_at IS NULL", (candidate_id, owner))
-    if changed.rowcount != 1:
-        raise ValueError("The Aadhaar reading was already used")
-    return value
-
-
-async def resolve_for_storage(
-    conn, *, owner: str, raw: str, candidate_id: str,
-    subject_kind: str, subject_id: str,
-) -> tuple[str, str]:
-    if raw and candidate_id:
-        raise ValueError("Use either typed Aadhaar or a card reading, not both")
-    value = await consume_candidate(conn, owner, candidate_id) if candidate_id else digits(raw)
-    if (raw or candidate_id) and not value:
-        raise ValueError("Aadhaar must be exactly 12 digits")
-    return await encrypt_number(value, owner, subject_kind, subject_id) if value else ("", "")
+async def _count(conn, sql: str) -> int:
+    row = await (await conn.execute(sql)).fetchone()
+    return int(row["n"]) if row else 0
 
 
 async def cleanup_expired(conn) -> None:
-    await conn.execute("DELETE FROM aadhaar_candidates WHERE expires_at<now() OR consumed_at<now()-interval '1 day'")
+    """Sweep readings nobody applied, and anything a crash or rollback left.
+
+    Consumed records are durable while referenced; release_* removes them when
+    the last subject lets go. The five-minute backstop covers a release that
+    never ran, measured from the last touch so an in-flight write is spared."""
+    expired = await _count(
+        conn,
+        "WITH gone AS (DELETE FROM aadhaar_candidates WHERE consumed_at IS NULL AND expires_at<now() "
+        "RETURNING vault_token, owner_user_id), "
+        "v AS (DELETE FROM aadhaar_vault USING gone WHERE aadhaar_vault.token=gone.vault_token "
+        "AND aadhaar_vault.owner_user_id=gone.owner_user_id RETURNING 1) "
+        "SELECT count(*) AS n FROM gone")
+    orphaned = await _count(
+        conn,
+        "WITH gone AS (DELETE FROM aadhaar_candidates r WHERE r.consumed_at IS NOT NULL "
+        f"AND r.updated_at < now()-interval '5 minutes' AND {_UNREFERENCED} "
+        "RETURNING r.vault_token, r.owner_user_id), "
+        "v AS (DELETE FROM aadhaar_vault USING gone WHERE aadhaar_vault.token=gone.vault_token "
+        "AND aadhaar_vault.owner_user_id=gone.owner_user_id RETURNING 1) "
+        "SELECT count(*) AS n FROM gone")
+    orphaned += await _count(
+        conn,
+        "WITH gone AS (DELETE FROM aadhaar_vault WHERE created_at < now()-interval '5 minutes' "
+        "AND NOT EXISTS (SELECT 1 FROM aadhaar_candidates r WHERE r.vault_token=aadhaar_vault.token) "
+        "RETURNING 1) SELECT count(*) AS n FROM gone")
+    if expired or orphaned:
+        _log.info("aadhaar.sweep expired=%d orphaned=%d", expired, orphaned)

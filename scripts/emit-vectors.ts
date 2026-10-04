@@ -98,12 +98,12 @@ const placeLines = [
 ];
 const places = placeCandidates ? placeLines.map((line) => ({ line, candidates: placeCandidates(line) })) : null;
 
-/* ── why `mapsLink` is NOT vectored ──────────────────────────────────────
+/* ── why the maps hand-off (`navigateLink`) is NOT vectored ──────────────
  *
- * `mapsAppFor` sniffs a user agent and `mapsLink` builds a URL, because a
- * browser has no other way to hand a pin to a maps app. A phone does: iOS
- * opens an `MKMapItem` directly, and porting the URL builder to Swift would
- * be importing a web workaround as if it were a rule.
+ * A browser can only hand a point to a maps app by URL, so web builds a
+ * Google Maps directions URL (`navigateLink`, Reddy 03/10/2026). A phone can
+ * open one natively (a map item, or the Google Maps app), and porting the URL
+ * builder to Swift would be importing a web workaround as if it were a rule.
  *
  * Per docs/specs/2026-08-22-web-ios-parity-contract.md this is bucket 3 —
  * mirror the CAPABILITY, natively — so the two implementations are meant to

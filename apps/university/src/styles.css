@@ -91,12 +91,32 @@ svg { display: block; font-size: 1.25rem; }
 
 .app-frame { min-height: 100dvh; }
 
+/* The top bar and its section nav wear the scheme's header colours (its
+   `chrome` roles): the page's own in every scheme without a header of its
+   own, Pattadar Gold's charcoal with a gold rule. The colour names are
+   re-declared here by the same mapping as tokens.css, so every rule for the
+   header's controls below stays as it is. */
 .app-header {
+  --color-paper: var(--mui-palette-chrome-bg);
+  --color-paper-2: var(--mui-palette-chrome-raised);
+  --color-paper-3: color-mix(in srgb, var(--mui-palette-chrome-raised) 92%, var(--mui-palette-chrome-ink));
+  --color-ink: var(--mui-palette-chrome-ink);
+  --color-ink-2: var(--mui-palette-chrome-ink2);
+  --color-ink-3: var(--mui-palette-chrome-inkMuted);
+  --color-rule: var(--mui-palette-chrome-line);
+  --color-rule-strong: var(--mui-palette-chrome-inkMuted);
+  --color-accent: var(--mui-palette-chrome-accent);
+  --color-accent-hover: color-mix(in oklab, var(--mui-palette-chrome-accent) 82%, var(--mui-palette-chrome-ink));
+  --color-accent-soft: var(--mui-palette-chrome-accentWash);
+  --color-accent-ink: var(--mui-palette-chrome-onAccent);
+  --color-focus: var(--mui-palette-chrome-focus);
+
   position: sticky;
   inset-block-start: 0;
   z-index: var(--z-sticky);
   background: var(--color-paper);
-  border-block-end: var(--rule-hair) solid var(--color-rule);
+  color: var(--color-ink);
+  border-block-end: var(--mui-palette-chrome-ruleWidth) solid var(--mui-palette-chrome-rule);
 }
 
 .app-header__bar {
@@ -1485,7 +1505,7 @@ dialog::backdrop { background: var(--color-scrim); }
 .record-library-card__top { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink-3); font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.08em; }
 .record-library-card__top svg { color: var(--color-accent); font-size: 2.25rem; }
 .record-library-card__poster { display: block; width: 100%; aspect-ratio: 16 / 9; margin-block-start: var(--space-lg); border-radius: calc(var(--radius-card) / 2); object-fit: cover; background: #102a34; }
-.record-library-card__kind { margin-block-start: var(--space-lg); color: var(--color-accent); font-size: var(--text-xs); font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
+.record-library-card__kind { margin-block-start: var(--space-lg); color: var(--color-accent); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
 .record-library-card h2 { margin: var(--space-xs) 0 var(--space-sm); font-size: clamp(1.65rem, 2.2vw, 2.2rem); line-height: 1.08; letter-spacing: -0.035em; }
 .record-library-card p { color: var(--color-ink-2); line-height: 1.5; }
 .record-library-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); margin-block-start: auto; padding-block-start: var(--space-lg); font-weight: 700; font-size: var(--text-sm); }
@@ -1517,7 +1537,7 @@ dialog::backdrop { background: var(--color-scrim); }
 .record-anatomy__layout { display: grid; gap: var(--space-lg); margin-block-start: var(--space-xl); }
 .record-anatomy__sheet { overflow: hidden; padding: var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper-2); }
 .record-anatomy__sheet-head { display: grid; gap: var(--space-xs); padding: var(--space-lg); background: #19333d; color: #f9f4eb; }
-.record-anatomy__sheet-head span { color: #efad82; font-size: var(--text-xs); font-weight: 800; letter-spacing: 0.1em; }
+.record-anatomy__sheet-head span { color: #efad82; font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.1em; }
 .record-anatomy__sheet-head strong { font-size: var(--text-xl); letter-spacing: -0.035em; }
 .record-anatomy__sheet-head small { color: #c7d7d8; }
 .record-anatomy__sheet > button { display: grid; width: 100%; gap: var(--space-2xs); padding: var(--space-md) var(--space-lg); border: 0; border-block-end: var(--rule-hair) solid var(--color-rule); background: transparent; color: var(--color-ink); text-align: start; cursor: pointer; }
@@ -1535,7 +1555,7 @@ dialog::backdrop { background: var(--color-scrim); }
 .record-anatomy__example { color: #c7d7d8; }
 .record-field-notes { display: grid; gap: var(--space-md); margin-block-start: var(--space-xl); }
 .record-field-notes article { display: flex; gap: var(--space-md); padding-block: var(--space-md); border-block-start: var(--rule-hair) solid var(--color-rule); }
-.record-field-notes article > span { color: var(--color-accent); font-size: var(--text-lg); font-weight: 800; }
+.record-field-notes article > span { color: var(--color-accent); font-size: var(--text-lg); font-weight: 700; }
 .record-field-notes h3 { margin: 0 0 var(--space-xs); font-size: var(--text-lg); }
 .record-field-notes p { margin: var(--space-xs) 0 0; color: var(--color-ink-2); line-height: 1.5; }
 .record-apply { display: grid; gap: var(--space-lg); padding-block: var(--space-2xl); border-block: var(--rule-hair) solid var(--color-rule); }

@@ -1,7 +1,7 @@
 /**
  * Pattadar Bloom · Material 3-guided application surface
  *
- * Wallet — coming-soon view. Hairline balance card with a mono figure and
+ * Wallet — coming-soon view. Hairline balance card with a tabular figure and
  * disabled Add money / Send actions, an empty payment history (DD/MM/YYYY),
  * and a plain-language explainer of what the wallet will do.
  *
@@ -46,7 +46,7 @@ export function WalletPage() {
         actions={<Chip size="small" color="secondary" variant="outlined" label="Coming soon" />}
       />
 
-      {/* ── Balance card — hairline surface, mono figure ─────────────── */}
+      {/* ── Balance card — hairline surface, tabular figure ──────────── */}
       <Card sx={{ mb: 2.5, maxWidth: 560, p: { xs: 2.5, sm: 3 } }}>
         <Typography variant="overline" color="text.secondary">
           Wallet balance

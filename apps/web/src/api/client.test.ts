@@ -44,6 +44,22 @@ test('failed readings preserve the server error and are not submitted twice', as
   expect(submits).toBe(1);
 });
 
+test('an Aadhaar reading that fails on the server returns its reason once, without re-submitting', async () => {
+  let submits = 0;
+  let polls = 0;
+  globalThis.fetch = (async (path: string | URL | Request) => {
+    if (String(path).endsWith('-async')) { submits++; return Response.json({job:'receipt'}); }
+    polls++;
+    if (polls === 1) return Response.json({state:'running'});
+    return Response.json({state:'failed',error:'Aadhaar protection is not configured'}, {status:503});
+  }) as typeof fetch;
+  const result = await apiFetch('/api/gateway/pattadar/extract-aadhaar', {method:'POST',body:new FormData()});
+  expect(result.status).toBe(503);
+  expect(await apiErrorMessage(result, 'x')).toBe('Aadhaar protection is not configured');
+  expect(submits).toBe(1);
+  expect(polls).toBe(2);
+});
+
 test('caller cancellation aborts an upload immediately', async () => {
   const controller = new AbortController();
   globalThis.fetch = (async (_path: unknown, init?: RequestInit) => new Promise((_, reject) => {

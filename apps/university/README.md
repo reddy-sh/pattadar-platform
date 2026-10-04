@@ -24,7 +24,7 @@ Independent React/Vite product shell for `university.pattadar.com`.
 - Proposed opportunity, mentor-role, and location discovery without presenting them as live offerings.
 - Grounded demo AI tutor with explicit human escalation for live legal, survey, safety, and property decisions.
 - Shared Cognito OIDC/PKCE configuration for Pattadar accounts.
-- Light, dark, and high-contrast appearance modes.
+- Light, Dark, Pattadar Gold and High contrast appearance, the same four schemes as the Pattadar app. The colours come from `@pattadar/tokens` (`src/theme.ts`; `tokens.css` holds aliases, never values), the choice is saved under the app's keys, and `public/theme-init.js` applies it before first paint. That file is generated: change the palette registry, then run `bun run scripts/emit-theme-init.ts` from the repository root.
 
 Course progress and saved opportunity interest use local prototype adapters, not the production source of truth. Curriculum, mentor roles, location plans, opportunity paths, and completion records are visibly marked as preview content. English is the current source language; Telugu publication remains planned and requires human terminology review. The production API and DynamoDB migration path are defined in [ARCHITECTURE.md](./ARCHITECTURE.md).
 

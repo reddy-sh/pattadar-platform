@@ -7,11 +7,12 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource/atkinson-hyperlegible/400.css';
 import '@fontsource/atkinson-hyperlegible/700.css';
 import '@fontsource/atkinson-hyperlegible/400-italic.css';
-// Bloom design tokens — inert custom properties consumed by site.css and
-// referenced (as hex conversions) by theme.ts.
+// Bloom design tokens — inert custom properties consumed by site.css. The
+// colour schemes themselves come from @pattadar/tokens through theme.ts.
 import './styles/tokens.css';
 import CssBaseline from '@mui/material/CssBaseline';
 import { ThemeProvider } from '@mui/material/styles';
+import { THEME_STORAGE, themeDefaults, themeStorageManager } from '@pattadar/tokens';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RouterProvider } from 'react-router';
@@ -33,21 +34,30 @@ if (import.meta.env.DEV && window.location.hostname !== 'localhost') {
       window.location.pathname + window.location.search + window.location.hash);
 }
 
+const WEB_THEME = themeDefaults('web');
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
 });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {/* Dark remains the default Bloom scheme (design.md § Theme). The header
-        offers exactly Light, Dark and High Contrast; both the mode and active
-        colour-scheme mapping persist. Marketing stays dark independently via
-        its nested `.dark.site` scope. */}
+    {/* One saved choice for every theme menu (design.md § Theme choice and
+        persistence). MUI keeps it under THEME_STORAGE; theme-init.js, loaded
+        in index.html ahead of this bundle, has already put it on
+        <html data-scheme> and painted its ground, and carried the old
+        `w360.scheme` key into it once. The defaults are the registry's, here
+        and in that script alike. `noSsr` lets the menus read the choice on
+        their first render. Marketing stays dark independently: its wrapper
+        carries its own data-scheme="dark". */}
     <ThemeProvider
       theme={theme}
-      defaultMode="dark"
-      modeStorageKey="pattadar-mode-v2"
-      colorSchemeStorageKey="pattadar-color-scheme-v1"
+      defaultMode={WEB_THEME.mode}
+      modeStorageKey={THEME_STORAGE.mode}
+      colorSchemeStorageKey={THEME_STORAGE.scheme}
+      storageManager={themeStorageManager('web')}
+      noSsr
+      disableTransitionOnChange
     >
       <CssBaseline enableColorScheme />
       <QueryClientProvider client={queryClient}>

@@ -19,21 +19,23 @@ import { FILE_KIND_LABEL, fileKindOf, formatBytes } from '@pattadar/core';
 import type { FileKind } from '@pattadar/core';
 
 import {
-  EMPTY_FILTER, useCombinedProperties, useCreateShareLink, useDeletePaper, useProperties,
+  EMPTY_FILTER, useHoldings, useCreateShareLink, useDeletePaper, useProperties,
   useRevokeLink, useVault, useLinkPapers, useVaultPapers, useVaultFolders,
   useMovePapersToFolder, useMoveVaultFolder, useDeleteVaultFolder, useTagPapers,
 } from '../api';
-import type { Combined, Paper, RecordCard, ShareLink, VaultFolder } from '../api';
+import type { HoldingCard, Paper, RecordCard, ShareLink, VaultFolder } from '../api';
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { reasonOf, useToast } from '../Toast';
 import {
-  Chip, Crumbs, Empty, FacetFilter, Failed, InfoTip, Loading, PageHead, PhotoImg, Tag, VideoThumb, ddmmyyyy,
-  plural,
+  Chip, Crumbs, Empty, FacetFilter, Failed, HOLDING_WORD, InfoTip, Loading, PageHead, PhotoImg, SortCycle, Tag,
+  VideoThumb, ddmmyyyy, plural,
 } from '../ui';
 import type { FacetFilterGroup } from '../ui';
 import { PaperPreview } from '../paper/PaperPreview';
+import { displayDetail } from '../paperFiling';
 import { PaperDrawer } from './RecordPapers';
+import { folderLabel } from './vaultFolderLabel';
 import { ConfirmDialog, RecordDrawer, TagDialog } from './PropertyActions';
 import {
   EditTagsDialog, FileKindGlyph, FolderNameDialog, MoveToFolderDialog, folderPath, subtreeOf,
@@ -53,12 +55,14 @@ const SORTS: { key: FileSort; label: string }[] = [
   { key: 'name-asc', label: 'Name A–Z' },
   { key: 'name-desc', label: 'Name Z–A' },
 ];
-/** The groups the shared `+ Filter` offers, in the order it lists them. */
-type FacetKey = 'shelf' | 'kind' | 'property' | 'combined' | 'linked' | 'tag';
+/** The groups the shared `+ Filter` offers, in the order it lists them.
+ *  Facets live in React state only, never in the URL or storage; if a URL key
+ *  is ever added, it must also accept the old `combined` key on read. */
+type FacetKey = 'shelf' | 'kind' | 'property' | 'holding' | 'linked' | 'tag';
 type Facets = Record<FacetKey, string[]>;
-const NO_FACETS: Facets = { shelf: [], kind: [], property: [], combined: [], linked: [], tag: [] };
+const NO_FACETS: Facets = { shelf: [], kind: [], property: [], holding: [], linked: [], tag: [] };
 const FACET_WORD: Record<FacetKey, string> = {
-  shelf: 'Type', kind: 'File', property: 'Property', combined: 'Combined view', linked: 'Linked', tag: 'Tag',
+  shelf: 'Type', kind: 'File', property: 'Property', holding: 'Holding', linked: 'Linked', tag: 'Tag',
 };
 
 /** DD/MM/YYYY — the only shape share_links stores, and sometimes it stores
@@ -259,8 +263,8 @@ function RecordPick({ cards, onPick, searchRef }: {
 
 /** Multi-target picker for files such as an undivided FMB or a combined-site
  *  drone recording. Every entry comes from the owner's own property list. */
-function RecordMultiPick({ cards, combined, alreadyLinkedIds, onConfirm, busy }: {
-  cards: RecordCard[]; combined: Combined[]; alreadyLinkedIds: string[];
+function RecordMultiPick({ cards, holdings, alreadyLinkedIds, onConfirm, busy }: {
+  cards: RecordCard[]; holdings: HoldingCard[]; alreadyLinkedIds: string[];
   onConfirm: (ids: string[]) => void; busy: boolean;
 }) {
   const [q, setQ] = useState('');
@@ -268,14 +272,14 @@ function RecordMultiPick({ cards, combined, alreadyLinkedIds, onConfirm, busy }:
   const matches = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return {
-      combined: needle ? combined.filter((c) =>
+      holdings: needle ? holdings.filter((c) =>
         `${c.name} ${c.placeLine} ${c.members.map((m) => m.title).join(' ')}`
-          .toLowerCase().includes(needle)) : combined,
+          .toLowerCase().includes(needle)) : holdings,
       records: needle ? cards.filter((c) =>
         `${c.title} ${c.placeLine} ${c.khataNo} ${c.ownerName}`
           .toLowerCase().includes(needle)) : cards,
     };
-  }, [cards, combined, q]);
+  }, [cards, holdings, q]);
   const toggle = (id: string) => setChosen((before) => {
     const next = new Set(before);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -283,19 +287,19 @@ function RecordMultiPick({ cards, combined, alreadyLinkedIds, onConfirm, busy }:
   });
   return (
     <>
-      <p className="note">Choose the properties and combined views this file belongs to.</p>
+      <p className="note">Choose the properties and holdings this file belongs to.</p>
       <span className="search" style={{ width: '100%', minWidth: 0 }}>
         <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
         <input value={q} onChange={(e) => setQ(e.target.value)}
-               placeholder="Search properties or combined views"
-               aria-label="Search properties and combined views to link" />
+               placeholder="Search properties or holdings"
+               aria-label="Search properties and holdings to link" />
       </span>
       <div style={{ marginTop: 'var(--space-sm)', maxHeight: 'min(50vh, 28rem)', overflowY: 'auto' }}>
-        {matches.combined.length > 0 && (
-          <section aria-label="Combined views">
-            <h3 className="eyebrow">Combined views</h3>
+        {matches.holdings.length > 0 && (
+          <section aria-label={HOLDING_WORD.many}>
+            <h3 className="eyebrow">{HOLDING_WORD.many}</h3>
             <div className="rows boxed">
-              {matches.combined.map((c) => (
+              {matches.holdings.map((c) => (
                 <label key={c.id} style={{ cursor: 'pointer' }}>
                   <input type="checkbox" checked={chosen.has(c.id)}
                          disabled={busy || alreadyLinkedIds.includes(c.id)}
@@ -309,7 +313,7 @@ function RecordMultiPick({ cards, combined, alreadyLinkedIds, onConfirm, busy }:
                     </span>
                     {c.placeLine && <span className="note" style={{ display: 'block' }}>{c.placeLine}</span>}
                   </span>
-                  <Chip>{alreadyLinkedIds.includes(c.id) ? 'Already linked' : 'Combined view'}</Chip>
+                  <Chip>{alreadyLinkedIds.includes(c.id) ? 'Already linked' : 'Holding'}</Chip>
                 </label>
               ))}
             </div>
@@ -334,8 +338,8 @@ function RecordMultiPick({ cards, combined, alreadyLinkedIds, onConfirm, busy }:
             </div>
           </section>
         )}
-        {matches.combined.length === 0 && matches.records.length === 0 && (
-          <p className="note">No property or combined view matches “{q.trim()}”.</p>
+        {matches.holdings.length === 0 && matches.records.length === 0 && (
+          <p className="note">No property or holding matches “{q.trim()}”.</p>
         )}
       </div>
       <div className="row between" style={{ marginTop: 'var(--space-md)' }}>
@@ -372,14 +376,15 @@ function LinkedPropertiesDialog({ paper, onClose, onLinkAnother }: {
             </span>}>
       {links.length ? (
         <div className="rows boxed">
+          {/* Server contract: link kind `combined` is the server's name for a holding. */}
           {links.map((property) => (
             <div key={property.id} className="row between">
               <span className="grow"><strong>{property.title}</strong></span>
               <Link className="linkbtn"
                     to={property.kind === 'combined'
-                      ? `/app/combined/${property.id}` : `/app/records/${property.id}`}
+                      ? `/app/holdings/${property.id}` : `/app/records/${property.id}`}
                     onClick={onClose}>
-                {property.kind === 'combined' ? 'Open combined view' : 'Open property'}
+                {property.kind === 'combined' ? 'Open holding' : 'Open property'}
               </Link>
               <button type="button" className="linkbtn" disabled={unlink.isPending}
                       onClick={() => { void remove(property.documentId, property.id); }}>
@@ -388,7 +393,7 @@ function LinkedPropertiesDialog({ paper, onClose, onLinkAnother }: {
             </div>
           ))}
         </div>
-      ) : <p className="note">This file is not linked to a property or combined view yet.</p>}
+      ) : <p className="note">This file is not linked to a property or holding yet.</p>}
       {error && <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{error}</p>}
     </Dialog>
   );
@@ -435,7 +440,7 @@ function LinkPapersDialog({ paperIds, alreadyLinkedIds, onClose }: {
   paperIds: string[]; alreadyLinkedIds: string[]; onClose: () => void;
 }) {
   const { data, isLoading, error } = useProperties(EMPTY_FILTER);
-  const combined = useCombinedProperties();
+  const holdings = useHoldings();
   const link = useLinkPapers();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -460,18 +465,18 @@ function LinkPapersDialog({ paperIds, alreadyLinkedIds, onClose }: {
   return (
     <Dialog title={paperIds.length === 1 ? 'Link file' : `Link ${paperIds.length} files`} onClose={onClose}
             footer={<button type="button" className="btn" onClick={onClose}>Cancel</button>}>
-      {(isLoading || combined.isLoading) && <Loading h="10rem" />}
+      {(isLoading || holdings.isLoading) && <Loading h="10rem" />}
       {!isLoading && !data && <Failed what="Your properties" error={error} h="10rem" />}
-      {!combined.isLoading && !combined.data && (
-        <Failed what="Your combined views" error={combined.error} h="10rem" />
+      {!holdings.isLoading && !holdings.data && (
+        <Failed what="The holdings list" error={holdings.error} h="10rem" />
       )}
-      {data && combined.data && data.cards.length === 0 && combined.data.length === 0 && (
-        <Empty icon="parcel" title="Add a property or combined view first"
+      {data && holdings.data && data.cards.length === 0 && holdings.data.length === 0 && (
+        <Empty icon="parcel" title="Add a property or holding first"
                action={<Link className="btn" to="/app/properties" onClick={onClose}>Your properties</Link>} />
       )}
-      {data && combined.data && (data.cards.length > 0 || combined.data.length > 0) && (busy
+      {data && holdings.data && (data.cards.length > 0 || holdings.data.length > 0) && (busy
         ? <Loading h="8rem" what="filing your documents" />
-        : <RecordMultiPick cards={data.cards} combined={combined.data}
+        : <RecordMultiPick cards={data.cards} holdings={holdings.data}
                            alreadyLinkedIds={alreadyLinkedIds}
                            onConfirm={(ids) => { void fileTo(ids); }} busy={busy} />)}
     </Dialog>
@@ -604,7 +609,7 @@ function readLayout(): Layout {
 /** "PDF · 1.4 MB" — what the file is, when nothing read it into a detail. */
 function fileLine(paper: Paper): string {
   const kind = fileKindOf(paper.mimeType, paper.title);
-  return [paper.detail || FILE_KIND_LABEL[kind], formatBytes(paper.sizeBytes ?? 0)]
+  return [displayDetail(paper.detail) || FILE_KIND_LABEL[kind], formatBytes(paper.sizeBytes ?? 0)]
     .filter(Boolean).join(' · ');
 }
 
@@ -640,9 +645,9 @@ export function Vault() {
   const addTrigger = useRef<HTMLButtonElement>(null);
   const allPapers = useVaultPapers('all');
   const vaultFolders = useVaultFolders();
-  // Combined views and who is in them, so a file filed against one member
+  // Holdings and who is in them, so a file filed against one member
   // property is found under the view that property belongs to.
-  const combinedViews = useCombinedProperties();
+  const holdingsQuery = useHoldings();
   const movePapers = useMovePapersToFolder();
   const moveFolder = useMoveVaultFolder();
   const deleteFolder = useDeleteVaultFolder();
@@ -733,19 +738,20 @@ export function Vault() {
   }, [data?.links]);
 
   const files = useMemo(() => oneRowPerFile(allPapers.data ?? []), [allPapers.data]);
-  const combinedList = useMemo(() => combinedViews.data ?? [], [combinedViews.data]);
-  /** Individual properties a file is linked to — combined views are not one. */
+  const holdingRows = useMemo(() => holdingsQuery.data ?? [], [holdingsQuery.data]);
+  /** Individual properties a file is linked to — holdings are not one.
+   *  Server contract: link kind `combined` is the server's name for a holding. */
   const propertiesOf = (p: Paper) => linkedPropertiesFor(p).filter((l) => l.kind !== 'combined');
-  /** Combined views a file belongs to: linked to the view itself, or to any of
+  /** Holdings a file belongs to: linked to the view itself, or to any of
    *  its member properties. */
-  const combinedOf = useMemo(() => {
+  const holdingsOf = useMemo(() => {
     const viewsOfRecord = new Map<string, string[]>();
-    for (const c of combinedList) {
+    for (const c of holdingRows) {
       for (const m of c.members) viewsOfRecord.set(m.recordId, [...(viewsOfRecord.get(m.recordId) ?? []), c.id]);
     }
     return (p: Paper): string[] => [...new Set(linkedPropertiesFor(p).flatMap((l) =>
       l.kind === 'combined' ? [l.id] : viewsOfRecord.get(l.id) ?? []))];
-  }, [combinedList]);
+  }, [holdingRows]);
   const knownTags = useMemo(() => [...new Set(files.flatMap((p) => p.tags))]
     .sort((a, b) => a.localeCompare(b)), [files]);
   // Every option counted over every file, and only options something carries
@@ -761,11 +767,11 @@ export function Vault() {
     const props = new Map<string, string>();
     for (const p of files) for (const l of propertiesOf(p)) props.set(l.id, l.title);
     const propCount = tally((p) => propertiesOf(p).map((l) => l.id));
-    const viewName = new Map(combinedList.map((c) => [c.id, c.name]));
+    const viewName = new Map(holdingRows.map((c) => [c.id, c.name]));
     for (const p of files) {
       for (const l of linkedPropertiesFor(p)) if (l.kind === 'combined' && !viewName.has(l.id)) viewName.set(l.id, l.title);
     }
-    const viewCount = tally(combinedOf);
+    const viewCount = tally(holdingsOf);
     const linked = tally((p) => [linkedPropertiesFor(p).length ? 'linked' : 'unlinked']);
     const tags = tally((p) => p.tags);
     const groups: FacetFilterGroup[] = [
@@ -776,24 +782,24 @@ export function Vault() {
       { key: 'property', label: 'Property', options: [...propCount]
         .sort((a, b) => (props.get(a[0]) ?? '').localeCompare(props.get(b[0]) ?? ''))
         .map(([k, count]) => ({ key: k, label: props.get(k) ?? 'Property', count })) },
-      { key: 'combined', label: 'Combined view', options: [...viewCount]
+      { key: 'holding', label: 'Holding', options: [...viewCount]
         .sort((a, b) => (viewName.get(a[0]) ?? '').localeCompare(viewName.get(b[0]) ?? ''))
-        .map(([k, count]) => ({ key: k, label: viewName.get(k) ?? 'Combined view', count })) },
+        .map(([k, count]) => ({ key: k, label: viewName.get(k) ?? 'Holding', count })) },
       { key: 'linked', label: 'Linked', options: (['linked', 'unlinked'] as const).filter((k) => linked.get(k))
         .map((k) => ({ key: k, label: k === 'linked' ? 'Linked to a property' : 'Not linked', count: linked.get(k) ?? 0 })) },
       { key: 'tag', label: 'Tag', options: [...tags].sort((a, b) => a[0].localeCompare(b[0]))
         .map(([k, count]) => ({ key: k, label: k, count })) },
     ];
     return groups.filter((g) => g.options.length > 0);
-    // propertiesOf reads nothing from state; combinedOf and the view names are listed.
-  }, [files, combinedOf, combinedList]);
+    // propertiesOf reads nothing from state; holdingsOf and the view names are listed.
+  }, [files, holdingsOf, holdingRows]);
   const selectionRows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const matches = files.filter((p) => (filtering || placeOf(p) === currentFolder)
       && (!facets.shelf.length || facets.shelf.includes(p.shelf || 'unsorted'))
       && (!facets.kind.length || facets.kind.includes(fileKindOf(p.mimeType, p.title)))
       && (!facets.property.length || propertiesOf(p).some((l) => facets.property.includes(l.id)))
-      && (!facets.combined.length || combinedOf(p).some((id) => facets.combined.includes(id)))
+      && (!facets.holding.length || holdingsOf(p).some((id) => facets.holding.includes(id)))
       && (!facets.linked.length
         || facets.linked.includes(linkedPropertiesFor(p).length ? 'linked' : 'unlinked'))
       && (!facets.tag.length || p.tags.some((t) => facets.tag.includes(t)))
@@ -804,7 +810,7 @@ export function Vault() {
       : sortMode === 'name-asc'
         ? a.title.localeCompare(b.title) : b.title.localeCompare(a.title));
     // placeOf reads folderById, which is in the list.
-  }, [files, q, facets, sortMode, filtering, currentFolder, folderById, combinedOf]);
+  }, [files, q, facets, sortMode, filtering, currentFolder, folderById, holdingsOf]);
   const subfolders = useMemo(() => (filtering ? [] : folders
     .filter((f) => (f.parentId && folderById.has(f.parentId) ? f.parentId : '') === currentFolder)
     .sort((a, b) => (sortMode === 'name-desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name)))),
@@ -953,10 +959,13 @@ export function Vault() {
   const whereLine = (paper: Paper): ReactNode => {
     if (!filtering) return null;
     const at = placeOf(paper);
+    // "Ravi › Aadhaar" rather than one of several folders called Aadhaar.
+    const label = folderLabel({ folderId: at, linkedProperties: [] }, folderById);
+    const name = label.kind === 'folder' ? label.text : nameOf(at);
     return (
       <button type="button" className="vault-where" onClick={() => openFolder(at)}
-              aria-label={`Open ${nameOf(at)}, where ${paper.title} is kept`}>
-        in {nameOf(at)}
+              aria-label={`Open ${name}, where ${paper.title} is kept`}>
+        in {name}
       </button>
     );
   };
@@ -971,16 +980,23 @@ export function Vault() {
   // What a file is filed against, as words. It used to be a link to the
   // property, and a click meant for the file landed on the land instead: the
   // row belongs to the file. Links are changed from the file's own menu.
-  const linksOf = (paper: Paper): ReactNode => {
-    const linked = linkedPropertiesFor(paper);
-    if (linked.length === 0) return <span className="note vault-link-text unlinked">Not linked</span>;
-    const names = linked.map((property) => property.title).join(', ');
-    return (
-      <span className="vault-link-text" title={names}>
-        {linked[0].title}
-        {linked.length > 1 && <span className="note"> +{linked.length - 1}</span>}
-      </span>
-    );
+  // Where a file lives, as words (vaultFolderLabel.ts): its folder, or the
+  // properties it is filed against, or My files. Inside a folder the path
+  // above the list already says it, so the cell stays empty there. Words, not
+  // a link: a press on the row opens the file; "in …" below the name (while
+  // the list is flat) is the way into the folder.
+  const folderCellOf = (paper: Paper): ReactNode => {
+    if (!filtering && currentFolder) return null;
+    const at = folderLabel({ ...paper, linkedProperties: linkedPropertiesFor(paper) }, folderById);
+    if (at.kind === 'property') {
+      return (
+        <span className="vault-link-text" title={at.all}>
+          {at.text}
+          {at.more > 0 && <span className="note"> +{at.more}</span>}
+        </span>
+      );
+    }
+    return <span className={`vault-link-text${at.kind === 'root' ? ' unlinked' : ''}`} title={at.text}>{at.text}</span>;
   };
   /** A press anywhere on a row or tile that is not one of its own controls
    *  opens the file, the way a file manager does. */
@@ -1019,6 +1035,12 @@ export function Vault() {
           its title (PageHead contract). */}
       <PageHead
         title="Documents"
+        info={(
+          <span className="row tight">
+            <span className="up" style={{ display: 'flex' }}><GppGoodOutlined sx={{ fontSize: 15 }} /></span>
+            {data.regionNote} · Private unless shared
+          </span>
+        )}
         actions={
           <>
             <button type="button" className="btn" onClick={() => setPanel('share')}>
@@ -1030,9 +1052,11 @@ export function Vault() {
           </>
         }
       >
-        <p className="note row tight" style={{ marginTop: '0.375rem' }}>
-          <span className="up" style={{ display: 'flex' }}><GppGoodOutlined sx={{ fontSize: 15 }} /></span>
-          {data.regionNote} · Private unless shared
+        {/* Figures, like every page under Your portfolio. Where the files are
+            kept is standing guidance, so it sits behind the ⓘ by the title. */}
+        <p className="note num" style={{ margin: '0.375rem 0 0' }}>
+          {[plural(files.length, 'file'), folders.length ? plural(folders.length, 'folder') : '']
+            .filter(Boolean).join(' · ')}
         </p>
       </PageHead>
 
@@ -1111,15 +1135,15 @@ export function Vault() {
                        placeholder="Search files, tags or properties"
                        aria-label="Search files, tags or linked properties" />
               </span>
-              <button type="button" className="sortcycle"
-                      aria-label={`Sort: ${SORTS.find((x) => x.key === sortMode)?.label}. Press to change.`}
-                      onClick={() => {
-                        const at = SORTS.findIndex((x) => x.key === sortMode);
-                        setSortMode(SORTS[(at + 1) % SORTS.length].key);
-                        setPage(1);
-                      }}>
-                Sort: {SORTS.find((x) => x.key === sortMode)?.label} ⌄
-              </button>
+              <SortCycle
+                label={SORTS.find((x) => x.key === sortMode)?.label ?? ''}
+                ariaLabel={`Sort: ${SORTS.find((x) => x.key === sortMode)?.label}. Press to change.`}
+                onNext={() => {
+                  const at = SORTS.findIndex((x) => x.key === sortMode);
+                  setSortMode(SORTS[(at + 1) % SORTS.length].key);
+                  setPage(1);
+                }}
+              />
               <span className="segmented" role="group" aria-label="Layout">
                 <button type="button" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>List</button>
                 <button type="button" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}>Grid</button>
@@ -1182,7 +1206,7 @@ export function Vault() {
                       }} />
                   </span>
                   <span role="columnheader">Name</span>
-                  <span role="columnheader">Linked to</span>
+                  <span role="columnheader">Folder</span>
                   <span role="columnheader">Type</span>
                   <span role="columnheader" aria-label="Actions" />
                 </div>
@@ -1229,7 +1253,7 @@ export function Vault() {
                         </span>
                       </span>
                     </span>
-                    <span role="cell" style={{ minWidth: 0 }}>{linksOf(paper)}</span>
+                    <span role="cell" style={{ minWidth: 0 }}>{folderCellOf(paper)}</span>
                     <span role="cell" className="note">
                       {SHELF_FILTERS.find(([key]) => key === paper.shelf)?.[1] ?? 'Unsorted'}
                       {paper.shared && <span style={{ marginLeft: 6 }}>· Shared</span>}
@@ -1277,7 +1301,7 @@ export function Vault() {
                     <span className="note vault-line">{fileLine(paper)}</span>
                     {whereLine(paper)}
                     {tagsOf(paper)}
-                    <span className="vault-tile-links">{linksOf(paper)}</span>
+                    <span className="vault-tile-links">{folderCellOf(paper)}</span>
                   </span>
                   {fileMenuButton(paper)}
                 </span>
@@ -1294,7 +1318,9 @@ export function Vault() {
           }}>Preview</MenuItem>
           {actionMenu && (
             <>
-              {linkedPropertiesFor(actionMenu.paper).length > 0 ? (
+              {/* A kept Aadhaar card is a person's identity, never put on
+                  land (the server refuses it too), so it offers no link. */}
+              {actionMenu.paper.aadhaarCard ? null : linkedPropertiesFor(actionMenu.paper).length > 0 ? (
                 <MenuItem onClick={() => {
                   setViewingLinksId(actionMenu.paper.id); setActionMenu(null);
                 }}>Manage links</MenuItem>

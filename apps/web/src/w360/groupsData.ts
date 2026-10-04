@@ -34,6 +34,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { gql } from '../api/client';
+import { trashDocuments } from '../data/pattadarActions';
 import {
   GROUP_FIELDS_HOLDINGS,
   MEMBER_FIELDS,
@@ -57,6 +58,7 @@ import type {
   ParcelOption,
   SavedMember,
 } from '../pages/families/familiesData';
+import { notifierSaveFailedText } from './groupsView';
 import { useToast } from './Toast';
 
 const KEY = 'w360';
@@ -236,16 +238,23 @@ export function useNotifiers(groupId: string | undefined, enabled: boolean) {
  * this one the moment anybody opens it, instead of serving up to 30 seconds
  * of a group that has already been renamed or deleted.
  *
- * `what` is the subject of the failure sentence, in the owner's words.
+ * `what` is the subject of the failure sentence, in the owner's words — or a
+ * function of the write's variables, when one hook saves two different things
+ * (the notifier editor saves "everyone together" or an order).
  */
 function useGroupWrite<V, R>(
   run: (vars: V) => Promise<R>,
-  what: string,
+  what: string | ((vars: V) => string),
   {
     also = [],
     quiet = false,
+    reason = true,
   }: {
     also?: readonly (readonly unknown[])[];
+    /** Print the server's reason as the toast's second line. The notifier
+     *  editor turns it off: its sentence already says what failed and that
+     *  nothing changed, and the raw server words beneath it read as noise. */
+    reason?: boolean;
     /** The caller shows the reason itself, in context. Only the member form
      *  sets this: it prints the server's words in an alert at the top of the
      *  form, beside the fields they refer to, and a toast saying the same
@@ -265,7 +274,10 @@ function useGroupWrite<V, R>(
     // Raised here so no write on this screen can forget it. A caller that
     // wants a more specific message still passes its own onError; react-query
     // runs both, this one first.
-    onError: quiet ? undefined : (e) => toast.bad(`${what} Nothing has changed.`, e),
+    onError: quiet ? undefined : (e, vars) => toast.bad(
+      `${typeof what === 'function' ? what(vars) : what} Nothing has changed.`,
+      reason ? e : undefined,
+    ),
   });
 }
 
@@ -305,10 +317,53 @@ export const useSaveMember = () =>
     { quiet: true },
   );
 
+/** The kept Aadhaar cards filed in one person's folders in Documents. Pure,
+ *  so the rule is tested without a server: a card counts only while it is
+ *  still in a folder of that person's tree. One the owner moved elsewhere is
+ *  theirs to keep, and is left alone. */
+export function aadhaarPapersOf(
+  memberId: string,
+  folders: readonly { id: string; personId?: string }[],
+  papers: readonly { id: string; fileRef: string; folderId?: string; aadhaarCard?: boolean }[],
+): { id: string; fileRef: string }[] {
+  if (!memberId) return [];
+  const theirs = new Set(folders.filter((f) => f.personId === memberId).map((f) => f.id));
+  return papers
+    .filter((p) => p.aadhaarCard && p.folderId && theirs.has(p.folderId))
+    .map((p) => ({ id: p.id, fileRef: p.fileRef }));
+}
+
+const Q_PERSON_FOLDERS = `query PF { web { vaultFolders { id personId } } }`;
+const Q_IDENTITY_PAPERS = `query IP { web { vaultPapers(shelf:"identity") { id fileRef folderId aadhaarCard } } }`;
+
+/** Remove a person. The API drops their filed Aadhaar card rows and their
+ *  folders in the same transaction as the member; the card's bytes live in
+ *  the storage gateway, so they are moved to Trash here, after the remove
+ *  succeeded — recoverable, never hard-deleted. Finding the cards first is
+ *  best-effort: a failed look-up never blocks removing the person. */
+async function removeMemberAndCards(id: string): Promise<void> {
+  let cards: { id: string; fileRef: string }[] = [];
+  try {
+    const [f, p] = await Promise.all([
+      gql<{ web: { vaultFolders: VaultFolderRef[] } }>(Q_PERSON_FOLDERS),
+      gql<{ web: { vaultPapers: VaultPaperRef[] } }>(Q_IDENTITY_PAPERS),
+    ]);
+    cards = aadhaarPapersOf(id, f.web.vaultFolders, p.web.vaultPapers);
+  } catch {
+    cards = [];
+  }
+  await removeMember(id);
+  if (cards.length) await trashDocuments(cards, { keepRows: true });
+}
+interface VaultFolderRef { id: string; personId?: string }
+interface VaultPaperRef { id: string; fileRef: string; folderId?: string; aadhaarCard?: boolean }
+
 export const useRemoveMember = () =>
   useGroupWrite<{ id: string }, void>(
-    (v) => removeMember(v.id),
+    (v) => removeMemberAndCards(v.id),
     'That person could not be removed.',
+    // Their filed Aadhaar card and their folders leave Documents with them.
+    { also: [[KEY, 'vaultPapers'], [KEY, 'vaultFolders'], [KEY, 'vault']] },
   );
 
 export const useInviteMember = () =>
@@ -347,5 +402,6 @@ export const useAssignHolding = () =>
 export const useSetNotifiers = () =>
   useGroupWrite<{ groupId: string; memberIds: string[] }, void>(
     (v) => setNotifiers(v.groupId, v.memberIds),
-    'That notifier order could not be saved.',
+    (v) => notifierSaveFailedText(v.memberIds),
+    { reason: false },
   );

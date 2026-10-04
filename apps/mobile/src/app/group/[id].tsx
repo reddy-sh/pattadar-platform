@@ -132,7 +132,7 @@ export default function GroupDetailScreen() {
             <Button
               mode="contained-tonal"
               icon="map-marker-outline"
-              onPress={() => router.push(`/holdings?q=${encodeURIComponent(group.name)}` as never)}
+              onPress={() => router.push(`/properties?q=${encodeURIComponent(group.name)}` as never)}
             >
               View this group’s land
             </Button>

@@ -13,6 +13,7 @@ export {
   UPDATE_MEMBER_MUTATION,
   REVEAL_AADHAAR_MUTATION,
   REVEAL_MY_AADHAAR_MUTATION,
+  LINK_AADHAAR_CARD_MUTATION,
   ADD_PARCEL_PHOTO_MUTATION,
   ALL_PARCEL_PHOTOS_QUERY,
   APPLY_MY_KYC_MUTATION,
@@ -74,6 +75,8 @@ export {
 } from './format/audit';
 export { formatDate, formatDateTime, parseISOToDisplay } from './format/date';
 export { formatINR, formatINRCompact, formatNumberIN } from './format/inr';
+export { normalizeIndianMobile, PHONE_MAX_RAW } from './format/phone';
+export { looksLikeAadhaar } from './format/idNumber';
 export {
   UNITS,
   UNIT_SQFT,
@@ -141,10 +144,7 @@ export {
   pointInRing,
   formatDistance,
   haversineKm,
-  mapsAppFor,
-  mapsAppName,
-  mapsLink,
-  safeMapLabel,
+  navigateLink,
   placeCandidates,
   villageKey,
   mapKey,
@@ -152,8 +152,6 @@ export {
   ringCentroid,
   type LatLng,
   type LocationSanity,
-  type MapsApp,
-  type MapsLinkOptions,
   type PhotoGeoStatus,
   type PhotoGeoCheck,
 } from './land/geo';

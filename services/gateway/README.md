@@ -52,6 +52,16 @@ The gateway validates the Cognito **access** token:
   timeout and **no retries** on `import-*` / `extract-*` paths (AI extraction is slow and
   non-idempotent in cost).
 - **Storage**: serve `/api/gateway/storage/*` (proxied streaming to/from S3).
+- **Anonymous GraphQL** (`src/public_graphql.py`): a request without a bearer is
+  proxied only as `POST graphql` naming exactly one public root —
+  `verifyBeneficiary` or `acknowledgeInactivity` (each consumes a hashed token),
+  query `invitePreview`, or the credential-less `registerNetworkInterest`
+  (Pattadar Network form; bounded by the API's honeypot, insert-once and hourly
+  ceiling, `services/api/src/network.py`). A body over `MAX_PROXY_BODY_BYTES`
+  is refused with **413** before auth; a body over the 64 KiB public parse cap,
+  a second root (by field, alias, fragment or inline fragment), several
+  operations, or a non-allowlisted root falls through to bearer validation and
+  gets **401**.
 - **Path stability**: keep all paths gateway-relative so the web and mobile clients never
   change when infrastructure moves.
 

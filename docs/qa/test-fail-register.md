@@ -72,7 +72,7 @@ nothing.
 files — 46 bare, 68 declaration, 4 conditional inline, all four conditionals in
 `23-resilience.spec.ts` — and 9 in `e2e-web360`, distributed `gap-shell` 3,
 `gap-services` 2, and one each in `crud-360`, `gap-maps`, `gap-vault` and
-`ux-record-combined`. That agrees with `docs/qa/tester-onboarding.md` exactly.
+`ux-record-holding`. That agrees with `docs/qa/tester-onboarding.md` exactly.
 No discrepancy to report.
 
 **Markers are not the same as failing cases.** The four conditionals sit inside
@@ -126,7 +126,7 @@ Forms: **B** bare `test.fail();`, **D** declaration `test.fail('title', async �
 | `e2e-web360/crud-360.spec.ts` | 1 | 1 B | Filing a paper, live storage |
 | `e2e-web360/gap-maps.spec.ts` | 1 | 1 B | Boundary, live writes |
 | `e2e-web360/gap-vault.spec.ts` | 1 | 1 B | Share links, live rows |
-| `e2e-web360/ux-record-combined.spec.ts` | 1 | 1 B | Record tab controls, tap targets |
+| `e2e-web360/ux-record-holding.spec.ts` | 1 | 1 B | Record tab controls, tap targets |
 | **Total** | **127** | 46 B, 68 D, 4 C, plus 9 B in `e2e-web360` | 23 of 29 `e2e-app` files, 6 of 19 `e2e-web360` spec files |
 
 Six `e2e-app` spec files carry no marker: `00-harness`, `12b-paper-preview`,
@@ -158,7 +158,7 @@ backlog is smaller than the count suggests.
 | **Dead upload guard** | `uploadToDrive` always throws and never resolves falsy (`storage.ts:50`), so every `if (!node)` branch behind it is unreachable | `13-services:2805`, `10-record-photos:1502`, `14-ticket:2101`, `gap-services:159`, `gap-services:180` | S2, and **S1** for `gap-services:180` |
 | **Legacy rail points at the new app** | `AppShell.tsx:75-90` paths all begin `/app/`; `:146-147` therefore matches nothing under `/legacy/` | `19-sections-legacy:488`, `19-sections-legacy:500`, `21-routing:1109`, `gap-shell:125`, `gap-shell:151` | S3 |
 | **Redirect discards the query** | `routes.tsx:295-335` hardcode `<Navigate to>` and drop incoming search params | `19-sections-legacy:889`, `19-sections-legacy:901`, `21-routing:852`, `gap-shell:172` | S3 |
-| **Tap targets below the floor** | `w360.css:221-231` (`.iconbtn` 32px), `:378-395` and `:540-565` (`.btn`) | `24-responsive:1448`, `24-responsive:1462`, `24-responsive:1476`, `24-responsive:1493`, `ux-record-combined:352` | S3 |
+| **Tap targets below the floor** | `w360.css:221-231` (`.iconbtn` 32px), `:378-395` and `:540-565` (`.btn`) | `24-responsive:1448`, `24-responsive:1462`, `24-responsive:1476`, `24-responsive:1493`, `ux-record-holding:352` | S3 |
 | **Inline grid beats the stylesheet** | Column tracks set as inline style, so the `max-width: 900px` rule cannot win — `Shared.tsx:86-87`, `Reader.tsx:394` | `18-shared:822`, `24-responsive:547`, `24-responsive:606`, `12-reader:1744` | S3 |
 | **Lapsed link reads as live** | `Reader.tsx:625` with `_days_until`'s `max(0, …)` (`web360.py:1488`); `Vault.tsx:50-80` parses the date itself and disagrees | `12-reader:1094`, `gap-vault:314` | S2 |
 | **Unconfirmed boundary wipe** | `RecordBoundary.tsx:913-919` writes `ring: []` on one click; `web360.py:4298` overwrites with no history row | `09-record-boundary:1282`, `gap-maps:172` | **S1** |
@@ -224,7 +224,7 @@ assistive-technology testing and expert review.
 | Navigation and deep links | `01-shell:753`, `16-maps:723`, `19-sections-legacy:500`, `19-sections-legacy:889`, `19-sections-legacy:901`, `21-routing:852`, `21-routing:935`, `21-routing:1109`, `21-routing:1215`, `gap-shell:125`, `gap-shell:172` |
 | Date formatting and arithmetic | see the date section above |
 | Accessibility naming and non-text cues | see the accessibility section above |
-| Phone layout and tap targets | `12-reader:1744`, `18-shared:822`, `24-responsive:383`, `24-responsive:547`, `24-responsive:606`, `24-responsive:1448`, `24-responsive:1462`, `24-responsive:1476`, `24-responsive:1493`, `ux-record-combined:352` |
+| Phone layout and tap targets | `12-reader:1744`, `18-shared:822`, `24-responsive:383`, `24-responsive:547`, `24-responsive:606`, `24-responsive:1448`, `24-responsive:1462`, `24-responsive:1476`, `24-responsive:1493`, `ux-record-holding:352` |
 | Dead or missing control | `01-shell:1169`, `04-record-shell:728`, `08-record-money:1656`, `11-vault:540`, `15-wallet:667`, `19-sections-legacy:889`, `22-account:949`, `24-responsive` tap targets |
 | Missing empty state | `11-vault:227`, `15-wallet:805`, `19-sections-legacy:616` |
 | Copy, separator and plural hygiene | `11-vault:1290`, `12-reader:1050`, `12-reader:1064`, `15-wallet:649`, `18-shared:393`, `18-shared:499`, `18-shared:642`, `22-account:676` |
@@ -517,7 +517,7 @@ real storage, which is why several duplicate a sealed-suite marker.
 | `gap-services:180` | B | a file that was already filed stops being queued, so pressing again cannot file it twice | The already-filed paper dropped from the queue; a second press re-uploads it and the resolver inserts a duplicate with no dedupe | `RequestWork.tsx:150`, `:170`; `web360.py:4601` | **S1** |
 | `gap-maps:172` | B | a surveyed ring survives the first click on Remove saved boundary, and is only wiped after a second, deliberate one | The second confirmation the photo gallery and the replace path already give; the corners are unrecoverable once written | `RecordBoundary.tsx:913-919`; `web360.py:4298` | **S1** |
 | `gap-vault:314` | B | the Reader does not tell the owner a link that lapsed last month expires tomorrow | A truthful statement about a live access credential; the vault screen parses the date itself and contradicts the reader about the same row today | `Reader.tsx:625`; `web360.py:1488-1498`; `Vault.tsx:50-80` | S2 |
-| `ux-record-combined:352` | B | every control on a Record tab clears the 44px target floor | A token-level minimum height; the iOS client honours 44pt and the staged web kit sets it, so this client is the outlier | `w360.css:540-565`; `apps/ios/design.md:122-137` | S3 |
+| `ux-record-holding:352` | B | every control on a Record tab clears the 44px target floor | A token-level minimum height; the iOS client honours 44pt and the staged web kit sets it, so this client is the outlier | `w360.css:540-565`; `apps/ios/design.md:122-137` | S3 |
 | `crud-360:999` | B | a paper that could not be read says so, because it needs sorting by hand | The panel held open on an error, or the sentence carried onto the page; it is currently unmounted with the message still in its state, so only the green toast is seen | `RecordPapers.tsx` `PaperDrawer.file()` | S2 |
 
 ## Operational notes

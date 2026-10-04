@@ -279,7 +279,7 @@ test.describe('filters, tags and links', () => {
     await expect(page.getByRole('heading', { level: 2, name: /^All folders · 2 files$/ })).toBeVisible();
   });
 
-  test('a combined view finds the files of every property in it, and files linked to the view itself',
+  test('a holding finds the files of every property in it, and files linked to the holding itself',
     async ({ page, world }) => {
       world.set('combinedProperties', [{
         id: 'cv-farm', name: 'Katragunta farm', members: [{ id: 'm1', recordId: ID.parcel, title: 'Sy 214/2' }],
@@ -295,7 +295,7 @@ test.describe('filters, tags and links', () => {
       await expect(filter(page).getByRole('button', { name: /^Sy 214\/2\s*2$/ })).toBeVisible();
       await filter(page).getByRole('button', { name: /^Katragunta farm\s*3$/ }).click();
       await page.keyboard.press('Escape');
-      await expect(page.getByRole('button', { name: 'Remove filter Combined view Katragunta farm' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Remove filter Holding Katragunta farm' })).toBeVisible();
       await expect(rowOf(page, 'Joint FMB.pdf')).toBeVisible();
       await expect(rowOf(page, 'Crop ledger.xlsx')).toBeVisible();
       await expect(rowOf(page, 'Sale Deed 3325/2022')).toBeVisible();
@@ -369,6 +369,67 @@ test.describe('filters, tags and links', () => {
     await expect(rowOf(page, 'Sale Deed 3325/2022')).toContainText('in Deeds');
     await page.getByRole('button', { name: 'Clear the search for sale deed' }).click();
     await expect(rowOf(page, 'Sale Deed 3325/2022')).toHaveCount(0);
+  });
+});
+
+test.describe('a kept Aadhaar card, filed under its person', () => {
+  // The tree the API makes (web360.ensure_person_folder): one folder per
+  // person, an Aadhaar folder inside it, made the first time a card is filed.
+  const CARD_REF = '7a2d4c10-3b5e-4f61-9a8c-2e4b6d8f0a13';
+  const PERSON_FOLDERS = [
+    { id: 'fld-ravi', name: 'Ravi', parentId: '', fileCount: 0, folderCount: 1, createdAt: '', personId: 'mem-ravi' },
+    { id: 'fld-ravi-a', name: 'Aadhaar', parentId: 'fld-ravi', fileCount: 1, folderCount: 0, createdAt: '',
+      personId: 'mem-ravi' },
+    { id: 'fld-sita', name: 'Sita', parentId: '', fileCount: 0, folderCount: 1, createdAt: '', personId: 'mem-sita' },
+    { id: 'fld-sita-a', name: 'Aadhaar', parentId: 'fld-sita', fileCount: 0, folderCount: 0, createdAt: '',
+      personId: 'mem-sita' },
+  ];
+  const CARD = { ...file({ id: 'd-card', title: 'Aadhaar card', detail: 'XXXX-XXXX-9012', shelf: 'identity',
+    icon: 'identity', fileRef: CARD_REF, folderId: 'fld-ravi-a', sizeBytes: 2048,
+    createdAt: '2026-10-03T10:00:00' }), aadhaarCard: true };
+  const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+
+  test.beforeEach(({ world }) => {
+    world.set('vaultPapers', [...FILES, CARD]);
+    world.set('vaultFolders', [...FOLDERS, ...PERSON_FOLDERS]);
+  });
+
+  test('it is found under Ravi › Aadhaar, masked, and opens its stored bytes', async ({ page, world }) => {
+    world.route(new RegExp(`/storage/files/${CARD_REF}/content`), () => ({ contentType: 'application/pdf', body: PDF }));
+    await page.goto('/app/papers');
+    await table(page).getByRole('link', { name: 'Ravi' }).click();
+    await table(page).getByRole('link', { name: 'Aadhaar' }).click();
+    await expect(page).toHaveURL(/\?folder=fld-ravi-a$/);
+    const path = page.getByRole('navigation', { name: 'Folder path' });
+    await expect(path.getByRole('link', { name: 'Ravi' })).toBeVisible();
+    const card = rowOf(page, 'Aadhaar card');
+    await expect(card).toContainText('XXXX-XXXX-9012');
+    await expect(card).toContainText('Identity');
+    // Nothing on the page is a full twelve-digit number.
+    expect(await page.locator('body').innerText()).not.toMatch(/\d{4}[\s-]?\d{4}[\s-]?\d{4}/);
+
+    world.set('document', { id: 'd-card', title: 'Aadhaar card', subtitle: 'XXXX-XXXX-9012', shelf: 'identity',
+      recordId: '', recordTitle: '', pageCount: 0, sizeLabel: '2 KB', registeredOn: '', office: '',
+      fileRef: CARD_REF, mimeType: 'application/pdf', buyer: '', seller: '', consideration: 0,
+      readerSummary: '', readerFlag: '', readerFlagPage: 0, tags: [], shared: false, versions: [], link: null });
+    await card.getByRole('link', { name: 'Aadhaar card' }).click();
+    await expect.poll(() => world.restCalls(new RegExp(`/storage/files/${CARD_REF}/content`)).length)
+      .toBeGreaterThan(0);
+  });
+
+  test('a search finds it, and its Folder says whose Aadhaar folder it is', async ({ page }) => {
+    await page.goto('/app/papers');
+    await page.getByLabel('Search files, tags or linked properties').fill('aadhaar');
+    const card = rowOf(page, 'Aadhaar card');
+    await expect(card).toContainText('Ravi › Aadhaar');
+    await expect(card.getByRole('button', { name: /Open Ravi › Aadhaar|Open Aadhaar/ })).toBeVisible();
+  });
+
+  test('it offers no link to a property, which the server refuses too', async ({ page }) => {
+    await page.goto('/app/papers?folder=fld-ravi-a');
+    await page.getByRole('button', { name: 'Actions for Aadhaar card' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Move to folder…' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Link to a property|Manage links/ })).toHaveCount(0);
   });
 });
 

@@ -30,7 +30,7 @@ jobs:
       - run: bun run typecheck
       # One root per workspace package, matching ci.yml. Subdirectory lists are
       # how apps/web/src/components and apps/web/src/data came to run nowhere.
-      - run: bun test packages/core apps/web/src apps/mobile/tests apps/university/src
+      - run: bun test packages/core packages/tokens apps/web/src apps/mobile/tests apps/university/src
       - name: Offline rule and guard assertions
         run: |
           set -euo pipefail

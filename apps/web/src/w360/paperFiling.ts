@@ -7,6 +7,7 @@
  *  five minutes later. Two copies of this logic would have drifted the first
  *  time either one was touched.
  */
+import { parseISOToDisplay } from '@pattadar/core';
 import { familyOfType } from '../pages/documents/docTypes';
 import type { Reading } from '../pages/documents/upload';
 
@@ -16,6 +17,14 @@ export const filedToday = (): string => {
   const p2 = (n: number) => String(n).padStart(2, '0');
   return `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
+
+/** A paper's one-line detail as shown: a "Registered YYYY-MM-DD" stored
+ *  before the reading wrote DD/MM/YYYY reads as DD/MM/YYYY (India). Anything
+ *  else, including an already-DD/MM/YYYY date, passes through unchanged. */
+export function displayDetail(detail: string): string {
+  return (detail || '').replace(/\bRegistered (\d{4})-(\d{2})-(\d{2})\b/g,
+    (_, y: string, m: string, d: string) => `Registered ${d}/${m}/${y}`);
+}
 
 /** The core families and the Papers screen's shelf keys agree on all but two. */
 const SHELF_OF_FAMILY: Record<string, string> = {
@@ -57,7 +66,7 @@ export function describeReading(r: Reading, file: File): PaperRow {
     : label || '';
 
   const bits = [
-    str('registration_date') ? `Registered ${str('registration_date')}` : '',
+    str('registration_date') ? `Registered ${parseISOToDisplay(str('registration_date'))}` : '',
     str('sro'),
     str('village'),
   ].filter(Boolean);

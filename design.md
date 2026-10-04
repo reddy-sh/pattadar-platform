@@ -38,7 +38,7 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
   CTAs open `/signup`; "Sign in" opens `/login`. Nav: **N10
   scroll-morph** (full-width hairline bar at rest → floating pill when
   scrolled; deliberate variation from the source's N5 — Pattadar's landing nav
-  carries 8 section links + one route-level Pricing link + brand + CTA).
+  carries 9 section links + one route-level Pricing link + brand + CTA).
 - **App pages** (`/app/*`): functional shell, tokens-only restyle. No
   decoration ever — function carries the page. Light, Dark, and High Contrast
   remain complete, user-switchable schemes. **Domain structure is allowed**
@@ -52,30 +52,39 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
   voice — wordmark hairline bar, measure-limited column, statement-free
   bottom row.
 
-## Theme (dark · canonical — see apps/web/src/styles/tokens.css)
+## Theme (dark · canonical — packages/tokens/src/palette/bloom.ts)
+
+Every scheme lives in the palette pack (§ Exports). The names below are the
+marketing surface's: `apps/web/src/styles/site.css` declares them on `.site`
+as aliases of MUI's `--mui-palette-*` variables, so they hold no values of
+their own. Each value is the pack's sRGB hex, converted from the oklch shown,
+which is how Bloom was first written; on a wide-gamut screen the coral, the
+focus amber, the error red and the first bloom are slightly less saturated
+than their oklch, since 03/10/2026. `--color-accent-2` documents Dark's
+secondary; no marketing rule reads it, so it is not aliased.
 
 - `--color-paper`   oklch(13% 0.018 35)   ≈ #0d0504
 - `--color-paper-2` oklch(17% 0.020 35)   ≈ #170c09
 - `--color-paper-3` oklch(22% 0.022 35)   ≈ #241714
-- `--color-paper-4` oklch(28% 0.020 35)   ≈ #322522
 - `--color-ink`     oklch(95% 0.010 70)   ≈ #f3ede7
 - `--color-ink-2`   oklch(78% 0.015 60)   ≈ #bfb5ae
-- `--color-ink-3`   oklch(58% 0.015 50)   ≈ #827873  (small uppercase labels on base paper only — 4.47:1 on paper-2, keep off paper-2 body text)
+- `--color-ink-3`   oklch(61% 0.015 50)   ≈ #8b817b  (muted text: labels, eyebrows, units — 5.31:1 on paper, 5.05:1 on paper-2, 4.57:1 on paper-3; nudged from 58% on 03/10/2026, when it was 4.46:1 on cards, and from 58.5% on 04/10/2026, when it was 4.11:1 on paper-3)
 - `--color-rule`    oklch(28% 0.018 40)   ≈ #312622
 - `--color-rule-strong` oklch(40% 0.025 40) ≈ #54433e
 - `--color-accent`  oklch(74% 0.180 55)   ≈ #fe860f  (amber · 8.29:1 on paper)
-- `--color-accent-2` oklch(68% 0.220 18)  ≈ #ff4a63  (coral · sparingly)
+- `--color-accent-2` oklch(80% 0.110 35)  ≈ #fca48d  (coral · sparingly; lightened on 04/10/2026 from oklch(68% 0.220 18), which sat on the error red)
 - `--color-accent-ink` oklch(15% 0.040 50) ≈ #180600 (text on amber · 8.11:1)
 - `--color-focus`   oklch(82% 0.180 55)   ≈ #ffa03c
 - `--color-error`   oklch(70% 0.220 25)   ≈ #ff5453
 - `--color-success` oklch(74% 0.160 145)  ≈ #61c568
 
-### Light scheme (app only — derived, warm-tinted; lives in apps/web/src/theme.ts)
+### Light scheme (app only — derived, warm-tinted; lives in packages/tokens/src/palette/bloom.ts)
 
 - background.default `#f9f6f2` (oklch 97.5% 0.006 70) · background.paper `#fdfcf9`
-- text.primary `#261d1a` (15.31:1) · text.secondary `#615956` (6.35:1) · divider `#e3ddd8`
+- text.primary `#261d1a` (15.31:1) · text.secondary `#615956` (6.35:1) · text.muted `#736964` (oklch 52.9% 0.015 48 — 4.96:1, 5.20:1 on paper, 4.55:1 on raised) · divider `#e3ddd8`
 - primary.main `#aa5910` (oklch 55% 0.13 55 — white contrastText 5.07:1)
 - error `#be222a` (6.08:1 w/ white) · success `#27762f` (5.65:1 w/ white)
+- secondary `#751e2d` (oklch 38% 0.12 15 — the coral deepened, 1.74:1 apart from error) · warning `#72480b` (oklch 44% 0.09 70 — bronze, 1.57:1 apart from primary)
 
 ### High Contrast scheme (app only — low-vision reading mode)
 
@@ -86,40 +95,85 @@ is `#1f1f1f` (16.48:1), rules are solid black, and focus indicators grow from
 white text. Selected states retain shape, weight, border, or checkmark cues so
 colour is never their only signal.
 
-### Semantic slots — define ALL SIX on ALL THREE schemes
+### Pattadar Gold scheme (app only — the signature light scheme; lives in packages/tokens/src/palette/pattadarGold.ts)
+
+Ivory cards (`#fffefa`) on a cool grey-green page (`#eceeeb`), charcoal-green
+ink (`#222923`, 12.77:1; muted `#536058`, 5.66:1), one bronze-gold action
+colour (`#75510b`, 6.12:1, white text 7.15:1) and a gold selected wash
+(`#f8edcf`, its ink `#5d4009` 8.17:1). The header is the one place it departs
+from the page: charcoal (`#202521`) with ivory ink, a gold wordmark dot
+(`#d9bf72`) and a 2px gold rule (`#d4b663`) under it — the scheme's `chrome`
+roles, which W360's top bar and the previous app's AppBar both read. Warning
+is rust (`#9a4d00`, oklch hue 55), held off the gold (77) so "needs attention"
+never reads as "do this". Charts use Light's validated series. The anchors are
+the Pattadar Gold sample of the 2026 appearance study, which `/theme-samples`
+showed until this scheme replaced it on 03/10/2026; it is offered in the menu
+and is no app's default.
+
+### Semantic slots — define ALL SIX on ALL FOUR schemes
 
 MUI does not disable an undefined palette slot; it substitutes its factory
 default. `warning`, `info` and `secondary` were once undefined while being
 used 22 times, so unrelated default blue and purple reached the amber system.
 Ratios below are measured against that scheme's background.
 
-| slot | dark | light | High Contrast |
-| --- | --- | --- | --- |
-| primary | `#fe860f` amber (8.29:1) | `#aa5910` (5.07:1) | `#003b73` dark blue (11.21:1) |
-| secondary | `#ff4a63` coral (6.16:1) | `#b23645` (5.56:1) | `#5a1a78` plum (11.33:1) |
-| error | `#ff5453` | `#be222a` | `#a40000` (8.14:1) |
-| success | `#61c568` | `#27762f` | `#006b3c` (6.63:1) |
-| warning | `#f5ae39` gold (10.57:1) | `#905d00` (5.20:1) | `#6b4f00` (7.65:1) |
-| info | `#82bad5` slate (9.55:1) | `#3d6a7f` (5.47:1) | `#004f6b` (9.01:1) |
+| slot | dark | light | Pattadar Gold | High Contrast |
+| --- | --- | --- | --- | --- |
+| primary | `#fe860f` amber (8.29:1) | `#aa5910` (5.07:1) | `#75510b` bronze gold (6.12:1) | `#003b73` dark blue (11.21:1) |
+| secondary | `#fca48d` coral (10.41:1) | `#751e2d` (9.84:1) | `#2e5e4e` deep green (6.37:1) | `#5a1a78` plum (11.33:1) |
+| error | `#ff5453` | `#be222a` | `#b3261e` (5.60:1) | `#a40000` (8.14:1) |
+| success | `#61c568` | `#27762f` | `#22693a` (5.71:1) | `#006b3c` (6.63:1) |
+| warning | `#f5ae39` gold (10.57:1) | `#72480b` bronze (7.36:1) | `#9a4d00` rust (5.24:1) | `#6b4f00` (7.65:1) |
+| info | `#82bad5` slate (9.55:1) | `#3d6a7f` (5.47:1) | `#2f6474` (5.63:1) | `#004f6b` (9.01:1) |
 
 `warning` stays distinct from the primary action colour so "needs attention"
 never reads as "do this". `info` remains the system's one cool semantic seam.
 
 ### Theme choice and persistence
 
-Authenticated app headers expose exactly **Light**, **Dark**, and **High
-Contrast** in an accessible menu; the Next settings drawer exposes the same
-three choices as one preference. The selected choice is visibly marked,
-announced to assistive technology, and restored after reload. Web360 persists
-under `w360.scheme`; the legacy MUI renderer persists mode and named scheme;
-the Next renderer migrates its previous `themeMode`/`themeContrast` settings
-into one `themeChoice`. A former `bold` preference becomes High Contrast.
+One choice for the whole web app. W360's header and the previous app's shell
+both offer the registry's menu — **Light**, **Dark**, **Pattadar Gold** and
+**High Contrast**, in that order — through `useThemeChoice` (`apps/web/src/components/useThemeChoice.ts`),
+so a scheme chosen in one is the scheme the other shows. The selected choice is
+visibly marked, announced to assistive technology (`menuitemradio` with
+`aria-checked`), and restored after a reload and in other tabs.
+
+MUI keeps it: `pattadar-mode-v2` holds the mode, and
+`pattadar-color-scheme-v1-light` / `-dark` the scheme each mode shows
+(`THEME_STORAGE` in `packages/tokens`). The provider writes the active scheme
+to `<html data-scheme>`, so every MUI surface wears it, the menus, drawers and
+popovers portalled to `<body>` included.
+
+`apps/web/public/theme-init.js` applies the saved choice before anything
+renders. It is generated from the registry by `scripts/emit-theme-init.ts` and
+loaded from `index.html` ahead of the bundle; it sets `data-scheme` and paints
+that scheme's ground, so no frame flashes the wrong colour. The first time it
+runs it carries the old `w360.scheme` key into MUI's keys (W360's choice wins
+over anything the previous app had saved) and leaves the old key in place for
+one release, so a rolled-back bundle still finds it. Defaults come from the
+registry. `scripts/palette-tests.ts` fails when the committed script has
+drifted from the pack.
+
+`?scheme=<id>` on any address opens that scheme as if it had been chosen from
+the menu: it is saved, so MUI agrees when it mounts, and then taken off the
+address, so a reload or a later choice is never overruled by it. Only a
+registered id is honoured; anything else is ignored and the address is left
+alone. This is how a scheme is shown for review — `/app?scheme=pattadar`
+replaced the retired `/theme-samples` page.
+
 Marketing remains intentionally dark, independent of the signed-in app choice.
+
+Pattadar University (`apps/university`) keeps its choice the same way, on its
+own origin: the same four schemes, the same MUI keys, its own generated
+`public/theme-init.js`, and its older `pattadar.university.theme` key (whose
+`contrast` is High Contrast) carried over once. Its switcher keeps the words it
+always had, "High contrast".
 
 ### Default scheme
 
-**Dark** in `apps/web`. The landing page remains
-permanently dark, while every signed-in renderer provides all three choices.
+**Dark** in `apps/web`, **Light** in `apps/university` (both from the
+registry's `defaults`). The landing page remains permanently dark, while every
+signed-in renderer provides all four choices.
 
 ## Typography
 
@@ -135,10 +189,10 @@ per-role faces.
   letter and number forms improve recognition for low-vision readers without
   making the interface feel specialized or clinical.
 - One token: `--font-sans` in `apps/web/src/styles/tokens.css`, repeated
-  verbatim in `apps/web/src/theme.ts`, `apps/university/tokens.css` and
-  `packages/tokens`. A root names it once (`.w360`, `.site`, the certificate
-  page, University `body`) and everything else inherits. A component never
-  names a font family.
+  verbatim in `apps/university/tokens.css` and in `packages/tokens` as
+  `FONT_SANS`, which `apps/web/src/theme.ts` imports. A root names it once
+  (`.w360`, `.site`, the certificate page, University `body`) and everything
+  else inherits. A component never names a font family.
 - Roles differ by size, weight, case, tracking and colour — never by face.
   Headings are 700; eyebrows and overlines are small uppercase 400 with
   positive tracking; body is 400. The face is not tracked negatively.
@@ -251,7 +305,7 @@ tokens.css). Pages must use named tokens, never raw values.
 ## Microinteractions stance
 
 - Silent success; no celebratory toasts.
-- Hover: −1px translate + border-strong on cards; never scale, never glow.
+- Hover: −2px translate + border-strong on cards (site.css `.card:hover`, MuiCard); never scale, never glow.
 - Focus: `--color-focus` ring, 2px normally and 3px in High Contrast,
   visible instantly (never animated).
 - Hover tooltips delay 800ms; focus tooltips 0ms.
@@ -259,7 +313,7 @@ tokens.css). Pages must use named tokens, never raw values.
 ## CTA voice
 
 - Primary: amber pill (`--color-accent` fill, `--color-accent-ink` text,
-  radius-pill, weight 600, sentence case).
+  radius-pill, weight 700, sentence case — the face has no 600).
 - Secondary/ghost: hairline pill (`--color-rule-strong` border, ink text).
 - The hero and final statement own the amber; nav CTA stays ghost. Accent
   footprint ≤ 5% per viewport.
@@ -278,6 +332,16 @@ The rules in this document are quality defaults, not a ceiling. Explicit founder
   (§ App-surface rules, "One component per concern"). Native iOS, Expo and the
   PDF exports are outside this decision for now and are listed in
   `docs/specs/TODO-one-platform.md`.
+- **Colours told apart by lightness (requested by Reddy, 04/10/2026).**
+  Colours that must never be mistaken for each other differ in lightness, not
+  hue alone. Bloom's coral was the error red's twin (1.04:1 Dark, 1.02:1
+  Light): it is lightened to `#fca48d` in Dark and deepened to `#751e2d` in
+  Light, keeping the coral family. Light's warning was 1.11:1 against the
+  action amber: it is bronze `#72480b` now. Light chart slot 4 moved off the
+  status green (§ Chart series). Muted ink (`ink3`) now clears 4.5:1 on raised
+  as well as on paper, and Dark's danger fill carries dark text (6.24:1, was
+  white at 3.16:1). `packages/tokens/src/palette/palette.test.ts` and
+  `gate.ts` hold each of these.
 
 ## Per-page allowances
 
@@ -337,6 +401,21 @@ saved copies, sharing, map boundaries and roadmap services. The hero lead is
 static so it can be read while the illustration plays. Further copy changes
 should still be deliberate product decisions, not incidental visual edits.
 
+**Revision, 03/10/2026:** by founder request, a Pattadar Network section
+(`NETWORK`, `#network`, nav entry `Network`) was added after Pattadar
+University: eight offerings, every one badged `Coming soon`, and the sentence
+that no listings or professionals are on Pattadar today. `Legal connect` and
+`Trusted document writers` moved from Services into it with their wording
+unchanged. Its register-interest form (`NETWORK_INTEREST`) carries DRAFT
+consent wording that needs Reddy's approval before production
+(`docs/specs/TODO-pattadar-network.md`, D4). The form's submit is the ghost
+CTA voice. `scripts/network-interest-tests.ts` guards the claims and the
+consent text/version parity with the API.
+**Revision, follow-up 2:** by Reddy's decision the card list is sell, buy,
+rent or lease, lawyers and legal connect (one card, not two), licensed
+surveyors, document writers, land developers and property valuers; the guard
+pins the list and the form's interest choices against `network.INTERESTS`.
+
 The landing page's scripted assistant exchange remains a sample; its
 `· sample conversation` label is what makes invented survey
 numbers on a public page honest, and `scripts/provenance-tests.ts` fails the
@@ -358,15 +437,19 @@ verb + object actions. `/legacy/*` keeps its own older copy until retired.
 
 | Concept | Say | Not |
 |---|---|---|
-| Everything the owner holds | **Properties** (a parcel, plot, flat or house when known) | holdings, records, land, portfolio items |
+| Everything the owner holds | **Properties** (a parcel, plot, flat or house when known). **Holdings** must never be used for the Properties list | holdings, records, land, portfolio items |
 | Stored papers | **Documents** (item: document; bytes: file) | Papers, Vault, My Drive |
-| Several records viewed together | **Combined view** — official records stay separate | combined property, holding |
+| Several properties held as one | **Holding** (list: **Holdings**) — official records stay separate. Inside one, use the singular ("This holding"). Never write "your holdings" to mean all of an owner's land. Web: one constant, `HOLDING_WORD` in `apps/web/src/w360/ui.tsx` | combined view, combined property, estate, portfolio |
 | Village / cadastral maps | **Cadastral maps** | Village maps, Maps |
 | One property's pin and boundary | **Location & boundary** — "Boundary saved", never "surveyed" | Where this land is |
 | Things physically on the land | **Site features** | Features, assets |
 | Owner's paid work | **Service order** (the desk's operational unit stays a **job**) | ticket, request, job (on owner screens) |
 | Owner-facing trail | **Activity** (Audit log is reserved for a compliance surface) | Audit Log, History, Timeline |
 | Pattadar's people | **Member** / **provider** | associate, somebody |
+| A family's inactivity safeguard (Families & groups) | Tab **Safeguard**, heading **Inactivity safeguard**; tab status drawn as a glyph only (! or ✓); its word **needs action** or **set** is the glyph's tooltip and part of the tab's accessible name ("Safeguard, needs action"), never visible text | a safeguard box above every tab, a colour-only status, the status word printed in the tab |
+Holding approved by Reddy on 03/10/2026, superseding the 26/09/2026 "Combined view" entry (research: `.agents/tasks/pattadar-platform-combined-views-standardize-2026-10-27/naming-research.md`). Web files, identifiers and routes say holding (`/app/holdings`; `/app/combined…` redirects); GraphQL fields, operations, query keys and the `combined_*` tables keep `combined` (server contract). `scripts/vocab-tests.ts` (VOC-1..7) holds the web to it, and holds iOS (which has no Holdings feature) to "property" for one property.
+Safeguard tab approved by Reddy on 03/10/2026 (audit `.local/ux-audits/2026-10-03-families-inactivity-safeguard/board.html`).
+Its notifier editor ("Inactivity notifications", from **Configure notifiers**) opens in the shared right-side Drawer with Save first; the contact gap is one warn StatusChip with one sentence, from the server's `inactiveContactGaps`, on the tab and in the editor (`contactGapSentence`). Approved by Reddy on 03/10/2026 (audit `.local/ux-audits/2026-10-03-inactivity-notifications-dialog/board.html`).
 
 Rail groups: **Your portfolio · Shared** (ends with Invite & earn) **· Money · Account** (Profile, Privacy &
 your data, Activity), then **Operations** (platform admin: Pattadar desk) and
@@ -382,7 +465,7 @@ Explanatory lines follow the same rule as subheaders: one short, factual
 sentence or a dot-separated status line, never a paragraph. "You pay only
 after you accept the work", not "Nothing is taken when you order. Money is
 owed only once you accept the work." Owners count **properties**; "record"
-is used only for the members of a combined view.
+is used only for the members of a holding.
 
 ### Property tabs (founder decision, 28/09/2026)
 
@@ -464,18 +547,23 @@ again.
   sit over **arbitrary user media** (neutral black/white, never a palette
   tint), the **PDF iframe** backdrop (a PDF page is white), **FmbMapViewer**
   sketch strokes (SVG over imagery — literals, but Bloom values), and
-  **VillageCanvas** plot/edge/selection colours (Leaflet paints onto a canvas
-  over map imagery and cannot resolve a CSS var — literals, but Bloom values:
-  the blue magnitude ramp, `--color-accent` selection, `--color-focus` hover,
-  and Bloom paper/ink edges). The `ErrorBoundary` fallback is a fifth, separate
+  **VillageCanvas** plot and edge colours (Leaflet paints onto a canvas over
+  map imagery and cannot resolve a CSS var — literals, but Bloom values: the
+  blue magnitude ramp, the white mesh and the Bloom paper/ink edges, all
+  measured against the imagery rather than the page). Since 03/10/2026 the
+  selection and hover are not literals: VillageCanvas and MapCanvas read the
+  scheme's `--w-accent` and `--w-focus` off `<html>` when they draw
+  (`w360/cssVar.ts`) and repaint when the scheme changes, so a Light or High
+  Contrast map selects in that scheme's accent. The `ErrorBoundary` fallback is a fifth, separate
   case: it uses inline literals deliberately because it must render when the
   theme provider or stylesheet is itself the thing that failed.
 
   **Exception list reconciled and enforced 2026-09-25.** The list above named
   five cases; the tree held eleven legitimate ones, because the rule was
   enforced by review and review does not scale. `theme.ts` is not an exception
-  at all — § Exports names it as where palette values live, so it is the
-  source. The six that were true but unwritten: `GeoMap.tsx` and
+  at all: since 03/10/2026 it builds every scheme, and the High Contrast focus
+  ring, from the palette pack (§ Exports), which is where palette values live.
+  The six that were true but unwritten: `GeoMap.tsx` and
   `MapCanvas.tsx` (Leaflet canvases, identical reasoning to VillageCanvas),
   `lib/format.ts` (the Bloom-derived avatar ramp that *replaced* the Ant
   rainbow — the fix was made and never recorded here), `holdingCards.tsx` and
@@ -530,7 +618,7 @@ again.
   tally. Pages supply domain groups and values; they do not introduce their own
   select bars, filter drawers, search-as-filter layouts, or dismissal behavior.
 
-- **A tab declares who owns vertical space.** Every active Record and Combined
+- **A tab declares who owns vertical space.** Every active Record and Holding
   frame exposes `data-tab-layout`: `document`, `viewport`, or
   `split-instrument`. Document tabs size panels from content and leave vertical
   scrolling to the document; they never use `window.innerHeight - guessedChrome`.
@@ -573,19 +661,36 @@ again.
 
 ## Exports
 
-Canonical: `apps/web/src/styles/tokens.css` (imported globally by
-`apps/web/src/main.tsx`). MUI mappings: `apps/web/src/theme.ts`.
+Colour schemes: the palette pack, `packages/tokens/src/palette` (Bloom Light,
+Bloom Dark, Pattadar Gold, High Contrast and the registry that names them and
+picks each app's default). `scripts/palette-tests.ts` holds every scheme to the
+role contract and the contrast floors. `apps/web/src/theme.ts` and
+`apps/university/src/theme.ts` build MUI's colour schemes from it
+(`muiColorSchemes`) and key them on `<html data-scheme>`. University draws with
+its own stylesheet: its `--color-*` names in `apps/university/tokens.css` (and
+the header's own in `src/styles.css`) are aliases of those MUI variables, and
+that file declares no colour (`scripts/a11y-web-tests.ts` M3-7).
+Non-colour tokens (type, spacing, motion, rules, layout):
+`apps/web/src/styles/tokens.css` (imported globally by `apps/web/src/main.tsx`),
+which declares no colour. The marketing surface's `--color-*` names are
+aliases of MUI's variables that `apps/web/src/styles/site.css` declares on
+`.site`, which always wears `data-scheme="dark"`; only the marketing pages may
+read them (`scripts/a11y-web-tests.ts` M3-6).
 The one font token, `--font-sans`, is declared in tokens.css and repeated
-verbatim in `theme.ts`, `apps/university/tokens.css` and
+verbatim in `apps/university/tokens.css` and as `FONT_SANS` in
 `packages/tokens/src/index.ts`; `scripts/typography-tests.ts` fails when any copy
 differs.
-The Web360 surface (`apps/web/src/w360/w360.css`) does NOT consume `theme.ts`;
-it redeclares the light and High Contrast schemes as its own `--w-*` custom
-properties. Those values mirror the canonical tokens by hand, so a token change
-here must be reflected in `w360.css` too — `scripts/parity-check.ts` classifies
-the `w360/` tree as NOTE, not `adapt`, and does not enforce the mirror.
-Cross-app values (chart series, status hues): `packages/tokens/src/index.ts` —
-consumed by `apps/web`, NOT by mobile/iOS.
+The Web360 surface (`apps/web/src/w360/w360.css`) reads the same schemes: its
+`--w-*` slots are aliases of MUI's `--mui-palette-*` variables, declared on
+`:root` and on every `[data-scheme]` element, so W360 holds no colour values of
+its own and a pack change reaches it with no second edit. (Until 03/10/2026 it
+redeclared Light and High Contrast by hand, and its High Contrast drew several
+semantic colours and its focus ring differently from MUI's.)
+`scripts/a11y-web-tests.ts` M3-6 fails an alias of a variable the theme does
+not emit in every scheme.
+Cross-app values (chart series, status hues): each scheme's `chart` and
+`status` in the palette pack (`packages/tokens/src/palette`) — consumed by
+`apps/web` and `apps/university`, NOT by mobile/iOS.
 No Tailwind/shadcn consumers exist in this repo; generate those formats from
 tokens.css on demand if ever needed.
 
@@ -597,6 +702,11 @@ dark paper is warm `#0d0504`, so both the hues and the validation surface were
 wrong. Every slot clears 3:1 on its own surface. Slots 1 and 3 are the two warm
 hues and so the colour-blindness risk — they are separated by **lightness**
 (1.78:1 normal, 1.69:1 simulated deuteranopia), not hue alone.
+
+Light slot 4 (green) moved on 04/10/2026 from `#387d3d` to `#539344`
+(oklch 60% 0.13 140, 3.64:1 on surface): it was 1.12:1 against the status green
+`#27762f`, so a chart series read as a status. It is 1.51:1 apart now. High
+Contrast and Pattadar Gold draw Light's series, so they moved with it.
 
 Outstanding: the full six-checks adjacent-ΔE sweep across all 15 pairs has NOT
 been re-run. Do that before this palette carries a dense multi-series view.

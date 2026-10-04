@@ -1,6 +1,6 @@
 # Web heuristics for Pattadar audits
 
-Checked against `design.md` and the sources below on 27/09/2026. Rules are
+Checked against `design.md` and the sources below on 02/10/2026. Rules are
 paraphrased and linked, never copied.
 
 ## Precedence and labels
@@ -11,7 +11,8 @@ paraphrased and linked, never copied.
 3. Audit conventions are this skill's own counting rules.
 
 Label every rule on the board with its source: `design.md §…`, `spec §…` (the
-screen's own spec under `docs/specs/`), `M3 <topic>`, `WCAG 2.2.2` or `audit`.
+screen's own spec under `docs/specs/`), `M3 <topic>`, `WCAG <SC number>` or
+`audit`.
 Never present a design.md rule, a spec rule or an audit convention as
 Material 3.
 
@@ -46,14 +47,17 @@ what to count first, then the rules that judge the count.
 
 - Count: filled buttons per viewport (1512×950 and 390); every control grouped
   by where it leads (route, drawer, flow); labels that lead to two places, and
-  places reached by two labels.
+  places reached by two labels; text inputs, with the population each one
+  searches and how it matches (which fields, prefix or substring).
 - Rules: M3 buttons rank emphasis: filled for the important, final action,
   outlined for important but not primary, text for the lowest priority.
   design.md § CTA voice gives the amber to the hero and the final statement,
   keeps the nav CTA ghost, and caps accent at 5% of a viewport. design.md
   § App vocabulary shows one flow once, with no empty-state button repeating
-  the section-head action. Audit: one filled button per viewport, and one
-  label per destination.
+  the section-head action. Audit: one filled button per viewport, one label
+  per destination, and one text input per task, so two inputs that search the
+  same population are a finding; when one of them sits in a `FacetFilter`,
+  cite design.md § App-surface rules as well (pass 8).
 - Nielsen coverage: 4, 8.
 
 ### 2. Navigation load
@@ -89,12 +93,16 @@ what to count first, then the rules that judge the count.
 ### 4. Order and repetition
 
 - Count: how many times the same story, list or fact is told on the page, and
-  where each telling sits.
+  where each telling sits; figures that state the same quantity (a tally and
+  facet counts, a head line and a strip), and the source each one reads.
 - Rules: audit, one telling per fact, placed where it is used. Repetition must
   be real structure such as categories or scopes, not filler
   (`design-system-governance` step 4). design.md § Motion adds that a scene
   swappable for any other product's diagram is not carrying its weight.
-- Nielsen coverage: 8.
+  Audit: two figures for the same quantity read one source or are shown to
+  agree. When the code lets them disagree, that is a finding, or drift where a
+  comment or doc says they match.
+- Nielsen coverage: 4, 8.
 
 ### 5. Numbering
 
@@ -142,21 +150,40 @@ what to count first, then the rules that judge the count.
 
 - Count: groups of same-level items and how each is shown (stacked sections,
   grid, tabs, chips, rows); grids with uneven spans; one-of-N content shown all
-  at once; filters.
+  at once; filters, and for each `FacetFilter` what the page passes in
+  `groups` (with what toggling each group's options does), `selected`,
+  `trailing` and `searchPlaceholder`.
 - Rules: M3 tabs group related content at one level of hierarchy, one tab type
   per bar. M3 filter chips choose options that filter content. M3 lists are
   continuous vertical indexes. design.md § Macrostructure family asks for even
   card grids with no wide or bento spans, the dashed tba card for roadmap items,
   stages as primary tabs and FAQ as native details rows. § App-surface rules
-  makes `FacetFilter` the one filter and gives every Record and Combined tab a
+  makes `FacetFilter` the one filter and gives every Record and Holding tab a
   `data-tab-layout`.
-- Nielsen coverage: 6, 8.
+- Filters: apply design.md § App-surface rules in full. A page supplies only
+  the groups and their values, and adds no select bar, filter drawer,
+  search-as-filter layout or dismissal behaviour of its own. `FacetFilter`'s
+  groups are checkbox facets with removable active chips, so every group's
+  options narrow the list and never open or navigate.
+- The rest of the `FacetFilter` contract comes from its markup and comments in
+  `apps/web/src/w360/ui.tsx`, not from design.md: label it `audit` and cite
+  `ui.tsx:line`. `selected` covers every group, because an option's pressed
+  state and its chip come only from it. `trailing` holds no second search over
+  the population the option search covers, which the `searchPlaceholder`
+  comment rules out. `searchPlaceholder` is also the search's accessible name,
+  so it names only what that search matches, the option labels of the groups
+  passed (label `WCAG 2.4.6`: a label describes its control's purpose).
+- Removing a filter group, or moving what it does to another control, is
+  Reddy's decision (Proposal rules).
+- Nielsen coverage: 4, 6, 8.
 
 ### 9. Layout at 1512 and 390
 
 - Count, at each width: horizontal overflow, hidden content and its
   alternative, columns, line measure, bare `fr` tracks, dead space under a
-  viewport instrument.
+  viewport instrument; the instrument's page position and size in every
+  captured state (the shift file, `references/evidence-capture.md`
+  § Interaction states); lists capped in height.
 - Rules: M3 window size classes are compact below 600, medium from 600,
   expanded from 840, large from 1200 and extra-large from 1600, so 390 is
   compact and 1512 is large. design.md § App-surface rules requires
@@ -164,7 +191,17 @@ what to count first, then the rules that judge the count.
   reach the window bottom, and stacks split instruments at 1200px and below.
   The design-system-governance quality gates add 44px targets and no
   horizontal overflow.
-- Nielsen coverage: 4, 7.
+- Rules, states: audit, no interaction moves a viewport instrument. In the
+  shift file, compare each state with `resting` from the same load and
+  scheme by `pageX`, `pageY`, `width` and `height` (by the viewport `x` and
+  `y` for a sticky or fixed instrument), so a scroll into view is not a move.
+  A change of 1px or more is a finding. The High Contrast state comes from
+  another load and is not compared. M3 menus show transient choices on a
+  temporary surface placed against an anchor, so matches and suggestions open
+  on one, anchored to their field, instead of pushing the page down. Audit: a
+  list capped in height shows that it scrolls, with a cut-off row, a fade or a
+  count.
+- Nielsen coverage: 4, 6, 7.
 
 ### 10. Vocabulary, copy and help
 
@@ -195,11 +232,24 @@ what to count first, then the rules that judge the count.
 
 - Count: icon-only controls without names; targets under 44px; colour as the
   only state signal; skipped heading levels; focus traps; text inside images;
-  motion without reduced-motion handling (from pass 7).
+  motion without reduced-motion handling (from pass 7); for every focusable
+  control, the rule that draws its focus ring in each scheme.
 - Rules: the design-system-governance quality gates (4.5:1 body text, 3:1
   non-text UI, visible focus, 44px web targets, colour never the only signal)
   and design.md § Microinteractions stance (2px focus ring, 3px in High
   Contrast). M3 icon buttons carry supplementary actions and need a name.
+- Focus rings: audit, find the rule that wins for each control in each scheme
+  by tracing the cascade (specificity, then source order), remembering that
+  W360's High Contrast `!important` focus block in `w360.css` overrides both,
+  and check it against the recorded `outline-*`
+  (`references/evidence-capture.md` § Interaction states). The ring follows
+  the visible control: a pill's ring is the pill, not the bare input inside
+  it, and M3 text fields show focus on the field container (the filled
+  field's active indicator, the outlined field's outline). An `outline: 0` or
+  `none` with nothing drawn in its place is a finding against design.md
+  § Microinteractions stance. Flag a WCAG 2.4.7 risk only where no other
+  indicator shows; W3C's Understanding 2.4.7 gives the insertion bar in a
+  focused text field as an example of one.
 - Flag only. Proof comes from `design-system-governance`,
   `scripts/a11y-web-tests.ts` and a browser. A schematic never proves
   accessibility.
@@ -217,9 +267,9 @@ heuristic with no finding.
 | 1 Visibility of system status | 6, 11 |
 | 2 Match between the system and the real world | 6, 10 |
 | 3 User control and freedom | 7, 11 |
-| 4 Consistency and standards | 1, 3, 5, 9, 10, 12 |
+| 4 Consistency and standards | 1, 3, 4, 5, 8, 9, 10, 12 |
 | 5 Error prevention | 11 |
-| 6 Recognition rather than recall | 2, 8 |
+| 6 Recognition rather than recall | 2, 8, 9 |
 | 7 Flexibility and efficiency of use | 2, 9 |
 | 8 Aesthetic and minimalist design | 1, 2, 3, 4, 7, 8 |
 | 9 Help users recognize, diagnose, and recover from errors | 11 |
@@ -234,13 +284,18 @@ heuristic with no finding.
   (for example, `FeatureContent.wide` under an even grid) is not on the page.
 - Comments are claims, not evidence. A comment that contradicts the code is
   drift, and so is a design.md sentence that contradicts the code.
+- A sealed spec under `tests/e2e-app/specs/` that names a label, selector or
+  count the code no longer renders is drift too: cite the spec line and the
+  source line.
 - Built bundles (`apps/web/dist`, `.local/e2e-web360-dist-*`) are not evidence
   of current source.
 - A prior board, audit or chat summary is a baseline, never evidence.
 - A screenshot proves appearance only. Keyboard and screen-reader behaviour
   need tests or source semantics.
-- List every state and width not seen (loading, error, empty, phone) as not
-  verified.
+- Every state in `references/evidence-capture.md` § Interaction states, and
+  every state and width not seen (loading, error, empty, phone), is captured
+  or listed by name as not verified. High Contrast off W360 is listed as not
+  applicable.
 
 ## Proposal rules
 
@@ -258,9 +313,9 @@ heuristic with no finding.
     rotator stops).
   - **Reddy's decision**: adds, removes, rewords or merges frozen copy; changes
     the vocabulary, a design.md rule, a macrostructure, the nav set or a route
-    target named in design.md; drops or moves a section; or changes either
-    landing scene's grammar. Name the file and the design.md section it would
-    amend.
+    target named in design.md; drops or moves a section; removes or moves a
+    control or a filter group; or changes either landing scene's grammar. Name
+    the file and the design.md section it would amend.
 - Do not re-propose what design.md or the code has already adopted. Mark it
   resolved.
 
@@ -276,6 +331,7 @@ heuristic with no finding.
   [tabs](https://github.com/material-components/material-web/blob/main/docs/components/tabs.md),
   [lists](https://github.com/material-components/material-web/blob/main/docs/components/list.md),
   [dialogs](https://github.com/material-components/material-web/blob/main/docs/components/dialog.md),
+  [menus](https://github.com/material-components/material-web/blob/main/docs/components/menu.md),
   [progress indicators](https://github.com/material-components/material-web/blob/main/docs/components/progress.md),
   [text fields](https://github.com/material-components/material-web/blob/main/docs/components/text-field.md),
   [icon buttons](https://github.com/material-components/material-web/blob/main/docs/components/icon-button.md),
@@ -287,5 +343,8 @@ heuristic with no finding.
   [10 Usability Heuristics for User Interface Design](https://www.nngroup.com/articles/ten-usability-heuristics/),
   NN/g. Used with credit and a link, as the page asks.
 - W3C,
-  [Understanding SC 2.2.2 Pause, Stop, Hide](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html)
-  (W3C Document License).
+  [Understanding SC 2.2.2 Pause, Stop, Hide](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html),
+  [Understanding SC 2.4.6 Headings and Labels](https://www.w3.org/WAI/WCAG22/Understanding/headings-and-labels.html)
+  and
+  [Understanding SC 2.4.7 Focus Visible](https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html)
+  (W3C Software and Document License).

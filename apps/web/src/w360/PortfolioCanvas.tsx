@@ -326,8 +326,8 @@ export function PortfolioCanvas({
 
       // Measured, not estimated. A width guessed from the character count was
       // the first attempt and it let "Sy 402/1" and "Khata 30877" overlap:
-      // survey numbers are proportionally spaced even in a mono face once the
-      // padding and border are counted, and two numbers written over each
+      // survey numbers are proportionally spaced in the one face, and the
+      // padding and border count too; two numbers written over each
       // other read as a third number that does not exist. So the label is
       // appended, measured, and taken away again if it landed on one already
       // placed — a layout read per label, on a set of eight to forty, at the

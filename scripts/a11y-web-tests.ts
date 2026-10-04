@@ -26,6 +26,10 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { registry, type SchemePalette } from '../packages/tokens/src';
+import { theme as webTheme } from '../apps/web/src/theme';
+import { theme as universityTheme } from '../apps/university/src/theme';
+
 const ROOT = join(import.meta.dir, '..');
 const WEB = join(ROOT, 'apps/web/src');
 const read = (p: string) => readFileSync(p, 'utf8');
@@ -168,25 +172,38 @@ check(
 // and `secondary` were once undefined while being used 22 times, so unrelated
 // default blue and purple reached the amber system." Nothing has checked since.
 
-const theme = stripComments(read(join(WEB, 'theme.ts')));
-/** Light and Dark are `colorSchemes` entries; High Contrast is built through a
- *  separate `createTheme` call and exposed as the `highContrast` flag. */
-const SCHEMES = ['light', 'dark', 'highContrast'];
-const SLOTS = ['primary', 'secondary', 'error', 'success', 'warning', 'info'] as const;
+// The theme is built from the palette pack, so these read the BUILT theme —
+// what MUI will actually paint — rather than the text of theme.ts, which no
+// longer spells a single slot. Every registered scheme must reach MUI with all
+// six slots, each one the pack's colour and not a factory default.
+const SLOT_ROLE = {
+  primary: 'accent', secondary: 'secondary', error: 'danger', success: 'ok', warning: 'warn', info: 'info',
+} as const satisfies Record<string, keyof SchemePalette>;
 
-for (const slot of SLOTS) {
-  const defined = [...theme.matchAll(new RegExp(`\\b${slot}:\\s*\\{`, 'g'))].length;
+const built = webTheme as unknown as {
+  colorSchemeSelector?: string;
+  defaultColorScheme?: string;
+  colorSchemes: Record<string, { palette: Record<string, { main?: string }> } | undefined>;
+};
+
+for (const [slot, role] of Object.entries(SLOT_ROLE)) {
+  const missing = registry.schemes
+    .filter((s) => built.colorSchemes[s.id]?.palette[slot]?.main?.toLowerCase() !== s.palette[role].toLowerCase())
+    .map((s) => `${s.id}: ${built.colorSchemes[s.id]?.palette[slot]?.main ?? 'undefined'} (pack ${s.palette[role]})`);
   check(
-    `M3-1 palette slot '${slot}' is defined on all three schemes`,
-    defined >= SCHEMES.length,
-    `found ${defined} definition(s), expected at least ${SCHEMES.length} — an undefined slot silently becomes MUI's factory blue or purple`,
+    `M3-1 palette slot '${slot}' is the pack's ${role} on every scheme`,
+    missing.length === 0,
+    `${missing.join('; ')} — an undefined slot silently becomes MUI's factory blue or purple`,
   );
 }
 
+const registered = registry.schemes.map((s) => s.id).sort();
 check(
-  'M3-2 the three schemes are all still named in the theme',
-  /colorSchemes/.test(theme) && SCHEMES.every((s) => new RegExp(`\\b${s}\\b`).test(theme)),
-  'Light, Dark and High Contrast are user-switchable schemes, not a mode flag',
+  'M3-2 the theme carries every registered scheme, keyed on data-scheme, Dark by default',
+  built.colorSchemeSelector === 'data-scheme' &&
+    built.defaultColorScheme === registry.defaults.web &&
+    JSON.stringify(Object.keys(built.colorSchemes).sort()) === JSON.stringify(registered),
+  `selector ${built.colorSchemeSelector}, default ${built.defaultColorScheme}, schemes ${Object.keys(built.colorSchemes).join(', ')} — Light, Dark and High Contrast are user-switchable schemes, not a mode flag`,
 );
 
 // ── 3 · colour literals stay inside the documented exceptions ──────────────
@@ -202,10 +219,14 @@ check(
 // AND in design.md) or a token that should have been used.
 
 const LITERAL_BUDGET: Record<string, number> = {
-  // The canonical MUI mapping. design.md § Exports names this file as where
-  // palette values live, so it is the source, not an exception.
-  'apps/web/src/theme.ts': 61,
+  // apps/web/src/theme.ts is not here: every scheme, and since 03/10/2026 the
+  // High Contrast focus ring too, comes from @pattadar/tokens.
+  //
   // Leaflet paints onto a canvas over map imagery and cannot resolve a CSS var.
+  // The selection and hover colours are read off the tokens when drawn; what
+  // is counted is the magnitude ramp, the edges and the mesh, which are
+  // measured against the imagery rather than the page, and the fallbacks for a
+  // page with no scheme yet.
   'apps/web/src/components/GeoMap.tsx': 15,
   'apps/web/src/w360/VillageCanvas.tsx': 11,
   'apps/web/src/w360/MapCanvas.tsx': 4,
@@ -253,7 +274,6 @@ check(
 // exception file must still carry that reasoning; design.md warns that a stale
 // or absent comment is how the next redesign inherits a dead system.
 for (const key of Object.keys(LITERAL_BUDGET)) {
-  if (key === 'apps/web/src/theme.ts') continue;
   const src = read(join(ROOT, key));
   check(
     `M3-5 ${key} explains its colour literals`,
@@ -269,25 +289,184 @@ for (const key of Object.keys(LITERAL_BUDGET)) {
 // fallback — one cool grey in all three schemes, in a warm system, where High
 // Contrast owes secondary text #171717. A var that never resolves is a colour
 // literal wearing a token's clothes.
+//
+// Stylesheets are held to it as well as TS/TSX: W360's colour slots are aliases
+// of MUI's variables, so a `--mui-*` name is no longer exempt — it is checked
+// against what the built theme emits. An alias of a palette variable must be
+// emitted in every registered scheme: one missing from a scheme does not fail
+// to resolve there, it silently shows Dark's value from the root.
+
+/** A stylesheet's comments are block comments only — `//` is a URL there. */
+const stripCssComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '');
 
 const cssFiles = walk(WEB, /\.css$/);
 const declared = new Set<string>();
-for (const f of [...cssFiles, ...TS_AND_TSX]) {
-  for (const m of read(f).matchAll(/(--[a-zA-Z][\w-]*)\s*:/g)) declared.add(m[1]);
+for (const f of cssFiles) {
+  for (const m of stripCssComments(read(f)).matchAll(/(--[a-zA-Z][\w-]*)\s*:/g)) declared.add(m[1]);
 }
-const unresolved = new Set<string>();
 for (const f of TS_AND_TSX) {
-  for (const m of stripComments(read(f)).matchAll(/var\(\s*(--[a-zA-Z][\w-]*)/g)) {
-    // `--mui-palette-*` is emitted by MUI's CSS-variables theme at runtime and
-    // is never declared in this repo. Anything else has to exist here.
-    if (m[1].startsWith('--mui-')) continue;
-    if (!declared.has(m[1])) unresolved.add(`${m[1]} (${rel(f)})`);
+  const src = read(f);
+  for (const m of src.matchAll(/(--[a-zA-Z][\w-]*)\s*:/g)) declared.add(m[1]);
+  // A style object's quoted key, and a property set from script
+  // (`el.style.setProperty('--ox', …)`, the map labels' nudge).
+  for (const m of src.matchAll(/['"`](--[a-zA-Z][\w-]*)['"`]\s*:/g)) declared.add(m[1]);
+  for (const m of src.matchAll(/setProperty\(\s*['"`](--[a-zA-Z][\w-]*)/g)) declared.add(m[1]);
+}
+
+const registeredIds = registry.schemes.map((s) => s.id as string);
+
+/** Every `--mui-*` variable a built theme emits, and which schemes emit it. */
+function emittedBy(theme: unknown): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const sheets = (theme as {
+    generateStyleSheets: () => Array<Record<string, Record<string, unknown>>>;
+  }).generateStyleSheets();
+  for (const sheet of sheets) {
+    for (const [selector, decls] of Object.entries(sheet)) {
+      const ids = registeredIds.filter((id) => selector.includes(`[data-scheme="${id}"]`));
+      // The root's own variables (shape, spacing, z-index …) hold in every scheme.
+      const holds = ids.length ? ids : selector.includes(':root') ? registeredIds : [];
+      for (const name of Object.keys(decls)) {
+        if (!name.startsWith('--mui-')) continue;
+        const set = out.get(name) ?? new Set<string>();
+        for (const id of holds) set.add(id);
+        out.set(name, set);
+      }
+    }
+  }
+  return out;
+}
+const muiEmitted = emittedBy(webTheme);
+check('M3-6 the built theme emits its CSS variables', muiEmitted.size > 0, 'generateStyleSheets() returned none — the check below would prove nothing');
+
+const unresolved = new Set<string>();
+const sources: Array<[string, string]> = [
+  ...TS_AND_TSX.map((f) => [f, stripComments(read(f))] as [string, string]),
+  ...cssFiles.map((f) => [f, stripCssComments(read(f))] as [string, string]),
+];
+for (const [f, src] of sources) {
+  for (const m of src.matchAll(/var\(\s*(--[a-zA-Z][\w-]*)/g)) {
+    const name = m[1];
+    // `var(--mui-palette-${slot})` names its variable at run time; there is
+    // nothing here to check it against.
+    if (src.startsWith('${', (m.index ?? 0) + m[0].length)) continue;
+    const ok = name.startsWith('--mui-') ? muiEmitted.has(name) : declared.has(name);
+    if (!ok) unresolved.add(`${name} (${rel(f)})`);
   }
 }
 check(
   'M3-6 every var(--token) used in apps/web resolves to a declaration',
   unresolved.size === 0,
   [...unresolved].slice(0, 6).join(', '),
+);
+
+// The marketing wrapper is the one place that pins a scheme: every `.site`
+// wears data-scheme="dark" (checked below), so its aliases only have to
+// resolve in Dark. Anything else follows the reader's choice.
+const PINNED: Record<string, string> = { '.site': 'dark' };
+const partial: string[] = [];
+for (const f of cssFiles) {
+  const css = stripCssComments(read(f));
+  for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = rule[1].trim().replace(/\s+/g, ' ');
+    const needed = PINNED[selector] ? [PINNED[selector]] : registeredIds;
+    for (const m of rule[2].matchAll(/(--[a-zA-Z][\w-]*)\s*:\s*var\(\s*(--mui-palette-[\w-]+)\s*\)/g)) {
+      const missing = needed.filter((id) => !muiEmitted.get(m[2])?.has(id));
+      if (missing.length) partial.push(`${m[1]} → ${m[2]} missing in ${missing.join(', ')} (${rel(f)} ${selector})`);
+    }
+  }
+}
+check(
+  'M3-6 every alias of a palette variable resolves in every scheme it can be read in',
+  partial.length === 0,
+  partial.slice(0, 6).join('; '),
+);
+
+const unpinned: string[] = [];
+for (const f of TS_AND_TSX) {
+  for (const tag of openingTags(stripComments(read(f)), 'div')) {
+    const cls = /className="([^"]*)"/.exec(tag)?.[1].split(/\s+/) ?? [];
+    if (cls.includes('site') && !/data-scheme="dark"/.test(tag)) unpinned.push(rel(f));
+  }
+}
+check(
+  'M3-6 every marketing wrapper (.site) wears data-scheme="dark"',
+  unpinned.length === 0,
+  `${unpinned.join(', ')} — its --color-* aliases would follow the app's scheme, and the ambient blooms exist in Dark only`,
+);
+
+// The `--color-*` aliases exist inside `.site` and nowhere else, so only the
+// marketing pages may read them. Declared at all, they pass the check above
+// wherever they are read; FileViewer read them from the signed-in app until
+// 03/10/2026, when they still sat on :root.
+const MARKETING = /^apps\/web\/src\/(pages\/(landing|pricing|auth|legal)\/|pages\/(InvitePage|ActivePage)\.tsx$|styles\/site\.css$)/;
+const outside = sources
+  .filter(([f, src]) => /var\(\s*--color-/.test(src) && !MARKETING.test(rel(f)))
+  .map(([f]) => rel(f));
+check(
+  'M3-6 only the marketing pages read the marketing --color-* aliases',
+  outside.length === 0,
+  `${outside.join(', ')} — outside .site they resolve to nothing; use --mui-palette-* (or --w-* inside W360)`,
+);
+
+// ── 5 · University reads the same schemes ──────────────────────────────────
+//
+// apps/university draws with its own stylesheet, not with MUI components: its
+// `--color-*` names (apps/university/tokens.css, and the header's own in
+// src/styles.css) are aliases of the variables its MUI theme emits
+// (apps/university/src/theme.ts). Every name it reads must be declared, and
+// every palette variable it reads must be emitted in every scheme — one a
+// scheme lacks shows the root's Light value there, silently.
+
+const UNIVERSITY = join(ROOT, 'apps/university');
+const uniEmitted = emittedBy(universityTheme);
+const uniCss = [join(UNIVERSITY, 'tokens.css'), ...walk(join(UNIVERSITY, 'src'), /\.css$/)];
+const uniCode = walk(join(UNIVERSITY, 'src'), /\.tsx?$/);
+const uniDeclared = new Set<string>();
+for (const f of uniCss) {
+  for (const m of stripCssComments(read(f)).matchAll(/(--[a-zA-Z][\w-]*)\s*:/g)) uniDeclared.add(m[1]);
+}
+for (const f of uniCode) {
+  const src = read(f);
+  for (const m of src.matchAll(/['"`](--[a-zA-Z][\w-]*)['"`]\s*:/g)) uniDeclared.add(m[1]);
+  for (const m of src.matchAll(/setProperty\(\s*['"`](--[a-zA-Z][\w-]*)/g)) uniDeclared.add(m[1]);
+}
+const uniUnresolved = new Set<string>();
+for (const [f, src] of [
+  ...uniCss.map((f) => [f, stripCssComments(read(f))] as [string, string]),
+  ...uniCode.map((f) => [f, stripComments(read(f))] as [string, string]),
+]) {
+  for (const m of src.matchAll(/var\(\s*(--[a-zA-Z][\w-]*)/g)) {
+    if (src.startsWith('${', (m.index ?? 0) + m[0].length)) continue;
+    const ok = m[1].startsWith('--mui-') ? uniEmitted.has(m[1]) : uniDeclared.has(m[1]);
+    if (!ok) uniUnresolved.add(`${m[1]} (${rel(f)})`);
+  }
+}
+check(
+  'M3-7 every var(--token) used in apps/university resolves to a declaration',
+  uniUnresolved.size === 0,
+  [...uniUnresolved].slice(0, 6).join(', '),
+);
+
+const uniPartial = new Set<string>();
+for (const f of uniCss) {
+  for (const m of stripCssComments(read(f)).matchAll(/var\(\s*(--mui-palette-[\w-]+)/g)) {
+    const missing = registeredIds.filter((id) => !uniEmitted.get(m[1])?.has(id));
+    if (missing.length) uniPartial.add(`${m[1]} missing in ${missing.join(', ')} (${rel(f)})`);
+  }
+}
+check(
+  'M3-7 every palette variable apps/university reads is emitted in every scheme',
+  uniPartial.size === 0,
+  [...uniPartial].slice(0, 6).join('; '),
+);
+
+const uniLiterals = [...stripCssComments(read(join(UNIVERSITY, 'tokens.css')))
+  .matchAll(/(?:oklch|oklab|rgba?|hsla?)\(|#[0-9a-fA-F]{3,8}\b/g)].length;
+check(
+  'M3-7 apps/university/tokens.css declares no colour of its own',
+  uniLiterals === 0,
+  `${uniLiterals} colour literal(s) — every colour there is an alias of the palette pack's`,
 );
 
 console.log(failures === 0 ? 'A11Y WEB TESTS PASS' : `A11Y WEB TESTS FAILED (${failures})`);

@@ -26,7 +26,7 @@ import {
 } from '../api';
 import type { Order, ServiceBatchReceipt } from '../api';
 import { MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, limitFor, mediaKindOf, mb } from '../filePhotos';
-import { describeReading, unreadRow } from '../paperFiling';
+import { describeReading, displayDetail, unreadRow } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { UNREACHABLE_NOTE } from '../../data/useLiveOrSample';
 import {
@@ -759,7 +759,7 @@ export function RecordPapers() {
                           style={{ color: 'inherit', textDecoration: 'none', fontWeight: 700, fontSize: '0.9375rem' }}>
                       {p.title}
                     </Link>
-                    <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>{p.detail}</span>
+                    <span className="note" style={{ display: 'block', marginTop: '0.125rem' }}>{displayDetail(p.detail)}</span>
                   </span>
                   {/* Wraps below 640px (`.paper-row-actions`, w360.css): on a
                       phone the chip, the tags and the two icons were one

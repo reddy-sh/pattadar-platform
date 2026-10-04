@@ -79,7 +79,8 @@ async def snapshot(conn, uid: str, record_id: str, requested: dict, *, all_docum
         clause = f"{record_col}=%s"
         args = [uid, record_id]
         if table == "documents":
-            clause = "(record_id=%s OR parcel_id=%s OR property_id=%s)"
+            # A filed Aadhaar card never enters a share, whatever it points at.
+            clause = "(record_id=%s OR parcel_id=%s OR property_id=%s) AND COALESCE(aadhaar_record_id,'')=''"
             args.extend([record_id, record_id])
         cur = await conn.execute(f"SELECT * FROM {table} WHERE owner_user_id=%s AND {clause}", tuple(args))
         rows = list(await cur.fetchall())

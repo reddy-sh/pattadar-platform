@@ -147,9 +147,11 @@ async def catalog_for(conn):
 
 # Bearer credentials, encrypted KYC internals, and binary file payloads are not
 # exported as accidental secrets. Original files remain in the file manifest.
-# `ciphertext` is aadhaar_candidates' wrapped payload: the `_enc` suffix rule
-# below does not reach it, and a KMS envelope is still the Aadhaar number.
-OMIT_COLUMNS = {"token", "token_hash", "invite_token", "source", "content", "principal_id", "issuer", "subject", "ciphertext"}
+# `ciphertext` is the aadhaar_vault (and legacy aadhaar_candidates) wrapped
+# number: the `_enc` suffix rule below does not reach it, and a KMS envelope is
+# still the Aadhaar number. `vault_token` is the record's pointer into the vault.
+OMIT_COLUMNS = {"token", "token_hash", "invite_token", "source", "content", "principal_id", "issuer", "subject",
+                "ciphertext", "vault_token"}
 
 
 def export_columns(columns):

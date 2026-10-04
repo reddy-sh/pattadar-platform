@@ -13,6 +13,7 @@ export const NAV_LINKS: [string, string][] = [
   ['How it works', 'how'],
   ['Land records', 'pillars'],
   ['University', 'university'],
+  ['Network', 'network'],
   ['Services', 'services'],
   ['FAQ', 'faq'],
 ];
@@ -335,15 +336,96 @@ export const ROADMAP = {
       title: 'On-demand property visits',
       body: 'A planned way to request a site visit or document errand and receive evidence of the work completed.',
     },
+  ],
+};
+
+/** Founder-requested addition, 03/10/2026 (design.md § Copy freeze). Every
+ * offering is future work: nothing in the network is onboarded yet, so the
+ * copy never claims a listing or a professional exists. The two former
+ * ROADMAP items (legal professionals, document writers) live here now, with
+ * their wording unchanged; Legal connect is one card with lawyers, not two
+ * (Reddy, follow-up 2). Guarded by scripts/network-interest-tests.ts. */
+export const NETWORK = {
+  eyebrow: 'Pattadar Network',
+  h2: 'A network around your land',
+  intro:
+    'We are planning a marketplace and a network of property professionals built around the records you keep in Pattadar. None of it is open yet.',
+  chip: 'Coming soon',
+  note: 'No listings or professionals are on Pattadar today. A listing or directory entry will never replace checking a licence, registration or official record.',
+  items: [
+    { icon: 'sell', title: 'Sell a property', body: 'A planned way to list a property from your Pattadar record, publishing only the details you choose.' },
+    { icon: 'buy', title: 'Buy a property', body: 'A planned way to find properties listed by their owners in Andhra Pradesh and Telangana.' },
+    { icon: 'rent', title: 'Rent or lease', body: 'A planned way to offer or find land and property for rent or lease.' },
+    { icon: 'gavel', title: 'Lawyers and legal connect', body: 'A planned way to find a legal professional and share the documents relevant to your question.' },
+    { icon: 'straighten', title: 'Licensed surveyors', body: 'A planned way to find a licensed surveyor for measurement and boundary work.' },
+    { icon: 'historyEdu', title: 'Document writers', body: 'A planned directory of document writers for families preparing a transaction.' },
+    { icon: 'developer', title: 'Land developers', body: 'A planned way to reach land and landscape developers for your plot.' },
+    { icon: 'calculate', title: 'Property valuers', body: 'A planned way to reach a property valuer for an independent valuation of your land.' },
+  ],
+};
+
+/** The register-interest form inside #network (NetworkInterestForm.tsx).
+ * `consent` is DRAFT wording (decision D4) and needs Reddy's approval before
+ * production. It must equal services/api/src/network.py CONSENT_TEXT byte for
+ * byte: changing it means bumping `consentVersion`, CONSENT_VERSION and
+ * CONSENT_TEXT_SHA256 together (scripts/network-interest-tests.ts). */
+export const NETWORK_INTEREST = {
+  h3: 'Register your interest',
+  lead: 'Tell us what you are looking for or what you offer, and we will contact you when the network opens. Give a mobile number, an email, or both.',
+  interestLabel: 'I am interested in',
+  interestPlaceholder: 'Choose one',
+  groups: [
     {
-      title: 'Legal connect',
-      body: 'A planned way to find a legal professional and share the documents relevant to your question.',
+      label: 'I want to…',
+      options: [
+        { value: 'sell', label: 'Sell a property' },
+        { value: 'buy', label: 'Buy a property' },
+        { value: 'rent', label: 'Rent a property out, or rent one' },
+        { value: 'lease', label: 'Lease land or property' },
+      ],
     },
     {
-      title: 'Trusted document writers',
-      body: 'A planned directory of document writers for families preparing a transaction.',
+      label: 'I am a…',
+      options: [
+        { value: 'lawyer', label: 'Lawyer or advocate' },
+        { value: 'surveyor', label: 'Licensed surveyor' },
+        { value: 'document_writer', label: 'Document writer' },
+        { value: 'developer', label: 'Land developer' },
+        { value: 'valuer', label: 'Valuer' },
+        { value: 'other_professional', label: 'Other property professional' },
+      ],
     },
   ],
+  nameLabel: 'Your name',
+  phoneLabel: 'Mobile number',
+  phonePlaceholder: '98480 12345',
+  phoneHelp: 'Indian mobile number',
+  emailLabel: 'Email',
+  districtLabel: 'District (optional)',
+  mandalLabel: 'Mandal (optional)',
+  noteLabel: 'Anything we should know (optional)',
+  consent: 'I agree that Pattadar may contact me by phone or email about Pattadar Network. I can withdraw at any time. See the privacy notice.',
+  consentLinkText: 'privacy notice',
+  consentVersion: '2026-10-03',
+  submit: 'Register interest',
+  sending: 'Sending…',
+  honeypotLabel: 'Website',
+  errors: {
+    interest: 'Choose what you are interested in.',
+    name: 'Enter your name.',
+    phone: 'Enter a 10-digit Indian mobile number.',
+    email: 'Enter a valid email address.',
+    contact: 'Give a mobile number or an email.',
+    district: 'Keep the district to 60 characters.',
+    mandal: 'Keep the mandal to 60 characters.',
+    note: 'Keep the note to 500 characters.',
+    idNumber: "Please don't enter Aadhaar or other ID numbers here.",
+    consent: 'Tick the box to agree before you register.',
+    consentVersion: 'This page is out of date. Reload it and try again.',
+  },
+  received: 'Thanks. We will contact you when Pattadar Network opens near you.',
+  rateLimited: 'Too many requests right now. Please try again later.',
+  failed: "We couldn't save that. Please try again.",
 };
 
 export const FAQ = {

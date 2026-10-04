@@ -481,6 +481,26 @@ test('a corner picked on the map answers about that corner and nothing else', as
   await expect(tip).not.toContainText('Corner B');
   await expect(tip.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
   await expect(tip.getByRole('link', { name: /Navigate/ })).toBeVisible();
+  // Navigate is Google Maps directions to the corner, coordinates only
+  // (navigateLink, Reddy 03/10/2026) — no record text in the URL.
+  await expect(tip.getByRole('link', { name: /Navigate/ })).toHaveAttribute('href',
+    /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=15\.741,79\.2694$/);
+  // The picked corner is a disc filled with the page's ink (Dark #f3ede7),
+  // its letter in the paper colour. The fill named `--w-ink-1`, a slot that
+  // was never declared, so the disc was transparent and the dark letter was
+  // lost on the imagery under it. By class: Leaflet draws it as a bare span.
+  await expect(page.locator('.w-corner-no.picked > span')).toHaveCSS('background-color', 'rgb(243, 237, 231)');
+});
+
+test.describe('in the light scheme', () => {
+  test.use({ scheme: 'light' });
+
+  test('the boundary is drawn in the light scheme\'s own accent', async ({ page }) => {
+    await openMap(page, ID.parcel);
+    // Leaflet's bare SVG path, by class, as above. Light's amber (#aa5910)
+    // is darkened so it reads on light paper and on imagery.
+    await expect(page.locator('path.w-ring')).toHaveCSS('stroke', 'rgb(170, 89, 16)');
+  });
 });
 
 test('Copy both puts the whole side on the clipboard, and says it did', async ({ page }) => {
@@ -1174,6 +1194,7 @@ test('a refused location permission is reported as a refusal, not as a fault', a
 });
 
 test('the phone standing on the land can set the pin itself', async ({ page, world }) => {
+  await page.route('**/vm/index.json', (route) => route.fulfill({ json: [] }));
   await page.context().grantPermissions(['geolocation']);
   await page.context().setGeolocation({ latitude: 15.74055, longitude: 79.26975 });
   await openMap(page, ID.parcel);
@@ -1183,7 +1204,11 @@ test('the phone standing on the land can set the pin itself', async ({ page, wor
 
   // Where the phone says it is becomes the draft, like a click on the map —
   // the owner sees where it lands before it is written.
-  await expect(page.locator('.mapsays .hint')).toHaveText('Pin placed. Save it, or click again to move it.');
+  // It also says which survey that is — and here, honestly, that it cannot:
+  // the sealed world has no village map for Katragunta (/vm/ is routed, not
+  // trusted to the dev server's build).
+  await expect(page.locator('.mapsays .hint')).toHaveText(
+    'There is no village map for Katragunta, so the survey could not be found. You can still save the pin where you are.');
   expect(world.calls('setPin')).toHaveLength(0);
   await page.getByRole('button', { name: 'Save pin' }).click();
 
@@ -1191,6 +1216,105 @@ test('the phone standing on the land can set the pin itself', async ({ page, wor
   expect(world.lastVars('setPin')).toMatchObject({
     recordId: ID.parcel, lat: 15.74055, lon: 79.26975,
   });
+});
+
+// ── "Use my current location" finds the survey ────────────────────────
+
+/** Sy 214's plot on a stubbed Katragunta village map, and a neighbour. The
+ *  shipped /vm/ manifest is a bundle asset, outside the seal, so it is routed
+ *  here rather than trusted to whatever the dev server ships. */
+async function katraguntaMap(page: Page): Promise<void> {
+  const square = (lp: string, lat: number, lon: number, d: number) => ({
+    type: 'Feature',
+    properties: { lp, ac: '2.35' },
+    geometry: { type: 'Polygon', coordinates: [[
+      [lon, lat], [lon + d, lat], [lon + d, lat + d], [lon, lat + d], [lon, lat],
+    ]] },
+  });
+  await page.route('**/vm/index.json', (route) => route.fulfill({ json: [{
+    village: 'KATRAGUNTA', file: 'katragunta.geojson', key: 'katragunta',
+    mandal: 'Markapur', district: 'Prakasam', plots: 2,
+  }] }));
+  await page.route('**/vm/katragunta.geojson', (route) => route.fulfill({ json: {
+    type: 'FeatureCollection',
+    features: [square('214', 15.7402, 79.2694, 0.001), square('215', 15.7402, 79.2704, 0.001)],
+  } }));
+}
+
+/** A parcel that knows nothing about where it is: no pin, no ring, no stones. */
+const nowhere = () => boundary({
+  lat: 0, lon: 0, ring: [], marks: [], setBy: '', accuracy: '',
+  caption: 'This record has never been surveyed', sheetTitle: '', sheetDetail: '', sheetId: '',
+});
+
+test('an empty record offers the phone, finds its survey, and writes nothing until asked', async ({ page, world }) => {
+  world.set('boundary', nowhere());
+  await katraguntaMap(page);
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 15.74055, longitude: 79.26975, accuracy: 6 });
+  await openMap(page, ID.parcel);
+
+  // Offered without pressing "Move the pin" first.
+  await page.locator('.mapsays').getByRole('button', { name: 'Use my current location' }).click();
+
+  await expect(page.locator('.mapsays .hint')).toHaveText(
+    "You're in Sy 214, Katragunta (±6 m). Save the pin here, or click the map to move it.");
+  await expect(page.locator('path.w-here')).toHaveCount(1);
+  await expect(page.locator('path.w-here-plot')).toHaveCount(1);
+  // The dot names itself — a permanent label, since the dot is not interactive.
+  // One label: the redraw when the plot is found replaces it (Leaflet fades
+  // the old one out over 200 ms, so count before reading it).
+  const here = page.locator('.leaflet-tooltip.w-here-tip');
+  await expect(here).toHaveCount(1);
+  await expect(here).toHaveText('You are here');
+  await expect(here).toBeVisible();
+  expect(world.calls('setPin')).toHaveLength(0);
+  expect(world.calls('setBoundary')).toHaveLength(0);
+
+  await page.getByRole('button', { name: 'Save pin' }).click();
+  await expect.poll(() => world.calls('setPin').length).toBe(1);
+  // Pin mode is over, so the phone's position is no longer drawn.
+  await expect(here).toHaveCount(0);
+  expect(world.lastVars('setPin')).toMatchObject({
+    recordId: ID.parcel, lat: 15.74055, lon: 79.26975,
+  });
+
+  // The survey is offered, not taken: the plot card, and nothing written yet.
+  const card = page.locator('.plotpick');
+  await expect(card).toContainText('Plot 214');
+  expect(world.calls('setBoundary')).toHaveLength(0);
+  await card.getByRole('button', { name: 'This is my land' }).click();
+  await expect.poll(() => world.calls('setBoundary').length).toBe(1);
+});
+
+test('a phone outside every plot says so, and the pin can still be saved', async ({ page, world }) => {
+  world.set('boundary', nowhere());
+  await katraguntaMap(page);
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 15.7450, longitude: 79.2650, accuracy: 6 });
+  await openMap(page, ID.parcel);
+
+  await page.locator('.mapsays').getByRole('button', { name: 'Use my current location' }).click();
+  await expect(page.locator('.mapsays .hint')).toHaveText(
+    'Your location is not inside any plot on the Katragunta village map. You can still save the pin where you are.');
+
+  await page.getByRole('button', { name: 'Save pin' }).click();
+  await expect.poll(() => world.calls('setPin').length).toBe(1);
+  await expect(page.locator('.plotpick')).toHaveCount(0);
+  expect(world.calls('setBoundary')).toHaveLength(0);
+});
+
+test('with no village map the survey is not guessed', async ({ page, world }) => {
+  world.set('boundary', nowhere());
+  await page.route('**/vm/index.json', (route) => route.fulfill({ json: [] }));
+  await page.context().grantPermissions(['geolocation']);
+  await page.context().setGeolocation({ latitude: 15.74055, longitude: 79.26975, accuracy: 6 });
+  await openMap(page, ID.parcel);
+
+  await page.locator('.mapsays').getByRole('button', { name: 'Use my current location' }).click();
+  await expect(page.locator('.mapsays .hint')).toHaveText(
+    'There is no village map for Katragunta, so the survey could not be found. You can still save the pin where you are.');
+  expect(world.calls('setPin')).toHaveLength(0);
 });
 
 // ── drawing a boundary ─────────────────────────────────────────────────
@@ -1858,24 +1982,24 @@ test('the village map is not offered while the record is being edited', async ({
   await expect(page.locator('.w-side')).toHaveCount(0);
 });
 
-test('the hand-off is named for the map app that will actually open', async ({ page }) => {
+test('the whole-parcel hand-off is Google Maps directions to the middle of the land', async ({ page }) => {
   await openMap(page, ID.parcel);
 
   await page.getByRole('button', { name: 'More for this map' }).click();
-  // Named for the app that will ACTUALLY open, so it never promises Apple Maps
-  // to somebody on a Pixel. The desktop project runs Playwright's Desktop
-  // Chrome profile, whose user agent is Windows — so the honest answer here is
-  // OpenStreetMap, the same data the app's own tiles come from. The phone
-  // project's iPhone profile gets Apple Maps from the same line.
-  const away = page.getByRole('menuitem', { name: 'Open in OpenStreetMap' });
+  // The same link on every device: Google Maps directions, like the corner and
+  // side tips. The old user-agent-sniffed "Open in Apple Maps / OpenStreetMap"
+  // item is gone (Reddy, 03/10/2026).
+  const away = page.getByRole('menuitem', { name: 'Navigate in Google Maps' });
   await expect(away).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: /Apple Maps/ })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: /Apple Maps|OpenStreetMap|^Open in / })).toHaveCount(0);
 
   // A real link, so it can be copied or opened in a new tab from the menu, and
-  // it is dropped on the middle of the land rather than on the filed pin.
+  // it is dropped on the middle of the land (the ring's area-weighted centroid)
+  // rather than on the filed pin. Coordinates only: no record text rides along.
+  await expect(away).toHaveJSProperty('tagName', 'A');
   const href = await away.getAttribute('href');
-  expect(href).toContain('openstreetmap.org');
-  expect(href).toContain('mlat=15.7406');
+  expect(href).toMatch(/^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=15\.7406,79\.269902$/);
+  expect(href).not.toContain('q=');
 });
 
 test('GeoJSON is offered for export only where there is a boundary to export', async ({ page }) => {
@@ -1889,9 +2013,10 @@ test('GeoJSON is offered for export only where there is a boundary to export', a
   await page.getByRole('button', { name: 'More for this map' }).click();
   await expect(page.getByRole('menuitem', { name: 'Export GeoJSON' })).toHaveCount(0);
   // Nor a hand-off: this record has no ring and no pin, so there is no point
-  // to drop in any maps app (RecordBoundary.tsx:547-563). An "Open in…" that
-  // lands on 0,0 puts an Andhra parcel in the Gulf of Guinea.
+  // to drop in any maps app (the away memo in RecordBoundary.tsx). A hand-off
+  // that lands on 0,0 puts an Andhra parcel in the Gulf of Guinea.
   await expect(page.getByRole('menuitem', { name: /^Open in / })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: /Google Maps/ })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'Print this map' })).toBeVisible();
 });
 

@@ -535,14 +535,14 @@ test.describe('W03 · the six hangers', () => {
     await page.goto(at(ID.parcel, 'people'));
 
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
-    await expect(crumbs.getByRole('link', { name: 'Combined views' })).toBeVisible();
+    await expect(crumbs.getByRole('link', { name: 'Holdings' })).toBeVisible();
     await expect(crumbs).toContainText('Katragunta Land');
     await expect(crumbs).toContainText('Sy 214/2');
     // One root, not two: the holding replaces Properties rather than joining it.
     await expect(crumbs.getByRole('link', { name: 'Properties', exact: true })).toHaveCount(0);
 
     await crumbs.getByRole('link', { name: 'Katragunta Land' }).click();
-    await expect(page).toHaveURL(/\/app\/combined\/cp-katragunta$/);
+    await expect(page).toHaveURL(/\/app\/holdings\/cp-katragunta$/);
   });
 
   test('a record in no holding still walks back to Properties', async ({ page, world }) => {
@@ -553,7 +553,7 @@ test.describe('W03 · the six hangers', () => {
 
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
     await expect(crumbs.getByRole('link', { name: 'Properties', exact: true })).toBeVisible();
-    await expect(crumbs).not.toContainText('Combined views');
+    await expect(crumbs).not.toContainText('Holdings');
   });
 
   test('Expenses is drawn inside the frame under Money, and Money stays the tab you are on', async ({ page, world }) => {

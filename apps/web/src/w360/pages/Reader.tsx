@@ -277,7 +277,7 @@ export function Reader() {
         </span>
 
         {/* The search box that used to sit here typed nothing into anything:
-            it showed a mono "searching…" beside itself for as long as there
+            it showed a grey "searching…" beside itself for as long as there
             was text in it and never searched. A permanent present-progressive
             label is read as work in progress. There is no in-document text
             search behind this screen, so the box is gone rather than dressed

@@ -29,7 +29,8 @@ CREATE TABLE users (
   roles TEXT NOT NULL DEFAULT 'owner', notification_prefs TEXT NOT NULL DEFAULT 'email,sms',
   districts_of_interest TEXT NOT NULL DEFAULT '', mfa_enabled BOOLEAN NOT NULL DEFAULT false,
   address TEXT NOT NULL DEFAULT '', last_active_at TEXT NOT NULL DEFAULT '',
-  inactivity_email_enabled BOOLEAN NOT NULL DEFAULT true
+  inactivity_email_enabled BOOLEAN NOT NULL DEFAULT true,
+  kyc_aadhaar_record_id TEXT NOT NULL DEFAULT ''
 );
 """
 

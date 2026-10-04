@@ -162,7 +162,13 @@ def test_a_different_document_or_a_different_operation_is_still_read():
     asyncio.run(run())
 
 
-def test_dedupe_is_owner_scoped_and_never_replays_an_aadhaar_reading():
+def test_dedupe_is_owner_scoped_and_never_replays_an_aadhaar_reading(monkeypatch):
+    # An Aadhaar submission is refused without a write path, so give it one.
+    from cryptography.fernet import Fernet
+    monkeypatch.setenv('APP_ENV', 'local')
+    monkeypatch.setenv('ALLOW_INSECURE_LOCAL', '1')
+    monkeypatch.setenv('AADHAAR_ENC_KEY', Fernet.generate_key().decode())
+
     async def run():
         async with database():
             calls = []

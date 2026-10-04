@@ -18,6 +18,7 @@ import { LazyMotion, m, useReducedMotion } from 'motion/react';
 import { Link as RouterLink, Navigate } from 'react-router';
 import { useNavigate } from 'react-router';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import AgricultureOutlinedIcon from '@mui/icons-material/AgricultureOutlined';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import CalculateOutlinedIcon from '@mui/icons-material/CalculateOutlined';
@@ -29,10 +30,13 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined';
 import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
+import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
+import SellOutlinedIcon from '@mui/icons-material/SellOutlined';
+import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
 import SquareFootOutlinedIcon from '@mui/icons-material/SquareFootOutlined';
 import StraightenOutlinedIcon from '@mui/icons-material/StraightenOutlined';
 import TouchAppOutlinedIcon from '@mui/icons-material/TouchAppOutlined';
@@ -46,6 +50,7 @@ import '../../styles/site.css';
 import { AssistantConversation } from './AssistantConversation';
 import { HeroStory } from './HeroStory';
 import { MarketingNav } from './MarketingNav';
+import { NetworkInterestForm } from './NetworkInterestForm';
 import { PlatformJourney } from './PlatformJourney';
 import {
   AI,
@@ -57,6 +62,7 @@ import {
   HERO,
   HOW,
   NAV_LINKS,
+  NETWORK,
   PILLARS,
   ROADMAP,
   STAGES,
@@ -90,6 +96,10 @@ const ICONS: Record<string, ReactElement> = {
   squareFoot: <SquareFootOutlinedIcon />,
   map: <MapOutlinedIcon />,
   gavel: <GavelOutlinedIcon />,
+  sell: <SellOutlinedIcon />,
+  buy: <ShoppingBagOutlinedIcon />,
+  rent: <KeyOutlinedIcon />,
+  developer: <AgricultureOutlinedIcon />,
 };
 
 /** One icon per Pattadar AI point, in order: it reads YOUR records, it acts on
@@ -234,7 +244,7 @@ export function LandingPage() {
   if (!isAuthMocked && isAuthenticated) return <Navigate to="/app" replace />;
 
   return (
-    <div className="dark site">
+    <div className="site" data-scheme="dark">
       {/* ── nav · N10 scroll-morph ─────────────────────────────────── */}
       <MarketingNav
         sectionLinks={NAV_LINKS}
@@ -459,6 +469,31 @@ export function LandingPage() {
               </div>
             </div>
           </Reveal>
+        </section>
+
+        {/* ── Pattadar Network · coming-soon offerings + interest ────── */}
+        <section id="network" className="section network" aria-labelledby="network-h">
+          <div className="section__inner">
+            <header className="section-head">
+              <p className="section-eyebrow">{NETWORK.eyebrow}</p>
+              <h2 className="section-h" id="network-h">{NETWORK.h2}</h2>
+              <p className="section-lead">{NETWORK.intro}</p>
+            </header>
+            <ul className="grid grid--four">
+              {NETWORK.items.map((n) => (
+                <li key={n.title} className="card card--tba">
+                  <div className="card__meta">
+                    {ICONS[n.icon]}
+                    <span className="badge">{NETWORK.chip}</span>
+                  </div>
+                  <h3 className="card__h">{n.title}</h3>
+                  <p className="card__sub">{n.body}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="network__note">{NETWORK.note}</p>
+            <NetworkInterestForm />
+          </div>
         </section>
 
         {/* ── wallet teaser · hairline band ──────────────────────────── */}

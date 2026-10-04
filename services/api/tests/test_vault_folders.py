@@ -230,3 +230,32 @@ def test_tags_go_on_and_off_many_owned_files_and_never_on_someone_elses():
                 tagmap = await w._tags_for(conn, ME, "paper")
             assert sorted(tagmap["doc-1"]) == ["for bank", "urgent"] and "doc-2" not in tagmap
     run(go())
+def test_a_persons_folder_is_made_once_owner_scoped_and_named_apart_from_a_namesake():
+    async def go():
+        async with database() as pool:
+            async with pool.connection() as conn:
+                first = await w.ensure_person_folder(conn, ME, "mem-1", "Ravi", "aadhaar")
+                again = await w.ensure_person_folder(conn, ME, "mem-1", "Ravi", "aadhaar")
+                assert first == again
+                other = await w.ensure_person_folder(conn, ME, "mem-2", "Ravi", "aadhaar")
+                theirs = await w.ensure_person_folder(conn, THEM, "mem-1", "Ravi", "aadhaar")
+                rows = await (await conn.execute(
+                    "SELECT owner_user_id, person_id, feature_key, name, parent_id FROM vault_folders"
+                    " ORDER BY owner_user_id, person_id, feature_key")).fetchall()
+            mine = [r for r in rows if r["owner_user_id"] == ME]
+            assert [(r["person_id"], r["feature_key"], r["name"]) for r in mine] == [
+                ("mem-1", "", "Ravi"), ("mem-1", "aadhaar", "Aadhaar"),
+                ("mem-2", "", "Ravi (2)"), ("mem-2", "aadhaar", "Aadhaar")]
+            assert len({first, other, theirs}) == 3
+            assert [r["name"] for r in rows if r["owner_user_id"] == THEM] == ["Ravi", "Aadhaar"]
+            # The person's folder lists who it belongs to; an owner-made one says ''.
+            listed = {f.name: f.person_id for f in await w.WebQuery().vault_folders(ME)}
+            assert listed["Ravi"] == "mem-1" and listed["Ravi (2)"] == "mem-2"
+    run(go())
+def test_the_person_tree_ddl_runs_twice_cleanly():
+    async def go():
+        async with database() as pool:
+            async with pool.connection() as conn:
+                for stmt in FOLDER_DDL:
+                    await conn.execute(stmt)
+    run(go())

@@ -45,7 +45,7 @@ export function PricingPage() {
   }, []);
 
   return (
-    <div className="dark site pricing-page">
+    <div className="site pricing-page" data-scheme="dark">
       <div className="ambient" aria-hidden>
         <div className="bloom bloom--1" />
         <div className="bloom bloom--2" />

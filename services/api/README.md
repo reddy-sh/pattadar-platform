@@ -25,6 +25,19 @@ Startup DDL runs under a PostgreSQL advisory lock and uses additive/idempotent
 revisions may coexist during rollout; destructive schema/data changes require a
 separately reviewed migration plan.
 
+`scripts/clear_aadhaar.py` clears every stored Aadhaar record, vault row and
+mask (and, with verification, linked card files). It is a counts-only dry run
+unless `--execute`; `--environment {local,dev,prod}` is required, and dev/prod
+need Reddy's separate approval per `docs/runbooks/aadhaar-kms-rollout.md`.
+
+`scripts/backfill_aadhaar_documents.py` files Aadhaar cards that were kept
+before the per-person tree in Documents › *person* › Aadhaar. It only adds
+pointer rows, never touches storage, and prints counts only. It is a dry run
+unless `--execute`, which always needs `--approval-ref`. `--environment` is
+required, and dev/prod also need `--allow-remote` and `--writers-drained`.
+**This needs Reddy's approval under `safe-data-migration` before any
+`--execute`.** Agents never run it against real data.
+
 ### 3. AI readings
 
 The active web uses durable import/read jobs with authenticated polling.
@@ -39,11 +52,26 @@ no retry for those non-idempotent calls.
 It is guarded by `x-cron-secret`; `CRON_SECRET` must always be set except in
 explicit insecure local development.
 
-### 5. Public verification
+### 5. Public operations
 
 Beneficiary/member invite links use `{APP_PUBLIC_URL}/verify/{token}` and work
 without login through the gateway's narrowly parsed public operation. Other API
 operations require validated gateway identity.
+
+The anonymous roots are `verifyBeneficiary`, `acknowledgeInactivity` (each
+consumes a hashed, single-use token), `invitePreview`, `trainingCertificate`,
+and one credential-less mutation, `registerNetworkInterest` (`src/network.py`,
+the landing page's Pattadar Network form). It ignores identity, returns only a
+status, and is bounded in SQL: honeypot first, insert-once per contact and
+interest (no anonymous overwrite, no revival of a withdrawn row), a 60-second
+cool-down, and a global hourly ceiling checked before the existing-row lookup.
+`NETWORK_INTEREST_HOURLY_CAP` sets the ceiling (default 200); it is read once
+at import, and an invalid or non-positive value fails closed to 0. Rows live in
+`network_interest` (boot DDL), carry no account link, and are never logged by
+value — including GraphQL parse, validation and coercion errors on this root,
+which `PattadarSchema.process_errors` and `MaskUnexpectedErrors` log as error
+class and path only. Implemented in code; consent wording is a draft pending Reddy's
+approval (`docs/specs/TODO-pattadar-network.md`).
 
 ### 6. Notifications
 

@@ -126,7 +126,7 @@ struct LandWidgetView: View {
                     Image(systemName: s.verdict == .ready ? "checkmark.seal.fill" : "exclamationmark.circle.fill")
                         .foregroundStyle(Palette.tint(for: s.verdict))
                     Text(s.worst.isEmpty
-                         ? "Every holding would stand up to scrutiny today."
+                         ? "Every property would stand up to scrutiny today."
                          : s.worst)
                         .font(.bodyCopy)
                         .foregroundStyle(Palette.ink)

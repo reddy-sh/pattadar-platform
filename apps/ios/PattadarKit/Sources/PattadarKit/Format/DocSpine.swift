@@ -424,7 +424,7 @@ public func maskSensitiveText(_ text: String) -> String {
     return out
 }
 
-/// "4821 9930 8412" → "×××× ×××× 8412". The last four stay — enough to tell
+/// "1234 1234 1234" → "×××× ×××× 1234". The last four stay — enough to tell
 /// two cards apart, not enough to use.
 public func maskedIdentity(_ value: String) -> String {
     let chars = Array(value)

@@ -61,6 +61,43 @@ them here, so the next sweep does not re-open a closed question.
   64 m side, orders of magnitude below what either head prints. Revisit only if
   a native screen begins computing side lengths for a user-traced ring.
 
+- **Aadhaar vault (`api/operations.ts` → `LINK_AADHAAR_CARD_MUTATION`)** — the
+  web and core now keep the full number only as vault ciphertext, show the last
+  4 digits, retire the server reveals and link an opt-in kept card with
+  `linkAadhaarCard`. No iOS behaviour changed: only a doc comment in
+  `DocSpine.swift` (its example digits) and the `DocSpineTests.swift` fixture
+  became synthetic. Reddy approved one more iOS source edit as a deviation
+  from the design's "no iOS source change": an inert
+  `Queries.linkAadhaarCard` twin of `LINK_AADHAAR_CARD_MUTATION`, with no
+  caller, so the `operations.ts` twin check passes. Recorded here, each open
+  for Reddy:
+  - *Deviation:* iOS reads Aadhaar through the synchronous
+    `POST /extract-aadhaar` route, not a durable async job with authenticated
+    status polls. The server makes its failure shape safe (the "Nothing was
+    saved." 503) but not durable. Moving iOS to `extract-aadhaar-async` plus
+    `import-status` is a `sync-ios` follow-up and a decision for Reddy.
+  - *Known divergence:* iOS has an on-device tap-to-reveal of the full number
+    read from the user's own scan (`PattadarKit/Format/DocSpine.swift`
+    `firstIdentityNumber`, used by `AllDetailsScreen.swift:108`; the
+    `DocumentViewer.swift` reveal toggle, ~336–384). It conflicts with "show
+    only the last 4 digits", though the full number never comes from the
+    server. Retire it (removing the reveal, `firstIdentityNumber` and its
+    `DocSpineTests`) or accept it as on-device only: a decision for Reddy.
+  - *Follow-ups (`sync-ios`):* an iOS card opt-in with the safe
+    `Aadhaar card.<ext>` name that calls the existing
+    `Queries.linkAadhaarCard`; a `link_aadhaar_card` "Kept an Aadhaar card"
+    label in `Display.swift`'s audit map.
+  - *Follow-up (`mobile-feature-delivery`):* an Expo card opt-in with
+    `linkAadhaarCard`. Expo's reveal/copy UI is already removed.
+  - *Web-only, 03/10/2026 (iOS follow-up via `sync-ios`):* web now files a
+    kept card in Documents under *person › Aadhaar* (family spec FM-009/010).
+    The server does the filing, so an iOS caller of `Queries.linkAadhaarCard`
+    gets it too. `linkAadhaarCard` takes optional `mimeType`/`sizeBytes`, but
+    core's `LINK_AADHAAR_CARD_MUTATION` and its Swift twin are unchanged; web
+    sends both from a web-local string. Still for iOS: show
+    `VaultFolder.personId` and `Paper.aadhaarCard` (both `Query.web`, so NOTE
+    only), and the Trash-on-remove step.
+
 ## Three bands of change
 
 Not every web change has an iOS consequence, and pretending otherwise is how an
@@ -113,10 +150,28 @@ set naming a field the schema does not have fails the WHOLE query, not just that
 field."* Add fields against the schema, not against the database.
 
 **3. Mirror the capability, natively.** A new user-facing ability on a web screen
-that has an iOS twin gets built the platform way. Web's `mapsLink()` returns a
-`https://maps.apple.com/…` URL because a browser has nothing better; iOS opens
-`MKMapItem`. Same capability, different mechanism. Porting the URL builder to
-Swift would be the wrong answer.
+that has an iOS twin gets built the platform way. Web's `navigateLink()` returns a
+Google Maps directions URL (`https://www.google.com/maps/dir/?api=1&destination=…`)
+because a browser has nothing better; iOS would open a map item or the Google Maps
+app natively. Same capability, different mechanism, not vectored — porting the URL
+builder to Swift would be the wrong answer. Since Reddy's decision of 03/10/2026
+every web hand-off (corners, sides, the W04 whole-parcel item, the FMB viewer) is
+Google Maps directions with coordinates only; the device-sniffed `mapsLink()` is
+gone.
+
+Open follow-ups, not yet built on the phones (owners: `sync-ios` for iOS,
+`mobile-feature-delivery` for Expo). Reddy's rule that no record text rides in a
+hand-off URL applies to each of them when built:
+
+- iOS `apps/ios/Pattadar/Sources/FMBMapSection.swift` `openInMaps`
+  (`maps://…&q=Corner N`) and `PattadarKit/Format/HoldingShare.swift` share text
+  (`maps.apple.com…&q=`) still go to Apple Maps.
+- Expo `apps/mobile/src/app/property/[id].tsx` ("View full map", "Open in Maps",
+  share text — all `maps.apple.com` with the title in `q=`) and
+  `apps/mobile/src/app/(tabs)/passbooks.tsx` (address search on `maps.apple.com`)
+  do the same.
+- Neither phone (iOS `SetLocationScreen.swift`, Expo) finds the survey under the
+  device's position on the village map, as web W04 now does.
 
 **4. Mirror the vocabulary.** Shared nouns and thresholds must agree. The doc
 family labels in `records/docFamilies.ts` say it outright: *"The Swift twin is

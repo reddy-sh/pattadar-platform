@@ -48,7 +48,7 @@ hangers.
 
 | Route | Screen |
 | --- | --- |
-| `/app` | W01 · dashboard — portfolio, what's waiting, where the value sits |
+| `/app` | W01 · Home — greeting and shortcuts; For you (orders, reminders and Missing details in one card); Overview; Value by village, once something is valued; Recently opened; Recent activity |
 | `/app/properties` | W02 · faceted list; the filter lives in the URL |
 | `/app/map` | W06 · find by map |
 | `/app/records/:id` | W03 · the 360, Papers hanger |

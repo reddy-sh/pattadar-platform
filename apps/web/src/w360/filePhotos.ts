@@ -130,7 +130,7 @@ export function useFilePhotos(recordId: string | undefined) {
           /** One message for the batch, never N — the gateway is either there for
            *  all of these files or for none of them. And it is this composed
            *  sentence rather than the thrown one: a StorageUploadError often
-           *  carries the gateway's own words, which belong in a toast's mono
+           *  carries the gateway's own words, which belong in a toast's small
            *  detail line and not in the sentence a person is asked to act on. */
           setErr(STORAGE_OFFLINE_MSG);
           break;

@@ -19,6 +19,7 @@ import { useVaultPapers, useVault } from '../api';
 import { Crumbs, Empty, Failed, Icon, PageHead, Tag, plural } from '../ui';
 import { SkRowItems } from '../skeletons';
 import { PaperPreview } from '../paper/PaperPreview';
+import { displayDetail } from '../paperFiling';
 
 /** The eight shelves, as `vault` in web360.py spells them. Kept here so an
  *  unknown key in the URL is refused by name rather than fetched. */
@@ -133,7 +134,7 @@ export function Shelf() {
                 </span>
                 <span className="grow">
                   <span style={{ display: 'block', fontWeight: 700, fontSize: '0.875rem' }}>{p.title}</span>
-                  {p.detail && <span className="note" style={{ display: 'block' }}>{p.detail}</span>}
+                  {p.detail && <span className="note" style={{ display: 'block' }}>{displayDetail(p.detail)}</span>}
                 </span>
                 <span className="row tight" style={{ flexWrap: 'nowrap' }}>
                   {p.tags.map((t) => <Tag key={t}>{t}</Tag>)}

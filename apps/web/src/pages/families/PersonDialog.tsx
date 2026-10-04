@@ -1,8 +1,8 @@
 /**
  * PersonDialog — add/edit a group member. Functional port of the rhub
  * pattadar PersonModal: side-by-side "Scan Aadhaar / ID (AI)" import panel
- * (POST /api/gateway/pattadar/extract-aadhaar, with a best-effort My Drive
- * mirror) next to the manual form. DOB → minor → guardian requirement,
+ * (POST /api/gateway/pattadar/extract-aadhaar; an opted-in card is stored
+ * and filed in Documents › <person> › Aadhaar on save) next to the manual form. DOB → minor → guardian requirement,
  * marital → spouse block, present address + "same as my address", photo/ID
  * capture, Legal-Heir type, beneficiary needs a reachable contact.
  */
@@ -27,7 +27,10 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
-import { apiFetch } from '../../api/client';
+import { formatAadhaarMask } from '@pattadar/core';
+import { apiErrorMessage, apiFetch, gql } from '../../api/client';
+import { trashDocuments } from '../../data/pattadarActions';
+import { ddmmyyyy } from '../../w360/ui';
 import {
   RELATIONS,
   cropSquareDataUrl,
@@ -73,6 +76,49 @@ const EMPTY: FormValues = {
   fatherId: '', motherId: '', spouseId: '',
 };
 
+/** What the scan read off the card, shown back read-only. The number is only
+ *  ever the server's mask; the full digits never reach this form. */
+interface CardReading {
+  name: string;
+  dob: string;
+  gender: string;
+  masked: string;
+}
+
+/** Extensions for the kept card, by MIME type. The gateway decides HEIC and
+ *  image handling by the file NAME, so the extension has to be right. */
+const CARD_EXTENSIONS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+  'image/webp': 'webp',
+};
+
+/** Links a kept card to its reading, with what the file is so Documents can
+ *  preview it. Web-local on purpose: `@pattadar/core`'s
+ *  LINK_AADHAAR_CARD_MUTATION (and its Swift twin) stay as they are, and the
+ *  two extra arguments are optional on the server. */
+const LINK_AADHAAR_CARD_WITH_FILE = `mutation($candidateId:String!,$nodeId:String!,$versionId:String!,$mimeType:String!,$sizeBytes:Int!){ linkAadhaarCard(candidateId:$candidateId,nodeId:$nodeId,versionId:$versionId,mimeType:$mimeType,sizeBytes:$sizeBytes) }`;
+
+/** The safe name a kept Aadhaar card is filed under in Documents. The
+ *  original filename is never used: it often carries the holder's name or
+ *  number. */
+export function cardName(mime: string): string {
+  return `Aadhaar card.${CARD_EXTENSIONS[String(mime || '').trim().toLowerCase()] || 'bin'}`;
+}
+
+/** A mask as the owner reads it ("XXXX XXXX 1234"), digits in fixed columns. */
+function MaskedAadhaar({ masked }: { masked: string }) {
+  return (
+    <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+      {formatAadhaarMask(masked)}
+    </Box>
+  );
+}
+
 export function PersonDialog({
   open,
   editing,
@@ -102,6 +148,7 @@ export function PersonDialog({
   const [aadhaarCandidateId, setAadhaarCandidateId] = useState('');
   const [aadhaarMasked, setAadhaarMasked] = useState('');
   const [retainAadhaarCard, setRetainAadhaarCard] = useState(false);
+  const [cardReading, setCardReading] = useState<CardReading | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -133,6 +180,7 @@ export function PersonDialog({
     setAadhaarCandidateId('');
     setAadhaarMasked('');
     setRetainAadhaarCard(false);
+    setCardReading(null);
     if (editing) {
       const { cc, national } = splitPhone(editing.phone);
       setPhoneCc(cc);
@@ -174,7 +222,8 @@ export function PersonDialog({
     }
   }, [open, editing, hasTree, groupType]);
 
-  // Aadhaar scan → masked KMS candidate → optional SSE-KMS Drive copy.
+  // Aadhaar scan → masked reading → optional SSE-KMS Drive copy, filed as
+  // "Aadhaar card.<ext>" and linked to the reading with linkAadhaarCard.
   const handleAadhaar = useCallback(
     async (file: File) => {
       setAadhaarUploading(true);
@@ -186,7 +235,7 @@ export function PersonDialog({
           body: fd,
         });
         if (!res.ok) {
-          notify('Could not read the Aadhaar', 'error');
+          notify(await apiErrorMessage(res, 'Could not read the Aadhaar'), 'error');
           return;
         }
         const f = ((await res.json()) as { fields?: Record<string, string> }).fields || {};
@@ -201,21 +250,50 @@ export function PersonDialog({
         const maskMatch = String(f.aadhaarMasked || '').trim()
           .match(/^X{4}[-\s]X{4}[-\s]([0-9]{4})$/i);
         const masked = maskMatch ? `XXXX-XXXX-${maskMatch[1]}` : '';
-        setAadhaarCandidateId(masked ? (f.aadhaarCandidateId || '') : '');
+        const candidateId = masked ? (f.aadhaarCandidateId || '') : '';
+        setAadhaarCandidateId(candidateId);
         setAadhaarMasked(masked);
+        setCardReading({ name: f.name || '', dob: f.dob || '', gender: f.gender || '', masked });
 
+        // The card is kept only when the owner ticked the box AND the read
+        // produced a record to link it to; a card with no reading behind it
+        // would be a copy of the number nothing points at.
         let cardSaved = false;
-        if (retainAadhaarCard) {
+        let cardWarning = '';
+        if (retainAadhaarCard && !candidateId) {
+          cardWarning = 'No Aadhaar number was read, so the card was not kept';
+        } else if (retainAadhaarCard) {
           const drive = new FormData();
-          drive.append('file', file);
+          drive.append('file', new File([file], cardName(file.type), { type: file.type }));
           const saved = await apiFetch('/api/gateway/storage/files?appId=pattadar&onConflict=duplicate', {
             method: 'POST', body: drive,
           });
-          cardSaved = saved.ok;
-          if (!saved.ok) notify('The details were read, but the card was not saved to My Drive', 'warning');
+          if (!saved.ok) {
+            cardWarning = 'The details were read, but the card was not kept in Documents';
+          } else {
+            let nodeId = '';
+            try {
+              const node = (await saved.json()) as { id?: string; currentVersionId?: string };
+              nodeId = node.id || '';
+              if (!node.id || !node.currentVersionId) throw new Error('The upload did not name the file');
+              await gql(LINK_AADHAAR_CARD_WITH_FILE, {
+                candidateId, nodeId: node.id, versionId: node.currentVersionId,
+                // GraphQL Int is 32-bit; a card is far smaller, but never overflow.
+                mimeType: file.type || '', sizeBytes: Math.min(file.size || 0, 2_147_483_647),
+              });
+              cardSaved = true;
+            } catch {
+              // A stored card nothing points at would be a copy of the number
+              // nobody can find: it goes to Trash, recoverable, not kept.
+              if (nodeId) await trashDocuments([{ id: '', fileRef: nodeId }], { keepRows: true });
+              cardWarning = 'The details were read, but the card could not be filed in Documents, so it was not kept';
+            }
+          }
         }
-        notify(cardSaved
-          ? 'Aadhaar read securely — masked details filled and card saved to My Drive'
+        const who = (f.name || '').trim() || 'this person';
+        if (cardWarning) notify(cardWarning, 'warning');
+        else notify(cardSaved
+          ? `Aadhaar read securely — masked details filled; the card goes to Documents › ${who} › Aadhaar when you save`
           : 'Aadhaar read securely — masked details filled; the card was not retained');
       } catch {
         notify('Aadhaar extraction failed', 'error');
@@ -335,7 +413,20 @@ export function PersonDialog({
               Upload the Aadhaar (PDF or image). Name, DOB, gender and address can fill the
               form; the number returns masked and the original is retained only if you choose it.
             </Typography>
-            <Box sx={{ my: 1.5 }}>
+            {/* Chosen BEFORE the scan: the choice is read when the file is
+                picked, so a box ticked afterwards kept nothing. */}
+            <FormControlLabel
+              sx={{ mt: 1 }}
+              control={(
+                <Checkbox
+                  checked={retainAadhaarCard}
+                  onChange={(e) => setRetainAadhaarCard(e.target.checked)}
+                  disabled={aadhaarUploading}
+                />
+              )}
+              label="Also keep the original card, encrypted, in Documents › this person › Aadhaar"
+            />
+            <Box sx={{ mt: 0.5, mb: 1.5 }}>
               <Button
                 component="label"
                 variant="outlined"
@@ -356,19 +447,35 @@ export function PersonDialog({
                 />
               </Button>
             </Box>
-            <FormControlLabel
-              control={(
-                <Checkbox
-                  checked={retainAadhaarCard}
-                  onChange={(e) => setRetainAadhaarCard(e.target.checked)}
-                />
-              )}
-              label="Also keep the original card in my encrypted Drive"
-            />
             {aadhaarMasked && (
               <Alert severity="success" sx={{ mb: 1 }}>
-                Read securely as {aadhaarMasked}. Full digits were not returned to this form.
+                Read securely as <MaskedAadhaar masked={aadhaarMasked} />. Full digits were not returned to this form.
               </Alert>
+            )}
+            {cardReading && (
+              <Box
+                role="group"
+                aria-label="Read from the card"
+                sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.5, mb: 1 }}
+              >
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  Read from the card
+                </Typography>
+                {([
+                  ['Name', cardReading.name],
+                  ['Date of birth', ddmmyyyy(cardReading.dob)],
+                  ['Gender', cardReading.gender],
+                ] as const).map(([label, value]) => (
+                  <Typography key={label} variant="body2">
+                    <Box component="span" sx={{ color: 'text.secondary' }}>{label}: </Box>
+                    <Box component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>{value || '—'}</Box>
+                  </Typography>
+                ))}
+                <Typography variant="body2">
+                  <Box component="span" sx={{ color: 'text.secondary' }}>Aadhaar: </Box>
+                  {cardReading.masked ? <MaskedAadhaar masked={cardReading.masked} /> : '—'}
+                </Typography>
+              </Box>
             )}
             {photo ? (
               <Box sx={{ textAlign: 'center' }}>
@@ -635,7 +742,7 @@ export function PersonDialog({
                   }}
                   error={!!errors.aadhaar}
                   helperText={errors.aadhaar || (aadhaarMasked
-                    ? `Secure scan ready: ${aadhaarMasked}`
+                    ? <>Secure scan ready: <MaskedAadhaar masked={aadhaarMasked} /></>
                     : 'Stored encrypted; lists show only the last 4 digits')}
                   slotProps={{ htmlInput: { maxLength: 14, inputMode: 'numeric' } }}
                 />

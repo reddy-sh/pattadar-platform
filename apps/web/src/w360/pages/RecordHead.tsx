@@ -24,11 +24,12 @@ import {
   useProperties,
 } from '../api';
 import type { RecordDetail } from '../api';
-import { Crumbs, Icon, InfoTip, Menu, Pill, num, statusWord } from '../ui';
+import { Crumbs, HOLDING_WORD, Icon, InfoTip, Menu, Pill, num, statusWord } from '../ui';
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { RecordDrawer } from './PropertyActions';
 import { SecureShareGuidance } from '../GovernanceGuidance';
+import { displayDetail } from '../paperFiling';
 
 /** The nine hangers, in the order the strip draws them.
  *
@@ -162,8 +163,8 @@ export function RecordCrumbs({ rec, here, hereTo, leaf }: {
       trail={[
         ...(rec.combinedId
           ? [
-            { label: 'Combined views', to: '/app/combined' },
-            { label: rec.combinedName || 'Combined view', to: `/app/combined/${rec.combinedId}` },
+            { label: HOLDING_WORD.many, to: '/app/holdings' },
+            { label: rec.combinedName || HOLDING_WORD.one, to: `/app/holdings/${rec.combinedId}` },
           ]
           : [{ label: 'Properties', to: '/app/properties' }]),
         { label: rec.title, to: here ? `/app/records/${rec.id}` : undefined },
@@ -432,7 +433,7 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
                 <input type="checkbox" checked={shareDocs.includes(paper.id)}
                        onChange={() => setShareDocs((current) => current.includes(paper.id)
                          ? current.filter((id) => id !== paper.id) : [...current, paper.id])} />
-                <span><strong>{paper.title}</strong><small>{paper.detail || paper.shelf}</small></span>
+                <span><strong>{paper.title}</strong><small>{displayDetail(paper.detail) || paper.shelf}</small></span>
               </label>
             ))}
             {papers.data?.length === 0 && <p className="note">There are no documents on this property to share.</p>}

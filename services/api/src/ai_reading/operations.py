@@ -177,6 +177,10 @@ async def classify_parcel_photo(file: UploadFile = File(...), request: Request =
 
 async def extract_aadhaar(file: UploadFile = File(...), request: Request = None):
     await require_read_consent(request)
+    # Refuse before the provider is charged: without a write path the reading
+    # could never be kept, and the owner would pay for it each time they retried.
+    if not aadhaar.write_path_available():
+        return JSONResponse(status_code=503, content={"error": aadhaar.UNAVAILABLE_MESSAGE})
     data = await file.read()
     safe_name = "aadhaar.pdf" if (file.content_type or "").casefold() == "application/pdf" else "aadhaar-image"
     out = await vision_extract(data, file.content_type or "", safe_name,
@@ -192,7 +196,13 @@ async def extract_aadhaar(file: UploadFile = File(...), request: Request = None)
     owner = (request.headers.get("x-user-id") or "").strip()
     if not owner:
         return JSONResponse(status_code=401, content={"error": "Sign in to read an Aadhaar"})
-    return await aadhaar.secure_extraction_result(owner, out)
+    # The read is already paid for: a protection or store failure answers with
+    # the same fixed sentence as the durable worker, never a 500, and is never
+    # retried here.
+    try:
+        return await aadhaar.secure_extraction_result(owner, out)
+    except aadhaar.ProtectionUnavailable as exc:
+        return JSONResponse(status_code=503, content={"error": str(exc) + ". Nothing was saved."})
 
 
 async def import_registered_document(file: UploadFile = File(...), request: Request = None):

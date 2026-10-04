@@ -196,11 +196,11 @@ struct DocSpineTests {
         // spine, so every downstream row, tile and title inherits the safe
         // form without knowing the rule.
         let viaSpine: [String: Any] = [
-            "spine": ["identity": ["label": "4821 9930 8412"]],
+            "spine": ["identity": ["label": "1234 1234 1234"]],
         ]
-        #expect(docSpine(docType: "Aadhaar", reading: viaSpine).identityLabel == "×××× ×××× 8412")
-        let viaColumn = docSpine(docType: "Aadhaar", documentNo: "482199308412")
-        #expect(!viaColumn.identityLabel.contains("482199308412"))
+        #expect(docSpine(docType: "Aadhaar", reading: viaSpine).identityLabel == "×××× ×××× 1234")
+        let viaColumn = docSpine(docType: "Aadhaar", documentNo: "123412341234")
+        #expect(!viaColumn.identityLabel.contains("123412341234"))
     }
 
     @Test func numericSubdivisionsSurviveTheReaderSpine() throws {
@@ -218,51 +218,54 @@ struct DocSpineTests {
         // the DOB in dob — and the spine's quantum slot carries the DOB, the
         // way the founder's own spine table writes an Aadhaar.
         let reading: [String: Any] = [
-            "owner_name": "Sankara Reddy Telukutla",
-            "dob": "1981-04-02",
+            "owner_name": "Test Person",
+            "dob": "1990-01-01",
         ]
-        let s = docSpine(docType: "Aadhaar", documentNo: "XXXX XXXX 8203", reading: reading)
+        let s = docSpine(docType: "Aadhaar", documentNo: "XXXX XXXX 1234", reading: reading)
         #expect(s.family == "identity")
-        #expect(s.partiesLine == "Sankara Reddy Telukutla")
-        #expect(s.primaryPerson == "Sankara Reddy Telukutla")
-        #expect(s.quantumLine == "DOB 2 April 1981")
+        #expect(s.partiesLine == "Test Person")
+        #expect(s.primaryPerson == "Test Person")
+        #expect(s.quantumLine == "DOB 1 January 1990")
     }
 
     @Test func theNumberReadsBackOffTheLocalCard() {
-        // The founder's own e-Aadhaar text layer, as PDFKit extracts it.
-        let cardText = "మీ ఆధార్ సంఖ్య / Your Aadhaar No. :\n5499 8605 8203\nనా ఆధార్, నా గుర్తింపు"
-        #expect(firstIdentityNumber(in: cardText) == "5499 8605 8203")
+        // A synthetic e-Aadhaar text layer, as PDFKit extracts it.
+        let cardText = "మీ ఆధార్ సంఖ్య / Your Aadhaar No. :\n5678 5678 5678\nనా ఆధార్, నా గుర్తింపు"
+        #expect(firstIdentityNumber(in: cardText) == "5678 5678 5678")
         #expect(firstIdentityNumber(in: "PAN: ABCDE1234F") == "ABCDE1234F")
-        #expect(firstIdentityNumber(in: "549986058203") == "5499 8605 8203")
+        #expect(firstIdentityNumber(in: "567856785678") == "5678 5678 5678")
         // Enrolment numbers, phones, PINs and dates never read as the number.
-        #expect(firstIdentityNumber(in: "Enrolment No.: 2052/31604/73664 · 9866424000 · 523246 · 02/04/1981") == nil)
+        #expect(firstIdentityNumber(in: "Enrolment No.: 1111/22222/33333 · 9000000000 · 500001 · 01/01/1990") == nil)
     }
 
     @Test func proseNeverCarriesAnOpenIdentityNumber() {
-        // The founder's own Aadhaar upload: the reader wrote the number into
+        // A synthetic Aadhaar upload: the reader wrote the number into
         // a key point. Whatever the reader emits, the screen masks.
-        #expect(maskSensitiveText("Aadhaar number: 5499 8605 8203")
-                == "Aadhaar number: ×××× ×××× 8203")
+        #expect(maskSensitiveText("Aadhaar number: 5678 5678 5678")
+                == "Aadhaar number: ×××× ×××× 5678")
         #expect(maskSensitiveText("PAN ABCDE1234F is linked") == "PAN ××××××234F is linked")
-        #expect(maskSensitiveText("number 549986058203 on file")
-                == "number ××××××××8203 on file")
+        #expect(maskSensitiveText("number 567856785678 on file")
+                == "number ××××××××5678 on file")
         // A caveat built from that prose is masked at the spine too.
-        let reading: [String: Any] = ["caveats": ["Aadhaar 5499 8605 8203 read from page 1."]]
+        let reading: [String: Any] = ["caveats": ["Aadhaar 5678 5678 5678 read from page 1."]]
         let s = docSpine(docType: "Aadhaar", reading: reading)
-        #expect(s.review.first?.text.contains("5499") == false)
+        // The synthetic number repeats its last 4, so check that no two
+        // groups sit open together rather than that the first group is gone.
+        #expect(s.review.first?.text.contains("5678 5678") == false)
+        #expect(s.review.first?.text.contains("×××× ×××× 5678") == true)
         // Land-record prose is untouched: doc numbers, khatas, years, extents.
         let deed = "Sale Deed 6337/2024 for 25.00 acres under Khata 397"
         #expect(maskSensitiveText(deed) == deed)
     }
 
     @Test func identityNumbersNeverSitOpen() {
-        #expect(isSensitiveIdentityValue("4821 9930 8412"))
-        #expect(isSensitiveIdentityValue("482199308412"))
+        #expect(isSensitiveIdentityValue("1234 1234 1234"))
+        #expect(isSensitiveIdentityValue("123412341234"))
         #expect(isSensitiveIdentityValue("ABCDE1234F"))
         // A document number, a year, a khata — not identity numbers.
         #expect(!isSensitiveIdentityValue("6337 / 2024"))
         #expect(!isSensitiveIdentityValue("Khata 397"))
-        #expect(maskedIdentity("4821 9930 8412") == "×××× ×××× 8412")
+        #expect(maskedIdentity("1234 1234 1234") == "×××× ×××× 1234")
         #expect(maskedIdentity("ABCDE1234F") == "××××××234F")
     }
 

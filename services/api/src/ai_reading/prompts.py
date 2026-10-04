@@ -56,8 +56,9 @@ PASSBOOK_SYSTEM = (
 
 # ── AI Aadhaar (KYC) classifier ───────────────────────────────────────
 # Reads an Aadhaar card image/PDF to prepare KYC fields. Full digits may exist
-# only inside the provider adapter and are immediately converted into a
-# KMS-encrypted, owner-scoped candidate; API/job results expose only a mask.
+# only inside the provider adapter and are immediately stored as an
+# owner-scoped Aadhaar record whose full number lives only in the encrypted
+# vault; API/job results expose only a mask.
 AADHAAR_SYSTEM = (
     "You are a KYC data-extraction assistant. You are given an image or PDF of an Indian "
     "Aadhaar card (front and/or back), often bilingual (English + a regional script). "

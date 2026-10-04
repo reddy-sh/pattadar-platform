@@ -38,7 +38,7 @@ import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import MapIcon from '@mui/icons-material/Map';
-import { mapsAppFor, mapsAppName, mapsLink, ringCentroid } from '@pattadar/core';
+import { navigateLink, ringCentroid } from '@pattadar/core';
 
 import { escapeHtml } from './escapeHtml';
 import { GeoMap } from './GeoMapLazy';
@@ -172,14 +172,14 @@ export function FmbMapViewer({
     [ringLonLat],
   );
 
-  // No maps app takes a boundary, so the hand-off is the centre of the land.
+  // No maps app takes a boundary, so the hand-off is Google Maps directions to
+  // the centre of the land, coordinates only.
   const away = useMemo(() => {
     if (!located) return null;
     const centre = ringCentroid(ringLonLat.map(([lon, lat]) => ({ latitude: lat, longitude: lon })));
     if (!centre) return null;
-    const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-    return { href: mapsLink(centre, { label: village || 'FMB parcel', userAgent: ua }), app: mapsAppFor(ua) };
-  }, [located, ringLonLat, village]);
+    return navigateLink(centre) || null;
+  }, [located, ringLonLat]);
 
   // Fit, not zoom: one scale factor, north up, equal on both axes (§4).
   const layout = useMemo(() => {
@@ -314,9 +314,9 @@ export function FmbMapViewer({
           </ToggleButtonGroup>
         )}
         {away && (
-          <Button size="small" startIcon={<MapIcon />} href={away.href}
+          <Button size="small" startIcon={<MapIcon />} href={away}
                   target="_blank" rel="noreferrer">
-            {mapsAppName(away.app)}
+            Navigate in Google Maps
           </Button>
         )}
         <ToggleButtonGroup
