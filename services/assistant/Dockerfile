@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.14-slim
 WORKDIR /app
 COPY requirements.txt requirements-semantic.txt ./
 ARG INSTALL_SEMANTIC=0
